@@ -766,6 +766,10 @@ function Lesson({ packs, progressWithDerived, updateTopic, navigate }) {
   const lesson = topic?.lesson
   const topicProgress = progressWithDerived[topicId]
   const [openTerm, setOpenTerm] = useState(null)
+  const [readingProgress, setReadingProgress] = useState(0)
+  const [copiedCode, setCopiedCode] = useState(null)
+  const [completedSections, setCompletedSections] = useState(new Set())
+  const containerRef = useRef(null)
 
   useEffect(() => {
     if (!topic || !lesson) return
@@ -774,10 +778,45 @@ function Lesson({ packs, progressWithDerived, updateTopic, navigate }) {
     }
   }, [topicId, lesson])
 
+  useEffect(() => {
+    const handleScroll = () => {
+      if (containerRef.current) {
+        const scrollTop = window.scrollY
+        const docHeight = document.documentElement.scrollHeight - window.innerHeight
+        const scrolled = docHeight > 0 ? (scrollTop / docHeight) * 100 : 0
+        setReadingProgress(Math.min(scrolled, 100))
+      }
+    }
+    window.addEventListener('scroll', handleScroll)
+    return () => window.removeEventListener('scroll', handleScroll)
+  }, [])
+
+  const handleCopyCode = (code) => {
+    navigator.clipboard.writeText(code)
+    setCopiedCode(code)
+    setTimeout(() => setCopiedCode(null), 1500)
+  }
+
+  const handleCompleteSection = (index) => {
+    setCompletedSections((prev) => new Set(prev).add(index))
+  }
+
+  const scrollToSection = (index) => {
+    const element = document.querySelector(`[data-section="${index}"]`)
+    if (element) {
+      element.scrollIntoView({ behavior: 'smooth' })
+      element.focus()
+    }
+  }
+
   if (!topic) return <Navigate to="/" replace />
 
+  const totalSections = lesson?.sections?.length || 1
+
   return (
-    <main className="page container">
+    <main className="page container" ref={containerRef}>
+      <div style={{ position: 'fixed', top: 0, left: 0, width: `${readingProgress}%`, height: 3, background: 'var(--accent)', zIndex: 101, transition: 'width 0.1s ease' }} />
+      
       <div className="sticky-step">
         <div className="panel">
           <div className="card-heading">
@@ -785,34 +824,69 @@ function Lesson({ packs, progressWithDerived, updateTopic, navigate }) {
               <h1>{topic.name}</h1>
               <p className="muted">~{lesson.estimatedMinutes} min read</p>
             </div>
-            <span className="badge mastered">Section {Math.min((topicProgress?.lessonRead ? 1 : 0) + 1, lesson.sections.length)} of {lesson.sections.length}</span>
+            <span className="badge mastered">Section {Math.min(completedSections.size + 1, totalSections)} of {totalSections}</span>
           </div>
-          <div className="progress"><div className="progress-bar" style={{ width: `${topicProgress?.lessonRead ? 100 : 20}%` }} /></div>
+          <div className="progress"><div className="progress-bar" style={{ width: `${(completedSections.size / totalSections) * 100}%` }} /></div>
         </div>
       </div>
+      
       <div className="grid" style={{ gap: 16 }}>
-        {lesson.sections.map((section) => (
-          <section key={section.title} className="panel">
+        {lesson.sections.map((section, index) => (
+          <section key={section.title} className="panel" data-section={index}>
             <h2>{section.title}</h2>
             <p className="muted">{section.body}</p>
-            <pre className="code-block"><code className="language-python">{section.code}</code></pre>
-            <p className="small subtle">Tip: {section.tip}</p>
+            
+            <div className="code-block-wrapper">
+              <button 
+                className="code-copy-button" 
+                onClick={() => handleCopyCode(section.code)}
+              >
+                {copiedCode === section.code ? '✓ Copied!' : 'Copy'}
+              </button>
+              <pre className="code-block"><code className="language-python">{section.code}</code></pre>
+            </div>
+            
+            <p className="small subtle">💡 Tip: {section.tip}</p>
+            
+            {!completedSections.has(index) && (
+              <div className="section-check">
+                <strong>Quick check: Did you understand this section?</strong>
+                <div className="topic-actions" style={{ marginTop: 10 }}>
+                  <button className="button primary" onClick={() => handleCompleteSection(index)}>
+                    ✓ Yes, continue
+                  </button>
+                  <button className="button" onClick={() => scrollToSection(index)}>
+                    ← Review again
+                  </button>
+                </div>
+              </div>
+            )}
           </section>
         ))}
+        
         <section className="panel">
           <h2>Key terms</h2>
           <div className="grid" style={{ gap: 10 }}>
-            {lesson.keyTerms.map((term) => (
-              <button key={term.term} className="button ghost" onClick={() => setOpenTerm(openTerm === term.term ? null : term.term)}>
-                <div className="session-row">
-                  <strong>{term.term}</strong>
-                  <span>{openTerm === term.term ? '−' : '+'}</span>
+            {lesson.keyTerms.map((term, idx) => (
+              <div key={term.term} className={`term-accordion ${openTerm === term.term ? 'open' : ''}`}>
+                <button 
+                  className="button ghost" 
+                  onClick={() => setOpenTerm(openTerm === term.term ? null : term.term)}
+                  style={{ width: '100%' }}
+                >
+                  <div className="session-row">
+                    <strong>{term.term}</strong>
+                    <span>{openTerm === term.term ? '−' : '+'}</span>
+                  </div>
+                </button>
+                <div className="term-accordion-content">
+                  <div className="small muted" style={{ paddingLeft: 12, paddingTop: 8 }}>{term.definition}</div>
                 </div>
-                {openTerm === term.term && <div className="small muted">{term.definition}</div>}
-              </button>
+              </div>
             ))}
           </div>
         </section>
+        
         <div className="footer-actions">
           <button className="button primary" onClick={() => {
             updateTopic(topicId, (current) => ({ ...current, lessonRead: true }))
@@ -906,6 +980,7 @@ function QuizBase({ packs, progressWithDerived, updateTopic, updateStats, saveSe
   const [startedAt] = useState(Date.now())
   const [seconds, setSeconds] = useState(0)
   const [timerMinimized, setTimerMinimized] = useState(false)
+  const [exitConfirmOpen, setExitConfirmOpen] = useState(false)
 
   useEffect(() => {
     const timer = setInterval(() => setSeconds((value) => value + 1), 1000)
@@ -943,12 +1018,29 @@ function QuizBase({ packs, progressWithDerived, updateTopic, updateStats, saveSe
         rateCard(Number(key) - 1)
       }
       if (key === 'escape') {
-        navigate('/')
+        setExitConfirmOpen(true)
       }
     }
     window.addEventListener('keydown', handler)
     return () => window.removeEventListener('keydown', handler)
-  }, [rated, selected, navigate])
+  }, [rated, selected])
+
+  // Auto-advance after rating
+  useEffect(() => {
+    if (rated) {
+      const timer = setTimeout(() => {
+        if (index === sessionQuestions.length - 1) {
+          navigate('/complete')
+        } else {
+          setIndex((value) => value + 1)
+          setSelected(null)
+          setRated(false)
+          setRating(null)
+        }
+      }, 400)
+      return () => clearTimeout(timer)
+    }
+  }, [rated, index, sessionQuestions.length, navigate])
 
   const current = sessionQuestions[index]
   const preview = current ? previewReview(progressWithDerived[current.topicId]?.cards?.[current.id] || createNewCard(new Date()), settings.desiredRetention) : null
@@ -1042,87 +1134,111 @@ function QuizBase({ packs, progressWithDerived, updateTopic, updateStats, saveSe
       }
       saveSessionRecord(sessionSummary)
     }
-    if (index === sessionQuestions.length - 1) {
-      navigate('/complete')
-    } else {
-      setTimeout(() => setIndex((value) => value + 1), 300)
-    }
+    setRated(true)
+    setRating(['Again', 'Hard', 'Good', 'Easy'][choiceIndex])
   }
 
   return (
-    <main className="page container">
-      {settings.pomodoroEnabled && <PomodoroTimer minimized={timerMinimized} setMinimized={setTimerMinimized} workMinutes={settings.workMinutes} breakMinutes={settings.breakMinutes} active />}
-      <div className="sticky-step">
-        <div className="panel">
-          <div className="quiz-header">
-            <div>
-              <div className="kicker">{mode === 'debug' ? 'Debug Mode — find the bug' : current.topicName}</div>
-              <div className="small muted">Question {index + 1} of {sessionQuestions.length}</div>
+    <>
+      {exitConfirmOpen && (
+        <div className="modal-backdrop">
+          <div className="modal">
+            <h2>Exit quiz?</h2>
+            <p className="muted">Your progress for questions you already answered will be saved, but this session won't be recorded.</p>
+            <div className="modal-actions">
+              <button className="button" onClick={() => setExitConfirmOpen(false)}>Continue quiz</button>
+              <button className="button danger" onClick={() => navigate('/')}>Exit anyway</button>
             </div>
-            <div className="space-mono">{formatTime(seconds)}</div>
           </div>
-          <div className="progress"><div className="progress-bar" style={{ width: `${((index + 1) / sessionQuestions.length) * 100}%` }} /></div>
         </div>
-      </div>
-      <section className="panel" style={{ marginTop: 16 }}>
-        <div className="topic-topline">
-          <span className="badge">{QUESTION_TYPE_LABELS[current.type]}</span>
-          <span className={`badge ${getDifficultyClass(current.difficulty)}`}>{current.difficulty}</span>
-        </div>
-        <h2>{current.question || current.prompt}</h2>
-        {current.code && <pre className="code-block"><code className={`language-${current.type === 'debug' ? 'python' : 'python'}`}>{current.code}</code></pre>}
-        <div className="choice-grid">
-          {current.choices.map((choice, choiceIndex) => {
-            const selectedState = selected === choiceIndex
-            const correctState = selected !== null && current.answer === choiceIndex
-            const wrongState = selected !== null && selected === choiceIndex && current.answer !== choiceIndex
-            return (
-              <button
-                key={choice}
-                className={`choice-button ${selectedState ? 'selected' : ''} ${correctState ? 'correct' : ''} ${wrongState ? 'wrong' : ''}`}
-                onClick={() => {
-                  if (selected === null) setSelected(choiceIndex)
-                }}
-                disabled={selected !== null}
+      )}
+      <main className="page container">
+        {settings.pomodoroEnabled && <PomodoroTimer minimized={timerMinimized} setMinimized={setTimerMinimized} workMinutes={settings.workMinutes} breakMinutes={settings.breakMinutes} active />}
+        <div className="sticky-step">
+          <div className="panel">
+            <div className="quiz-header">
+              <button 
+                className="button" 
+                onClick={() => setExitConfirmOpen(true)}
+                title="Exit quiz (Esc)"
+                style={{ padding: '6px 10px' }}
               >
-                <span className="choice-letter">{selectedState && current.answer === choiceIndex ? '✓' : String.fromCharCode(65 + choiceIndex)}</span>
-                {choice}
+                ✕ Exit
               </button>
-            )
-          })}
-        </div>
-        {selected !== null && (
-          <div className="panel slide-in" style={{ marginTop: 16 }}>
-            <div className={isCorrect ? 'good-text' : 'bad-text'}>{isCorrect ? 'Correct' : 'Incorrect'}</div>
-            <p className="muted"><strong>Concept:</strong> {current.concept}</p>
-            <p className="muted">{current.explanation}</p>
-            {current.type === 'debug' && <p className="muted">The bug: one line is subtly wrong; trace the indexing, keyword, or function signature carefully.</p>}
-            <div className="rating-grid" style={{ marginTop: 12 }}>
-              {[
-                { label: 'Again', subtitle: `Review: ${formatRelativeDate(preview?.[Rating.Again]?.card?.due || new Date())}` },
-                { label: 'Hard', subtitle: `Review: ${formatRelativeDate(preview?.[Rating.Hard]?.card?.due || new Date())}` },
-                { label: 'Good', subtitle: `Review: ${formatRelativeDate(preview?.[Rating.Good]?.card?.due || new Date())}` },
-                { label: 'Easy', subtitle: `Review: ${formatRelativeDate(preview?.[Rating.Easy]?.card?.due || new Date())}` }
-              ].map((entry, choiceIndex) => (
-                <button
-                  key={entry.label}
-                  className="choice-button"
-                  disabled={rated}
-                  onClick={() => {
-                    setRated(true)
-                    setRating(entry.label)
-                    rateCard(choiceIndex)
-                  }}
-                >
-                  <div className="space-mono">{entry.label}</div>
-                  <div className="small muted">{entry.subtitle}</div>
-                </button>
-              ))}
+              <div>
+                <div className="kicker">{mode === 'debug' ? 'Debug Mode — find the bug' : current.topicName}</div>
+                <div className="small muted">Question {index + 1} of {sessionQuestions.length}</div>
+              </div>
+              <div className="space-mono">{formatTime(seconds)}</div>
             </div>
+            <div className="progress"><div className="progress-bar" style={{ width: `${((index + 1) / sessionQuestions.length) * 100}%` }} /></div>
           </div>
-        )}
-      </section>
-    </main>
+        </div>
+        <section className="panel" style={{ marginTop: 16 }}>
+          <div className="topic-topline">
+            <span className="badge">{QUESTION_TYPE_LABELS[current.type]}</span>
+            <span className={`badge ${getDifficultyClass(current.difficulty)}`}>{current.difficulty}</span>
+          </div>
+          <h2>{current.question || current.prompt}</h2>
+          {current.code && <pre className="code-block"><code className={`language-${current.type === 'debug' ? 'python' : 'python'}`}>{current.code}</code></pre>}
+          <div className="choice-grid">
+            {current.choices.map((choice, choiceIndex) => {
+              const selectedState = selected === choiceIndex
+              const correctState = selected !== null && current.answer === choiceIndex
+              const wrongState = selected !== null && selected === choiceIndex && current.answer !== choiceIndex
+              return (
+                <button
+                  key={choice}
+                  className={`choice-button ${selectedState ? 'selected' : ''} ${correctState ? 'correct' : ''} ${wrongState ? 'wrong' : ''}`}
+                  onClick={() => {
+                    if (selected === null) setSelected(choiceIndex)
+                  }}
+                  disabled={selected !== null}
+                >
+                  <span className="choice-letter">{selectedState && current.answer === choiceIndex ? '✓' : String.fromCharCode(65 + choiceIndex)}</span>
+                  {choice}
+                </button>
+              )
+            })}
+          </div>
+          {selected !== null && (
+            <div className="panel slide-in" style={{ marginTop: 16 }}>
+              <div className={isCorrect ? 'good-text' : 'bad-text'}>{isCorrect ? 'Correct' : 'Incorrect'}</div>
+              <p className="muted"><strong>Concept:</strong> {current.concept}</p>
+              <p className="muted">{current.explanation}</p>
+              {current.type === 'debug' && <p className="muted">The bug: one line is subtly wrong; trace the indexing, keyword, or function signature carefully.</p>}
+              <div className="rating-grid" style={{ marginTop: 12 }}>
+                {[
+                  { label: 'Again', subtitle: `Review: ${formatRelativeDate(preview?.[Rating.Again]?.card?.due || new Date())}` },
+                  { label: 'Hard', subtitle: `Review: ${formatRelativeDate(preview?.[Rating.Hard]?.card?.due || new Date())}` },
+                  { label: 'Good', subtitle: `Review: ${formatRelativeDate(preview?.[Rating.Good]?.card?.due || new Date())}` },
+                  { label: 'Easy', subtitle: `Review: ${formatRelativeDate(preview?.[Rating.Easy]?.card?.due || new Date())}` }
+                ].map((entry, choiceIndex) => (
+                  <button
+                    key={entry.label}
+                    className={`choice-button ${!rated ? 'pulsing-highlight' : ''}`}
+                    disabled={rated}
+                    onClick={() => rateCard(choiceIndex)}
+                  >
+                    <div className="space-mono">{entry.label}</div>
+                    <div className="small muted">{entry.subtitle}</div>
+                  </button>
+                ))}
+              </div>
+              {!rated && (
+                <button 
+                  className="button" 
+                  onClick={() => rateCard(1)}
+                  style={{ marginTop: 12, width: '100%' }}
+                >
+                  Next → (auto-advance in 2 seconds)
+                </button>
+              )}
+            </div>
+          )}
+        </section>
+      </main>
+    </>
   )
 }
 
@@ -1511,9 +1627,14 @@ function PomodoroTimer({ active, minimized, setMinimized, workMinutes, breakMinu
 
   if (!active) return null
   return (
-    <button className="panel" style={{ position: 'fixed', right: 18, bottom: 18, width: minimized ? 180 : 220, zIndex: 30 }} onClick={() => setMinimized(!minimized)}>
-      <div className="space-mono">{phase === 'work' ? 'Focus' : 'Break'} · {formatTime(remaining)}</div>
-      {!minimized && <div className="small muted">{phase === 'work' ? 'Stay on task' : `Break time — step away for ${breakMinutes} minutes`}</div>}
+    <button 
+      className="pomodoro-timer" 
+      style={{ position: 'fixed', right: 18, bottom: 18, width: minimized ? 180 : 220 }} 
+      onClick={() => setMinimized(!minimized)}
+    >
+      <div className="pomodoro-time">{formatTime(remaining)}</div>
+      <div className="pomodoro-label">{phase === 'work' ? 'Stay on task' : 'Take a break'}</div>
+      {!minimized && <div className="small muted" style={{ marginTop: 4 }}>{phase === 'work' ? 'Focus session' : `Break — ${breakMinutes} min`}</div>}
     </button>
   )
 }
