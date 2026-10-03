@@ -4,7 +4,7 @@ import { ArrowDown, ArrowUp, ChevronLeft, ClipboardList, Plus, Sparkles, Trash2 
 import { useApp } from '../state/context'
 import { useDocumentTitle } from '../hooks/useDocumentTitle'
 import { SUBJECTS } from '../lib/subjects'
-import { sanitizePack } from '../lib/packSchema'
+import { isChoiceType, sanitizePack, slugify } from '../lib/packSchema'
 import { BUILT_IN_IDS } from '../lib/packs'
 import { uid } from '../lib/random'
 import { parseBulk } from '../lib/bulk'
@@ -30,12 +30,10 @@ function fromQuestion(q) {
     choices: Array.isArray(q.choices) ? [...q.choices, '', '', '', ''].slice(0, Math.max(4, q.choices.length)) : ['', '', '', ''],
     correct: typeof q.answer === 'number' ? q.answer : 0,
     explanation: q.explanation || '',
-    extra: q.code ? { code: q.code, language: q.language } : null,
-    originalType: q.type
+    original: q
   }
 }
 
-const slug = (text) => text.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 48)
 
 export default function Create() {
   const { packId } = useParams()
@@ -85,7 +83,7 @@ export default function Create() {
     })
     if (problems.length) return { problems }
 
-    let id = existing?.id || slug(name) || `pack-${Date.now().toString(36)}`
+    let id = existing?.id || slugify(name).slice(0, 48)
     if (!existing && (BUILT_IN_IDS.has(id) || packMap.has(id))) id = `${id}-${Date.now().toString(36).slice(-4)}`
     const used = new Set(filled.map((c) => c.id).filter(Boolean))
     let counter = 1
@@ -97,9 +95,20 @@ export default function Create() {
       return candidate
     }
     const questions = filled.map((c) => {
-      const keepId = c.id && c.type === (['recall', 'typed', 'mcq'].includes(c.originalType) ? c.originalType : 'mcq') ? c.id : null
-      const base = { id: keepId || nextId(), type: c.type, difficulty: 'medium', question: c.question.trim(), explanation: c.explanation.trim() }
-      if (c.extra?.code) Object.assign(base, c.extra)
+      // Start from the original so fields the editor does not show (section, concept, code,
+      // difficulty, fill-the-blank or find-the-bug type) survive an edit.
+      const original = c.original || {}
+      const keepChoiceType = c.type === 'mcq' && isChoiceType(original.type)
+      const base = {
+        ...original,
+        id: c.id || nextId(),
+        type: keepChoiceType ? original.type : c.type,
+        difficulty: original.difficulty || 'medium',
+        question: c.question.trim(),
+        explanation: c.explanation.trim()
+      }
+      delete base.choices
+      delete base.accept
       if (c.type === 'mcq') {
         const options = c.choices.map((x, i) => ({ text: x.trim(), i })).filter((o) => o.text)
         base.choices = options.map((o) => o.text)

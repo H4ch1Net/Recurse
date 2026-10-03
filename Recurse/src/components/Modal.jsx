@@ -1,4 +1,4 @@
-import { useEffect, useId, useRef } from 'react'
+import { useEffect, useEffectEvent, useId, useRef } from 'react'
 import { createPortal } from 'react-dom'
 import { X } from 'lucide-react'
 
@@ -10,15 +10,18 @@ export default function Modal({ title, description, onClose, children, actions, 
   const titleId = useId()
   const descId = useId()
 
+  const close = useEffectEvent(() => dismissable && onClose?.())
+
+  // Runs once per dialog: parents re-render often (timers, typing) and must not steal focus back.
   useEffect(() => {
     const previous = document.activeElement
     const node = ref.current
     const first = node?.querySelector('[data-autofocus]') || node?.querySelector(FOCUSABLE)
     first?.focus()
     const onKey = (event) => {
-      if (event.key === 'Escape' && dismissable) {
+      if (event.key === 'Escape') {
         event.stopPropagation()
-        onClose?.()
+        close()
       }
       if (event.key !== 'Tab' || !node) return
       const items = [...node.querySelectorAll(FOCUSABLE)]
@@ -41,7 +44,7 @@ export default function Modal({ title, description, onClose, children, actions, 
       document.body.style.overflow = overflow
       previous?.focus?.()
     }
-  }, [onClose, dismissable])
+  }, [])
 
   return createPortal(
     <div className="modal-backdrop" onMouseDown={(e) => e.target === e.currentTarget && dismissable && onClose?.()}>

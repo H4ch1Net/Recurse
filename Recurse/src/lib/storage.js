@@ -1,7 +1,6 @@
 // localStorage persistence. Every read is defensive: storage can be full, blocked
 // (private mode) or hold data from an older version of the app.
 import { dayKey } from './dates'
-import { sanitizePack } from './packSchema'
 
 export const STORAGE_VERSION = 2
 
@@ -114,18 +113,13 @@ export function loadSettings() {
   return { ...DEFAULTS.settings, ...(isObject(value) ? value : {}) }
 }
 
+/**
+ * Packs are returned as stored. Ones that fail validation are hidden from the library
+ * (see state/AppState) but kept here, so they are never silently deleted on save.
+ */
 export function loadCommunityPacks() {
   const value = read(KEYS.communityPacks)
-  if (!Array.isArray(value)) return []
-  const packs = []
-  for (const raw of value) {
-    try {
-      packs.push(sanitizePack(raw))
-    } catch {
-      // Skip packs that no longer validate rather than breaking the app.
-    }
-  }
-  return packs
+  return Array.isArray(value) ? value.filter((p) => p && typeof p === 'object') : []
 }
 
 export function loadLastSession() {

@@ -76,7 +76,7 @@ export default function ImportDialog({ onClose, initialMode }) {
   const confirm = () => {
     let pack = preview
     if (BUILT_IN_IDS.has(pack.id) || packs.some((p) => p.id === pack.id && !p.community)) {
-      pack = { ...pack, id: `${pack.id}-custom` }
+      pack = { ...pack, id: `${pack.id.slice(0, 52)}-custom` }
     }
     const replacing = packs.some((p) => p.id === pack.id)
     savePack(pack)
@@ -89,6 +89,7 @@ export default function ImportDialog({ onClose, initialMode }) {
     const replacing = packs.some((p) => p.id === preview.id && p.community)
     return (
       <Modal
+        key="preview"
         title="Review the pack"
         description="Check it looks right before adding it to your library."
         onClose={onClose}
@@ -124,7 +125,7 @@ export default function ImportDialog({ onClose, initialMode }) {
   }
 
   return (
-    <Modal title="Add a pack" description="Bring in a pack someone shared, or generate one for any topic." onClose={onClose} wide>
+    <Modal key="form" title="Add a pack" description="Bring in a pack someone shared, or generate one for any topic." onClose={onClose} wide>
       <div className="stack">
         <div className="segmented" role="tablist" aria-label="Import method">
           {MODES.map(({ id, label, icon: Icon }) => (

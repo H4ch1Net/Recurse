@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { sanitizePack, validatePack, subjectFor } from './packSchema'
+import { sanitizePack, slugify, validatePack, subjectFor } from './packSchema'
 import { BUILT_IN_PACKS } from './packs'
 
 const minimal = () => ({
@@ -61,12 +61,29 @@ describe('built-in library', () => {
 })
 
 describe('sanitizePack', () => {
-  it('cleans untrusted packs and maps legacy categories', () => {
-    const pack = sanitizePack({ ...minimal(), id: 'My Pack', name: '<b>My</b> pack', category: 'cs-theory' })
+  it('normalizes ids and maps legacy categories', () => {
+    const pack = sanitizePack({ ...minimal(), id: 'My Pack', category: 'cs-theory' })
     expect(pack.id).toBe('my-pack')
-    expect(pack.name).toBe('My pack')
     expect(pack.subject).toBe('cs')
     expect(pack.community).toBe(true)
+  })
+
+  it('keeps angle brackets and other code characters intact', () => {
+    const pack = minimal()
+    pack.questions[0].question = 'When is a < b && b > c true?'
+    pack.questions[1].choices = ['<a>', '<p>', 'Array<string>']
+    const out = sanitizePack(pack)
+    expect(out.questions[0].question).toBe('When is a < b && b > c true?')
+    expect(out.questions[1].choices).toEqual(['<a>', '<p>', 'Array<string>'])
+  })
+
+  it('round-trips every built-in pack, as exporting and re-importing does', () => {
+    for (const pack of BUILT_IN_PACKS) {
+      const out = sanitizePack(JSON.parse(JSON.stringify(pack)))
+      expect(out.questions.length, pack.id).toBe(pack.questions.length)
+      expect(out.questions.map((q) => q.question), pack.id).toEqual(pack.questions.map((q) => q.question))
+      expect(out.lesson.sections.length, pack.id).toBe(pack.lesson.sections.length)
+    }
   })
 
   it('infers missing ids and types', () => {
@@ -78,6 +95,14 @@ describe('sanitizePack', () => {
   it('throws on packs that cannot be repaired', () => {
     expect(() => sanitizePack({ id: 'x', name: 'X', questions: [] })).toThrow(/Invalid pack/)
     expect(() => sanitizePack(null)).toThrow()
+  })
+
+  it('slugifies short and accented names into valid ids', () => {
+    expect(slugify('C')).toBe('c-pack')
+    expect(slugify('C++')).toBe('c-pack')
+    expect(slugify('Économie générale')).toBe('economie-generale')
+    expect(slugify('')).toBe('pack-pack')
+    expect(slugify('x'.repeat(80))).toHaveLength(60)
   })
 
   it('maps subjects', () => {

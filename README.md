@@ -229,7 +229,9 @@ so they are tested directly.
 - All data lives in this browser's `localStorage`. Clearing site data removes it.
 - **Settings > Back up** downloads everything as JSON (without your API key). **Restore** accepts backups
   from this version and from v1.
-- Data saved by v1 of the app is migrated automatically on first load.
+- Data saved by v1 of the app is migrated automatically on first load: stats, streak, XP, achievements,
+  lesson status and settings carry over. The v1 question bank was replaced, so card schedules start fresh.
+- With the app open in two tabs, each tab picks up the other's changes instead of overwriting them.
 - No analytics and no third-party requests. Fonts are bundled. The only outbound calls are the AI
   requests you trigger with your own key.
 

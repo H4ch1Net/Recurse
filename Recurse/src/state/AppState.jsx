@@ -3,7 +3,8 @@ import { AppContext } from './context'
 import { BUILT_IN_IDS, BUILT_IN_PACKS, normalizePack, sortPacks } from '../lib/packs'
 import { loadAll, migrateStorage, save, importSnapshot, resetStorage } from '../lib/storage'
 import { schedule, Rating } from '../lib/memory'
-import { emptyTopic, summarizeTopic, topicOf } from '../lib/progress'
+import { emptyTopic, pruneOrphans, summarizeTopic, topicOf } from '../lib/progress'
+import { sanitizePack } from '../lib/packSchema'
 import { applyStudyDay, currentStreak, xpForReview } from '../lib/gamification'
 import { achievementTitle, newlyUnlocked } from '../lib/achievements'
 import { dayKey } from '../lib/dates'
@@ -25,14 +26,24 @@ function useNow(intervalMs = 60000) {
   return now
 }
 
+/** Built-in packs plus the learner's own. Own packs that fail validation are hidden, not deleted. */
 function allPacks(communityPacks) {
-  const own = communityPacks.filter((p) => !BUILT_IN_IDS.has(p.id)).map((p) => normalizePack(p, { community: true }))
+  const own = []
+  for (const raw of communityPacks) {
+    if (BUILT_IN_IDS.has(raw?.id)) continue
+    try {
+      own.push(normalizePack(sanitizePack(raw), { community: true }))
+    } catch {
+      // Kept in storage; skipped here.
+    }
+  }
   return sortPacks([...BUILT_IN_PACKS, ...own])
 }
 
 const initial = () => {
   migrateStorage()
-  return loadAll()
+  const data = loadAll()
+  return { ...data, progress: pruneOrphans(data.progress, allPacks(data.communityPacks)) }
 }
 
 export function AppProvider({ children }) {
@@ -227,7 +238,10 @@ export function AppProvider({ children }) {
 
   const savePack = useCallback((pack) => {
     if (BUILT_IN_IDS.has(pack.id)) throw new Error('That id belongs to a built-in pack. Choose another name.')
-    apply(({ communityPacks: list }) => ({ communityPacks: [...list.filter((p) => p.id !== pack.id), { ...pack, community: true }] }))
+    apply(({ communityPacks: list, progress: p }) => {
+      const nextList = [...list.filter((x) => x.id !== pack.id), { ...pack, community: true }]
+      return { communityPacks: nextList, progress: pruneOrphans(p, allPacks(nextList)) }
+    })
   }, [apply])
 
   const removePack = useCallback((packId) => {
@@ -240,6 +254,7 @@ export function AppProvider({ children }) {
 
   const reloadFromStorage = useCallback(() => {
     const data = loadAll()
+    data.progress = pruneOrphans(data.progress, allPacks(data.communityPacks))
     latest.current = { progress: data.progress, stats: data.stats, settings: data.settings, communityPacks: data.communityPacks }
     setProgress(data.progress)
     setStats(data.stats)
@@ -249,6 +264,15 @@ export function AppProvider({ children }) {
     setCommunityPacks(data.communityPacks)
     setLastSession(data.lastSession)
   }, [])
+
+  // Another tab changed stored data: adopt it so this tab never writes stale state back.
+  useEffect(() => {
+    const onStorage = (event) => {
+      if (event.key === null || event.key?.startsWith('recurse_')) reloadFromStorage()
+    }
+    window.addEventListener('storage', onStorage)
+    return () => window.removeEventListener('storage', onStorage)
+  }, [reloadFromStorage])
 
   const importData = useCallback((snapshot) => {
     importSnapshot(snapshot)

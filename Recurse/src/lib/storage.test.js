@@ -55,6 +55,12 @@ describe('storage', () => {
     expect(loadAll().user.name).toBe('Old')
   })
 
+  it('never drops stored packs, even ones that no longer validate', () => {
+    const packs = [{ id: 'ok-pack', name: 'Ok', questions: [{ id: 'a', type: 'recall', question: 'Q', answer: 'A' }] }, { id: 'x', name: 'Broken', questions: [] }]
+    localStorage.setItem(KEYS.communityPacks, JSON.stringify(packs))
+    expect(loadAll().communityPacks).toHaveLength(2)
+  })
+
   it('falls back to defaults for corrupt values', () => {
     localStorage.setItem(KEYS.stats, '{not json')
     localStorage.setItem(KEYS.progress, '[]')

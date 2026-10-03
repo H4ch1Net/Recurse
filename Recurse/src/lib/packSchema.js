@@ -181,17 +181,26 @@ export function assertValidPack(pack, options) {
   return pack
 }
 
-const stripTags = (value) => String(value ?? '').replace(/<[^>]*>?/g, '')
-const clip = (value, max) => stripTags(value).slice(0, max)
+// Text is always rendered as React text nodes and code is escaped before highlighting,
+// so sanitizing is about shape and size, not markup. Characters like < must survive
+// (comparisons, generics, HTML lessons).
+const clip = (value, max) => String(value ?? '').slice(0, max)
 
 /**
  * Normalize an untrusted pack (URL import, file upload, AI output) into a clean shape.
- * Text is rendered as React text nodes, so this is about size limits and stray markup,
- * not XSS. Throws when the result is not a valid pack.
+ * Throws when the result is not a valid pack.
  */
+/** Lowercase a-z, 0-9 and dashes, 2 to 60 characters. */
+export function slugify(value, fallback = 'pack') {
+  let slug = String(value ?? '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 60).replace(/-+$/, '')
+  if (slug.length < 2) slug = `${slug || fallback}-pack`.slice(0, 60)
+  return slug
+}
+
 export function sanitizePack(raw) {
   if (!raw || typeof raw !== 'object') throw new Error('Pack must be a JSON object')
-  const id = clip(raw.id, 60).toLowerCase().trim().replace(/[^a-z0-9-]+/g, '-').replace(/^-+|-+$/g, '')
+  const id = slugify(raw.id)
   const pack = {
     id,
     name: clip(raw.name, 80).trim(),

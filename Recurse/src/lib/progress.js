@@ -102,3 +102,27 @@ export function reviewForecast(packs, progress, days = 14, now = new Date()) {
   }
   return counts
 }
+
+/**
+ * Drop cards and mistakes whose question no longer exists (a pack was edited, or data came
+ * from an older version with different question ids). Topics for unknown packs are kept.
+ * Returns the same object when nothing changed.
+ */
+export function pruneOrphans(progress, packs) {
+  const questionIds = new Map(packs.map((p) => [p.id, new Set(p.questions.map((q) => q.id))]))
+  let changed = false
+  const next = {}
+  for (const [id, topic] of Object.entries(progress || {})) {
+    const ids = questionIds.get(id)
+    if (!ids || !topic || typeof topic !== 'object') {
+      next[id] = topic
+      continue
+    }
+    const keep = (obj) => Object.fromEntries(Object.entries(obj || {}).filter(([qid]) => ids.has(qid)))
+    const cards = keep(topic.cards)
+    const mistakes = keep(topic.mistakes)
+    if (Object.keys(cards).length !== Object.keys(topic.cards || {}).length || Object.keys(mistakes).length !== Object.keys(topic.mistakes || {}).length) changed = true
+    next[id] = { ...topic, cards, mistakes }
+  }
+  return changed ? next : progress
+}

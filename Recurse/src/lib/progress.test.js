@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { cardMastery, reviewForecast, summarizeTopic, topicMastery, memoryTone } from './progress'
+import { cardMastery, pruneOrphans, reviewForecast, summarizeTopic, topicMastery, memoryTone } from './progress'
 import { Rating, schedule } from './memory'
 
 describe('mastery', () => {
@@ -54,5 +54,25 @@ describe('memoryTone', () => {
     expect(memoryTone(0.75)).toBe('steady')
     expect(memoryTone(0.6)).toBe('fading')
     expect(memoryTone(0.2)).toBe('weak')
+  })
+})
+
+describe('pruneOrphans', () => {
+  it('drops cards and mistakes for missing questions and leaves unknown packs alone', () => {
+    const packs = [{ id: 'p', questions: [{ id: 'p-q01' }] }]
+    const progress = {
+      p: { cards: { 'p-q01': { reps: 1 }, 'py-001': { reps: 2 } }, mistakes: { 'py-001': {} }, lessonRead: true },
+      other: { cards: { z: { reps: 1 } } }
+    }
+    const out = pruneOrphans(progress, packs)
+    expect(Object.keys(out.p.cards)).toEqual(['p-q01'])
+    expect(out.p.mistakes).toEqual({})
+    expect(out.p.lessonRead).toBe(true)
+    expect(out.other).toBe(progress.other)
+  })
+
+  it('returns the same object when nothing changes', () => {
+    const progress = { p: { cards: { 'p-q01': { reps: 1 } }, mistakes: {} } }
+    expect(pruneOrphans(progress, [{ id: 'p', questions: [{ id: 'p-q01' }] }])).toBe(progress)
   })
 })

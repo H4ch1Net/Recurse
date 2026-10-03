@@ -125,7 +125,9 @@ export default function Study() {
 
   // Focus management: input for typed answers, continue/rate buttons after answering.
   useEffect(() => {
-    if (phase === 'answer' && (question?.type === 'typed' || question?.type === 'recall')) inputRef.current?.focus({ preventScroll: true })
+    // Typed answers need the input. The recall notes box is optional, so it stays unfocused
+    // and Space/Enter keep working as reveal shortcuts.
+    if (phase === 'answer' && question?.type === 'typed') inputRef.current?.focus({ preventScroll: true })
     if (phase === 'feedback') {
       continueRef.current?.focus({ preventScroll: true })
       feedbackRef.current?.scrollIntoView({ block: 'nearest', behavior: 'smooth' })
@@ -218,6 +220,12 @@ export default function Study() {
     cardStart.current = nowMs()
   }
 
+  /** Leave the session: back to where the learner came from, or Today when opened directly. */
+  function leave() {
+    if (window.history.state?.idx > 0) navigate(-1)
+    else navigate('/')
+  }
+
   function undoLast() {
     if (!undo || phase !== 'answer' || !undoReview()) return
     setItems(undo.items)
@@ -238,7 +246,7 @@ export default function Study() {
   const order = item?.order || []
 
   const keyActions = {
-    Escape: () => (results.length ? setLeaving(true) : navigate(-1)),
+    Escape: () => (results.length ? setLeaving(true) : leave()),
     a: () => phase === 'answer' && isChoiceType(question?.type) && order[0] !== undefined && submitChoice(order[0]),
     b: () => phase === 'answer' && isChoiceType(question?.type) && order[1] !== undefined && submitChoice(order[1]),
     c: () => phase === 'answer' && isChoiceType(question?.type) && order[2] !== undefined && submitChoice(order[2]),
@@ -257,13 +265,24 @@ export default function Study() {
     }
   }
   const onKey = useEffectEvent((event) => {
-    if (leaving || !item || event.metaKey || event.ctrlKey || event.altKey || event.defaultPrevented) return
+    if (leaving || !item || (needsLessonPrompt && !skipLesson) || event.altKey || event.defaultPrevented) return
     if (document.querySelector('[role="dialog"]')) return
     const key = event.key.length === 1 ? event.key.toLowerCase() : event.key
-    const action = keyActions[key]
-    if (!action) return
     const target = event.target
     const typing = target instanceof HTMLElement && ['INPUT', 'TEXTAREA', 'SELECT'].includes(target.tagName)
+    if (event.metaKey || event.ctrlKey) {
+      // Ctrl/Cmd+Enter reveals from the recall notes box; Ctrl/Cmd+Z undoes when the field is empty.
+      if (key === 'Enter' && phase === 'answer' && question?.type === 'recall') {
+        event.preventDefault()
+        reveal()
+      } else if (key === 'z' && undo && phase === 'answer' && (!typing || !target.value)) {
+        event.preventDefault()
+        undoLast()
+      }
+      return
+    }
+    const action = keyActions[key]
+    if (!action) return
     // While typing, only Escape is a shortcut. Enter on a focused button activates that button.
     if (typing && key !== 'Escape') return
     if (key === 'Enter' && target instanceof HTMLButtonElement) return
@@ -309,7 +328,7 @@ export default function Study() {
   return (
     <div className="study">
       <header className="study-bar">
-        <button type="button" className="icon-btn" onClick={() => (results.length ? setLeaving(true) : navigate(-1))} aria-label="Leave session (Esc)" title="Leave session (Esc)">
+        <button type="button" className="icon-btn" onClick={() => (results.length ? setLeaving(true) : leave())} aria-label="Leave session (Esc)" title="Leave session (Esc)">
           <X size={20} />
         </button>
         <div className="study-bar-mid">
@@ -349,6 +368,11 @@ export default function Study() {
             <span className="chip outline">{QUESTION_TYPE_LABELS[question.type]}</span>
             {item.isNew && <span className="chip accent">New</span>}
             {item.retry > 0 && <span className="chip warn"><RotateCcw size={11} /> Again</span>}
+            {!item.isNew && item.retry === 0 && card?.last_review && phase === 'answer' && (
+              <span className="chip outline" title="When you last saw this card, and the estimated chance you still remember it">
+                Seen {formatRelative(card.last_review, now)} · {Math.round(retrievability(card, now) * 100)}% recall
+              </span>
+            )}
           </div>
           <h1 id="q-text" className="study-question"><Inline text={question.question} /></h1>
           <p className="xsmall subtle">{PROMPTS[question.type]}</p>
@@ -397,7 +421,7 @@ export default function Study() {
 
           {question.type === 'recall' && phase === 'answer' && (
             <div className="stack-sm">
-              <textarea ref={inputRef} className="textarea" rows={3} value={typed} onChange={(e) => setTyped(e.target.value)} placeholder="Optional: write your answer first. Writing it out shows you what you actually know." aria-label="Your answer (optional)" />
+              <textarea ref={inputRef} className="textarea" rows={3} value={typed} onChange={(e) => setTyped(e.target.value)} placeholder="Optional: write your answer first. Writing it out shows you what you actually know. Ctrl+Enter reveals." aria-label="Your answer (optional)" />
               <div>
                 <button type="button" className="btn btn-primary" onClick={reveal}><Eye size={16} /> Show answer <span className="kbd hide-mobile">Space</span></button>
               </div>
