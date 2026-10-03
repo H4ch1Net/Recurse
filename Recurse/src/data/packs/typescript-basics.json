@@ -1,0 +1,348 @@
+{
+  "id": "typescript-basics",
+  "name": "TypeScript Basics",
+  "version": "2.0.0",
+  "author": "Recurse",
+  "subject": "programming",
+  "level": "intermediate",
+  "description": "Inference, interfaces, unions and narrowing, generics, unknown and utility types in TypeScript.",
+  "icon": "TS",
+  "language": "typescript",
+  "prereqs": ["javascript-basics"],
+  "tags": ["typescript", "types", "generics", "narrowing"],
+  "lesson": {
+    "estimatedMinutes": 14,
+    "intro": "TypeScript is JavaScript with a type checker in front of it. You describe what values your code expects, and the compiler catches mismatches, such as a typo in a status string or a call on a value that might be undefined, before the code ever runs.",
+    "sections": [
+      {
+        "title": "Annotations and inference",
+        "body": "TypeScript checks types when it compiles. The types are then erased, so the output is plain JavaScript: types cost nothing at runtime and give no protection there either.\n\nYou write a type after a colon: `let total: number = 0`. Most of the time you do not need to, because TypeScript infers the type from the value:\n\n- `let count = 0` is inferred as `number`, so `count = \"zero\"` is an error.\n- `const direction = \"left\"` is inferred as the literal type `\"left\"`, because a const can never hold anything else. `let direction = \"left\"` widens to `string`.\n- Return types are inferred from the `return` statements.\n\nFunction parameters are where inference cannot help: nothing tells the compiler what callers will pass. With `strict` on, an unannotated parameter is an error because it is implicitly `any`. Annotate parameters and let inference handle most local variables.",
+        "code": "let count = 0;             // inferred: number\nconst direction = \"left\";  // inferred: \"left\"\n\nfunction add(a: number, b: number) {\n  return a + b;            // return type inferred: number\n}\n\nadd(2, 3);    // ok\nadd(\"2\", 3);  // error: Argument of type 'string' is not assignable to parameter of type 'number'.",
+        "tip": "Hover over a variable in your editor to see the type TypeScript inferred.",
+        "check": {
+          "question": "What type does TypeScript infer for let price = 9.99?",
+          "choices": ["any", "9.99", "number", "float"],
+          "answer": 2,
+          "explanation": "let can be reassigned, so the literal widens to number. TypeScript has no separate float type, and only const price = 9.99 would get the literal type 9.99."
+        }
+      },
+      {
+        "title": "Interfaces, type aliases, optional and readonly",
+        "body": "Both `interface` and `type` can name the shape of an object, and for plain objects they are interchangeable.\n\n- An `interface` can be extended with `extends`, and two interface declarations with the same name merge into one. That is handy for adding fields to library types.\n- A `type` alias can name any type, not only objects: unions (`type Id = string | number`), tuples, primitives and function types. Combine object types with `&`.\n\nA common rule: use `interface` for object shapes others may extend, and `type` for unions and everything else.\n\nTwo property modifiers:\n\n- `?` makes a property optional. Its type then includes `undefined`, so you must check it before use.\n- `readonly` forbids assigning to the property after the object is created. Like all types, this is checked at compile time only.",
+        "code": "interface User {\n  readonly id: number;\n  name: string;\n  email?: string;          // string | undefined\n}\n\ntype Id = string | number; // only a type alias can do this\n\nconst u: User = { id: 1, name: \"Ada\" };  // ok, email is optional\nu.name = \"Grace\";                        // ok\nu.id = 2;   // error: Cannot assign to 'id' because it is a read-only property.",
+        "check": {
+          "question": "In the code above, what is the type of u.email?",
+          "choices": ["string", "string | undefined", "undefined", "any"],
+          "answer": 1,
+          "explanation": "An optional property may be missing, so its type includes undefined. You must check it, or use u.email?.length, before calling string methods on it."
+        }
+      },
+      {
+        "title": "Unions, literal types and narrowing",
+        "body": "A union type `A | B` means the value is one of several types. A literal type is one exact value, and a union of literals works like an enum: `type Status = \"idle\" | \"loading\" | \"done\"`. Assigning `\"finished\"` to a `Status` is a compile error, which catches typos.\n\nOn a union you can only use what every member has in common. To use a member's own features, narrow the type with a check the compiler understands:\n\n- `typeof value === \"string\"` for primitives.\n- `Array.isArray(value)` for arrays, `value instanceof Date` for classes.\n- `\"swim\" in animal` to test for a property.\n- Comparing a shared literal field, as in a discriminated union.\n\nInside the checked branch TypeScript knows the narrower type. After an early `return`, it knows the remaining type for the rest of the function.",
+        "code": "type Result =\n  | { ok: true; value: number }\n  | { ok: false; error: string };\n\nfunction show(r: Result) {\n  if (r.ok) {\n    return `Value: ${r.value}`;   // r is the ok: true member\n  }\n  return `Error: ${r.error}`;     // r is the ok: false member\n}",
+        "check": {
+          "question": "Given type Status = \"idle\" | \"done\", what happens with let s: Status = \"Done\"?",
+          "choices": [
+            "It compiles, because string comparison ignores case",
+            "It compiles and s becomes \"done\"",
+            "It compiles, but throws at runtime",
+            "Compile error: \"Done\" is not assignable to Status"
+          ],
+          "answer": 3,
+          "explanation": "A literal type matches one exact string, case included. \"Done\" is not one of the allowed values, so the compiler rejects it. Nothing is checked or converted at runtime."
+        }
+      },
+      {
+        "title": "Generics",
+        "body": "A generic is a type parameter: a placeholder the caller fills in. It lets one function or type work with many types while keeping the link between input and output.\n\n`function first<T>(items: T[]): T | undefined` says that whatever element type comes in, the same type comes out. Call it with a `string[]` and `T` is inferred as `string`; you rarely write `first<string>(...)` yourself.\n\nCompare `function first(items: any[]): any`. It also accepts everything, but the result is `any`, and type checking stops there.\n\nInside a generic function you can only use what is known about `T`, which is nothing. Add a constraint with `extends` to require a shape: `<T extends { length: number }>` accepts strings, arrays and any object with a numeric `length`.\n\nTypes can be generic too: `Array<T>`, `Promise<T>`, or your own `interface Box<T> { value: T }`.",
+        "code": "function first<T>(items: T[]): T | undefined {\n  return items[0];\n}\n\nconst n = first([10, 20]);      // number | undefined\nconst s = first([\"a\", \"b\"]);    // string | undefined\n\nfunction longest<T extends { length: number }>(a: T, b: T): T {\n  return a.length >= b.length ? a : b;\n}\nlongest(\"apple\", \"fig\");        // ok: strings have length\nlongest(10, 20);                // error: number has no length",
+        "check": {
+          "question": "What is T inferred as in first([true, false])?",
+          "choices": ["boolean", "any", "true", "unknown"],
+          "answer": 0,
+          "explanation": "The argument is a boolean[], so T is boolean and the result type is boolean | undefined. Inference fills in T; you did not need to write first<boolean>."
+        }
+      },
+      {
+        "title": "any, unknown and utility types",
+        "body": "`any` switches the checker off for a value: every property access and call is allowed, and mistakes show up only at runtime. It also spreads, since anything computed from an `any` is `any` too.\n\n`unknown` is the safe counterpart. Any value can be assigned to it, but you cannot use it until you narrow it with `typeof`, `instanceof` or a similar check. Use `unknown` for data from outside your program, such as `JSON.parse` results or caught errors.\n\nUtility types build new types from existing ones, so you do not copy fields by hand:\n\n- `Partial<T>` makes every property optional, which suits update functions that take only the changed fields.\n- `Pick<T, \"a\" | \"b\">` keeps only the listed properties. `Omit<T, \"a\">` removes them.\n- `Record<K, V>` is an object whose keys have type `K` and values type `V`, for example `Record<string, number>`.\n- `Readonly<T>` marks every property readonly.",
+        "code": "interface User { id: number; name: string; email: string }\n\ntype UserPatch = Partial<User>;             // every field optional\ntype UserCard = Pick<User, \"id\" | \"name\">;  // { id: number; name: string }\nconst visits: Record<string, number> = { home: 12, about: 3 };\n\nconst data: unknown = JSON.parse('\"hello\"');\n// data.toUpperCase();                      // error: 'data' is of type 'unknown'.\nif (typeof data === \"string\") {\n  console.log(data.toUpperCase());          // ok after narrowing\n}",
+        "check": {
+          "question": "With User as above, what does Omit<User, \"email\"> describe?",
+          "choices": [
+            "{ email: string }",
+            "{ id?: number; name?: string; email?: string }",
+            "{ id: number; name: string }",
+            "{ id: number; name: string; email?: string }"
+          ],
+          "answer": 2,
+          "explanation": "Omit removes the listed keys and keeps the rest unchanged. The all-optional version is what Partial<User> gives, and { email: string } is what Pick<User, \"email\"> gives."
+        }
+      }
+    ],
+    "keyTerms": [
+      { "term": "type annotation", "definition": "A type written after a colon, such as name: string, telling the compiler what a value must be." },
+      { "term": "type inference", "definition": "The compiler working out a type from a value or return statement without an annotation." },
+      { "term": "literal type", "definition": "A type that allows exactly one value, such as \"left\" or 42." },
+      { "term": "union type", "definition": "A type written A | B whose values may be any one of the listed types." },
+      { "term": "narrowing", "definition": "Refining a union to a more specific type inside a branch, using checks such as typeof, in or a literal field comparison." },
+      { "term": "generic", "definition": "A type parameter such as T that the caller fills in, keeping input and output types linked." },
+      { "term": "unknown", "definition": "A type that accepts any value but must be narrowed before the value can be used." },
+      { "term": "utility type", "definition": "A built-in generic that derives a new type from another, such as Partial, Pick, Omit or Record." }
+    ],
+    "summary": [
+      "Let TypeScript infer local types and annotate function parameters, where inference has nothing to go on.",
+      "Use interface for object shapes that may be extended and type for unions and other non-object types.",
+      "Narrow a union with typeof, in, instanceof or a literal field before using member-specific features.",
+      "Generics keep input and output types linked; add an extends constraint to use properties of T.",
+      "Prefer unknown to any for outside data, and derive related types with Partial, Pick and Record instead of copying them."
+    ],
+    "feynmanPrompt": "Explain to a JavaScript developer who has never used TypeScript what narrowing is, using a function that accepts string | number, and why unknown is safer than any."
+  },
+  "questions": [
+    {
+      "id": "typescript-basics-q01",
+      "type": "mcq",
+      "difficulty": "easy",
+      "question": "What does the compiler report for this code?",
+      "code": "let count = 0;\ncount = \"zero\";",
+      "choices": [
+        "Nothing; count becomes a string",
+        "Type 'string' is not assignable to type 'number'.",
+        "Parameter 'count' implicitly has an 'any' type.",
+        "Nothing at compile time, but a TypeError at runtime"
+      ],
+      "answer": 1,
+      "explanation": "count is inferred as number from its initial value 0, so assigning a string is a compile error. Inferred types are enforced exactly like written annotations, and the check happens before the code runs.",
+      "concept": "inferred types are enforced",
+      "section": 0
+    },
+    {
+      "id": "typescript-basics-q02",
+      "type": "typed",
+      "difficulty": "medium",
+      "question": "What type does TypeScript infer for direction? Write the type exactly.",
+      "code": "const direction = \"left\";",
+      "answer": "\"left\"",
+      "accept": ["'left'", "left"],
+      "explanation": "A const can never be reassigned, so TypeScript gives it the narrowest type: the literal type \"left\". With let it would widen to string, because a later assignment could change the value.",
+      "concept": "const infers literal types",
+      "section": 0
+    },
+    {
+      "id": "typescript-basics-q03",
+      "type": "mcq",
+      "difficulty": "medium",
+      "question": "Why is it common to annotate function parameters but not most local variables?",
+      "choices": [
+        "Local variables cannot have type annotations",
+        "Annotations on local variables slow down the compiled JavaScript",
+        "Parameters are type checked at runtime, locals are not",
+        "A local's type is inferred from its initial value, but nothing tells the compiler what callers will pass"
+      ],
+      "answer": 3,
+      "explanation": "Inference works from values. let total = 0 already says number, but a parameter has no value until a call happens, so without an annotation it is implicitly any, which strict mode reports. Types are erased when compiling, so they never affect runtime speed or checks.",
+      "concept": "where inference works",
+      "section": 0
+    },
+    {
+      "id": "typescript-basics-q04",
+      "type": "mcq",
+      "difficulty": "easy",
+      "question": "Which of these can a type alias do that an interface cannot?",
+      "choices": [
+        "Name a union, such as string | number",
+        "Describe an object with optional properties",
+        "Mark a property as readonly",
+        "Be used as a function parameter type"
+      ],
+      "answer": 0,
+      "explanation": "An interface always describes an object shape. A type alias can name any type, including unions, tuples and primitives. Optional and readonly properties, and use as a parameter type, work the same with both.",
+      "concept": "interface vs type alias",
+      "section": 1
+    },
+    {
+      "id": "typescript-basics-q05",
+      "type": "debug",
+      "difficulty": "easy",
+      "question": "Why does the last line fail to compile?",
+      "code": "interface Point {\n  readonly x: number;\n  readonly y: number;\n}\n\nconst p: Point = { x: 1, y: 2 };\np.x = 5;",
+      "choices": [
+        "p is declared with const, so none of its properties can change",
+        "Point needs a constructor before its properties can be set",
+        "x is readonly, so it cannot be assigned after the object is created",
+        "Interface fields cannot be changed to a different number"
+      ],
+      "answer": 2,
+      "explanation": "readonly forbids assignment to that property: Cannot assign to 'x' because it is a read-only property. const only stops p from being reassigned; without readonly, p.x = 5 would compile.",
+      "concept": "readonly properties",
+      "section": 1
+    },
+    {
+      "id": "typescript-basics-q06",
+      "type": "code-fill",
+      "difficulty": "easy",
+      "question": "Complete the interface so a User can be created without an email.",
+      "code": "interface User {\n  name: string;\n  email_____: string;\n}\n\nconst u: User = { name: \"Ada\" };",
+      "choices": ["!", "?", "-", "+"],
+      "answer": 1,
+      "explanation": "A ? after the property name makes it optional, and its type becomes string | undefined. The ! modifier is for definite assignment in classes and is a syntax error in an interface, and - and + are not valid here.",
+      "concept": "optional properties",
+      "section": 1
+    },
+    {
+      "id": "typescript-basics-q07",
+      "type": "typed",
+      "difficulty": "medium",
+      "question": "What is the type of value on the line marked here?",
+      "code": "function format(value: string | number) {\n  if (typeof value === \"string\") {\n    return value.toUpperCase();\n  }\n  return value.toFixed(2); // here\n}",
+      "answer": "number",
+      "explanation": "The if branch returns for every string, so only number is left on the last line. TypeScript follows the early return, which is why toFixed is allowed without a second check.",
+      "concept": "typeof narrowing",
+      "section": 2
+    },
+    {
+      "id": "typescript-basics-q08",
+      "type": "debug",
+      "difficulty": "medium",
+      "question": "Why is this a compile error?",
+      "code": "function shout(value: string | number) {\n  return value.toUpperCase();\n}",
+      "choices": [
+        "toUpperCase is not a real string method",
+        "The function needs an explicit return type",
+        "Unions cannot be used as parameter types",
+        "value might be a number, which has no toUpperCase; narrow it with typeof first"
+      ],
+      "answer": 3,
+      "explanation": "On a union you can only use members that every type in it has. toUpperCase exists on string but not on number, so the error is Property 'toUpperCase' does not exist on type 'string | number'. Inside if (typeof value === \"string\") the call is allowed.",
+      "concept": "unions need narrowing",
+      "section": 2
+    },
+    {
+      "id": "typescript-basics-q09",
+      "type": "mcq",
+      "difficulty": "medium",
+      "question": "Why can the last line use s.side without an error?",
+      "code": "type Shape =\n  | { kind: \"circle\"; radius: number }\n  | { kind: \"square\"; side: number };\n\nfunction area(s: Shape) {\n  if (s.kind === \"circle\") return Math.PI * s.radius ** 2;\n  return s.side ** 2;\n}",
+      "choices": [
+        "TypeScript ignores property errors on union types",
+        "Every Shape has a side property",
+        "Returning early for \"circle\" leaves only the square member, which has side",
+        "The ** operator converts s to a number"
+      ],
+      "answer": 2,
+      "explanation": "kind is a literal field that differs between the members, so checking it narrows s. After the circle case returns, s can only be the square member. Not every Shape has side: on an un-narrowed Shape, s.side is an error.",
+      "concept": "discriminated unions",
+      "section": 2
+    },
+    {
+      "id": "typescript-basics-q10",
+      "type": "code-fill",
+      "difficulty": "medium",
+      "question": "Complete the declaration so first works with any element type and returns that same type.",
+      "code": "function first_____(items: T[]): T | undefined {\n  return items[0];\n}",
+      "choices": ["<T>", "(T)", "[T]", ": T"],
+      "answer": 0,
+      "explanation": "Type parameters are declared in angle brackets right after the function name. Without <T>, the compiler reports Cannot find name 'T', and the other forms are not valid syntax in that position.",
+      "concept": "declaring a type parameter",
+      "section": 3
+    },
+    {
+      "id": "typescript-basics-q11",
+      "type": "typed",
+      "difficulty": "medium",
+      "question": "What type does TypeScript infer for x?",
+      "code": "function first<T>(items: T[]): T | undefined {\n  return items[0];\n}\n\nconst x = first([\"a\", \"b\"]);",
+      "answer": "string | undefined",
+      "accept": ["string|undefined", "undefined | string", "undefined|string"],
+      "explanation": "The argument is a string[], so T is inferred as string and the return type T | undefined becomes string | undefined. The undefined is there because the array might be empty.",
+      "concept": "generic inference",
+      "section": 3
+    },
+    {
+      "id": "typescript-basics-q12",
+      "type": "debug",
+      "difficulty": "hard",
+      "question": "Why does this generic function fail to compile?",
+      "code": "function longest<T>(a: T, b: T) {\n  return a.length >= b.length ? a : b;\n}",
+      "choices": [
+        "Generic functions cannot compare values",
+        "Nothing is known about T, so .length is not allowed; constrain it with <T extends { length: number }>",
+        "T must be replaced with any for property access to work",
+        "A ternary expression cannot return a generic type"
+      ],
+      "answer": 1,
+      "explanation": "T could be any type, including number, which has no length, so the compiler reports Property 'length' does not exist on type 'T'. A constraint keeps the function generic while guaranteeing length exists. Switching to any would compile but lose the link between input and output types.",
+      "concept": "generic constraints",
+      "section": 3
+    },
+    {
+      "id": "typescript-basics-q13",
+      "type": "recall",
+      "difficulty": "medium",
+      "question": "What does a generic type parameter give you that typing the same function with any does not?",
+      "answer": "A generic keeps the connection between input and output types, so the caller gets back a precise type, such as string from a string[]. With any, the result is any and type checking stops there.",
+      "explanation": "Both versions accept many types, but only the generic remembers which type was passed in, so mistakes after the call are still caught.",
+      "concept": "generics vs any",
+      "section": 3
+    },
+    {
+      "id": "typescript-basics-q14",
+      "type": "mcq",
+      "difficulty": "medium",
+      "question": "What does the compiler report for this code?",
+      "code": "const data: unknown = JSON.parse('\"hello\"');\ndata.toUpperCase();",
+      "choices": [
+        "Nothing; unknown allows any property access",
+        "Nothing at compile time, but a TypeError at runtime",
+        "Property 'toUpperCase' does not exist on type 'string'.",
+        "'data' is of type 'unknown'."
+      ],
+      "answer": 3,
+      "explanation": "unknown accepts any value but allows almost nothing until you narrow it, so the call is a compile error. With any it would compile silently. The value really is a string here, but the compiler cannot know that without a typeof check.",
+      "concept": "unknown requires narrowing",
+      "section": 4
+    },
+    {
+      "id": "typescript-basics-q15",
+      "type": "mcq",
+      "difficulty": "easy",
+      "question": "Which call compiles?",
+      "code": "interface User { id: number; name: string; email: string }\n\nfunction updateUser(id: number, changes: Partial<User>) {\n  // ...\n}",
+      "choices": [
+        "updateUser(1, { email: \"ada@example.com\" })",
+        "updateUser(1, { age: 36 })",
+        "updateUser(1, { email: 42 })",
+        "updateUser(1, \"ada@example.com\")"
+      ],
+      "answer": 0,
+      "explanation": "Partial<User> makes every property optional but keeps the property names and types, so passing only email is fine. age is not a User property, email must still be a string, and a bare string is not a matching object.",
+      "concept": "Partial",
+      "section": 4
+    },
+    {
+      "id": "typescript-basics-q16",
+      "type": "code-fill",
+      "difficulty": "medium",
+      "question": "Complete the annotation for an object whose keys are names and whose values are scores.",
+      "code": "const scores: _____ = { ada: 90, linus: 85 };",
+      "choices": ["Record<number, string>", "Pick<string, number>", "Record<string, number>", "Partial<number>"],
+      "answer": 2,
+      "explanation": "Record<K, V> is an object with keys of type K and values of type V, so string keys and number values is Record<string, number>. Record<number, string> has the two swapped, and Pick selects properties from an existing type rather than describing a map.",
+      "concept": "Record",
+      "section": 4
+    },
+    {
+      "id": "typescript-basics-q17",
+      "type": "typed",
+      "difficulty": "easy",
+      "question": "Which utility type fills the blank so UserCard has only the id and name properties of User?",
+      "code": "interface User { id: number; name: string; email: string }\n\ntype UserCard = _____<User, \"id\" | \"name\">;",
+      "answer": "Pick",
+      "explanation": "Pick<T, Keys> keeps only the listed keys of T. Omit with the same arguments would do the opposite and leave only email.",
+      "concept": "Pick",
+      "section": 4
+    }
+  ]
+}

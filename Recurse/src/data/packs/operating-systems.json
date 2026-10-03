@@ -1,0 +1,423 @@
+{
+  "id": "operating-systems",
+  "name": "Operating Systems",
+  "version": "2.0.0",
+  "author": "Recurse",
+  "subject": "cs",
+  "level": "intermediate",
+  "description": "Processes and threads, scheduling, virtual memory, locks and deadlock, system calls and file systems.",
+  "icon": "OS",
+  "language": "plaintext",
+  "prereqs": [],
+  "tags": [
+    "operating systems",
+    "processes",
+    "threads",
+    "memory",
+    "concurrency",
+    "file systems"
+  ],
+  "lesson": {
+    "estimatedMinutes": 15,
+    "intro": "The operating system shares one machine between many programs. It decides who runs on the CPU, gives every process its own memory, and is the only path to disks and other hardware. Knowing how it works explains slowdowns, crashes and concurrency bugs that otherwise make no sense.",
+    "sections": [
+      {
+        "title": "Processes and threads",
+        "body": "A program is a file on disk. A process is a running instance of a program. The OS gives each process its own virtual address space (its memory), its own table of open files, and at least one thread.\n\nA thread is one sequence of execution inside a process. Each thread has its own registers, program counter and stack, but all threads in a process share its heap, global variables and open files.\n\n- Threads are cheaper to create and switch between, and can share data directly, but a bug in one thread can corrupt data that all of them use.\n- Processes are isolated: a crash in one cannot touch another's memory. They communicate through pipes, sockets or files.\n\nOn Unix, `fork()` creates a new process as a copy of the caller, and `exec()` replaces the program a process is running. A shell uses both to start every command you type.",
+        "code": "import threading\nfrom multiprocessing import Process\n\ncounter = 0\n\ndef bump():\n    global counter\n    counter += 1\n\nif __name__ == \"__main__\":\n    t = threading.Thread(target=bump)\n    t.start()\n    t.join()\n    print(\"after thread:\", counter)    # 1: the thread shares this memory\n\n    p = Process(target=bump)\n    p.start()\n    p.join()\n    print(\"after process:\", counter)   # still 1: the child bumped its own copy",
+        "language": "python",
+        "tip": "In standard CPython the global interpreter lock (GIL) lets only one thread run Python code at a time, so CPU-heavy Python work often uses processes instead.",
+        "check": {
+          "question": "Which is usually cheaper to create and to switch between?",
+          "choices": [
+            "Separate processes, because they share nothing",
+            "Threads in the same process",
+            "They cost exactly the same",
+            "It depends only on the programming language"
+          ],
+          "answer": 1,
+          "explanation": "Threads share their process's address space and open files, so the OS has less to set up and less to swap on a switch. A new process needs its own address space and page tables."
+        }
+      },
+      {
+        "title": "Scheduling and context switches",
+        "body": "A CPU core runs one thread at a time, and the scheduler decides which thread runs next. At any moment a thread is running, ready (able to run, waiting for a core) or blocked (waiting for something such as the disk, the network, a lock or a timer). Blocked threads are skipped until what they wait for arrives.\n\nModern systems are preemptive: a timer interrupt hands control back to the OS after a time slice of a few milliseconds, so no thread can hog a core. Common policies:\n\n- First come, first served: simple, but one long job delays every short job behind it.\n- Shortest job first: lowest average waiting time, but it needs job lengths in advance and can starve long jobs.\n- Round robin: ready threads take turns, one time slice each, which gives good response time.\n- Priority: the most important ready thread runs first; aging slowly raises the priority of waiting threads so they are not starved.\n\nSwitching threads is a context switch: the OS saves the running thread's registers, program counter and stack pointer, then loads another thread's. Switching to a thread in a different process also switches the address space, which throws away cached address translations and makes the switch more expensive. Context switches do no useful work, so very short time slices waste CPU time.",
+        "code": "Round robin, time slice = 2 ms\nJobs arrive together: A needs 5 ms, B needs 2 ms, C needs 3 ms\n\ntime (ms)   0-2   2-4   4-6   6-8   8-9   9-10\nrunning      A     B     C     A     C     A\n\nB finishes at 4 ms, C at 9 ms, A at 10 ms",
+        "language": "plaintext",
+        "check": {
+          "question": "In the round-robin timeline, why does B finish before A even though all three jobs arrived together and A ran first?",
+          "choices": [
+            "Each job runs at most 2 ms per turn, and B needs only 2 ms",
+            "B has a higher priority than A",
+            "The scheduler always picks the shortest job",
+            "A was blocked waiting for the disk"
+          ],
+          "answer": 0,
+          "explanation": "Round robin gives every ready job one slice in turn. A uses its first 2 ms and goes to the back of the line; B then runs its whole 2 ms and finishes at 4 ms. No priorities or job lengths are involved."
+        }
+      },
+      {
+        "title": "Virtual memory and paging",
+        "body": "Every process sees its own virtual address space, as if it had the machine's memory to itself. The hardware memory management unit (MMU) translates each virtual address to a physical one, using page tables that the OS keeps for each process.\n\nMemory is managed in fixed-size pages, commonly 4 KiB. The low bits of an address are the offset inside a page; the high bits are the page number, which the page table maps to a physical frame. A small cache called the TLB keeps recent translations so most lookups are fast.\n\nThis buys several things:\n\n- Isolation: a process has no way to name another process's memory.\n- Every process can use the same virtual addresses without clashing.\n- Pages can be moved to disk when RAM runs short, so programs can use more memory than is free.\n- Shared libraries can be mapped into many processes from one physical copy.\n\nWhen a process touches a page that is not in RAM, the CPU raises a page fault. If the access is valid, the kernel loads the page from disk or allocates a fresh one, updates the page table and reruns the instruction. If the address is invalid, the process gets a segmentation fault. When the pages in active use do not fit in RAM, the system spends most of its time moving pages to and from disk; this is called thrashing.",
+        "code": "Page size 4 KiB = 4096 bytes = 2^12, so the low 12 bits are the offset\n\nvirtual address    0x00403A2C\npage number        0x00403        (address >> 12)\noffset             0xA2C          (address & 0xFFF)\n\npage table entry   page 0x00403 -> frame 0x001F2\nphysical address   0x001F2A2C     (frame << 12 | offset)",
+        "language": "plaintext",
+        "check": {
+          "question": "Pages are 4 KiB. Roughly how many pages does a 10 MiB block of memory span?",
+          "choices": [
+            "10",
+            "256",
+            "2,560",
+            "40,960"
+          ],
+          "answer": 2,
+          "explanation": "10 MiB is 10 * 1024 = 10,240 KiB, and 10,240 / 4 = 2,560 pages. 40,960 would be the count with 256-byte pages."
+        }
+      },
+      {
+        "title": "Race conditions, locks and deadlock",
+        "body": "A race condition happens when the result depends on the timing of threads that touch shared data. `count += 1` looks like one step but is three: read count, add 1, write it back. If two threads both read 5, both write 6, and one update is lost.\n\nCode that touches shared data is a critical section. A mutex (lock) protects it: only one thread can hold the lock, and the others block until it is released. In Python, `with lock:` acquires the lock and releases it even if an exception is raised. Keep critical sections short, and make sure a check and the action that depends on it happen under the same lock.\n\nLocks bring a new risk: deadlock, where threads wait for each other forever. It needs all four of these conditions at once (the Coffman conditions):\n\n- Mutual exclusion: a resource can be held by only one thread.\n- Hold and wait: a thread holds one resource while waiting for another.\n- No preemption: a resource cannot be taken away from its holder.\n- Circular wait: a cycle of threads, each waiting for a resource the next one holds.\n\nBreaking any one of them prevents deadlock. The usual fix is to always acquire locks in the same global order, which makes a circular wait impossible.",
+        "code": "import threading\n\ncount = 0\nlock = threading.Lock()\n\ndef work():\n    global count\n    for _ in range(100_000):\n        with lock:          # only one thread at a time runs this line\n            count += 1\n\nthreads = [threading.Thread(target=work) for _ in range(4)]\nfor t in threads:\n    t.start()\nfor t in threads:\n    t.join()\nprint(count)   # always 400000; without the lock, updates can be lost",
+        "language": "python",
+        "check": {
+          "question": "Two threads each run count += 1 once with no lock, starting from count = 5. Which final values are possible?",
+          "choices": [
+            "Only 7",
+            "Only 6",
+            "5, 6 or 7",
+            "6 or 7"
+          ],
+          "answer": 3,
+          "explanation": "If the two updates do not overlap, the result is 7. If both threads read 5 before either writes, both write 6 and one update is lost. Each thread writes a value of at least 6, so 5 is impossible."
+        }
+      },
+      {
+        "title": "System calls and file systems",
+        "body": "The CPU runs in at least two privilege levels. The kernel runs in kernel mode and can do anything: talk to devices, change page tables, read any memory. Normal programs run in user mode, where those instructions are forbidden.\n\nTo read a file, send a packet or start a process, a program makes a system call: a special instruction (such as `syscall` on x86-64) switches the CPU to kernel mode and jumps into the kernel, which checks permissions, does the work and returns to user mode. Examples include `open`, `read`, `write`, `close`, `fork`, `execve` and `mmap`. A system call costs much more than a normal function call, which is why I/O libraries buffer many small writes into fewer large ones. On Linux, `strace` lists the system calls a program makes.\n\nWhen a process opens a file, the kernel returns a file descriptor: a small integer that indexes the process's table of open files. Descriptors 0, 1 and 2 are standard input, output and error.\n\nOn Unix file systems, each file is described by an inode, which records its size, owner, permissions, timestamps and where its data blocks are. The name is not in the inode: a directory is a table that maps names to inode numbers. A hard link is a second name for the same inode, while a symbolic link is a small file that stores a path. `rm` removes a name; the data is freed only when no names and no open file descriptors refer to the inode.",
+        "code": "echo hello > a.txt\nln a.txt b.txt        # hard link: a second name for the same inode\nls -i a.txt b.txt     # both names show the same inode number\nrm a.txt              # removes one name, not the data\ncat b.txt             # prints: hello\nln -s b.txt c.txt     # symbolic link: a tiny file that stores the path \"b.txt\"\nrm b.txt\ncat c.txt             # fails: No such file or directory (the link dangles)",
+        "language": "bash",
+        "check": {
+          "question": "Why can't an ordinary program send commands straight to the disk controller?",
+          "choices": [
+            "Only programs written in C can talk to hardware",
+            "The disk can only be reached while the computer boots",
+            "It runs in user mode, so it must ask the kernel through a system call",
+            "The scheduler blocks any program that uses hardware"
+          ],
+          "answer": 2,
+          "explanation": "Device access instructions are privileged and only work in kernel mode. Programs in any language reach the disk the same way: through system calls such as read and write."
+        }
+      }
+    ],
+    "keyTerms": [
+      {
+        "term": "Process",
+        "definition": "A running program with its own address space, open files and one or more threads."
+      },
+      {
+        "term": "Thread",
+        "definition": "A sequence of execution inside a process, with its own stack and registers but memory shared with the process."
+      },
+      {
+        "term": "Context switch",
+        "definition": "Saving the running thread's CPU state and loading another thread's so that it can run."
+      },
+      {
+        "term": "Page fault",
+        "definition": "A trap raised when a process touches a page that is not in RAM; the kernel then loads or allocates it."
+      },
+      {
+        "term": "Race condition",
+        "definition": "A bug where the result depends on the timing of threads accessing shared data."
+      },
+      {
+        "term": "Mutex",
+        "definition": "A lock that only one thread can hold at a time, used to protect a critical section."
+      },
+      {
+        "term": "Deadlock",
+        "definition": "A state where threads wait on each other's resources in a cycle, so none can proceed."
+      },
+      {
+        "term": "System call",
+        "definition": "A request from a user-mode program to the kernel, such as open, read or fork."
+      }
+    ],
+    "summary": [
+      "A process owns an isolated address space; threads inside it share memory but each has its own stack and registers.",
+      "The scheduler time-slices the CPU among ready threads, and every context switch is overhead.",
+      "Virtual memory maps each process's addresses to RAM page by page; a page fault lets the kernel load or allocate a page on demand.",
+      "Shared data needs a lock, and a fixed lock order prevents deadlock by ruling out circular wait.",
+      "Programs reach hardware only through system calls; on Unix a file is an inode, and names are directory entries that point to it."
+    ],
+    "feynmanPrompt": "Explain to a friend who has never programmed how one computer can run a browser, a music player and a chat app at the same time, and why one of them crashing usually does not take the others down."
+  },
+  "questions": [
+    {
+      "id": "operating-systems-q01",
+      "type": "mcq",
+      "difficulty": "easy",
+      "question": "A web browser runs each tab in its own process. What is the main benefit?",
+      "choices": [
+        "A tab that crashes cannot corrupt another tab's memory",
+        "Tabs can read each other's variables directly",
+        "Processes are cheaper to create than threads",
+        "Each tab is guaranteed its own CPU core"
+      ],
+      "answer": 0,
+      "explanation": "Processes have separate address spaces, so a crash or memory bug stays inside one tab. The isolation has a cost: processes are more expensive than threads and need pipes or sockets to share data.",
+      "concept": "process isolation",
+      "section": 0
+    },
+    {
+      "id": "operating-systems-q02",
+      "type": "mcq",
+      "difficulty": "medium",
+      "question": "What does this print on Linux?",
+      "code": "import os\n\npid = os.fork()\nprint(\"hello\", pid == 0)",
+      "language": "python",
+      "choices": [
+        "One line: hello False",
+        "One line: hello True",
+        "Two lines, hello True and hello False, in either order",
+        "Two lines, always hello False first"
+      ],
+      "answer": 2,
+      "explanation": "After fork() there are two processes running the same code. The child gets a return value of 0 and prints True; the parent gets the child's process ID and prints False. The scheduler decides which runs first, so the order is not guaranteed.",
+      "concept": "fork",
+      "section": 0
+    },
+    {
+      "id": "operating-systems-q03",
+      "type": "typed",
+      "difficulty": "medium",
+      "question": "Threads in a process share its heap and global variables. Which per-thread memory region holds each thread's local variables and return addresses?",
+      "answer": "stack",
+      "accept": [
+        "the stack",
+        "call stack",
+        "its stack",
+        "thread stack"
+      ],
+      "explanation": "Each thread needs its own stack because each is partway through its own chain of function calls. The heap is shared, which is why objects on it need locking when several threads change them.",
+      "concept": "what threads share",
+      "section": 0
+    },
+    {
+      "id": "operating-systems-q04",
+      "type": "mcq",
+      "difficulty": "medium",
+      "question": "Why is switching to a thread of a different process usually more expensive than switching between threads of the same process?",
+      "choices": [
+        "Threads of different processes must be reloaded from disk",
+        "The address space changes, so page tables switch and cached translations are lost",
+        "Threads of the same process need no registers saved",
+        "The OS can only switch processes once per second"
+      ],
+      "answer": 1,
+      "explanation": "Every context switch saves and restores registers. Crossing processes also switches page tables, which invalidates TLB entries and leaves caches full of the other process's data, so the new thread starts slowly. Nothing is reloaded from disk on a normal switch.",
+      "concept": "context switch cost",
+      "section": 1
+    },
+    {
+      "id": "operating-systems-q05",
+      "type": "mcq",
+      "difficulty": "medium",
+      "question": "Three jobs arrive together needing 10 ms, 1 ms and 1 ms of CPU. Which run order gives the lowest average waiting time?",
+      "choices": [
+        "10, 1, 1 (first come, first served)",
+        "1, 1, 10 (shortest job first)",
+        "1, 10, 1",
+        "Any order: the average is the same"
+      ],
+      "answer": 1,
+      "explanation": "Shortest first gives waits of 0, 1 and 2 ms, an average of 1 ms. Running the 10 ms job first makes the short jobs wait 10 and 11 ms, an average of 7 ms. The total work is fixed, but who waits behind whom is not.",
+      "concept": "scheduling policies",
+      "section": 1
+    },
+    {
+      "id": "operating-systems-q06",
+      "type": "typed",
+      "difficulty": "easy",
+      "question": "A thread calls read() on a network socket that has no data yet. Is the thread now running, ready or blocked?",
+      "answer": "blocked",
+      "accept": [
+        "waiting",
+        "blocked state",
+        "sleeping"
+      ],
+      "explanation": "It cannot make progress until data arrives, so the OS marks it blocked and runs other threads. When data arrives it becomes ready, and it runs once the scheduler picks it. Ready means able to run but waiting for a core.",
+      "concept": "thread states",
+      "section": 1
+    },
+    {
+      "id": "operating-systems-q07",
+      "type": "mcq",
+      "difficulty": "hard",
+      "question": "What happens if you make the round-robin time slice very short?",
+      "choices": [
+        "Throughput rises, because every job finishes sooner",
+        "Long jobs are starved and never finish",
+        "It turns into first come, first served",
+        "Response time improves, but more CPU time is lost to context switches"
+      ],
+      "answer": 3,
+      "explanation": "Short slices let every thread get a turn sooner, so interactive programs feel snappier, but every switch costs time that does no useful work. A very long slice has the opposite effect and makes round robin behave like first come, first served.",
+      "concept": "time slice trade-off",
+      "section": 1
+    },
+    {
+      "id": "operating-systems-q08",
+      "type": "mcq",
+      "difficulty": "medium",
+      "question": "A parent process and its forked child each print the address of the same variable and get the same number. The child then changes the variable. What does the parent see?",
+      "choices": [
+        "Its old value, because the same virtual address maps to different physical memory",
+        "The new value, because the address is the same",
+        "A segmentation fault, because two processes share one address",
+        "A random value, because the write races with the parent"
+      ],
+      "answer": 0,
+      "explanation": "Addresses a program can see are virtual. Each process has its own page tables, so the same virtual address can map to different physical frames. After fork the pages start out shared but are copied when either process writes (copy-on-write), so the parent keeps its value.",
+      "concept": "virtual address spaces",
+      "section": 2
+    },
+    {
+      "id": "operating-systems-q09",
+      "type": "typed",
+      "difficulty": "medium",
+      "question": "With 4 KiB pages, how many bits of a virtual address are the offset within the page?",
+      "answer": "12",
+      "accept": [
+        "12 bits"
+      ],
+      "explanation": "4 KiB is 4,096 bytes, and 4,096 = 2^12, so 12 bits are needed to pick any byte in a page. The remaining high bits form the page number.",
+      "concept": "page offset",
+      "section": 2
+    },
+    {
+      "id": "operating-systems-q10",
+      "type": "mcq",
+      "difficulty": "hard",
+      "question": "A program reads a valid address whose page was moved out to disk. What happens?",
+      "choices": [
+        "The program crashes with a segmentation fault",
+        "The CPU reads the byte directly from the disk",
+        "The kernel handles a page fault, loads the page into RAM and reruns the instruction",
+        "The read returns 0, because the page is empty"
+      ],
+      "answer": 2,
+      "explanation": "A page fault is not an error by itself. The kernel finds a free frame, reads the page back, updates the page table and resumes the program, which notices nothing except the delay. A segmentation fault only happens when the address is not valid for the process.",
+      "concept": "page faults",
+      "section": 2
+    },
+    {
+      "id": "operating-systems-q11",
+      "type": "debug",
+      "difficulty": "hard",
+      "question": "Several threads call withdraw at the same time, and the balance sometimes goes negative. What is the bug?",
+      "code": "import threading\n\nbalance = 100\nlock = threading.Lock()\n\ndef withdraw(amount):\n    global balance\n    if balance >= amount:\n        with lock:\n            balance -= amount",
+      "language": "python",
+      "choices": [
+        "with lock: never releases the lock",
+        "Threads cannot change global variables",
+        "The lock should be created inside withdraw",
+        "The balance check is outside the lock, so two threads can both pass it before either subtracts"
+      ],
+      "answer": 3,
+      "explanation": "A check and the action that depends on it must happen under the same lock. Here two threads can both see a balance of 100, both pass the check and both subtract. Moving the if inside `with lock:` fixes it. A lock created inside the function would be a new lock on every call, so it would protect nothing.",
+      "concept": "check-then-act race",
+      "section": 3
+    },
+    {
+      "id": "operating-systems-q12",
+      "type": "mcq",
+      "difficulty": "medium",
+      "question": "Thread 1 takes lock A, then waits for lock B. Thread 2 takes lock B, then waits for lock A. Which change prevents this deadlock?",
+      "choices": [
+        "Make both threads acquire A before B",
+        "Add a short sleep before each acquire",
+        "Start the threads in the other order",
+        "Add a third lock, C, to each thread"
+      ],
+      "answer": 0,
+      "explanation": "A fixed acquisition order removes circular wait: whichever thread gets A first will also get B, and the other thread waits for A while holding nothing. Sleeps and start order only change the timing, so the deadlock becomes rarer but is still possible.",
+      "concept": "lock ordering",
+      "section": 3
+    },
+    {
+      "id": "operating-systems-q13",
+      "type": "recall",
+      "difficulty": "medium",
+      "question": "Name the four conditions that must all hold for a deadlock.",
+      "answer": "Mutual exclusion (a resource is held by one thread at a time), hold and wait (a thread holds one resource while waiting for another), no preemption (resources cannot be taken away), and circular wait (a cycle of threads, each waiting for the next).",
+      "explanation": "These are the Coffman conditions. Removing any one prevents deadlock; a global lock order removes circular wait.",
+      "concept": "Coffman conditions",
+      "section": 3
+    },
+    {
+      "id": "operating-systems-q14",
+      "type": "code-fill",
+      "difficulty": "easy",
+      "question": "Fill the blank so the lock is held while appending and is always released afterward.",
+      "code": "import threading\n\nlock = threading.Lock()\nshared = []\n\ndef add(item):\n    _____ lock:\n        shared.append(item)",
+      "language": "python",
+      "choices": [
+        "try",
+        "with",
+        "async",
+        "lock"
+      ],
+      "answer": 1,
+      "explanation": "`with lock:` acquires the lock on entry and releases it when the block ends, even if an exception is raised. Calling lock.acquire() and lock.release() by hand also works, but an exception between them leaves the lock held forever.",
+      "concept": "using a mutex",
+      "section": 3
+    },
+    {
+      "id": "operating-systems-q15",
+      "type": "mcq",
+      "difficulty": "easy",
+      "question": "Which of these needs a system call?",
+      "choices": [
+        "Adding two integers",
+        "Calling a function you wrote",
+        "Sorting a list already in memory",
+        "Opening a file"
+      ],
+      "answer": 3,
+      "explanation": "Files live on devices that only the kernel may touch, so open must cross into kernel mode. Arithmetic, your own function calls and sorting in memory all run in user mode without the kernel's help.",
+      "concept": "system calls",
+      "section": 4
+    },
+    {
+      "id": "operating-systems-q16",
+      "type": "typed",
+      "difficulty": "easy",
+      "question": "On Unix, which file descriptor number is standard error?",
+      "answer": "2",
+      "accept": [
+        "fd 2"
+      ],
+      "explanation": "Every process starts with three descriptors: 0 for standard input, 1 for standard output and 2 for standard error. That is why `2> errors.log` in a shell redirects error messages.",
+      "concept": "file descriptors",
+      "section": 4
+    },
+    {
+      "id": "operating-systems-q17",
+      "type": "debug",
+      "difficulty": "medium",
+      "question": "The goal was for backup.txt to keep the contents after notes.txt is deleted, but cat fails. What is wrong?",
+      "code": "ln -s notes.txt backup.txt\nrm notes.txt\ncat backup.txt",
+      "language": "bash",
+      "choices": [
+        "rm deletes every name for the file, including links",
+        "cat cannot read through links",
+        "ln -s makes a symbolic link, which stores only the path; a hard link (ln without -s) keeps the data",
+        "The arguments to ln -s are in the wrong order"
+      ],
+      "answer": 2,
+      "explanation": "A symbolic link only records the name notes.txt. After rm that name points nowhere, so the link dangles. A hard link is a second directory entry for the same inode, and the data stays as long as any name refers to it. The argument order is right: the target comes first, then the new link's name.",
+      "concept": "hard vs symbolic links",
+      "section": 4
+    }
+  ]
+}

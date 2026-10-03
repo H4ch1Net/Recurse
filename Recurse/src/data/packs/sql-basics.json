@@ -1,0 +1,342 @@
+{
+  "id": "sql-basics",
+  "name": "SQL Basics",
+  "version": "2.0.0",
+  "author": "Recurse",
+  "subject": "programming",
+  "level": "beginner",
+  "description": "Query, group, join and change relational data, and avoid the classic NULL and missing-WHERE traps.",
+  "icon": "SQL",
+  "language": "sql",
+  "prereqs": [],
+  "tags": ["sql", "databases", "joins", "queries"],
+  "lesson": {
+    "estimatedMinutes": 14,
+    "intro": "SQL is the language for asking questions of relational databases, which store data in tables of rows and columns. A few clauses cover most everyday work: picking and sorting rows, summarizing them, combining tables, and changing data safely.",
+    "sections": [
+      {
+        "title": "SELECT, WHERE, ORDER BY and LIMIT",
+        "body": "SQL describes which rows you want, not how to find them. A basic query reads like a sentence:\n\n- `SELECT` lists the columns to return (`*` means all of them).\n- `FROM` names the table.\n- `WHERE` keeps only rows where the condition is true. Text values go in single quotes: `city = 'Paris'`.\n- `ORDER BY` sorts the result, ascending by default; add `DESC` for largest first.\n- `LIMIT n` keeps the first n rows of the sorted result.\n\nThe clauses must appear in that order. Without `ORDER BY` the database may return rows in any order, so `LIMIT` alone does not mean \"the first rows added\".\n\nCombine conditions with `AND` and `OR`. `AND` binds tighter than `OR`, so use parentheses when you mix them. `LIKE` matches patterns: `%` stands for any run of characters and `_` for exactly one.",
+        "code": "SELECT name, price\nFROM products\nWHERE category = 'books' AND price < 20\nORDER BY price DESC\nLIMIT 5;",
+        "tip": "Some databases (SQL Server) use SELECT TOP 5 instead of LIMIT 5.",
+        "check": {
+          "question": "A query ends with ORDER BY price and no DESC. Which product comes first?",
+          "choices": ["The most expensive", "The cheapest", "The one added first", "A random one"],
+          "answer": 1,
+          "explanation": "ORDER BY sorts in ascending order unless you write DESC, so the smallest price comes first. Insertion order plays no part once you sort."
+        }
+      },
+      {
+        "title": "Aggregates, GROUP BY and HAVING",
+        "body": "Aggregate functions turn many rows into one value: `COUNT`, `SUM`, `AVG`, `MIN` and `MAX`.\n\n- `COUNT(*)` counts rows. `COUNT(column)` counts only rows where that column is not NULL.\n- `SUM`, `AVG`, `MIN` and `MAX` also skip NULLs.\n\n`GROUP BY` splits the rows into groups that share a value and computes the aggregates once per group. Every column in the `SELECT` list must either appear in `GROUP BY` or sit inside an aggregate; otherwise there is no single value to show for the group.\n\n`WHERE` filters rows before grouping, so it cannot use aggregates. `HAVING` filters groups after they are formed, so it can. The full clause order is `SELECT`, `FROM`, `WHERE`, `GROUP BY`, `HAVING`, `ORDER BY`, `LIMIT`.",
+        "code": "-- Customers with at least 2 orders over 10, most orders first\nSELECT customer_id, COUNT(*) AS n\nFROM orders\nWHERE total > 10            -- filters rows\nGROUP BY customer_id\nHAVING COUNT(*) >= 2        -- filters groups\nORDER BY n DESC;",
+        "check": {
+          "question": "orders has 6 rows placed by 3 different customers. How many rows does SELECT customer_id, COUNT(*) FROM orders GROUP BY customer_id; return?",
+          "choices": ["6", "1", "2", "3"],
+          "answer": 3,
+          "explanation": "GROUP BY produces one row per distinct customer_id, so 3 rows, each showing how many orders that customer placed. The 6 original rows are folded into their groups."
+        }
+      },
+      {
+        "title": "Keys and JOINs",
+        "body": "A primary key uniquely identifies each row in a table. Its values must be unique and not NULL, and each table has one primary key (it may span several columns).\n\nA foreign key is a column that refers to the primary key of another table, such as `orders.customer_id` pointing to `customers.id`. The database then rejects an order for a customer who does not exist, and by default blocks deleting a customer who still has orders.\n\nA JOIN combines rows from two tables using a condition in `ON`, usually foreign key = primary key.\n\n- `INNER JOIN` (or just `JOIN`) keeps only pairs that match. Customers without orders disappear.\n- `LEFT JOIN` keeps every row from the left table. Where there is no match, the right table's columns are NULL.\n\nA customer with three orders appears three times in a join result, once per matching order.",
+        "code": "CREATE TABLE customers (\n  id   INTEGER PRIMARY KEY,\n  name TEXT NOT NULL\n);\nCREATE TABLE orders (\n  id          INTEGER PRIMARY KEY,\n  customer_id INTEGER REFERENCES customers(id),\n  total       REAL\n);\n\n-- Every customer, with their orders if they have any\nSELECT c.name, o.total\nFROM customers c\nLEFT JOIN orders o ON o.customer_id = c.id;",
+        "tip": "SQLite only enforces foreign keys after PRAGMA foreign_keys = ON.",
+        "check": {
+          "question": "Which statement about a primary key is true?",
+          "choices": [
+            "Its values must be unique and not NULL",
+            "A table can have several primary keys",
+            "It must be a text column",
+            "Duplicate values are allowed if they are rare"
+          ],
+          "answer": 0,
+          "explanation": "A primary key exists to identify each row, so its values must be unique and present. A table has one primary key, though it can combine several columns, and it can be any suitable type, most often an integer."
+        }
+      },
+      {
+        "title": "NULL means unknown",
+        "body": "NULL is not a value like 0 or an empty string. It means missing or unknown, and that changes how comparisons work.\n\n- Any comparison with NULL, even `NULL = NULL`, is neither true nor false but unknown. `WHERE` keeps only rows where the condition is true, so `WHERE email = NULL` returns nothing.\n- Test for missing values with `IS NULL` and `IS NOT NULL`.\n- Arithmetic with NULL gives NULL: `price + NULL` is NULL.\n- Aggregates skip NULLs: the `AVG` of 10, 20 and NULL is 15, not 10.\n- `COALESCE(a, b, ...)` returns its first non-NULL argument, which is handy for defaults: `COALESCE(nickname, name)`.\n\nA condition such as `WHERE status <> 'done'` also skips rows where status is NULL, a common source of missing rows.",
+        "code": "SELECT name, COALESCE(phone, 'no phone') AS phone\nFROM users\nWHERE email IS NULL;        -- not: email = NULL",
+        "check": {
+          "question": "What does SELECT NULL = NULL; return?",
+          "choices": ["1 (true)", "0 (false)", "NULL", "An error"],
+          "answer": 2,
+          "explanation": "Comparing anything with NULL gives unknown, which SQL represents as NULL. That is why the separate IS NULL test exists."
+        }
+      },
+      {
+        "title": "Changing data, and indexes",
+        "body": "Three statements change data:\n\n- `INSERT INTO users (name, email) VALUES ('Ada', 'ada@example.com');` adds a row.\n- `UPDATE users SET email = 'new@example.com' WHERE id = 7;` changes matching rows.\n- `DELETE FROM users WHERE id = 7;` removes matching rows.\n\n`UPDATE` and `DELETE` affect every row the `WHERE` clause matches, and with no `WHERE` at all they affect every row in the table. Before running one, run a `SELECT` with the same `WHERE` to see exactly which rows will change, and wrap the change in a transaction (`BEGIN` ... `COMMIT`, or `ROLLBACK` to undo) when you can.\n\nAn index is a sorted lookup structure on one or more columns, like the index at the back of a book. It lets the database find matching rows without scanning the whole table, which speeds up `WHERE`, `JOIN` and `ORDER BY` on those columns. The cost is extra storage, and every `INSERT`, `UPDATE` and `DELETE` must also update the index. Primary keys are indexed automatically; foreign key columns that you join on usually deserve an index too.",
+        "code": "BEGIN;\nSELECT * FROM orders WHERE status = 'cancelled';  -- preview the rows\nDELETE FROM orders WHERE status = 'cancelled';\nCOMMIT;\n\nCREATE INDEX idx_orders_customer ON orders (customer_id);",
+        "check": {
+          "question": "Which part of an UPDATE statement decides which rows change?",
+          "choices": ["SET", "WHERE", "FROM", "VALUES"],
+          "answer": 1,
+          "explanation": "SET says what the new values are; WHERE says which rows get them. Leave out WHERE and every row in the table is updated."
+        }
+      }
+    ],
+    "keyTerms": [
+      { "term": "WHERE", "definition": "The clause that filters individual rows before any grouping." },
+      { "term": "aggregate function", "definition": "A function such as COUNT, SUM or AVG that turns many rows into one value." },
+      { "term": "HAVING", "definition": "The clause that filters groups after GROUP BY, so it can use aggregates." },
+      { "term": "primary key", "definition": "A column or set of columns whose values uniquely identify each row; unique and never NULL." },
+      { "term": "foreign key", "definition": "A column that must match a primary key value in another table, linking the two." },
+      { "term": "LEFT JOIN", "definition": "A join that keeps every row of the left table, filling the right side with NULL where nothing matches." },
+      { "term": "NULL", "definition": "A marker for a missing or unknown value; comparisons with it are unknown, so test it with IS NULL." },
+      { "term": "index", "definition": "A lookup structure on columns that speeds up searches and joins at the cost of storage and slower writes." }
+    ],
+    "summary": [
+      "Clauses run in a fixed order: WHERE filters rows, GROUP BY forms groups, HAVING filters groups, ORDER BY and LIMIT shape the output.",
+      "INNER JOIN keeps only matching pairs; LEFT JOIN keeps every left row and fills gaps with NULL.",
+      "NULL means unknown: use IS NULL, and remember that aggregates and COUNT(column) skip it.",
+      "UPDATE and DELETE without WHERE change every row, so preview with a SELECT first.",
+      "Indexes make reads on their columns fast and make every write a little slower."
+    ],
+    "feynmanPrompt": "Explain to a coworker who uses spreadsheets what a LEFT JOIN between customers and orders produces, and why WHERE email = NULL finds nothing."
+  },
+  "questions": [
+    {
+      "id": "sql-basics-q01",
+      "type": "mcq",
+      "difficulty": "easy",
+      "question": "Which query returns the three most expensive products?",
+      "choices": [
+        "SELECT name, price FROM products ORDER BY price LIMIT 3;",
+        "SELECT name, price FROM products LIMIT 3 ORDER BY price DESC;",
+        "SELECT name, price FROM products ORDER BY price DESC LIMIT 3;",
+        "SELECT MAX(price) FROM products LIMIT 3;"
+      ],
+      "answer": 2,
+      "explanation": "Sort from the highest price with ORDER BY price DESC, then keep three rows with LIMIT 3. Without DESC you get the three cheapest, LIMIT must come after ORDER BY, and MAX returns a single row.",
+      "concept": "ORDER BY DESC with LIMIT",
+      "section": 0
+    },
+    {
+      "id": "sql-basics-q02",
+      "type": "debug",
+      "difficulty": "medium",
+      "question": "This query should return active customers in Paris or Lyon, but it also returns inactive customers from Paris. Why?",
+      "code": "SELECT name\nFROM customers\nWHERE city = 'Paris' OR city = 'Lyon' AND active = 1;",
+      "choices": [
+        "AND is evaluated before OR, so it means Paris OR (Lyon AND active); put parentheses around the OR",
+        "OR cannot compare the same column twice",
+        "active = 1 must be written as active = TRUE",
+        "Conditions in WHERE are checked from right to left"
+      ],
+      "answer": 0,
+      "explanation": "AND binds tighter than OR, so the condition is city = 'Paris' OR (city = 'Lyon' AND active = 1), and every Paris customer passes. Write WHERE (city = 'Paris' OR city = 'Lyon') AND active = 1, or use city IN ('Paris', 'Lyon').",
+      "concept": "AND/OR precedence",
+      "section": 0
+    },
+    {
+      "id": "sql-basics-q03",
+      "type": "code-fill",
+      "difficulty": "easy",
+      "question": "Complete the query to find products whose name starts with \"Pro\".",
+      "code": "SELECT name FROM products\nWHERE name _____ 'Pro%';",
+      "choices": ["=", "IN", "IS", "LIKE"],
+      "answer": 3,
+      "explanation": "LIKE matches patterns, and % stands for any run of characters, so 'Pro%' matches names such as Product and Prompt. With =, the % is an ordinary character, so only a name that is literally Pro% would match.",
+      "concept": "LIKE patterns",
+      "section": 0
+    },
+    {
+      "id": "sql-basics-q04",
+      "type": "typed",
+      "difficulty": "medium",
+      "question": "What number does this query return?",
+      "code": "-- users\n-- id | name | email\n-- 1  | Ada  | ada@example.com\n-- 2  | Bo   | NULL\n-- 3  | Cy   | cy@example.com\n-- 4  | Di   | NULL\n-- 5  | Eve  | eve@example.com\n\nSELECT COUNT(email) FROM users;",
+      "answer": "3",
+      "explanation": "COUNT(column) counts only rows where that column is not NULL, so the two users without an email are skipped. COUNT(*) would return 5 because it counts rows.",
+      "concept": "COUNT(column) skips NULL",
+      "section": 1
+    },
+    {
+      "id": "sql-basics-q05",
+      "type": "mcq",
+      "difficulty": "medium",
+      "question": "Which query lists cities that have more than 10 customers?",
+      "choices": [
+        "SELECT city, COUNT(*) FROM customers WHERE COUNT(*) > 10 GROUP BY city;",
+        "SELECT city, COUNT(*) FROM customers GROUP BY city HAVING COUNT(*) > 10;",
+        "SELECT city, COUNT(*) FROM customers GROUP BY city WHERE COUNT(*) > 10;",
+        "SELECT city, COUNT(*) FROM customers HAVING COUNT(*) > 10;"
+      ],
+      "answer": 1,
+      "explanation": "Counting per city needs GROUP BY city, and filtering on the count needs HAVING, which runs after the groups exist. WHERE runs before grouping, so it cannot use COUNT(*), and without GROUP BY the whole table is one group.",
+      "concept": "HAVING filters groups",
+      "section": 1
+    },
+    {
+      "id": "sql-basics-q06",
+      "type": "debug",
+      "difficulty": "hard",
+      "question": "What is wrong with this query?",
+      "code": "SELECT city, name, COUNT(*)\nFROM customers\nGROUP BY city;",
+      "choices": [
+        "COUNT(*) cannot be combined with GROUP BY",
+        "city must be wrapped in an aggregate function",
+        "name is neither grouped nor aggregated, so a city's group has no single name to show",
+        "GROUP BY must list every column in the table"
+      ],
+      "answer": 2,
+      "explanation": "Each output row is one city, but a city can have many customers, so name has no single value. Standard SQL and most databases (PostgreSQL, SQL Server, MySQL in its default mode) reject the query; SQLite runs it but shows an arbitrary name. Add name to GROUP BY or wrap it in an aggregate. Only selected columns matter, not every column in the table.",
+      "concept": "GROUP BY column rule",
+      "section": 1
+    },
+    {
+      "id": "sql-basics-q07",
+      "type": "recall",
+      "difficulty": "medium",
+      "question": "What is the difference between WHERE and HAVING?",
+      "answer": "WHERE filters individual rows before they are grouped, so it cannot use aggregates. HAVING filters groups after GROUP BY, so it can use aggregates such as COUNT(*) > 10.",
+      "explanation": "Filtering early with WHERE is also cheaper, because the rows it removes are never grouped. Use HAVING only for conditions on aggregates.",
+      "concept": "WHERE vs HAVING",
+      "section": 1
+    },
+    {
+      "id": "sql-basics-q08",
+      "type": "typed",
+      "difficulty": "medium",
+      "question": "How many rows does this query return?",
+      "code": "-- customers (id, name): (1, 'Ada'), (2, 'Bo'), (3, 'Cy')\n-- orders (id, customer_id): (10, 1), (11, 1), (12, 2)\n\nSELECT c.name, o.id\nFROM customers c\nLEFT JOIN orders o ON o.customer_id = c.id;",
+      "answer": "4",
+      "explanation": "Ada matches two orders, so she appears twice; Bo appears once; Cy has no orders, but LEFT JOIN keeps her with NULL for o.id. That is 2 + 1 + 1 = 4 rows. An INNER JOIN would return 3.",
+      "concept": "LEFT JOIN row count",
+      "section": 2
+    },
+    {
+      "id": "sql-basics-q09",
+      "type": "mcq",
+      "difficulty": "medium",
+      "question": "Which query finds customers who have never placed an order?",
+      "choices": [
+        "SELECT c.name FROM customers c JOIN orders o ON o.customer_id = c.id WHERE o.id IS NULL;",
+        "SELECT c.name FROM customers c LEFT JOIN orders o ON o.customer_id = c.id WHERE o.id = NULL;",
+        "SELECT c.name FROM customers c JOIN orders o ON o.customer_id <> c.id;",
+        "SELECT c.name FROM customers c LEFT JOIN orders o ON o.customer_id = c.id WHERE o.id IS NULL;"
+      ],
+      "answer": 3,
+      "explanation": "LEFT JOIN keeps customers without orders and fills the order columns with NULL, and IS NULL keeps exactly those rows. An inner JOIN drops them before WHERE runs, = NULL is never true, and joining on <> pairs each customer with other people's orders.",
+      "concept": "anti-join with LEFT JOIN",
+      "section": 2
+    },
+    {
+      "id": "sql-basics-q10",
+      "type": "code-fill",
+      "difficulty": "easy",
+      "question": "Complete the join condition so each order is paired with the customer who placed it.",
+      "code": "SELECT c.name, o.total\nFROM customers c\nJOIN orders o ON _____;",
+      "choices": ["o.customer_id = c.id", "o.id = c.id", "o.customer_id = o.id", "c.name = o.total"],
+      "answer": 0,
+      "explanation": "The foreign key orders.customer_id holds the id of the customer who placed the order, so it must equal customers.id. o.id = c.id pairs rows whose ids happen to share a number, which says nothing about who placed the order.",
+      "concept": "join on foreign key",
+      "section": 2
+    },
+    {
+      "id": "sql-basics-q11",
+      "type": "mcq",
+      "difficulty": "medium",
+      "question": "orders.customer_id is a foreign key referencing customers.id, and foreign keys are enforced. No customer has id 99. What happens?",
+      "code": "INSERT INTO orders (id, customer_id, total)\nVALUES (500, 99, 25.00);",
+      "choices": [
+        "The order is inserted and customer 99 is created automatically",
+        "The insert is rejected with a foreign key constraint error",
+        "The order is inserted with customer_id set to NULL",
+        "The order is inserted, then removed at the next commit"
+      ],
+      "answer": 1,
+      "explanation": "A foreign key guarantees that every customer_id points at an existing customer, so the insert fails. The database never invents the missing parent row or silently changes the value you gave it.",
+      "concept": "foreign key constraint",
+      "section": 2
+    },
+    {
+      "id": "sql-basics-q12",
+      "type": "debug",
+      "difficulty": "easy",
+      "question": "This query should list users without an email address, but it always returns zero rows. Why?",
+      "code": "SELECT name FROM users WHERE email = NULL;",
+      "choices": [
+        "NULL must be written in quotes: email = 'NULL'",
+        "No user is actually missing an email",
+        "A comparison with = NULL is never true; use WHERE email IS NULL",
+        "WHERE cannot be used on text columns"
+      ],
+      "answer": 2,
+      "explanation": "Any comparison with NULL gives unknown, and WHERE keeps only rows where the condition is true, so no row passes. IS NULL is the test for missing values. 'NULL' in quotes is a four-letter string, not a missing value.",
+      "concept": "IS NULL vs = NULL",
+      "section": 3
+    },
+    {
+      "id": "sql-basics-q13",
+      "type": "typed",
+      "difficulty": "medium",
+      "question": "What does this query return?",
+      "code": "-- results.score values: 10, 20, NULL\n\nSELECT AVG(score) FROM results;",
+      "answer": "15",
+      "accept": ["15.0"],
+      "explanation": "AVG skips NULLs, so it averages only 10 and 20: 30 / 2 = 15. If NULL counted as 0, the answer would be 10.",
+      "concept": "aggregates ignore NULL",
+      "section": 3
+    },
+    {
+      "id": "sql-basics-q14",
+      "type": "code-fill",
+      "difficulty": "medium",
+      "question": "Complete the query so users without a phone number show 'none' instead of NULL.",
+      "code": "SELECT name, _____(phone, 'none') AS phone\nFROM users;",
+      "choices": ["COALESCE", "NULLIF", "COUNT", "CAST"],
+      "answer": 0,
+      "explanation": "COALESCE returns its first non-NULL argument: the phone if there is one, otherwise 'none'. NULLIF does nearly the opposite, returning NULL when its two arguments are equal.",
+      "concept": "COALESCE defaults",
+      "section": 3
+    },
+    {
+      "id": "sql-basics-q15",
+      "type": "debug",
+      "difficulty": "easy",
+      "question": "The goal was to reset the balance of account 42. What went wrong?",
+      "code": "UPDATE accounts\nSET balance = 0;",
+      "choices": [
+        "SET must come before UPDATE",
+        "balance = 0 compares instead of assigning",
+        "UPDATE can only change numeric columns with a function",
+        "There is no WHERE clause, so every account's balance is set to 0"
+      ],
+      "answer": 3,
+      "explanation": "UPDATE changes every row its WHERE clause matches, and with no WHERE that is the whole table. It should be UPDATE accounts SET balance = 0 WHERE id = 42. Inside SET, = assigns; it only compares inside WHERE.",
+      "concept": "missing WHERE in UPDATE",
+      "section": 4
+    },
+    {
+      "id": "sql-basics-q16",
+      "type": "code-fill",
+      "difficulty": "easy",
+      "question": "Complete the statement to add a new user.",
+      "code": "INSERT INTO users (name, email)\n_____ ('Ada', 'ada@example.com');",
+      "choices": ["SET", "VALUES", "ROWS", "DATA"],
+      "answer": 1,
+      "explanation": "INSERT lists the columns, then VALUES gives the matching values in the same order. SET belongs to UPDATE, and ROWS and DATA are not part of INSERT syntax.",
+      "concept": "INSERT ... VALUES",
+      "section": 4
+    },
+    {
+      "id": "sql-basics-q17",
+      "type": "mcq",
+      "difficulty": "medium",
+      "question": "What is the main tradeoff of adding an index on orders.customer_id?",
+      "choices": [
+        "Reads on customer_id get faster and writes get faster too",
+        "The table can no longer hold duplicate customer_id values",
+        "Lookups and joins on customer_id get faster, but writes do extra work and the index takes space",
+        "Queries on customer_id get slower, but the table uses less storage"
+      ],
+      "answer": 2,
+      "explanation": "An index lets the database jump to matching rows instead of scanning the table, but it is a separate structure that must be kept up to date on every insert, update and delete. A plain index does not forbid duplicates; only a UNIQUE index does.",
+      "concept": "index tradeoffs",
+      "section": 4
+    }
+  ]
+}

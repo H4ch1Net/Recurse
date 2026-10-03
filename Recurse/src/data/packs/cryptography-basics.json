@@ -1,0 +1,422 @@
+{
+  "id": "cryptography-basics",
+  "name": "Cryptography Basics",
+  "version": "1.0.0",
+  "author": "Recurse",
+  "subject": "security",
+  "level": "intermediate",
+  "description": "Encryption, hashing, password storage, signatures, certificates and TLS, and the mistakes that break them.",
+  "icon": "Key",
+  "language": "python",
+  "prereqs": [
+    "cybersecurity-101"
+  ],
+  "tags": [
+    "cryptography",
+    "encryption",
+    "hashing",
+    "tls",
+    "security"
+  ],
+  "lesson": {
+    "estimatedMinutes": 15,
+    "intro": "Cryptography is the math that keeps data secret, detects tampering and proves who you are talking to. You will almost never implement it yourself, but you will choose and use it constantly. This lesson explains what each building block guarantees, how they fit together in TLS, and the mistakes that quietly undo them.",
+    "sections": [
+      {
+        "title": "Symmetric and asymmetric encryption",
+        "body": "Encryption turns readable plaintext into ciphertext that only someone with the right key can turn back.\n\nSymmetric encryption uses one shared secret key for both encrypting and decrypting. It is fast enough for gigabytes of data. AES (Advanced Encryption Standard) is the standard choice, used in an authenticated mode such as AES-GCM, which also detects any change to the ciphertext. ChaCha20-Poly1305 is a common alternative.\n\nThe catch is key distribution: both sides need the same key, and you cannot simply send it over the network you are trying to protect.\n\nAsymmetric (public-key) encryption uses a key pair:\n\n- The public key can be shared with anyone. What it encrypts, only the matching private key can decrypt.\n- The private key never leaves its owner.\n- RSA and elliptic-curve cryptography are the common families.\n\nAsymmetric operations are much slower, so they are used for small jobs: agreeing on keys and making signatures. Real systems are hybrid. Public-key cryptography sets up a shared symmetric key, then AES or ChaCha20 encrypts the actual data. TLS, SSH and Signal all work this way.",
+        "code": "import os\nfrom cryptography.hazmat.primitives.ciphers.aead import AESGCM\n\nkey = AESGCM.generate_key(bit_length=256)   # the shared secret\naesgcm = AESGCM(key)\nnonce = os.urandom(12)                       # never reuse a nonce with the same key\n\nct = aesgcm.encrypt(nonce, b\"attack at dawn\", None)\nprint(aesgcm.decrypt(nonce, ct, None))       # b'attack at dawn'",
+        "tip": "Authenticated modes like GCM raise an error on decrypt if even one bit of the ciphertext was changed.",
+        "check": {
+          "question": "Which problem does asymmetric encryption solve that symmetric encryption alone does not?",
+          "choices": [
+            "Encrypting large files and backups much more quickly",
+            "Making ciphertext shorter than plaintext",
+            "Talking privately with someone you never shared a key with",
+            "Detecting accidental changes to stored files"
+          ],
+          "answer": 2,
+          "explanation": "With a public key, anyone can encrypt to you without a shared secret arranged in advance. Symmetric ciphers are the fast ones, so bulk encryption is their job, not asymmetric encryption's."
+        }
+      },
+      {
+        "title": "Hash functions",
+        "body": "A cryptographic hash function turns any input into a fixed-size fingerprint. SHA-256 always outputs 256 bits, written as 64 hex characters, whether the input is one byte or a whole movie.\n\n- Deterministic: the same input always gives the same hash.\n- One-way (preimage resistance): given a hash, you cannot find an input that produces it, except by guessing.\n- Collision resistance: it is infeasible to find any two different inputs with the same hash.\n- Avalanche effect: changing one bit of input changes about half the output bits, so similar inputs give unrelated hashes.\n\nA hash has no key and cannot be decrypted. Its main job is integrity: a publisher lists a file's hash, and anyone can confirm their download matches. A matching hash says the file is unchanged; it says nothing about whether the file is safe, since anyone can hash a malicious file.\n\nMD5 and SHA-1 are broken: researchers can produce collisions, so do not use them for security. SHA-256, SHA-3 and BLAKE2 are fine.\n\nHMAC combines a hash with a secret key, so only someone who holds the key can produce a valid tag. It protects messages such as API requests and webhooks from tampering.",
+        "code": "import hashlib\n\nprint(hashlib.sha256(b\"hello\").hexdigest())\n# 2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824\n\nprint(hashlib.sha256(b\"hellp\").hexdigest())\n# fdd7585e08c4e2afd71dcabdb4636c89d557a3f42db9e2040c8bbd1708aa4ce7",
+        "tip": "One changed letter, a completely different hash: that is the avalanche effect.",
+        "check": {
+          "question": "Two files have different SHA-256 hashes. What can you conclude?",
+          "choices": [
+            "Their contents are different",
+            "One of them is corrupted",
+            "They have different file names",
+            "One of them is encrypted"
+          ],
+          "answer": 0,
+          "explanation": "Hashing is deterministic, so identical contents always give identical hashes. Different hashes mean the bytes differ, but not which one is right; and names are not part of the hash."
+        }
+      },
+      {
+        "title": "Storing passwords: salts and slow hashes",
+        "body": "General-purpose hashes like SHA-256 are designed to be fast. That is a problem for passwords. If a database leaks, attackers use GPUs to hash billions of guesses per second and compare them with the stolen hashes. Most human-chosen passwords fall quickly.\n\nTwo defenses work together:\n\n- A salt is a random value, unique to each user, stored next to the hash and mixed into it. Two users with the same password get different hashes, and precomputed lookup tables (rainbow tables) become useless because each salt would need its own table. A salt is not a secret.\n- A slow password hash makes every guess expensive. bcrypt has a cost factor, and each +1 doubles the work. Argon2id, winner of the 2015 Password Hashing Competition, is also memory-hard, which blunts GPUs and custom hardware. scrypt is a similar older option.\n\nTune the cost so one hash takes a noticeable fraction of a second on your server. One login never feels it, but an attacker trying a billion guesses pays that price a billion times.\n\nGood libraries handle the salt for you. A bcrypt hash string contains the algorithm version, the cost and the salt, so you store just that one string and pass it back when checking.",
+        "code": "import bcrypt\n\nstored = bcrypt.hashpw(b\"correct horse battery staple\", bcrypt.gensalt(rounds=12))\nprint(stored)\n# b'$2b$12$6jZ8u922B3FZKNPf/k4aDuhGg5L3QzleGx/Yi0aSxLRCuOj3klf2q'\n#    version $2b, cost 12, then 22 characters of salt and 31 of hash\n\nbcrypt.checkpw(b\"correct horse battery staple\", stored)   # True\nbcrypt.checkpw(b\"Tr0ub4dor&3\", stored)                    # False",
+        "tip": "The cost factor is an exponent: cost 12 means 2^12 rounds of the expensive setup step.",
+        "check": {
+          "question": "Why is a deliberately slow hash a good choice for storing passwords?",
+          "choices": [
+            "It produces a longer hash that is harder to read or copy",
+            "It lets the server decrypt passwords when users forget them",
+            "It removes the need to store a separate salt per user",
+            "Every attacker guess pays the delay, making mass guessing impractical"
+          ],
+          "answer": 3,
+          "explanation": "A legitimate user hashes once per login and never notices a short delay, but an attacker must pay it for every guess. Slow hashes still need salts, and no password hash can be decrypted."
+        }
+      },
+      {
+        "title": "Signatures, certificates and the TLS trust chain",
+        "body": "A digital signature uses a key pair the other way around. The signer uses their private key to sign (a hash of) a message, and anyone with the matching public key can verify it. A valid signature proves:\n\n- Integrity: the message has not changed since it was signed.\n- Authenticity: it was signed by whoever holds the private key.\n- Non-repudiation: the signer cannot easily deny signing it.\n\nA signature does not hide anything. A signed but unencrypted message is readable by anyone who sees it.\n\nSignatures raise a question: how do you know a public key really belongs to your bank? A certificate binds a public key to a name like `www.example.com`, plus validity dates, and is signed by a certificate authority (CA).\n\nWhen you connect over HTTPS, the browser checks a chain of trust:\n\n- The server sends its leaf certificate for `www.example.com` and an intermediate CA certificate.\n- The leaf is signed by the intermediate, and the intermediate is signed by a root CA.\n- The root CA's certificate is already in your browser's or operating system's trust store. Trust flows down from it; a root that the server sends is not trusted just because it was sent.\n\nThe browser also checks that the name matches the site, the dates are valid, and the certificate has not been revoked. A certificate warning means one of these checks failed, which is exactly what an impersonation attack looks like.",
+        "code": "Root CA certificate           self-signed, preinstalled in your trust store\n   |  signs\n   v\nIntermediate CA certificate   sent by the server\n   |  signs\n   v\nLeaf certificate              www.example.com, its public key, valid dates",
+        "language": "plaintext",
+        "tip": "Run `openssl s_client -connect example.com:443 -showcerts` to see the chain a server actually sends.",
+        "check": {
+          "question": "In a certificate chain, which certificate must already be in your browser or OS trust store?",
+          "choices": [
+            "The leaf certificate for the site",
+            "The root CA certificate",
+            "The intermediate CA certificate",
+            "None; the server sends everything needed"
+          ],
+          "answer": 1,
+          "explanation": "Trust has to start somewhere the attacker cannot control, which is the preinstalled root. The server sends the leaf and intermediates, and the browser verifies each signature up to that trusted root."
+        }
+      },
+      {
+        "title": "Key exchange and common mistakes",
+        "body": "Key exchange solves the key distribution problem. In Diffie-Hellman, each side picks a secret number, sends a public value derived from it, and combines the other side's public value with its own secret. Both end up with the same shared secret, yet an eavesdropper who saw only the public values cannot compute it. Modern TLS uses ECDHE, the elliptic-curve version with fresh (ephemeral) keys for every connection.\n\n- Fresh keys give forward secrecy: session keys are discarded after use, so stealing the server's private key later does not decrypt traffic someone recorded earlier.\n- Plain Diffie-Hellman does not prove who is on the other end. An active man-in-the-middle could run one exchange with you and another with the server. TLS stops this by having the server sign the handshake with its certificate's private key.\n\nIn a TLS 1.3 handshake, the client and server exchange key shares, the server proves its identity with its certificate and a signature, and both derive symmetric keys that encrypt the rest of the connection.\n\nCommon mistakes that break good algorithms:\n\n- ECB mode encrypts each 16-byte block on its own, so identical plaintext blocks give identical ciphertext blocks and patterns show through. Use an authenticated mode such as GCM.\n- Reusing a nonce with the same key in GCM or CTR mode can expose plaintext and allow forgeries.\n- Using `random` for tokens or keys. It is predictable; use the `secrets` module.\n- Hardcoding keys in source code, where they end up in Git history.\n- Rolling your own crypto. New algorithms and protocols are very hard to get right; use well-reviewed libraries. Security should depend only on keeping the key secret, never on keeping the design secret (Kerckhoffs's principle).",
+        "code": "import secrets\n\nreset_token = secrets.token_urlsafe(32)   # 32 random bytes, safe to put in a link\napi_key = secrets.token_hex(32)           # 64 hex characters\n\n# Compare secrets in constant time to avoid leaking them through timing\nsecrets.compare_digest(api_key, api_key)  # True",
+        "tip": "If you are choosing a cipher mode or padding scheme by hand, you are probably working one level too low. Prefer high-level library APIs.",
+        "check": {
+          "question": "A startup designs its own cipher and keeps the algorithm secret, saying that makes it safer. What is the best response?",
+          "choices": [
+            "Fine, as long as the key is also long and random",
+            "Fine, since attackers cannot break an algorithm they are unable to see",
+            "Likely weaker: security should rest on the key, not a hidden design",
+            "It becomes safe if the data is encrypted with it twice"
+          ],
+          "answer": 2,
+          "explanation": "Secret designs get no public review and are usually broken once someone reverse-engineers them. Kerckhoffs's principle says a system should stay secure even if everything except the key is public, which is how AES is used."
+        }
+      }
+    ],
+    "keyTerms": [
+      {
+        "term": "Symmetric encryption",
+        "definition": "Encryption where one shared secret key both encrypts and decrypts, such as AES-GCM."
+      },
+      {
+        "term": "Asymmetric encryption",
+        "definition": "Encryption with a key pair: data encrypted with the public key can only be decrypted with the private key."
+      },
+      {
+        "term": "Cryptographic hash",
+        "definition": "A one-way function that maps any input to a fixed-size, collision-resistant fingerprint, such as SHA-256."
+      },
+      {
+        "term": "Salt",
+        "definition": "A random, per-user value mixed into a password hash so identical passwords hash differently and lookup tables fail."
+      },
+      {
+        "term": "Digital signature",
+        "definition": "A value made with a private key that anyone can verify with the public key, proving integrity and authenticity."
+      },
+      {
+        "term": "Certificate authority (CA)",
+        "definition": "An organization whose signature on a certificate vouches that a public key belongs to a given name."
+      },
+      {
+        "term": "Diffie-Hellman",
+        "definition": "A key exchange that lets two parties derive the same shared secret while sending only public values."
+      },
+      {
+        "term": "Forward secrecy",
+        "definition": "A property of using fresh key-exchange keys per session, so a later key theft cannot decrypt past traffic."
+      }
+    ],
+    "summary": [
+      "Symmetric ciphers like AES are fast but need a shared key; asymmetric keys solve sharing, and real systems combine both.",
+      "Hashes are one-way, fixed-size fingerprints for integrity; they have no key and cannot be decrypted.",
+      "Store passwords with a per-user salt and a deliberately slow hash such as Argon2id or bcrypt, never a fast hash.",
+      "Signatures prove who signed and that nothing changed; certificates chain up to a root CA your device already trusts.",
+      "Use ephemeral key exchange, authenticated modes and vetted libraries; avoid ECB, nonce reuse, random for secrets and homemade crypto."
+    ],
+    "feynmanPrompt": "Explain to a friend how their browser can be sure it is really talking to their bank and then set up a private connection, even though the bank and the browser have never shared a secret before."
+  },
+  "questions": [
+    {
+      "id": "cryptography-basics-q01",
+      "type": "mcq",
+      "difficulty": "easy",
+      "question": "Bob wants anyone to be able to send him messages that only he can read. Which key do the senders encrypt with?",
+      "choices": [
+        "Bob's private key",
+        "Bob's public key",
+        "Each sender's own private key",
+        "A key Bob emails to each sender"
+      ],
+      "answer": 1,
+      "explanation": "Senders encrypt with Bob's public key, and only Bob's private key can decrypt the result. Bob's private key must never be shared, and emailing keys around brings back the key distribution problem.",
+      "concept": "public-key encryption",
+      "section": 0
+    },
+    {
+      "id": "cryptography-basics-q02",
+      "type": "recall",
+      "difficulty": "medium",
+      "question": "Why does TLS use both asymmetric and symmetric cryptography instead of just one?",
+      "answer": "Asymmetric cryptography solves key distribution and identity but is slow, so TLS uses it only to agree on a shared secret and to authenticate the server. The bulk data is then encrypted with a fast symmetric cipher such as AES-GCM.",
+      "explanation": "This hybrid design gets the best of both: public keys let strangers connect safely, and symmetric ciphers keep the connection fast.",
+      "concept": "hybrid encryption",
+      "section": 0
+    },
+    {
+      "id": "cryptography-basics-q03",
+      "type": "typed",
+      "difficulty": "easy",
+      "question": "Which symmetric cipher is the standard choice today for encrypting bulk data? Give its three-letter acronym.",
+      "answer": "AES",
+      "accept": [
+        "Advanced Encryption Standard",
+        "AES-GCM",
+        "AES-256",
+        "AES-128"
+      ],
+      "explanation": "AES, the Advanced Encryption Standard, is used for disk encryption, TLS, VPNs and more, usually in an authenticated mode such as GCM. RSA is asymmetric, so it is not used for bulk data.",
+      "concept": "AES",
+      "section": 0
+    },
+    {
+      "id": "cryptography-basics-q04",
+      "type": "mcq",
+      "difficulty": "easy",
+      "question": "You download an installer, and its SHA-256 hash matches the one listed on the vendor's HTTPS download page. What does that tell you?",
+      "choices": [
+        "The installer is free of malware",
+        "The installer is encrypted",
+        "The installer was signed with the vendor's private key",
+        "Your copy is identical to the file the vendor hashed"
+      ],
+      "answer": 3,
+      "explanation": "A matching hash means the bytes are unchanged, so the download was not corrupted or swapped in transit. It does not prove the file is safe, and a hash is not a signature, since anyone can compute one.",
+      "concept": "integrity checks",
+      "section": 1
+    },
+    {
+      "id": "cryptography-basics-q05",
+      "type": "typed",
+      "difficulty": "medium",
+      "question": "How many hexadecimal characters long is a SHA-256 digest?",
+      "answer": "64",
+      "explanation": "SHA-256 outputs 256 bits. Each hex character encodes 4 bits, so 256 / 4 = 64 characters, no matter how long the input is.",
+      "concept": "fixed-size output",
+      "section": 1
+    },
+    {
+      "id": "cryptography-basics-q06",
+      "type": "mcq",
+      "difficulty": "medium",
+      "question": "What does it mean that a hash function is collision resistant?",
+      "choices": [
+        "It is hard to find an input that produces one given hash",
+        "The hash cannot be turned back into the input by anyone without the key",
+        "It is hard to find any two different inputs that produce the same hash",
+        "Different inputs produce outputs of different lengths"
+      ],
+      "answer": 2,
+      "explanation": "Collision resistance is about finding any matching pair. Finding an input for one given hash is preimage resistance, a different property. Hashes have no key, and their output length is always fixed.",
+      "concept": "collision resistance",
+      "section": 1
+    },
+    {
+      "id": "cryptography-basics-q07",
+      "type": "mcq",
+      "difficulty": "medium",
+      "question": "What does adding a unique salt to each password hash protect against?",
+      "choices": [
+        "Precomputed lookup tables, and spotting users who share a password",
+        "Fast guessing, because each individual hash takes much longer to compute",
+        "Attackers reading the hashes out of the database",
+        "Users picking short or common passwords in the first place"
+      ],
+      "answer": 0,
+      "explanation": "With a unique salt, identical passwords hash differently and a precomputed table would have to be rebuilt for every salt. Slowing each guess is the job of the cost factor in bcrypt or Argon2, not the salt.",
+      "concept": "salting",
+      "section": 2
+    },
+    {
+      "id": "cryptography-basics-q08",
+      "type": "code-fill",
+      "difficulty": "medium",
+      "question": "Complete the login check so it returns True only when the password is correct.",
+      "code": "import bcrypt\n\ndef login(stored_hash: bytes, attempt: str) -> bool:\n    return bcrypt._____(attempt.encode(), stored_hash)",
+      "choices": [
+        "hashpw",
+        "checkpw",
+        "gensalt",
+        "kdf"
+      ],
+      "answer": 1,
+      "explanation": "checkpw re-hashes the attempt with the salt and cost stored in stored_hash and returns True or False. hashpw returns hash bytes, which are always truthy, so every login would pass.",
+      "concept": "bcrypt usage",
+      "section": 2
+    },
+    {
+      "id": "cryptography-basics-q09",
+      "type": "debug",
+      "difficulty": "medium",
+      "question": "This app hashes passwords with a salt. What is the real weakness?",
+      "code": "import hashlib\n\nSALT = b\"recurse2026\"\n\ndef hash_password(password: str) -> str:\n    return hashlib.sha256(SALT + password.encode()).hexdigest()",
+      "choices": [
+        "The salt must be appended after the password, never before it",
+        "hexdigest() loses information; digest() is needed to keep every bit",
+        "SHA-256 is broken by collision attacks, so hashes can be forged",
+        "One shared salt plus a fast hash: equal passwords match and guessing is cheap"
+      ],
+      "answer": 3,
+      "explanation": "A salt shared by every user means equal passwords still produce equal hashes and one cracking run covers everyone, and SHA-256 lets attackers try billions of guesses per second. SHA-256 is not broken; it is just too fast for passwords.",
+      "concept": "password hashing mistakes",
+      "section": 2
+    },
+    {
+      "id": "cryptography-basics-q10",
+      "type": "typed",
+      "difficulty": "hard",
+      "question": "Each +1 to bcrypt's cost factor doubles the work. If a hash takes 250 ms at cost 12, about how many milliseconds does it take at cost 14?",
+      "answer": "1000",
+      "accept": [
+        "1000 ms",
+        "1000ms",
+        "1 second",
+        "1 s",
+        "1s"
+      ],
+      "explanation": "Going from cost 12 to 14 is two doublings: 250 x 2 x 2 = 1000 ms. The same factor of 4 applies to every guess an attacker makes.",
+      "concept": "bcrypt cost factor",
+      "section": 2
+    },
+    {
+      "id": "cryptography-basics-q11",
+      "type": "mcq",
+      "difficulty": "medium",
+      "question": "Alice wants to sign a contract file so anyone can check it came from her. Which keys are used?",
+      "choices": [
+        "Alice signs with her private key; anyone verifies with her public key",
+        "Alice signs with her public key; Bob verifies with his own private key",
+        "Alice signs with Bob's public key; Bob verifies with his private key",
+        "Alice and Bob both use one shared secret key"
+      ],
+      "answer": 0,
+      "explanation": "Only Alice holds her private key, so only she can make the signature, and anyone with her public key can verify it. Encrypting with Bob's public key gives secrecy, not proof of who sent it.",
+      "concept": "digital signatures",
+      "section": 3
+    },
+    {
+      "id": "cryptography-basics-q12",
+      "type": "mcq",
+      "difficulty": "medium",
+      "question": "Alice digitally signs an email but does not encrypt it. Which statement is true?",
+      "choices": [
+        "Only the intended recipient is able to read its contents",
+        "Nobody can read it unless they have Alice's private key",
+        "Anyone who intercepts it can read it, but edits would be detected",
+        "It can no longer be forwarded to others without breaking the signature"
+      ],
+      "answer": 2,
+      "explanation": "A signature provides integrity and authenticity, not confidentiality. The content travels in the clear; any edit would make the signature check fail.",
+      "concept": "what signatures provide",
+      "section": 3
+    },
+    {
+      "id": "cryptography-basics-q13",
+      "type": "mcq",
+      "difficulty": "hard",
+      "question": "Your browser accepts the certificate for www.example.com without a warning. Why does it trust it?",
+      "choices": [
+        "The server also sent a root certificate, which the browser accepts",
+        "It chains to a root CA in the trust store, and its name and dates check out",
+        "The certificate itself is encrypted with the site's private key",
+        "The page was loaded over port 443, which is always trusted"
+      ],
+      "answer": 1,
+      "explanation": "Trust starts at a root CA that is preinstalled, then each signature down the chain is verified, along with the name, dates and revocation status. A root supplied by the server proves nothing, because an attacker could send their own.",
+      "concept": "chain of trust",
+      "section": 3
+    },
+    {
+      "id": "cryptography-basics-q14",
+      "type": "debug",
+      "difficulty": "medium",
+      "question": "This script talks to an internal API over HTTPS. What is the security problem?",
+      "code": "import requests\n\nresp = requests.get(\"https://api.example.com/data\", verify=False)\nprint(resp.json())",
+      "choices": [
+        "verify=False skips certificate checks, so anyone can pose as the API",
+        "HTTPS requests also need ssl=True before traffic is encrypted",
+        "verify=False only skips the hostname check; the chain is still validated",
+        "resp.json() returns encrypted data that must be decrypted first"
+      ],
+      "answer": 0,
+      "explanation": "With verify=False, requests accepts any certificate, so an attacker on the network can present their own and read or alter everything. The traffic is still encrypted, but to whoever answered. Fix the trust store instead, for example by passing verify with the path to your internal CA bundle.",
+      "concept": "certificate validation",
+      "section": 3
+    },
+    {
+      "id": "cryptography-basics-q15",
+      "type": "mcq",
+      "difficulty": "medium",
+      "question": "Which statement about plain Diffie-Hellman key exchange is true?",
+      "choices": [
+        "The shared secret is sent over the network, but encrypted",
+        "It proves the server's identity to the client on its own",
+        "It encrypts all of the application data directly",
+        "It stops eavesdroppers but not an active man-in-the-middle"
+      ],
+      "answer": 3,
+      "explanation": "The secret is never sent; each side computes it from public values. Because nothing in plain Diffie-Hellman proves identity, an attacker in the middle can run separate exchanges with each side, which is why TLS adds a certificate signature.",
+      "concept": "Diffie-Hellman",
+      "section": 4
+    },
+    {
+      "id": "cryptography-basics-q16",
+      "type": "mcq",
+      "difficulty": "medium",
+      "question": "Why is encrypting data with AES in ECB mode a mistake?",
+      "choices": [
+        "ECB only supports short 56-bit keys, which are easy to brute-force",
+        "ECB ciphertext cannot be decrypted without the plaintext",
+        "Identical plaintext blocks encrypt identically, so patterns leak",
+        "ECB is much slower than every other block cipher mode"
+      ],
+      "answer": 2,
+      "explanation": "ECB encrypts each block independently with the same key, so repeated content shows up as repeated ciphertext, revealing structure. AES itself is fine; the mode is the problem. Use an authenticated mode such as GCM.",
+      "concept": "ECB mode",
+      "section": 4
+    },
+    {
+      "id": "cryptography-basics-q17",
+      "type": "code-fill",
+      "difficulty": "medium",
+      "question": "Complete the function so password reset tokens are unpredictable.",
+      "code": "import random\nimport secrets\n\ndef password_reset_token():\n    return _____(32)",
+      "choices": [
+        "random.randbytes",
+        "secrets.token_urlsafe",
+        "random.getrandbits",
+        "secrets.randbelow"
+      ],
+      "answer": 1,
+      "explanation": "secrets.token_urlsafe(32) returns 32 bytes from the operating system's secure random source, encoded for URLs. The random module is predictable once an attacker sees enough output, and secrets.randbelow(32) returns a number below 32, only 32 possibilities.",
+      "concept": "secure randomness",
+      "section": 4
+    }
+  ]
+}

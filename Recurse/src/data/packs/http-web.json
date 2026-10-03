@@ -1,0 +1,416 @@
+{
+  "id": "http-web",
+  "name": "How the Web Works",
+  "version": "1.0.0",
+  "author": "Recurse",
+  "subject": "web",
+  "level": "intermediate",
+  "description": "Follow a page load from URL and DNS through HTTP, cookies, caching, HTTPS, REST and CORS.",
+  "icon": "Web",
+  "language": "plaintext",
+  "prereqs": [
+    "networking-basics"
+  ],
+  "tags": [
+    "http",
+    "web",
+    "dns",
+    "https",
+    "rest",
+    "cors"
+  ],
+  "lesson": {
+    "estimatedMinutes": 15,
+    "intro": "Every time you open a page, your browser turns a name into an address, opens a connection, and trades HTTP messages with a server. This lesson follows that path step by step and covers what developers deal with daily: methods, status codes, headers, cookies, caching, HTTPS, REST APIs and CORS.",
+    "sections": [
+      {
+        "title": "From URL to page",
+        "body": "A URL names a resource and says how to reach it. Take `https://shop.example.com:8443/search?q=lamp&page=2#reviews`:\n\n- `https` is the scheme, the protocol to use.\n- `shop.example.com` is the host.\n- `8443` is the port. When it is left out, HTTPS uses 443 and HTTP uses 80.\n- `/search` is the path and `?q=lamp&page=2` is the query string.\n- `#reviews` is the fragment. The browser uses it to scroll to part of the page and never sends it to the server.\n\nWhen you press Enter, roughly this happens:\n\n- DNS: the browser asks a resolver for the host's IP address. With no cached answer, the resolver asks the root servers, then the `.com` servers, then the domain's authoritative server. Answers are cached for their TTL, so repeat visits skip this.\n- Connect: the browser opens a TCP connection to that IP and port, then runs a TLS handshake for HTTPS.\n- Request and response: it sends an HTTP request for the path, and the server answers with HTML.\n- More requests: while parsing the HTML, the browser finds stylesheets, scripts and images and requests each one, often over the same connection.\n- Render: it builds the page from the HTML and CSS and runs the scripts.",
+        "code": "# Simplified output of: curl -v https://example.com/\n# 1. DNS returned an IP address  2. TCP connected to it\n*   Trying 203.0.113.10:443...\n* Connected to example.com (203.0.113.10) port 443\n# 3. TLS handshake finished\n* SSL connection using TLSv1.3\n# 4. Request sent (lines starting with >)\n> GET / HTTP/1.1\n> Host: example.com\n# 5. Response received (lines starting with <)\n< HTTP/1.1 200 OK\n< Content-Type: text/html; charset=UTF-8",
+        "tip": "Open your browser's developer tools, go to the Network tab and reload a page to see every request it makes.",
+        "check": {
+          "question": "Which part of `https://example.com/docs?page=2#install` is never sent to the server?",
+          "choices": [
+            "?page=2",
+            "/docs",
+            "#install",
+            "https"
+          ],
+          "answer": 2,
+          "explanation": "The fragment stays in the browser, which uses it to jump to an element on the page. The path and query string are sent in the request line."
+        }
+      },
+      {
+        "title": "HTTP messages and methods",
+        "body": "HTTP is a request and response protocol. A request has a method and path, headers, and an optional body. A response has a status code, headers, and usually a body. (HTTP/2 and HTTP/3 encode messages differently on the wire, but the meaning is the same.)\n\nHeaders are `Name: value` lines that carry metadata. `Host` names the site, `Content-Type` says what format the body is in, `Accept` says what format the client wants back, and `Authorization` carries credentials.\n\nThe method says what the client wants to do:\n- `GET` reads a resource. `HEAD` is the same without the body.\n- `POST` submits data, usually creating something or triggering an action.\n- `PUT` replaces a resource with the body sent; `PATCH` changes part of it.\n- `DELETE` removes it.\n\nTwo properties matter. A safe method does not change anything on the server: GET, HEAD and OPTIONS. An idempotent method has the same effect whether it is sent once or ten times: the safe methods plus PUT and DELETE. POST is neither, which is why browsers warn before resubmitting a form and why payment APIs ask for idempotency keys.",
+        "code": "POST /api/orders HTTP/1.1\nHost: shop.example.com\nContent-Type: application/json\nAccept: application/json\n\n{\"item\": \"lamp\", \"qty\": 1}\n\nHTTP/1.1 201 Created\nLocation: /api/orders/981\nContent-Type: application/json\n\n{\"id\": 981, \"item\": \"lamp\", \"qty\": 1}",
+        "tip": "A blank line separates the headers from the body in both requests and responses.",
+        "check": {
+          "question": "Sending `DELETE /api/orders/981` twice leaves the server in the same state as sending it once. What is that property called?",
+          "choices": [
+            "Idempotent",
+            "Safe",
+            "Cacheable",
+            "Stateless"
+          ],
+          "answer": 0,
+          "explanation": "Idempotent means repeating the request has no further effect. DELETE is not safe, though, because the first call does change the server."
+        }
+      },
+      {
+        "title": "Status codes and caching",
+        "body": "The first digit of a status code gives its class:\n- 1xx: informational, rarely seen directly.\n- 2xx: success. `200 OK`, `201 Created`, `204 No Content`.\n- 3xx: redirection. `301 Moved Permanently`, `302 Found`, `304 Not Modified`. The new address goes in the `Location` header.\n- 4xx: client error, the request needs fixing. `400 Bad Request`, `401 Unauthorized` (not logged in), `403 Forbidden` (logged in but not allowed), `404 Not Found`, `429 Too Many Requests`.\n- 5xx: server error, the server failed. `500 Internal Server Error`, `502 Bad Gateway`, `503 Service Unavailable`.\n\nA 404 or 500 is still a complete HTTP exchange: the server did answer. Client code has to check the status itself.\n\nCaching lets browsers and CDNs reuse a response instead of downloading it again. The server controls it with headers:\n- `Cache-Control: max-age=3600`: fresh for an hour, reuse it without asking.\n- `Cache-Control: no-cache`: store it, but check with the server before each reuse.\n- `Cache-Control: no-store`: do not store it at all.\n- `ETag: \"v42\"`: a version tag. Later the browser sends `If-None-Match: \"v42\"`, and if nothing changed the server replies `304 Not Modified` with no body.",
+        "code": "# First visit\nHTTP/1.1 200 OK\nCache-Control: no-cache\nETag: \"v42\"\n\n# Next visit: the browser revalidates its copy\nGET /app.js HTTP/1.1\nIf-None-Match: \"v42\"\n\nHTTP/1.1 304 Not Modified",
+        "tip": "Despite its name, `no-cache` allows caching. `no-store` is the one that forbids it.",
+        "check": {
+          "question": "A request fails with a status in the 5xx range. What does that tell you?",
+          "choices": [
+            "The client sent a malformed request",
+            "The resource moved to a new URL",
+            "The request worked but returned no body",
+            "The server failed to handle the request"
+          ],
+          "answer": 3,
+          "explanation": "5xx codes mean the server could not complete a request that may have been perfectly valid, for example because of a bug or an unavailable backend. Malformed requests get 4xx codes."
+        }
+      },
+      {
+        "title": "Cookies, sessions and HTTPS",
+        "body": "HTTP is stateless: each request stands alone, and the server does not remember the previous one. Cookies give it memory. The server sends `Set-Cookie: sid=abc123`, and the browser sends `Cookie: sid=abc123` back with later requests to that site.\n\nA login session usually works like this: the server creates a session record (who you are, what is in your cart), keeps it on the server, and puts only a random session ID in a cookie.\n\nCookie attributes control safety:\n- `HttpOnly`: page JavaScript cannot read the cookie, which limits what an XSS attack can steal.\n- `Secure`: the cookie is only sent over HTTPS.\n- `SameSite=Lax` or `Strict`: the cookie is left off most cross-site requests, which helps against CSRF.\n- `Max-Age` or `Expires`: how long it lasts. Without them it is deleted when the browser session ends.\n\nHTTPS is HTTP inside a TLS connection. During the TLS handshake the server presents a certificate, signed by a certificate authority the browser trusts, proving it controls the domain. Both sides then agree on fresh keys and encrypt everything that follows. TLS provides confidentiality (eavesdroppers see noise), integrity (tampering is detected) and authentication (you reached the real site).\n\nThe path, query string, headers, cookies and body are all encrypted. The server's IP address is still visible to the network, and usually the hostname too, through DNS and the TLS handshake.",
+        "code": "HTTP/1.1 200 OK\nSet-Cookie: sid=9f8a2c7e; HttpOnly; Secure; SameSite=Lax; Max-Age=86400\n\nGET /cart HTTP/1.1\nHost: shop.example.com\nCookie: sid=9f8a2c7e",
+        "tip": "HTTPS proves which site you are talking to, not that the site is trustworthy. Phishing sites can have valid certificates too.",
+        "check": {
+          "question": "What does HTTPS protect that plain HTTP does not?",
+          "choices": [
+            "The IP addresses of the client and the server",
+            "The full contents of requests and responses",
+            "Only the passwords that users type into forms",
+            "Nothing; it only makes pages load faster"
+          ],
+          "answer": 1,
+          "explanation": "TLS encrypts the whole HTTP message, including the path, headers, cookies and body. The network still has to route packets, so IP addresses stay visible."
+        }
+      },
+      {
+        "title": "REST APIs and CORS",
+        "body": "REST is a style for HTTP APIs built around resources. URLs name things (nouns), and methods say what to do with them:\n- `GET /users` lists users; `GET /users/42` reads one.\n- `POST /users` creates a user; the server picks the id and returns `201 Created`.\n- `PUT /users/42` replaces user 42; `PATCH /users/42` updates some of its fields.\n- `DELETE /users/42` removes it.\n\nEach request carries everything needed to handle it, usually with JSON bodies and meaningful status codes.\n\nBrowsers enforce the same-origin policy: a script on one origin cannot read responses from another. An origin is scheme + host + port, so `https://app.example.com` and `https://api.example.com` are different origins.\n\nCORS (Cross-Origin Resource Sharing) is how a server opts in. It replies with `Access-Control-Allow-Origin: https://app.example.com`, and the browser then lets that page read the response. For requests that are not \"simple\", such as PUT, PATCH, DELETE or a JSON `Content-Type`, the browser first sends an `OPTIONS` preflight request to ask permission.\n\nThe browser enforces CORS. curl, servers and scripts outside a browser ignore it, so CORS does not protect an API from those clients.",
+        "code": "// Page running on https://app.example.com\nconst res = await fetch('https://api.example.com/users/42', {\n  method: 'PATCH',\n  headers: { 'Content-Type': 'application/json' },\n  body: JSON.stringify({ name: 'Ana' })\n})\n// The browser sends an OPTIONS preflight first. The PATCH only\n// goes ahead if the API answers with headers such as:\n//   Access-Control-Allow-Origin: https://app.example.com\n//   Access-Control-Allow-Methods: PATCH\n//   Access-Control-Allow-Headers: Content-Type",
+        "language": "javascript",
+        "tip": "CORS errors appear in the browser console, not on the server. The server usually logged a normal response.",
+        "check": {
+          "question": "Which pair of URLs has the same origin?",
+          "choices": [
+            "https://example.com and http://example.com",
+            "https://example.com and https://www.example.com",
+            "http://example.com/a and http://example.com:80/b",
+            "https://example.com and https://example.com:8443"
+          ],
+          "answer": 2,
+          "explanation": "Port 80 is the default for http, so both URLs have scheme http, host example.com and port 80. The paths do not matter. Changing the scheme, host or port gives a different origin."
+        }
+      }
+    ],
+    "keyTerms": [
+      {
+        "term": "DNS resolver",
+        "definition": "The server that looks up a hostname's IP address for you and caches the answer for its TTL."
+      },
+      {
+        "term": "status code",
+        "definition": "The three-digit number in a response; the first digit gives the class, such as 4xx for client errors."
+      },
+      {
+        "term": "idempotent",
+        "definition": "Having the same effect whether a request is sent once or many times, like PUT and DELETE."
+      },
+      {
+        "term": "ETag",
+        "definition": "A version tag on a response that lets the browser revalidate its copy and get 304 Not Modified."
+      },
+      {
+        "term": "cookie",
+        "definition": "A small value the server sets with Set-Cookie and the browser sends back in the Cookie header."
+      },
+      {
+        "term": "TLS",
+        "definition": "The protocol behind HTTPS that authenticates the server with a certificate and encrypts the connection."
+      },
+      {
+        "term": "origin",
+        "definition": "The scheme, host and port of a URL; the browser's same-origin policy is based on it."
+      },
+      {
+        "term": "preflight request",
+        "definition": "An OPTIONS request the browser sends before a non-simple cross-origin request to check CORS permission."
+      }
+    ],
+    "summary": [
+      "Loading a page means a DNS lookup, a TCP and TLS connection, an HTTP request and response, then more requests for CSS, scripts and images.",
+      "GET, HEAD and OPTIONS are safe; those plus PUT and DELETE are idempotent; POST is neither.",
+      "Status classes: 2xx success, 3xx redirect, 4xx the client must fix the request, 5xx the server failed.",
+      "Cookies give stateless HTTP a memory: a session keeps data on the server and only an ID in the cookie.",
+      "Servers allow cross-origin reads with CORS headers, but the browser is the one that enforces them."
+    ],
+    "feynmanPrompt": "Explain to a friend what happens between typing a web address and seeing the page, including DNS, the HTTP request and response, and what the padlock (HTTPS) actually protects."
+  },
+  "questions": [
+    {
+      "id": "http-web-q01",
+      "type": "typed",
+      "difficulty": "easy",
+      "question": "Type the path part of `https://docs.example.org:8443/guides/setup?lang=en#step-2`.",
+      "answer": "/guides/setup",
+      "explanation": "The path starts after the host and port and ends where the query string (?lang=en) begins. The query and the fragment (#step-2) are separate parts of the URL.",
+      "concept": "URL parts",
+      "section": 0
+    },
+    {
+      "id": "http-web-q02",
+      "type": "mcq",
+      "difficulty": "easy",
+      "question": "In what order do these steps happen when you first load `https://example.com`?",
+      "choices": [
+        "TCP connect, DNS lookup, HTTP request, TLS handshake",
+        "DNS lookup, TCP connect, TLS handshake, HTTP request",
+        "HTTP request, DNS lookup, TLS handshake, TCP connect",
+        "TLS handshake, DNS lookup, TCP connect, HTTP request"
+      ],
+      "answer": 1,
+      "explanation": "The browser needs an IP address before it can connect, a TCP connection before it can run TLS, and an encrypted channel before it sends the HTTPS request.",
+      "concept": "page load sequence",
+      "section": 0
+    },
+    {
+      "id": "http-web-q03",
+      "type": "mcq",
+      "difficulty": "medium",
+      "question": "The HTML of a page arrives and references one stylesheet, two scripts and five images. What does the browser do next?",
+      "choices": [
+        "Nothing; the server already embedded them in the HTML response",
+        "Requests one archive that contains every resource",
+        "Repeats the DNS lookup once for each resource",
+        "Requests each of those resources separately as it finds them"
+      ],
+      "answer": 3,
+      "explanation": "HTML only contains references. Each stylesheet, script and image is its own HTTP request, often reusing the open connection, and the DNS answer for the same host is already cached.",
+      "concept": "subresource requests",
+      "section": 0
+    },
+    {
+      "id": "http-web-q04",
+      "type": "mcq",
+      "difficulty": "medium",
+      "question": "Which of these methods is NOT idempotent?",
+      "choices": [
+        "PUT",
+        "DELETE",
+        "POST",
+        "GET"
+      ],
+      "answer": 2,
+      "explanation": "Sending the same POST twice usually creates two things, such as two orders. PUT replaces a resource with the same content each time, and a second DELETE finds nothing more to remove.",
+      "concept": "idempotent methods",
+      "section": 1
+    },
+    {
+      "id": "http-web-q05",
+      "type": "typed",
+      "difficulty": "easy",
+      "question": "Which request header tells the server what format the request body is in?",
+      "answer": "Content-Type",
+      "accept": [
+        "Content-Type:",
+        "Content Type"
+      ],
+      "explanation": "Content-Type describes the body being sent, for example application/json. Accept is different: it says which formats the client wants back.",
+      "concept": "Content-Type header",
+      "section": 1
+    },
+    {
+      "id": "http-web-q06",
+      "type": "code-fill",
+      "difficulty": "medium",
+      "question": "Complete the curl command so the API knows the body is JSON.",
+      "code": "curl -X POST https://api.example.com/users \\\n  -H \"_____\" \\\n  -d '{\"name\": \"Ana\"}'",
+      "language": "bash",
+      "choices": [
+        "Content-Type: application/json",
+        "Accept: application/json",
+        "Content-Length: json",
+        "Authorization: application/json"
+      ],
+      "answer": 0,
+      "explanation": "Without this header, curl -d labels the body application/x-www-form-urlencoded, and many APIs reject it. Accept would only say what format you want in the response.",
+      "concept": "sending JSON",
+      "section": 1
+    },
+    {
+      "id": "http-web-q07",
+      "type": "mcq",
+      "difficulty": "medium",
+      "question": "A logged-in user opens an admin page they are not allowed to see. Which status code fits best?",
+      "choices": [
+        "401 Unauthorized",
+        "404 Not Found",
+        "500 Internal Server Error",
+        "403 Forbidden"
+      ],
+      "answer": 3,
+      "explanation": "403 means the server knows who you are and refuses anyway. Despite its name, 401 means you are not authenticated yet, so logging in might help.",
+      "concept": "401 vs 403",
+      "section": 2
+    },
+    {
+      "id": "http-web-q08",
+      "type": "typed",
+      "difficulty": "easy",
+      "question": "Which status code means a new resource was successfully created?",
+      "answer": "201",
+      "accept": [
+        "201 Created"
+      ],
+      "explanation": "201 Created is the usual reply to a successful POST that creates something, often with a Location header pointing at the new resource.",
+      "concept": "201 Created",
+      "section": 2
+    },
+    {
+      "id": "http-web-q09",
+      "type": "mcq",
+      "difficulty": "hard",
+      "question": "A response carries `Cache-Control: no-cache`. What may the browser do with it?",
+      "choices": [
+        "Never store it, not in memory and not on disk",
+        "Store it, but check with the server before each reuse",
+        "Reuse it freely for an hour without asking the server",
+        "Store it, but only if the status code was 304"
+      ],
+      "answer": 1,
+      "explanation": "no-cache means \"revalidate before using\", typically with If-None-Match, which is cheap when the server answers 304. no-store is the directive that forbids storing.",
+      "concept": "no-cache vs no-store",
+      "section": 2
+    },
+    {
+      "id": "http-web-q10",
+      "type": "debug",
+      "difficulty": "hard",
+      "question": "This code shows \"Saved!\" even when the server responds with 500. Why?",
+      "code": "async function save(data) {\n  try {\n    await fetch('/api/notes', {\n      method: 'POST',\n      headers: { 'Content-Type': 'application/json' },\n      body: JSON.stringify(data)\n    })\n    alert('Saved!')\n  } catch (err) {\n    alert('Failed: ' + err.message)\n  }\n}",
+      "language": "javascript",
+      "choices": [
+        "await cannot be used inside a try block like this",
+        "JSON.stringify throws when the server returns an error",
+        "fetch only rejects on network errors, so a 500 still resolves",
+        "POST requests do not return a status code to fetch"
+      ],
+      "answer": 2,
+      "explanation": "An HTTP error is still a completed exchange, so the fetch promise resolves. Keep the response and test it: if (!res.ok) throw new Error(res.status).",
+      "concept": "fetch and HTTP errors",
+      "section": 2
+    },
+    {
+      "id": "http-web-q11",
+      "type": "typed",
+      "difficulty": "medium",
+      "question": "The browser sends `If-None-Match: \"v42\"` and the file has not changed. Which status code does the server send back?",
+      "answer": "304",
+      "accept": [
+        "304 Not Modified"
+      ],
+      "explanation": "304 Not Modified tells the browser its cached copy is still good, so the response has no body and the browser reuses what it stored.",
+      "concept": "304 revalidation",
+      "section": 2
+    },
+    {
+      "id": "http-web-q12",
+      "type": "mcq",
+      "difficulty": "medium",
+      "question": "Why does a server mark its session cookie `HttpOnly`?",
+      "choices": [
+        "So page JavaScript cannot read or steal it",
+        "So it is only ever sent over HTTPS",
+        "So it is deleted when the browser closes",
+        "So it is only sent with HTTP/1.1 requests"
+      ],
+      "answer": 0,
+      "explanation": "HttpOnly hides the cookie from document.cookie, so injected scripts cannot copy the session ID. The browser still sends it with requests. Sending only over HTTPS is the Secure attribute.",
+      "concept": "HttpOnly",
+      "section": 3
+    },
+    {
+      "id": "http-web-q13",
+      "type": "recall",
+      "difficulty": "medium",
+      "question": "What does it mean that HTTP is stateless, and how do sessions work around it?",
+      "answer": "Each request is handled on its own, with no memory of earlier requests. A session stores the user's state on the server and gives the browser a cookie holding a random session ID; the browser sends it with every request so the server can look the state up.",
+      "explanation": "Keeping only an unguessable ID in the cookie means the user cannot edit their own session data, and the server can end the session at any time.",
+      "concept": "statelessness and sessions",
+      "section": 3
+    },
+    {
+      "id": "http-web-q14",
+      "type": "mcq",
+      "difficulty": "hard",
+      "question": "On public Wi-Fi you open `https://bank.example.com/accounts?id=7`. What can the Wi-Fi operator see?",
+      "choices": [
+        "The full URL including ?id=7, but not the page content",
+        "Nothing at all, not even which server you connected to",
+        "The IP and usually the hostname, but not the path or cookies",
+        "Everything, because public Wi-Fi traffic is not covered by TLS"
+      ],
+      "answer": 2,
+      "explanation": "TLS encrypts the whole HTTP message, including the path and query string. Packets still need the destination IP, and the hostname usually leaks through DNS and the TLS handshake.",
+      "concept": "what HTTPS hides",
+      "section": 3
+    },
+    {
+      "id": "http-web-q15",
+      "type": "code-fill",
+      "difficulty": "medium",
+      "question": "Complete the response header that lets pages on https://app.example.com read this API response.",
+      "code": "HTTP/1.1 200 OK\nContent-Type: application/json\n_____: https://app.example.com",
+      "choices": [
+        "Origin",
+        "Access-Control-Allow-Origin",
+        "Access-Control-Request-Method",
+        "Allow"
+      ],
+      "answer": 1,
+      "explanation": "Access-Control-Allow-Origin names the origin allowed to read the response. Origin is the request header the browser sends, and Access-Control-Request-Method is part of the preflight request.",
+      "concept": "Access-Control-Allow-Origin",
+      "section": 4
+    },
+    {
+      "id": "http-web-q16",
+      "type": "mcq",
+      "difficulty": "easy",
+      "question": "Which request best follows REST conventions for changing the email address of user 42?",
+      "choices": [
+        "POST /updateUserEmail?id=42",
+        "GET /users/42/setEmail?value=new@example.com",
+        "DELETE /users/42, then POST /users with the new data",
+        "PATCH /users/42 with a JSON body containing the new email"
+      ],
+      "answer": 3,
+      "explanation": "REST puts the resource in the URL and the action in the method. PATCH updates part of user 42. Changing data with GET is especially bad, because GET is supposed to be safe and may be cached or prefetched.",
+      "concept": "REST conventions",
+      "section": 4
+    },
+    {
+      "id": "http-web-q17",
+      "type": "debug",
+      "difficulty": "hard",
+      "question": "A page on https://app.example.com calls https://api.example.com. The same request works in curl, but the browser console shows this. What has to change?",
+      "code": "Access to fetch at 'https://api.example.com/data' from origin 'https://app.example.com' has been blocked by CORS policy: No 'Access-Control-Allow-Origin' header is present on the requested resource.",
+      "choices": [
+        "The API must send Access-Control-Allow-Origin allowing https://app.example.com",
+        "The page must add an Access-Control-Allow-Origin header to its request",
+        "The page must call the API with curl instead of fetch",
+        "The API must switch from HTTPS to plain HTTP"
+      ],
+      "answer": 0,
+      "explanation": "CORS permission comes from the server's response headers, and only browsers enforce it, which is why curl works. A header on the request cannot grant the page access.",
+      "concept": "fixing CORS errors",
+      "section": 4
+    }
+  ]
+}

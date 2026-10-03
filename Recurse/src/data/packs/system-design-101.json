@@ -1,0 +1,417 @@
+{
+  "id": "system-design-101",
+  "name": "System Design 101",
+  "version": "1.0.0",
+  "author": "Recurse",
+  "subject": "cs",
+  "level": "intermediate",
+  "description": "Designing systems that scale: estimation, load balancing, caching, databases, queues, CAP and rate limits.",
+  "icon": "SD",
+  "language": "plaintext",
+  "prereqs": [
+    "http-web",
+    "data-structures"
+  ],
+  "tags": [
+    "system-design",
+    "scalability",
+    "caching",
+    "databases",
+    "distributed-systems"
+  ],
+  "lesson": {
+    "estimatedMinutes": 15,
+    "intro": "System design is deciding how the parts of a large application fit together so it stays fast and available as usage grows. The same handful of building blocks appear in almost every design: load balancers, caches, replicated and sharded databases, queues and rate limiters. This lesson explains what each one solves and what it costs.",
+    "sections": [
+      {
+        "title": "Requirements and back-of-envelope estimates",
+        "body": "Before drawing boxes, pin down what you are building.\n\n- Functional requirements say what the system does: users upload photos, follow people, see a feed.\n- Non-functional requirements say how well it must do it: 99.9% availability, feed loads in under 200 ms for 95% of requests, no lost uploads, 10 million daily users.\n\nNon-functional requirements drive most design decisions, so ask about scale, latency and consistency early.\n\nNext, estimate rough numbers. Round hard; the goal is the right order of magnitude, not precision.\n\n- A day has 86,400 seconds, about 10^5. Requests per second is roughly requests per day / 10^5.\n- Plan for peaks of 2 to 5 times the average.\n- Storage = new items per day x size x how long you keep them.\n- Compare reads with writes. Most consumer apps read far more than they write, which favors caching and read replicas.\n\nAvailability targets are often given in nines. 99.9% allows about 8.8 hours of downtime a year; 99.99% allows about 53 minutes.",
+        "code": "Photo app, 10 million daily active users\n\nUploads:  10M x 0.1 photos/day   = 1M photos/day\n          1M / 10^5 s             = ~10 uploads/s  (peak ~30/s)\nViews:    10M x 50 views/day      = 500M/day = ~5,000 reads/s\nStorage:  1M photos x 500 KB      = 500 GB/day = ~180 TB/year\nRead:write ratio                  = 500:1  -> cache aggressively",
+        "tip": "Write your assumptions down next to each number. A wrong assumption is easy to fix when it is visible.",
+        "check": {
+          "question": "A service promises 99.9% availability. Roughly how much downtime does that allow per year?",
+          "choices": [
+            "About 53 minutes",
+            "About 8.8 hours",
+            "About 3.7 days",
+            "About 36 days"
+          ],
+          "answer": 1,
+          "explanation": "0.1% of the 8,760 hours in a year is about 8.8 hours. About 53 minutes is the budget for 99.99%, and about 3.7 days is 99%."
+        }
+      },
+      {
+        "title": "Scaling up, scaling out, and load balancers",
+        "body": "Vertical scaling (scaling up) means moving to a bigger machine: more CPU, more RAM, faster disks. It needs no code changes, but there is a hardware ceiling, prices climb steeply near the top, and one machine is still a single point of failure.\n\nHorizontal scaling (scaling out) means adding more machines that share the work. There is no hard ceiling and losing one machine is survivable, but the application has to be built for it:\n\n- App servers should be stateless, so any server can handle any request. Keep sessions in a shared store such as Redis, or in signed tokens, not in one server's memory.\n- A load balancer sits in front of the servers and spreads requests across them.\n\nHow load balancers work:\n\n- Algorithms: round robin takes turns; least connections sends each request to the least busy server, which helps when request times vary; hashing on a key such as client IP keeps a client on the same server.\n- Health checks: the balancer probes each server regularly, stops sending traffic to any that fail, and adds them back once they recover.\n- Layer 4 balancers route by IP address and port. Layer 7 balancers understand HTTP and can route by path, header or cookie.\n- The balancer itself must be redundant, or it becomes the new single point of failure.",
+        "code": "                   +--> app-1 (stateless) --+\nclients --> LB ----+--> app-2 (stateless) --+--> sessions in Redis\n   (health checks) +--> app-3 (stateless) --+--> data in the database",
+        "tip": "Scale up first when it is cheap and simple; design to scale out before you hit the ceiling.",
+        "check": {
+          "question": "What does a load balancer's health check do?",
+          "choices": [
+            "Encrypts traffic between the balancer and the servers",
+            "Restarts any server that uses too much memory or CPU",
+            "Measures how fast each user's connection is so it can pick a server",
+            "Probes each server and stops routing traffic to failing ones"
+          ],
+          "answer": 3,
+          "explanation": "Health checks let the balancer route around a crashed or hung server automatically. Restarting servers is the job of an orchestrator or supervisor, not the balancer."
+        }
+      },
+      {
+        "title": "Caching and invalidation",
+        "body": "A cache keeps copies of frequently read data somewhere faster than the original source. From the user inward:\n\n- Browser cache and CDN: static files and public pages served close to the user.\n- Application cache: an in-memory store such as Redis or Memcached in front of the database.\n- Database buffer cache: recently used data pages kept in the database's own memory.\n\nThe most common pattern is cache-aside: the application checks the cache first; on a miss, it reads the database and stores the result in the cache with a TTL. Two other write strategies:\n\n- Write-through: write to the cache and the database together. The cache stays fresh, but every write is slower.\n- Write-back: write to the cache and flush to the database later. Fast, but data is lost if the cache dies before flushing.\n\nInvalidation is the hard part. Stale data appears whenever the database changes and the cached copy does not.\n\n- A TTL limits how long stale data can survive.\n- Deleting the cache key whenever the underlying data is written makes the next read load fresh data.\n\nWhen the cache fills up, an eviction policy decides what to drop; LRU (least recently used) is the usual default.\n\nWatch for stampedes: when a popular key expires, thousands of requests can miss at once and hit the database together. Let one request rebuild the value while the others wait or get the old copy, and add random jitter to TTLs so keys do not all expire at the same moment.",
+        "code": "function getProduct(id):\n    key = \"product:\" + id\n    product = cache.get(key)\n    if product is null:                       # cache miss\n        product = db.query(\"SELECT * FROM products WHERE id = ?\", id)\n        cache.set(key, product, ttl=600)      # keep for 10 minutes\n    return product\n\nfunction updateProduct(id, fields):\n    db.update(\"products\", id, fields)\n    cache.delete(\"product:\" + id)             # next read reloads fresh data",
+        "check": {
+          "question": "In the cache-aside pattern, what puts data into the cache after a miss?",
+          "choices": [
+            "The application, after reading the value from the database",
+            "The database, which pushes every change to the cache",
+            "The cache, which reads the database by itself",
+            "The load balancer, which stores every response"
+          ],
+          "answer": 0,
+          "explanation": "In cache-aside, the cache is a passive store. The application handles the miss by querying the database and then writing the result into the cache. A cache that loads from the database by itself is a different pattern, read-through."
+        }
+      },
+      {
+        "title": "Databases: SQL, NoSQL, replication, sharding and CAP",
+        "body": "Relational (SQL) databases such as PostgreSQL and MySQL store rows in tables with a schema, support joins, and offer ACID transactions: a group of changes either all happen or none do. They are the safe default, especially for money, inventory and data full of relationships.\n\nNoSQL databases give up some of that for scale or flexibility: key-value stores (Redis, DynamoDB), document stores (MongoDB), wide-column stores (Cassandra) and graph databases (Neo4j). Many scale out more easily but offer fewer joins and weaker transactions.\n\nReplication keeps copies of the same data on several machines. With primary-replica (leader-follower) replication, every write goes to the primary, which streams changes to replicas that serve reads. This scales reads and allows failover. With asynchronous replication, replicas lag slightly behind, so a user might not see their own write right away; reading a user's recent writes from the primary avoids that.\n\nSharding splits the data itself across machines using a shard key, such as a hash of `user_id`. It spreads writes and storage, which replication cannot do, because every replica holds a full copy and the primary still takes every write. A key that spreads load unevenly creates hot shards, and queries that span many shards become slow and complex.\n\nThe CAP theorem says that when a network partition splits a distributed database, it must choose:\n\n- Consistency: every read sees the latest write, or gets an error.\n- Availability: every request gets a non-error answer, which may be stale.\n\nPartitions cannot be ruled out, so the real choice is consistency or availability while one lasts. Many systems choose availability with eventual consistency: replicas may disagree briefly but converge once the partition heals and writes settle.",
+        "code": "Replication: same data on every node     Sharding: different data on each node\n\n  writes --> [primary]                    hash(user_id) % 3 == 0 --> [shard 0]\n                |  copies changes         hash(user_id) % 3 == 1 --> [shard 1]\n                v                         hash(user_id) % 3 == 2 --> [shard 2]\n  reads  --> [replica] [replica]",
+        "tip": "Real systems combine both: each shard is usually its own primary with replicas.",
+        "check": {
+          "question": "What problem does sharding solve that adding read replicas does not?",
+          "choices": [
+            "Serving a larger number of read requests",
+            "Surviving the loss of one database machine",
+            "Spreading writes and total data size across machines",
+            "Making joins across large tables run faster"
+          ],
+          "answer": 2,
+          "explanation": "Every replica holds the full dataset and every write still goes to the primary, so replicas only scale reads. Sharding gives each machine a slice of the data and of the writes. It usually makes cross-shard joins harder, not faster."
+        }
+      },
+      {
+        "title": "Queues, async work and rate limiting",
+        "body": "Not every task has to finish before the user gets a response. Sending email, resizing images and building reports can happen a moment later.\n\nA message queue such as RabbitMQ, Amazon SQS or Kafka sits between producers and consumers:\n\n- The web server (producer) adds a job to the queue and responds right away.\n- Worker processes (consumers) take jobs from the queue and do the slow work.\n- The queue absorbs spikes: if jobs arrive faster than workers finish them, they wait in line instead of overloading anything. Add workers to drain it faster.\n- Failed jobs are retried, and jobs that keep failing move to a dead-letter queue for inspection.\n\nMost queues guarantee at-least-once delivery: if a worker crashes before acknowledging a message, the queue delivers it again. So consumers must be idempotent, meaning that handling the same message twice has the same effect as handling it once, for example by recording which order IDs were already charged.\n\nRate limiting protects a service from abuse and overload by capping how many requests each client (user, API key or IP address) can make.\n\n- Token bucket: a bucket holds up to N tokens and refills at a steady rate. Each request spends one token; with no tokens left, requests are rejected. It allows bursts up to N while enforcing the average rate.\n- Fixed window: count requests per clock minute. Simple, but a client can use a full quota at the end of one minute and another at the start of the next.\n- Sliding window: count requests over the last 60 seconds at every moment, which smooths out that edge burst.\n\nRejected requests get HTTP 429 Too Many Requests, ideally with a Retry-After header. With many servers, keep the counters in a shared store such as Redis so the limit applies across all of them.",
+        "code": "POST /signup --> web server --enqueue(\"send_welcome_email\")--> [ queue ] --> worker(s) --> email provider\n                 responds 201 right away                         retries, then a dead-letter queue",
+        "tip": "Pass an idempotency key, such as the order ID, with every job so a repeated message can be detected and skipped.",
+        "check": {
+          "question": "A fixed-window rate limiter allows 100 requests per clock minute. What is its main weakness?",
+          "choices": [
+            "It cannot tell different clients or API keys apart",
+            "100 requests at 12:00:59 plus 100 at 12:01:00 are all allowed",
+            "It rejects every request after the first 100 forever",
+            "It needs a separate server to keep track of each client's count"
+          ],
+          "answer": 1,
+          "explanation": "The counter resets at each minute boundary, so a client can fit two full quotas into two seconds. Sliding windows and token buckets avoid that burst."
+        }
+      }
+    ],
+    "keyTerms": [
+      {
+        "term": "Horizontal scaling",
+        "definition": "Handling more load by adding machines that share the work, rather than buying a bigger single machine."
+      },
+      {
+        "term": "Load balancer",
+        "definition": "A component that spreads incoming requests across healthy servers using an algorithm such as round robin or least connections."
+      },
+      {
+        "term": "Cache-aside",
+        "definition": "A caching pattern where the app reads the cache first and, on a miss, loads from the database and fills the cache."
+      },
+      {
+        "term": "Replication",
+        "definition": "Keeping copies of the same data on several machines, typically one primary for writes and replicas for reads."
+      },
+      {
+        "term": "Sharding",
+        "definition": "Splitting a dataset across machines by a shard key so each holds and writes only part of the data."
+      },
+      {
+        "term": "CAP theorem",
+        "definition": "During a network partition, a distributed data store must choose between consistency and availability."
+      },
+      {
+        "term": "Idempotent",
+        "definition": "An operation that has the same effect whether it runs once or several times, which makes retries safe."
+      },
+      {
+        "term": "Token bucket",
+        "definition": "A rate-limiting algorithm where requests spend tokens from a bucket that refills at a fixed rate, allowing short bursts."
+      }
+    ],
+    "summary": [
+      "Start from requirements, then estimate load with round numbers: requests per day / 10^5 gives requests per second.",
+      "Scale out with stateless servers behind a redundant load balancer that health-checks them.",
+      "Caches make reads fast, but every cache needs a plan for invalidation, eviction and stampedes.",
+      "Replicas scale reads, shards scale writes and storage, and during a partition a system must pick consistency or availability.",
+      "Queues move slow work off the request path and need idempotent consumers; rate limiters return 429 to protect the service."
+    ],
+    "feynmanPrompt": "Explain to a friend who runs a small online shop how you would prepare it for a huge holiday sale using a load balancer, a cache, read replicas and a queue, and what problem each one solves."
+  },
+  "questions": [
+    {
+      "id": "system-design-101-q01",
+      "type": "typed",
+      "difficulty": "medium",
+      "question": "A service receives 50 million requests per day, spread evenly. Using 1 day = 100,000 seconds, about how many requests per second is that?",
+      "answer": "500",
+      "accept": [
+        "500 rps",
+        "500 qps",
+        "500/s",
+        "578",
+        "579"
+      ],
+      "explanation": "50,000,000 / 100,000 = 500 requests per second. The exact figure with 86,400 seconds is about 579, but the rounded 10^5 is close enough for design decisions. Peaks will be higher than this average.",
+      "concept": "QPS estimation",
+      "section": 0
+    },
+    {
+      "id": "system-design-101-q02",
+      "type": "mcq",
+      "difficulty": "easy",
+      "question": "Which of these is a non-functional requirement?",
+      "choices": [
+        "Users can upload a profile photo",
+        "Users can follow other users",
+        "95% of feed loads finish in under 200 ms",
+        "Admins can delete any post"
+      ],
+      "answer": 2,
+      "explanation": "A latency target describes how well the system performs, which makes it non-functional. The others describe features the system offers, which are functional requirements.",
+      "concept": "requirements",
+      "section": 0
+    },
+    {
+      "id": "system-design-101-q03",
+      "type": "mcq",
+      "difficulty": "medium",
+      "question": "Users upload 2 million photos a day, averaging 500 KB each. Roughly how much new storage is needed per day?",
+      "choices": [
+        "About 1 TB",
+        "About 1 GB",
+        "About 100 GB",
+        "About 10 TB"
+      ],
+      "answer": 0,
+      "explanation": "2 x 10^6 photos x 500 x 10^3 bytes = 10^12 bytes, which is 1 TB per day, or about 365 TB a year before replication. Getting 1 GB means dropping a factor of 1,000 somewhere in the units.",
+      "concept": "storage estimation",
+      "section": 0
+    },
+    {
+      "id": "system-design-101-q04",
+      "type": "recall",
+      "difficulty": "medium",
+      "question": "Compare vertical and horizontal scaling: give one advantage and one limitation of each.",
+      "answer": "Vertical scaling (a bigger machine) needs no code changes, but it hits a hardware ceiling and leaves a single point of failure. Horizontal scaling (more machines) has no hard ceiling and survives losing a machine, but servers must be stateless and you need a load balancer.",
+      "explanation": "Teams often scale up first because it is simple, and scale out once they need more capacity or redundancy than one machine can give.",
+      "concept": "vertical vs horizontal scaling",
+      "section": 1
+    },
+    {
+      "id": "system-design-101-q05",
+      "type": "debug",
+      "difficulty": "medium",
+      "question": "After a second app server was added behind the load balancer, users get logged out at random. What is wrong?",
+      "code": "# load balancer: round robin\nupstream app {\n    server 10.0.0.11:8080;   # app-1\n    server 10.0.0.12:8080;   # app-2\n}\n\n# app server\nsessions = {}                      # in-process memory\non login:   sessions[token] = user\non request: user = sessions.get(token)   # null -> redirect to login",
+      "choices": [
+        "Round robin is faulty; switching to random selection fixes it",
+        "Sessions live in each server's memory, so the other one has no session",
+        "The two app servers must listen on different port numbers",
+        "The load balancer should cache the login page separately for each user"
+      ],
+      "answer": 1,
+      "explanation": "A user who logged in on app-1 has no session on app-2, and round robin alternates between them. Make the servers stateless by moving sessions to a shared store such as Redis or into signed tokens. Random selection would fail the same way.",
+      "concept": "stateless servers",
+      "section": 1
+    },
+    {
+      "id": "system-design-101-q06",
+      "type": "mcq",
+      "difficulty": "medium",
+      "question": "Some requests to a service take 20 ms and others take 30 seconds. Which load balancing algorithm spreads the work most evenly?",
+      "choices": [
+        "Round robin",
+        "Random selection",
+        "Hashing on the client IP",
+        "Least connections"
+      ],
+      "answer": 3,
+      "explanation": "Least connections sends each new request to the server with the fewest requests in flight, so a server stuck on slow requests gets fewer new ones. Round robin hands out equal counts, which can pile slow requests onto one server.",
+      "concept": "load balancing algorithms",
+      "section": 1
+    },
+    {
+      "id": "system-design-101-q07",
+      "type": "code-fill",
+      "difficulty": "easy",
+      "question": "Complete the cache-aside read so the next request for this user is a cache hit.",
+      "code": "function getUser(id):\n    user = cache.get(\"user:\" + id)\n    if user is null:\n        user = db.query(\"SELECT * FROM users WHERE id = ?\", id)\n        _____\n    return user",
+      "choices": [
+        "db.update(\"users\", id, user)",
+        "cache.delete(\"user:\" + id)",
+        "cache.set(\"user:\" + id, user, 300)",
+        "user = cache.get(\"user:\" + id)"
+      ],
+      "answer": 2,
+      "explanation": "After a miss, cache-aside stores the value it just loaded, here with a 300-second TTL, so later reads skip the database. Deleting the key is what you do after a write, not after a read.",
+      "concept": "cache-aside",
+      "section": 2
+    },
+    {
+      "id": "system-design-101-q08",
+      "type": "mcq",
+      "difficulty": "medium",
+      "question": "A user renames their profile but keeps seeing the old name for up to 10 minutes. Profiles are cached with a 10-minute TTL. What is the most direct fix?",
+      "choices": [
+        "Delete the profile's cache key whenever it is updated",
+        "Raise the TTL to one hour so the cache is hit more often",
+        "Add a read replica for the profiles table to share load",
+        "Switch the cache's eviction policy from FIFO to LRU"
+      ],
+      "answer": 0,
+      "explanation": "Invalidating the key on write means the next read misses and loads the new name. A longer TTL makes staleness worse, and eviction policy only matters when the cache is full.",
+      "concept": "cache invalidation",
+      "section": 2
+    },
+    {
+      "id": "system-design-101-q09",
+      "type": "mcq",
+      "difficulty": "hard",
+      "question": "The cached home page expires every 5 minutes, and each time thousands of requests miss at once and overload the database. Which fix targets this problem?",
+      "choices": [
+        "Lower the TTL to 10 seconds so the page stays fresher",
+        "Stop caching the home page and always query the database",
+        "Add more app servers to absorb the extra requests",
+        "Let one request rebuild it while others wait or use the old copy"
+      ],
+      "answer": 3,
+      "explanation": "This is a cache stampede. Making only one request recompute the value keeps the database load to a single query. A shorter TTL causes stampedes more often, and more app servers send even more simultaneous queries.",
+      "concept": "cache stampede",
+      "section": 2
+    },
+    {
+      "id": "system-design-101-q10",
+      "type": "mcq",
+      "difficulty": "medium",
+      "question": "A user posts a comment and refreshes; the comment is missing, then appears a second later. Reads are served by replicas. What is happening?",
+      "choices": [
+        "The first write failed and the app retried it a second later",
+        "Replication lag: the replica had not received the write yet",
+        "The cache evicted the comment and had to reload it",
+        "The shard key is unbalanced, so one shard answered slowly"
+      ],
+      "answer": 1,
+      "explanation": "With asynchronous replication, the primary has the write but the replica serving the read is slightly behind. Reading a user's own recent writes from the primary avoids this.",
+      "concept": "replication lag",
+      "section": 3
+    },
+    {
+      "id": "system-design-101-q11",
+      "type": "mcq",
+      "difficulty": "medium",
+      "question": "You are sharding a users table across 8 database servers. Which shard key spreads data and traffic most evenly?",
+      "choices": [
+        "Country",
+        "Signup date, one date range per shard",
+        "A hash of user_id",
+        "Account type (free or paid)"
+      ],
+      "answer": 2,
+      "explanation": "Hashing a high-cardinality key like user_id scatters users evenly. Country puts big countries on one hot shard, date ranges send every new signup to the newest shard, and account type has only two values for 8 shards.",
+      "concept": "shard keys",
+      "section": 3
+    },
+    {
+      "id": "system-design-101-q12",
+      "type": "mcq",
+      "difficulty": "hard",
+      "question": "During a network partition, a bank's replicated ledger rejects writes on the side that cannot reach a majority, rather than risk conflicting balances. Which CAP trade-off is this?",
+      "choices": [
+        "Consistency over availability",
+        "Availability over consistency",
+        "Partition tolerance over consistency",
+        "Eventual consistency"
+      ],
+      "answer": 0,
+      "explanation": "Refusing requests to avoid conflicting data keeps the system consistent at the cost of availability. An available design would accept writes on both sides and reconcile later, which is eventual consistency.",
+      "concept": "CAP theorem",
+      "section": 3
+    },
+    {
+      "id": "system-design-101-q13",
+      "type": "mcq",
+      "difficulty": "medium",
+      "question": "Which workload most clearly calls for a relational database with ACID transactions?",
+      "choices": [
+        "Caching rendered web pages for a few minutes at a time",
+        "Storing a stream of click events for later analysis",
+        "Looking up short-lived session data by its session ID",
+        "A money transfer where both account updates succeed or neither does"
+      ],
+      "answer": 3,
+      "explanation": "A transfer must debit one account and credit the other atomically, which is exactly what ACID transactions guarantee. Caches, event streams and session lookups fit key-value or append-only stores well.",
+      "concept": "SQL vs NoSQL",
+      "section": 3
+    },
+    {
+      "id": "system-design-101-q14",
+      "type": "mcq",
+      "difficulty": "easy",
+      "question": "Sending the welcome email during sign-up sometimes takes 5 seconds, which makes sign-up slow. What is the standard fix?",
+      "choices": [
+        "Move the email code to a bigger, faster dedicated server of its own",
+        "Put an email job on a queue and let a background worker send it",
+        "Cache the welcome email so it is generated only once",
+        "Skip sending the email whenever the server is under load"
+      ],
+      "answer": 1,
+      "explanation": "The request only needs to enqueue the job, which takes milliseconds; a worker sends the email afterward and can retry if the provider is down. A bigger server does not make the email provider respond faster.",
+      "concept": "async processing",
+      "section": 4
+    },
+    {
+      "id": "system-design-101-q15",
+      "type": "debug",
+      "difficulty": "hard",
+      "question": "Occasionally a customer is charged twice for one order. What is wrong with this worker?",
+      "code": "# worker; the queue guarantees at-least-once delivery\nloop:\n    msg = queue.receive()\n    payments.charge(msg.order_id, msg.amount)\n    queue.ack(msg)",
+      "choices": [
+        "The queue is too slow, so duplicate messages pile up in it",
+        "Calling ack before charging would fix it with no downside",
+        "Redelivery after a crash before ack; skip orders already charged",
+        "The worker must sleep between messages to avoid reading one twice"
+      ],
+      "answer": 2,
+      "explanation": "At-least-once delivery means a message can arrive twice, so the worker must skip orders it already charged. Acking first just swaps the bug: a crash after the ack would lose the payment entirely.",
+      "concept": "idempotent consumers",
+      "section": 4
+    },
+    {
+      "id": "system-design-101-q16",
+      "type": "typed",
+      "difficulty": "easy",
+      "question": "Which HTTP status code should an API return when a client has exceeded its rate limit?",
+      "answer": "429",
+      "accept": [
+        "429 Too Many Requests"
+      ],
+      "explanation": "429 Too Many Requests tells the client to slow down, ideally with a Retry-After header saying when to try again. 503 means the server itself is unavailable, which is a different message.",
+      "concept": "rate limiting",
+      "section": 4
+    },
+    {
+      "id": "system-design-101-q17",
+      "type": "typed",
+      "difficulty": "medium",
+      "question": "A token bucket holds at most 10 tokens and refills 1 token per second. A client has been idle for a minute, then sends 15 requests at the same instant. How many are allowed?",
+      "answer": "10",
+      "explanation": "The bucket refilled during the idle minute but stops at its capacity of 10. The burst spends all 10 tokens, and the other 5 requests are rejected until tokens refill at 1 per second.",
+      "concept": "token bucket",
+      "section": 4
+    }
+  ]
+}
