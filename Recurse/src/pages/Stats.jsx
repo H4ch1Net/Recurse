@@ -1,6 +1,6 @@
 import { useMemo } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
-import { Award, Lock, Share2, Trash2, TriangleAlert, ChartColumn } from 'lucide-react'
+import { Award, Lock, Share2, Trash2 } from 'lucide-react'
 import { useApp } from '../state/context'
 import { useDocumentTitle } from '../hooks/useDocumentTitle'
 import { reviewForecast, memoryTone, MEMORY_TONE_LABELS } from '../lib/progress'
@@ -101,7 +101,7 @@ export default function Stats() {
       {tab === 'overview' && (
         !hasData ? (
           <div className="card">
-            <EmptyState icon={ChartColumn} title="No reviews yet" action={<Link to="/library" className="btn btn-primary">Pick a topic</Link>}>
+            <EmptyState art="chart" title="No reviews yet" action={<Link to="/library" className="btn btn-primary">Pick a topic</Link>}>
               Charts appear after your first study session: upcoming reviews, daily activity and how well each topic is holding.
             </EmptyState>
           </div>
@@ -118,15 +118,15 @@ export default function Stats() {
 
             <div className="grid-2">
               <section className="card">
-                <div className="section-head">
+                <div className="catalog-head" style={{ marginBottom: 'var(--s-4)' }}>
                   <h2 className="section-title">Upcoming reviews</h2>
-                  <span className="xsmall subtle">next 14 days</span>
+                  <span className="callno">Next 14 days</span>
                 </div>
                 <ForecastChart counts={forecast} now={now} />
                 <p className="xsmall subtle">Today includes anything overdue. Intervals grow as cards get easier, so this flattens out over time.</p>
               </section>
               <section className="card">
-                <div className="section-head">
+                <div className="catalog-head" style={{ marginBottom: 'var(--s-4)' }}>
                   <h2 className="section-title">Accuracy by question type</h2>
                 </div>
                 <BarList
@@ -143,9 +143,9 @@ export default function Stats() {
             </div>
 
             <section className="card">
-              <div className="section-head">
+              <div className="catalog-head" style={{ marginBottom: 'var(--s-4)' }}>
                 <h2 className="section-title">Activity</h2>
-                <span className="xsmall subtle">reviews per day, last 12 months</span>
+                <span className="callno">Reviews per day · 12 months</span>
               </div>
               <ActivityHeatmap days={stats.days || {}} now={now} />
             </section>
@@ -155,12 +155,12 @@ export default function Stats() {
 
       {tab === 'topics' && (
         studied.length === 0 ? (
-          <div className="card"><EmptyState icon={ChartColumn} title="No topics started" action={<Link to="/library" className="btn btn-primary">Browse the library</Link>}>Start a topic to see how well it is holding.</EmptyState></div>
+          <div className="card"><EmptyState art="drawer" title="No topics started" action={<Link to="/library" className="btn btn-primary">Browse the library</Link>}>Start a topic to see how well it is holding.</EmptyState></div>
         ) : (
           <section className="card">
-            <div className="section-head">
+            <div className="catalog-head" style={{ marginBottom: 'var(--s-4)' }}>
               <h2 className="section-title">Memory by topic</h2>
-              <span className="xsmall subtle">weakest first</span>
+              <span className="callno">Weakest first</span>
             </div>
             <div className="topic-memory-list">
               {[...studied].sort((a, b) => (a.summary.memory ?? 0) - (b.summary.memory ?? 0)).map(({ pack, summary }) => {
@@ -189,10 +189,10 @@ export default function Stats() {
 
       {tab === 'mistakes' && (
         mistakes.length === 0 ? (
-          <div className="card"><EmptyState icon={TriangleAlert} title="No open mistakes">Cards you miss land here until you answer them correctly again.</EmptyState></div>
+          <div className="card"><EmptyState art="cleared" title="No open mistakes">Cards you miss land here until you answer them correctly again.</EmptyState></div>
         ) : (
           <section className="card">
-            <div className="section-head">
+            <div className="catalog-head" style={{ marginBottom: 'var(--s-4)' }}>
               <div>
                 <h2 className="section-title">Mistake journal</h2>
                 <p className="small subtle">Answer a card correctly to clear it from this list.</p>
@@ -241,7 +241,7 @@ export default function Stats() {
 
       {tab === 'history' && (
         (stats.sessions || []).length === 0 ? (
-          <div className="card"><EmptyState icon={ChartColumn} title="No sessions yet">Finished sessions are listed here.</EmptyState></div>
+          <div className="card"><EmptyState art="chart" title="No sessions yet">Finished sessions are listed here.</EmptyState></div>
         ) : (
           <section className="card">
             <div className="table-wrap">

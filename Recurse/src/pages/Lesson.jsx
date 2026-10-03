@@ -25,9 +25,10 @@ function SectionCheck({ check, passed, onPass }) {
 
   return (
     <div className="lesson-check" aria-live="polite">
-      <div className="row between">
-        <div className="eyebrow" style={{ margin: 0 }}>Check yourself</div>
-        {passed && !answered && <span className="chip good"><Check size={12} /> Passed</span>}
+      <div className="catalog-head">
+        <span className="callno">Check yourself</span>
+        {passed && !answered && <span className="stamp good">Passed</span>}
+        {answered && correct && <span className="stamp good press">Correct</span>}
       </div>
       <p className="lesson-check-q"><Inline text={check.question} /></p>
       <div className="choices compact">
@@ -60,7 +61,7 @@ function SectionCheck({ check, passed, onPass }) {
 
 export default function Lesson() {
   const { topicId } = useParams()
-  const { packMap, progress, passCheck, markLessonRead } = useApp()
+  const { packMap, callNos, progress, passCheck, markLessonRead } = useApp()
   const navigate = useNavigate()
   const location = useLocation()
   const pack = packMap.get(topicId)
@@ -127,13 +128,13 @@ export default function Lesson() {
               {lesson.sections.map((section, i) => (
                 <li key={i}>
                   <a href={`#section-${i + 1}`} className={active === i ? 'active' : ''} aria-current={active === i ? 'location' : undefined}>
-                    <span className={`outline-dot${topic.checks?.[i] ? ' done' : ''}`} aria-hidden="true">{topic.checks?.[i] ? <Check size={12} /> : i + 1}</span>
+                    <span className={`outline-dot${topic.checks?.[i] ? ' done' : ''}`} aria-hidden="true">{topic.checks?.[i] ? <Check size={11} /> : String(i + 1).padStart(2, '0')}</span>
                     {section.title}
                   </a>
                 </li>
               ))}
-              <li><a href="#key-terms"><span className="outline-dot" aria-hidden="true">·</span>Key terms</a></li>
-              <li><a href="#summary"><span className="outline-dot" aria-hidden="true">·</span>Summary</a></li>
+              <li><a href="#key-terms"><span className="outline-dot aux" aria-hidden="true">Aa</span>Key terms</a></li>
+              <li><a href="#summary"><span className="outline-dot aux" aria-hidden="true">Σ</span>Summary</a></li>
             </ol>
             <div className="xsmall subtle" style={{ marginTop: 'var(--s-4)' }}>{passedCount} of {lesson.sections.length} checks passed</div>
             <div className="bar" style={{ marginTop: 6 }}><span style={{ width: `${(passedCount / lesson.sections.length) * 100}%` }} /></div>
@@ -141,7 +142,7 @@ export default function Lesson() {
 
           <article className="lesson-article">
             <header className="lesson-header">
-              <div className="eyebrow">{subjectLabel(pack.subject)} · {lesson.estimatedMinutes} min read</div>
+              <div className="eyebrow"><span style={{ color: 'var(--ink)' }}>{callNos.get(pack.id)}</span> · {subjectLabel(pack.subject)} · {lesson.estimatedMinutes} min read</div>
               <h1 className="page-title">{pack.name}</h1>
               {lesson.intro && <p className="lesson-intro"><Inline text={lesson.intro} /></p>}
               <div className="callout info small">
@@ -152,7 +153,7 @@ export default function Lesson() {
 
             {lesson.sections.map((section, i) => (
               <section key={i} id={`section-${i + 1}`} data-index={i} className="lesson-section" aria-labelledby={`section-title-${i}`}>
-                <div className="lesson-section-num">Part {i + 1}</div>
+                <div className="lesson-section-num">§ {String(i + 1).padStart(2, '0')}</div>
                 <h2 id={`section-title-${i}`} className="lesson-section-title">{section.title}</h2>
                 <RichText text={section.body} />
                 {section.code && <CodeBlock code={section.code} language={codeLanguage(pack, section)} />}

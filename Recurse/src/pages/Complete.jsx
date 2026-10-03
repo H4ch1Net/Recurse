@@ -6,7 +6,7 @@ import { useDocumentTitle } from '../hooks/useDocumentTitle'
 import { dueSummary } from '../lib/session'
 import { retrievability } from '../lib/memory'
 import { topicMastery, topicOf } from '../lib/progress'
-import { formatDuration, formatRelative } from '../lib/dates'
+import { dueStamp, formatDuration, formatRelative } from '../lib/dates'
 import { isChoiceType } from '../lib/packSchema'
 import { todayLog, currentStreak } from '../lib/gamification'
 import { Inline } from '../components/RichText'
@@ -69,8 +69,11 @@ export default function Complete() {
 
   return (
     <div className="page narrow">
-      <section className="card roomy complete-hero">
-        <div className="eyebrow">{s.title} complete</div>
+      <section className="slip complete-hero">
+        <div className="catalog-head">
+          <span className="callno">{s.title} · {new Date(s.date).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })} · {new Date(s.date).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })}</span>
+          <span className="stamp press">{s.cards} returned</span>
+        </div>
         <h1 className="page-title">{headline(s.accuracy, s.cards)}</h1>
         {s.cards > 0 && <p className="page-sub">{subline(s.accuracy)}</p>}
         <div className="grid-stats complete-stats">
@@ -123,8 +126,8 @@ export default function Complete() {
       ))}
 
       {details.memory.length > 0 && (
-        <section className="card" style={{ marginTop: 'var(--s-5)' }}>
-          <h2 className="section-title" style={{ marginBottom: 'var(--s-3)' }}>Topics covered</h2>
+        <section style={{ marginTop: 'var(--s-8)' }}>
+          <div className="section-head"><h2 className="section-title">Topics covered</h2><span className="callno">Mastery before → after</span></div>
           <div className="list">
             {details.memory.map(({ pack, before, after, masteryBefore, masteryAfter }) => (
               <div key={pack.id} className="list-row">
@@ -135,8 +138,8 @@ export default function Complete() {
                     {after != null && before != null && after > before ? `, now refreshed` : ''}
                   </div>
                 </div>
-                <div className="xsmall tabular" style={{ textAlign: 'right' }}>
-                  <div>Mastery {masteryBefore}% → <strong>{masteryAfter}%</strong></div>
+                <div className="xsmall tabular mono" style={{ textAlign: 'right' }}>
+                  <div>{masteryBefore}% → <strong>{masteryAfter}%</strong></div>
                   {masteryAfter > masteryBefore && <div className="good-text">+{masteryAfter - masteryBefore}</div>}
                 </div>
               </div>
@@ -146,9 +149,8 @@ export default function Complete() {
       )}
 
       {details.concepts.length > 0 && (
-        <section className="card" style={{ marginTop: 'var(--s-5)' }}>
-          <h2 className="section-title">Worth rereading</h2>
-          <p className="small muted" style={{ marginBottom: 'var(--s-3)' }}>The lesson sections behind the cards you missed.</p>
+        <section style={{ marginTop: 'var(--s-8)' }}>
+          <div className="section-head"><h2 className="section-title">Worth rereading</h2><span className="callno">Behind your misses</span></div>
           <div className="list">
             {details.concepts.map((c) => (
               <Link key={`${c.pack.id}-${c.index}`} to={`/topic/${c.pack.id}/lesson#section-${c.index + 1}`} className="list-row">
@@ -165,8 +167,8 @@ export default function Complete() {
       )}
 
       {s.results?.length > 0 && (
-        <section className="card" style={{ marginTop: 'var(--s-5)' }}>
-          <h2 className="section-title" style={{ marginBottom: 'var(--s-3)' }}>Cards in this session</h2>
+        <section style={{ marginTop: 'var(--s-8)' }}>
+          <div className="section-head"><h2 className="section-title">Cards in this session</h2><span className="callno">Next review</span></div>
           <div className="list">
             {(s.results || []).filter((r) => r.retry === 0).map((r) => {
               const pack = packMap.get(r.packId)
@@ -180,7 +182,7 @@ export default function Complete() {
                     <div className="small"><Inline text={question.question} /></div>
                     {!r.correct && <div className="xsmall good-text clamp-2">Answer: {answer}</div>}
                   </div>
-                  <span className="xsmall subtle tabular" title="Next review">{formatRelative(r.due, now)}</span>
+                  <span className="stamp ink" title={`Next review ${formatRelative(r.due, now)}`}>{dueStamp(r.due, now)}</span>
                 </div>
               )
             })}

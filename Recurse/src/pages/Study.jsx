@@ -1,6 +1,6 @@
 import { useEffect, useEffectEvent, useRef, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
-import { BookOpen, CircleCheck, CircleX, Clock, Eye, Lightbulb, Timer, X, RotateCcw, Brain, Undo2 } from 'lucide-react'
+import { BookOpen, CircleCheck, CircleX, Clock, Eye, Timer, X, RotateCcw, Undo2 } from 'lucide-react'
 import { useApp } from '../state/context'
 import { useDocumentTitle } from '../hooks/useDocumentTitle'
 import { buildSession, requeue, dueSummary } from '../lib/session'
@@ -15,6 +15,7 @@ import CodeBlock from '../components/CodeBlock'
 import RichText, { Inline } from '../components/RichText'
 import { ConfirmDialog } from '../components/Modal'
 import EmptyState from '../components/EmptyState'
+import Illustration from '../components/Illustration'
 
 const PROMPTS = {
   mcq: 'Choose the best answer.',
@@ -61,7 +62,8 @@ function LessonPrompt({ pack, onStart }) {
   return (
     <div className="page narrow">
       <div className="card roomy stack">
-        <div className="eyebrow">New topic</div>
+        <div className="catalog-head"><span className="callno">New topic</span></div>
+        <Illustration name="drawer" className="illus lesson-prompt-art" />
         <h1 className="page-title">{pack.name}</h1>
         <p className="muted">
           The {pack.lesson.estimatedMinutes}-minute lesson explains everything these cards test. Reading it first makes the questions easier to place.
@@ -79,7 +81,7 @@ function LessonPrompt({ pack, onStart }) {
 export default function Study() {
   const { kind = 'review', topicId } = useParams()
   const navigate = useNavigate()
-  const { packs, packMap, progress, settings, stats, now, recordReview, undoReview, finishSession, toast } = useApp()
+  const { packs, packMap, callNos, progress, settings, stats, now, recordReview, undoReview, finishSession, toast } = useApp()
   const [session] = useState(() => startSession({ kind, topicId, packs, packMap, progress, settings, stats }))
   const pack0 = topicId ? packMap.get(topicId) : null
   const needsLessonPrompt = kind === 'topic' && pack0?.lesson && !progress[topicId]?.lessonRead && !Object.keys(progress[topicId]?.cards || {}).length
@@ -301,7 +303,7 @@ export default function Study() {
       <div className="page narrow">
         <div className="card">
           <EmptyState
-            icon={kind === 'mistakes' ? CircleCheck : Brain}
+            art={kind === 'mistakes' ? 'cleared' : 'done'}
             title={kind === 'mistakes' ? 'No mistakes to review' : 'Nothing to study right now'}
             action={
               <div className="row wrap" style={{ justifyContent: 'center' }}>
@@ -362,9 +364,9 @@ export default function Study() {
       </header>
 
       <main className="study-main" id="main">
-        <article className="study-card rise" key={`${item.key}:${item.retry}`} aria-labelledby="q-text">
-          <div className="study-meta">
-            <span className="chip">{pack.name}</span>
+        <article className="study-card" key={`${item.key}:${item.retry}`} aria-labelledby="q-text">
+          <div className="study-meta catalog-head">
+            <span className="callno">{callNos.get(pack.id)} · {pack.name}</span>
             <span className="chip outline">{QUESTION_TYPE_LABELS[question.type]}</span>
             {item.isNew && <span className="chip accent">New</span>}
             {item.retry > 0 && <span className="chip warn"><RotateCcw size={11} /> Again</span>}
@@ -421,7 +423,7 @@ export default function Study() {
 
           {question.type === 'recall' && phase === 'answer' && (
             <div className="stack-sm">
-              <textarea ref={inputRef} className="textarea" rows={3} value={typed} onChange={(e) => setTyped(e.target.value)} placeholder="Optional: write your answer first. Writing it out shows you what you actually know. Ctrl+Enter reveals." aria-label="Your answer (optional)" />
+              <textarea ref={inputRef} className="textarea lined" rows={3} value={typed} onChange={(e) => setTyped(e.target.value)} placeholder="Optional: write your answer first. Writing it out shows you what you actually know. Ctrl+Enter reveals." aria-label="Your answer (optional)" />
               <div>
                 <button type="button" className="btn btn-primary" onClick={reveal}><Eye size={16} /> Show answer <span className="kbd hide-mobile">Space</span></button>
               </div>
@@ -431,12 +433,12 @@ export default function Study() {
           {phase === 'feedback' && (
             <section ref={feedbackRef} className="feedback rise" aria-live="polite">
               {outcome.correct === true && (
-                <div className="feedback-head good-text"><CircleCheck size={22} /> {outcome.nearMiss ? 'Correct, but check the accents' : 'Correct'}</div>
+                <div className="feedback-head good-text"><span className="stamp good press">Correct</span> {outcome.nearMiss ? 'Check the accents' : outcome.overridden ? 'Counted as right' : ''}</div>
               )}
               {outcome.correct === false && (
-                <div className="feedback-head bad-text"><CircleX size={22} /> {outcome.gaveUp ? 'Here is the answer' : 'Not quite'}</div>
+                <div className="feedback-head bad-text"><span className="stamp press">{outcome.gaveUp ? 'Answer' : 'Not quite'}</span> <span className="small muted">{outcome.gaveUp ? 'Read it, then try to recall it next time.' : 'Read why, then it comes back shortly.'}</span></div>
               )}
-              {outcome.correct === null && <div className="feedback-head"><Lightbulb size={22} /> Compare with the answer</div>}
+              {outcome.correct === null && <div className="feedback-head"><span className="stamp ink press">Compare</span> <span className="small muted">How close was your answer?</span></div>}
 
               {(question.type === 'typed' || question.type === 'recall') && (
                 <div className="answer-compare">

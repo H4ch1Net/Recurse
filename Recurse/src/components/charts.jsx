@@ -33,7 +33,7 @@ export function ForecastChart({ counts, now = new Date() }) {
   return (
     <div className="chart-frame">
       <svg viewBox={`0 0 ${width} ${height}`} className="chart-svg" role="img" aria-label={`Reviews due over the next ${counts.length} days, ${total} in total`}>
-        <line x1={pad.left} x2={width - pad.right} y1={height - pad.bottom + 0.5} y2={height - pad.bottom + 0.5} stroke="var(--border)" />
+        <line x1={pad.left} x2={width - pad.right} y1={height - pad.bottom + 0.5} y2={height - pad.bottom + 0.5} stroke="var(--rule-strong)" />
         {counts.map((n, i) => {
           const h = n ? Math.max(4, (n / max) * plotH) : 0
           const x = pad.left + i * slot + (slot - barW) / 2
@@ -54,7 +54,7 @@ export function ForecastChart({ counts, now = new Date() }) {
                 onMouseEnter={(e) => show(e, `${label(i)}: ${n} ${n === 1 ? 'review' : 'reviews'}`)}
                 onMouseLeave={hide}
               />
-              {h > 0 && <path d={path} fill={i === 0 ? 'var(--accent)' : 'var(--mem-steady)'} opacity={i === 0 ? 1 : 0.75} pointerEvents="none" />}
+              {h > 0 && <path d={path} fill={i === 0 ? 'var(--accent)' : 'var(--heat-2)'} pointerEvents="none" />}
               {n > 0 && (i === 0 || i === peak) && (
                 <text x={x + barW / 2} y={y - 6} textAnchor="middle" className="chart-value">{n}</text>
               )}

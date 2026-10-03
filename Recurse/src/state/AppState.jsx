@@ -9,6 +9,7 @@ import { applyStudyDay, currentStreak, xpForReview } from '../lib/gamification'
 import { achievementTitle, newlyUnlocked } from '../lib/achievements'
 import { dayKey } from '../lib/dates'
 import { uid } from '../lib/random'
+import { callNumbers } from '../lib/subjects'
 
 
 /** Re-render on an interval so due counts and relative times stay current. */
@@ -94,11 +95,12 @@ export function AppProvider({ children }) {
     if (settings.theme === 'light' || settings.theme === 'dark') root.dataset.theme = settings.theme
     else delete root.dataset.theme
     const dark = settings.theme === 'dark' || (settings.theme !== 'light' && window.matchMedia?.('(prefers-color-scheme: dark)').matches)
-    document.querySelector('meta[name="theme-color"]')?.setAttribute('content', dark ? '#111214' : '#f7f6f2')
+    document.querySelector('meta[name="theme-color"]')?.setAttribute('content', dark ? '#14130f' : '#f2eee4')
   }, [settings.theme])
 
   const packs = useMemo(() => allPacks(communityPacks), [communityPacks])
   const packMap = useMemo(() => new Map(packs.map((p) => [p.id, p])), [packs])
+  const callNos = useMemo(() => callNumbers(packs), [packs])
   const summaries = useMemo(() => {
     const map = new Map()
     for (const pack of packs) map.set(pack.id, summarizeTopic(pack, topicOf(progress, pack.id), now))
@@ -288,6 +290,7 @@ export function AppProvider({ children }) {
     now,
     packs,
     packMap,
+    callNos,
     summaries,
     progress,
     stats,

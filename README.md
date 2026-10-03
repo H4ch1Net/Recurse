@@ -10,11 +10,11 @@ A spaced-repetition learning app. Short lessons, active recall and an FSRS revie
 across programming, computer science, math, science, history and languages.
 
 [![CI](https://github.com/H4ch1Net/Recurse/actions/workflows/ci.yml/badge.svg)](https://github.com/H4ch1Net/Recurse/actions/workflows/ci.yml)
-![License: MIT](https://img.shields.io/badge/license-MIT-0f7754)
+![License: MIT](https://img.shields.io/badge/license-MIT-2843c4)
 ![React 19](https://img.shields.io/badge/React-19-149eca)
 ![Vite 8](https://img.shields.io/badge/Vite-8-646cff)
-![37 topics](https://img.shields.io/badge/topics-37-0f7754)
-![632 cards](https://img.shields.io/badge/cards-632-0f7754)
+![37 topics](https://img.shields.io/badge/topics-37-2843c4)
+![632 cards](https://img.shields.io/badge/cards-632-2843c4)
 
 <img src="Recurse/docs/screenshots/today.png" alt="Recurse Today screen showing cards due, memory health and the daily goal" width="900" />
 
@@ -93,6 +93,26 @@ It runs entirely in the browser. There is no account, no server and no tracking.
   &nbsp;&nbsp;
   <img src="Recurse/docs/screenshots/mobile-study.png" alt="Study card on a phone" width="260" />
 </p>
+
+## Design
+
+The interface borrows from library card catalogs and Swiss typography. Each topic is an index card:
+a call number (`PRG 102`) and a red heading rule at the top, a punched rod hole at the bottom and a few
+cards stacked behind it. Due counts and session results are rubber stamps. Explanations are written on
+ruled paper, and the session summary is a checkout slip.
+
+| Element | Choice |
+| --- | --- |
+| Display | Instrument Serif, for titles and numerals |
+| Interface | Instrument Sans |
+| Labels, call numbers, code | JetBrains Mono, ligatures off |
+| Color | Warm paper and ink, one cobalt accent, stamp red for status. Subject colors act as catalog tab colors |
+| Motion | 120 to 360 ms on one easing curve. Cards are dealt in, stamps press, bars fill. Off under `prefers-reduced-motion` |
+
+Tokens are defined once in `src/styles/app.css`, with a dark theme block. The illustrations in
+`src/components/Illustration.jsx` are inline SVG drawn with the same tokens, so they follow the theme.
+Text colors meet WCAG AA in both themes. The share image and certificate are drawn on a canvas in
+`src/lib/share.js` in the same style.
 
 ## How a card moves through Recurse
 
@@ -207,7 +227,7 @@ Recurse/
     │   ├── storage.js      localStorage, v1 migration, backups
     │   └── ai.js           optional provider calls
     ├── state/              app state provider and actions
-    ├── components/         layout, code blocks, charts, dialogs
+    ├── components/         layout, code blocks, charts, dialogs, illustrations
     ├── pages/              one file per screen
     └── styles/             design tokens and component styles
 ```

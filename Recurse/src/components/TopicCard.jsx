@@ -2,12 +2,23 @@ import { Link } from 'react-router-dom'
 import Tile from './Tile'
 import { LEVEL_LABELS, subjectLabel } from '../lib/subjects'
 import { MEMORY_TONE_LABELS, memoryTone } from '../lib/progress'
+import { useApp } from '../state/context'
 
+/** A topic as a catalog card on top of its deck: call number, subject tab, progress. */
 export default function TopicCard({ pack, summary, missing = [] }) {
+  const { callNos } = useApp()
   const tone = memoryTone(summary.memory)
   return (
-    <Link to={`/topic/${pack.id}`} className="card card-link topic-card">
-      <div className="row" style={{ alignItems: 'flex-start' }}>
+    <Link to={`/topic/${pack.id}`} className="card punch card-link topic-card">
+      <div className="catalog-head">
+        <span className="callno">{callNos.get(pack.id)}</span>
+        {summary.dueCount > 0 ? (
+          <span className="stamp">Due · {summary.dueCount}</span>
+        ) : summary.status === 'mastered' ? (
+          <span className="stamp good">Mastered</span>
+        ) : null}
+      </div>
+      <div className="topic-card-title">
         <Tile pack={pack} />
         <div className="grow">
           <h3 className="topic-name">{pack.name}</h3>
@@ -16,8 +27,6 @@ export default function TopicCard({ pack, summary, missing = [] }) {
             {pack.community && ' · Yours'}
           </div>
         </div>
-        {summary.dueCount > 0 && <span className="chip accent">{summary.dueCount} due</span>}
-        {summary.status === 'mastered' && !summary.dueCount && <span className="chip good">Mastered</span>}
       </div>
       {pack.description && <p className="small muted clamp-2 topic-desc">{pack.description}</p>}
       <div className="topic-foot">
@@ -25,7 +34,7 @@ export default function TopicCard({ pack, summary, missing = [] }) {
           <>
             <div className="row between xsmall">
               <span className="subtle">Mastery</span>
-              <span className="tabular">{summary.mastery}%</span>
+              <span className="tabular mono">{summary.mastery}%</span>
             </div>
             <div className="bar" aria-hidden="true">
               <span style={{ width: `${summary.mastery}%` }} />
@@ -45,9 +54,7 @@ export default function TopicCard({ pack, summary, missing = [] }) {
             {pack.lesson?.estimatedMinutes ? ` · ${pack.lesson.estimatedMinutes} min lesson` : ''}
           </div>
         )}
-        {missing.length > 0 && (
-          <div className="xsmall subtle">Builds on {missing.map((p) => p.name).join(', ')}</div>
-        )}
+        {missing.length > 0 && <div className="xsmall subtle">Builds on {missing.map((p) => p.name).join(', ')}</div>}
       </div>
     </Link>
   )

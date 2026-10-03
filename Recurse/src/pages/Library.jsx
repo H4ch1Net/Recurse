@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
-import { Plus, Search, SearchX, Upload } from 'lucide-react'
+import { Plus, Search, Upload } from 'lucide-react'
 import { useApp } from '../state/context'
 import { useHotkeys } from '../hooks/useHotkeys'
 import { useDocumentTitle } from '../hooks/useDocumentTitle'
@@ -150,8 +150,8 @@ export default function Library() {
           All <span className="n">{counts.all}</span>
         </button>
         {SUBJECTS.filter((s) => counts[s.id]).map((s) => (
-          <button key={s.id} type="button" className="filter-chip" aria-pressed={subject === s.id} onClick={() => setParam('subject', s.id, 'all')}>
-            {s.label} <span className="n">{counts[s.id]}</span>
+          <button key={s.id} type="button" className="filter-chip" style={{ '--hue': s.hue }} aria-pressed={subject === s.id} onClick={() => setParam('subject', s.id, 'all')}>
+            <span className="swatch" aria-hidden="true" /> {s.label} <span className="n">{counts[s.id]}</span>
           </button>
         ))}
       </div>
@@ -159,7 +159,7 @@ export default function Library() {
       {filtered.length === 0 ? (
         <div className="card">
           <EmptyState
-            icon={SearchX}
+            art="search"
             title="No topics match"
             action={<button type="button" className="btn" onClick={() => { setText(''); setParams({}, { replace: true }) }}>Clear filters</button>}
           >
@@ -171,16 +171,16 @@ export default function Library() {
           {groups.map(({ subject: s, packs: list }) => (
             <section key={s?.id || 'results'} aria-label={s?.label || 'Results'}>
               {s ? (
-                <div className="section-head">
-                  <div>
-                    <h2 className="section-title">{s.label}</h2>
-                    <p className="small subtle">{s.blurb}</p>
-                  </div>
+                <div className="subject-head" style={{ '--hue': s.hue }}>
+                  <span className="code">{s.code}</span>
+                  <h2>{s.label}</h2>
+                  <span className="callno">{list.length} {list.length === 1 ? 'topic' : 'topics'}</span>
+                  <p>{s.blurb}</p>
                 </div>
               ) : (
-                <p className="small subtle" style={{ marginBottom: 'var(--s-3)' }} role="status">
-                  {list.length} {list.length === 1 ? 'topic' : 'topics'}
-                </p>
+                <div className="section-head light" role="status">
+                  <span className="callno">{list.length} {list.length === 1 ? 'topic' : 'topics'}</span>
+                </div>
               )}
               <div className="grid-cards">
                 {list.map((pack) => (

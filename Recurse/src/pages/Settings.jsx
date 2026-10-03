@@ -34,7 +34,7 @@ function NumberInput({ id, value, min, max, onChange, suffix }) {
     <div className="row" style={{ gap: 8 }}>
       <input id={id} className="input" style={{ width: 96 }} type="number" inputMode="numeric" min={min} max={max} value={draft}
         onChange={(e) => setDraft(e.target.value)} onBlur={commit} onKeyDown={(e) => e.key === 'Enter' && commit()} />
-      {suffix && <span className="small subtle">{suffix}</span>}
+      {suffix && <span className="small subtle" style={{ minWidth: 52 }}>{suffix}</span>}
     </div>
   )
 }
@@ -107,7 +107,7 @@ export default function Settings() {
       </div>
 
       <div className="stack-lg">
-        <section className="card" aria-labelledby="s-appearance">
+        <section className="settings-section" aria-labelledby="s-appearance">
           <h2 className="section-title" id="s-appearance">Appearance</h2>
           <Row label="Theme" hint="System follows your device setting.">
             <div className="segmented" role="group" aria-label="Theme">
@@ -123,7 +123,7 @@ export default function Settings() {
           </Row>
         </section>
 
-        <section className="card" aria-labelledby="s-study">
+        <section className="settings-section" aria-labelledby="s-study">
           <h2 className="section-title" id="s-study">Study</h2>
           <Row label="Daily goal" hint="Reviews per day. Shown in the header and on Today." htmlFor="goal">
             <NumberInput key={settings.dailyGoal} id="goal" value={settings.dailyGoal} min={5} max={500} onChange={(v) => updateSettings({ dailyGoal: v })} suffix="reviews" />
@@ -153,7 +153,7 @@ export default function Settings() {
           )}
         </section>
 
-        <section className="card" aria-labelledby="s-profile">
+        <section className="settings-section" aria-labelledby="s-profile">
           <h2 className="section-title" id="s-profile">Profile</h2>
           <Row label="Name" hint="Used for greetings, certificates and the share image." htmlFor="name">
             <input id="name" className="input" value={user.name} maxLength={40} onChange={(e) => updateUser({ name: e.target.value })} placeholder="Your name" />
@@ -171,7 +171,7 @@ export default function Settings() {
           </div>
         </section>
 
-        <section className="card" id="ai" aria-labelledby="s-ai">
+        <section className="settings-section" id="ai" aria-labelledby="s-ai">
           <h2 className="section-title" id="s-ai">AI features <span className="chip outline" style={{ verticalAlign: 'middle' }}>optional</span></h2>
           <p className="small muted" style={{ marginTop: 6 }}>
             Adds written feedback on your explanations and generates packs for any topic. Your key stays in this browser and requests go directly to the provider you choose. Everything else works without it.
@@ -200,7 +200,7 @@ export default function Settings() {
           </Row>
         </section>
 
-        <section className="card" aria-labelledby="s-data">
+        <section className="settings-section" aria-labelledby="s-data">
           <h2 className="section-title" id="s-data">Your data</h2>
           <Row label="Back up" hint="Download progress, stats, settings and your packs as a JSON file. Your API key is left out.">
             <button type="button" className="btn" onClick={() => downloadJSON(`recurse-backup-${new Date().toISOString().slice(0, 10)}.json`, exportSnapshot())}><Download size={16} /> Download backup</button>

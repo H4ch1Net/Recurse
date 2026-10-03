@@ -26,7 +26,7 @@ function termHits(text, terms) {
 
 export default function Explain() {
   const { topicId } = useParams()
-  const { packMap, ai, recordFeynman, toast } = useApp()
+  const { packMap, callNos, ai, recordFeynman, toast } = useApp()
   const pack = packMap.get(topicId)
   const [text, setText] = useState('')
   const [busy, setBusy] = useState(false)
@@ -94,6 +94,7 @@ export default function Explain() {
       </div>
 
       <section className="card roomy stack">
+        <div className="catalog-head"><span className="callno">{callNos.get(pack.id)} · {pack.name}</span><span className="callno">Your explanation</span></div>
         <div className="feynman-prompt">
           <Lightbulb size={18} />
           <p><Inline text={pack.lesson.feynmanPrompt} /></p>
@@ -102,7 +103,7 @@ export default function Explain() {
           <label htmlFor="explanation" className="sr-only">Your explanation</label>
           <textarea
             id="explanation"
-            className="textarea feynman-text"
+            className="textarea lined feynman-text"
             rows={10}
             value={text}
             readOnly={done}

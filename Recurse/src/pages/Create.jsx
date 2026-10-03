@@ -218,9 +218,9 @@ export default function Create() {
         <div className="stack">
           {cards.map((card, index) => (
             <article key={card.key} className="card editor-card" aria-label={`Card ${index + 1}`}>
-              <div className="row between wrap" style={{ marginBottom: 'var(--s-3)' }}>
+              <div className="catalog-head wrap" style={{ marginBottom: 'var(--s-4)', flexWrap: 'wrap' }}>
                 <div className="row" style={{ gap: 8 }}>
-                  <span className="editor-num">{index + 1}</span>
+                  <span className="editor-num">{String(index + 1).padStart(2, '0')}</span>
                   <select className="select" style={{ width: 'auto', minHeight: 32 }} value={card.type} onChange={(e) => update(card.key, { type: e.target.value })} aria-label="Card type">
                     {CARD_TYPES.map((t) => <option key={t.id} value={t.id}>{t.label}</option>)}
                   </select>

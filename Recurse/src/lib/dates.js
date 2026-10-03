@@ -76,3 +76,12 @@ export function nowMs() {
 export function secondsSince(startMs) {
   return Math.max(0, (Date.now() - startMs) / 1000)
 }
+
+/** Text for a due-date stamp: "IN 10M" within a day, otherwise "DUE OCT 08". */
+export function dueStamp(date, now = new Date()) {
+  const d = new Date(date)
+  const ms = d - now
+  if (ms <= 0) return 'Due now'
+  if (ms < 86400000) return `In ${formatInterval(ms)}`
+  return `Due ${d.toLocaleDateString(undefined, { month: 'short', day: '2-digit' })}`
+}

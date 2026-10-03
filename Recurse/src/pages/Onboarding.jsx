@@ -1,10 +1,11 @@
 import { useState } from 'react'
 import { Navigate } from 'react-router-dom'
-import { ArrowRight, Brain, CalendarClock, MessageSquareText } from 'lucide-react'
+import { ArrowRight, Brain, CalendarClock, Check, MessageSquareText } from 'lucide-react'
 import { useApp } from '../state/context'
 import { SUBJECTS } from '../lib/subjects'
 import { recommendTopics } from '../lib/recommend'
 import BrandMark from '../components/BrandMark'
+import Illustration from '../components/Illustration'
 import Tile from '../components/Tile'
 
 const PRINCIPLES = [
@@ -31,8 +32,8 @@ export default function Onboarding() {
   return (
     <div className="onboarding">
       <div className="onboarding-card card roomy">
-        <div className="row between">
-          <div className="brand"><BrandMark /> <span>recurse</span></div>
+        <div className="catalog-head">
+          <div className="brand"><BrandMark /> <span className="wordmark">Recurse</span></div>
           <div className="onboarding-steps" aria-label={`Step ${step + 1} of 3`}>
             {[0, 1, 2].map((i) => <span key={i} className={i <= step ? 'on' : ''} />)}
           </div>
@@ -40,7 +41,8 @@ export default function Onboarding() {
 
         {step === 0 && (
           <div className="stack rise">
-            <h1 className="page-title">Learn it. Keep it.</h1>
+            <Illustration name="drawer" className="illus onboarding-art" />
+            <h1 className="page-title">Learn it. <em>Keep it.</em></h1>
             <p className="page-sub">Recurse teaches short lessons, then quizzes you on a schedule built around how memory actually fades. A few minutes a day is enough.</p>
             <div className="principles">
               {PRINCIPLES.map(({ icon: Icon, title, body }) => (
@@ -71,6 +73,7 @@ export default function Onboarding() {
                   <button key={s.id} type="button" className="interest" aria-pressed={interests.includes(s.id)} onClick={() => toggle(s.id)} style={{ '--hue': s.hue }}>
                     <span className="interest-label">{s.label}</span>
                     <span className="xsmall subtle">{count} topics</span>
+                    {interests.includes(s.id) && <Check size={16} className="check" aria-hidden="true" />}
                   </button>
                 )
               })}

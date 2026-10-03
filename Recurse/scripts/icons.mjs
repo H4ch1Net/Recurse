@@ -7,16 +7,17 @@ const publicDir = fileURLToPath(new URL('../public', import.meta.url))
 
 // Maskable icons need the artwork inside the central 80% safe zone on a full-bleed background.
 const mark = ({ size, maskable }) => {
-  const inset = maskable ? size * 0.18 : 0
-  const inner = size - inset * 2
-  const radius = maskable ? 0 : size * 0.28
+  // The nested-card mark on a cobalt field. Maskable icons keep it inside the safe zone.
+  const inset = maskable ? size * 0.14 : 0
+  const scale = (size - inset * 2) / 32
+  const radius = maskable ? 0 : size * 0.22
   return `<!doctype html><html><body style="margin:0;background:transparent">
 <svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" viewBox="0 0 ${size} ${size}">
-  <rect width="${size}" height="${size}" rx="${radius}" fill="#0f7754"/>
-  <g transform="translate(${inset} ${inset}) scale(${inner / 32})">
-    <path d="M22.6 11.2A8 8 0 1 0 24 16" fill="none" stroke="#fff" stroke-width="2.6" stroke-linecap="round"/>
-    <path d="M24.8 7.6v4.6h-4.6" fill="none" stroke="#fff" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/>
-    <circle cx="16" cy="16" r="2.6" fill="#fff"/>
+  <rect width="${size}" height="${size}" rx="${radius}" fill="#2843c4"/>
+  <g transform="translate(${inset} ${inset}) scale(${scale})">
+    <rect x="6" y="6" width="20" height="20" rx="3" fill="none" stroke="#fdfbf6" stroke-width="2"/>
+    <rect x="12.5" y="12.5" width="11.5" height="11.5" rx="2.5" fill="none" stroke="#fdfbf6" stroke-width="2"/>
+    <rect x="17.5" y="17.5" width="4.5" height="4.5" rx="1.5" fill="#fdfbf6"/>
   </g>
 </svg></body></html>`
 }

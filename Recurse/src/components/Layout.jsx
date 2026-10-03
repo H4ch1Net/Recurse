@@ -9,33 +9,35 @@ import { currentStreak, todayLog } from '../lib/gamification'
 import { dueSummary } from '../lib/session'
 import { Suspense, useMemo } from 'react'
 
-function GoalRing({ value, goal }) {
-  const ratio = Math.min(1, goal ? value / goal : 0)
-  const r = 8
-  const c = 2 * Math.PI * r
-  return (
-    <svg width="22" height="22" viewBox="0 0 22 22" aria-hidden="true">
-      <circle cx="11" cy="11" r={r} fill="none" stroke="var(--surface-3)" strokeWidth="3" />
-      <circle cx="11" cy="11" r={r} fill="none" stroke="var(--accent)" strokeWidth="3" strokeLinecap="round"
-        strokeDasharray={c} strokeDashoffset={c * (1 - ratio)} transform="rotate(-90 11 11)" />
-    </svg>
-  )
-}
-
 export function HeaderStatus() {
   const { stats, settings, now } = useApp()
   const streak = currentStreak(stats, now)
   const today = todayLog(stats, now)
+  const ratio = Math.min(1, today.reviews / Math.max(1, settings.dailyGoal))
   return (
     <div className="header-meta">
-      <Link to="/stats" className="chip outline" title={`${today.reviews} of ${settings.dailyGoal} reviews today`} aria-label={`Daily goal: ${today.reviews} of ${settings.dailyGoal} reviews`}>
-        <GoalRing value={today.reviews} goal={settings.dailyGoal} />
+      <Link to="/stats" className="header-stat" title={`${today.reviews} of ${settings.dailyGoal} reviews today`} aria-label={`Daily goal: ${today.reviews} of ${settings.dailyGoal} reviews`}>
+        <span className="goal-track" aria-hidden="true"><span style={{ width: `${ratio * 100}%` }} /></span>
         <span className="tabular">{today.reviews}/{settings.dailyGoal}</span>
       </Link>
-      <Link to="/stats" className={`chip ${streak ? 'warn' : 'outline'}`} title={`${streak}-day streak`} aria-label={`${streak} day streak`}>
-        <Flame size={14} />
-        <span className="tabular">{streak}</span>
+      <span className="header-divider" aria-hidden="true" />
+      <Link to="/stats" className={`header-stat${streak ? ' lit' : ''}`} title={`${streak}-day streak`} aria-label={`${streak} day streak`}>
+        <Flame size={15} />
+        <span className="tabular">{streak}d</span>
       </Link>
+    </div>
+  )
+}
+
+/** Placeholder while a lazily loaded screen arrives: the shape of a page, gently shimmering. */
+function PageLoading() {
+  return (
+    <div className="page" aria-busy="true" aria-label="Loading">
+      <div className="page-loading">
+        <div className="skeleton title" />
+        <div className="skeleton line" />
+        <div className="skeleton block" />
+      </div>
     </div>
   )
 }
@@ -67,7 +69,7 @@ export default function Layout() {
         <div className="app-header-inner">
           <Link to="/" className="brand" aria-label="Recurse home">
             <BrandMark />
-            <span>recurse</span>
+            <span className="wordmark">Recurse</span>
           </Link>
           <nav className="primary-nav" aria-label="Primary">
             {nav.slice(0, 3).map(({ to, label, icon: Icon, end, badge }) => (
@@ -88,7 +90,7 @@ export default function Layout() {
         </div>
       </header>
       <main id="main" tabIndex={-1}>
-        <Suspense fallback={<div className="page" aria-busy="true" />}>
+        <Suspense fallback={<PageLoading />}>
           <Outlet />
         </Suspense>
       </main>

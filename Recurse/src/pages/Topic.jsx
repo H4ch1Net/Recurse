@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react'
 import { Link, Navigate, useNavigate, useParams } from 'react-router-dom'
-import { Award, BookOpen, ChevronLeft, CircleCheck, Download, Eye, EyeOff, MessageSquareText, Pencil, Play, RotateCcw, Search, Shuffle, Trash2, TriangleAlert } from 'lucide-react'
+import { Award, BookOpen, Check, ChevronLeft, Download, Eye, EyeOff, MessageSquareText, Pencil, Play, RotateCcw, Search, Shuffle, Trash2, TriangleAlert } from 'lucide-react'
 import { useApp } from '../state/context'
 import { useDocumentTitle } from '../hooks/useDocumentTitle'
 import { LEVEL_LABELS, QUESTION_TYPE_LABELS, subjectLabel } from '../lib/subjects'
@@ -94,7 +94,7 @@ function CardBrowser({ pack, topic, now }) {
 
 export default function Topic() {
   const { topicId } = useParams()
-  const { packMap, progress, summaries, user, now, resetTopic, removePack, toast } = useApp()
+  const { packMap, callNos, progress, summaries, user, now, resetTopic, removePack, toast } = useApp()
   const navigate = useNavigate()
   const pack = packMap.get(topicId)
   const [tab, setTab] = useState('overview')
@@ -120,7 +120,7 @@ export default function Topic() {
       <header className="topic-head">
         <Tile pack={pack} size="lg" />
         <div className="grow">
-          <div className="eyebrow">{subjectLabel(pack.subject)} · {LEVEL_LABELS[pack.level] || pack.level}{pack.community ? ' · Your pack' : ''}</div>
+          <div className="eyebrow"><span className="callno" style={{ color: 'var(--ink)' }}>{callNos.get(pack.id)}</span> · {subjectLabel(pack.subject)} · {LEVEL_LABELS[pack.level] || pack.level}{pack.community ? ' · Your pack' : ''}</div>
           <h1 className="page-title">{pack.name}</h1>
           {pack.description && <p className="page-sub">{pack.description}</p>}
           {missing.length > 0 && (
@@ -174,7 +174,7 @@ export default function Topic() {
         <div className="callout good" style={{ marginBottom: 'var(--s-6)' }}>
           <Award size={18} />
           <span className="grow">You have mastered this topic. Keep reviewing when cards come due to hold on to it.</span>
-          <button type="button" className="btn btn-sm" onClick={() => downloadCertificate({ name: user.name, topic: pack.name, mastery: summary.mastery })}>
+          <button type="button" className="btn btn-sm" onClick={() => downloadCertificate({ name: user.name, topic: pack.name, mastery: summary.mastery, callNumber: callNos.get(pack.id) })}>
             <Download size={14} /> Certificate
           </button>
         </div>
@@ -200,9 +200,9 @@ export default function Topic() {
       {tab === 'overview' && (
         <div className="grid-2 topic-overview">
           <section className="card">
-            <div className="section-head">
+            <div className="catalog-head" style={{ marginBottom: 'var(--s-4)' }}>
               <h2 className="section-title">Lesson</h2>
-              {lesson && <span className="xsmall subtle">{lesson.estimatedMinutes} min · {summary.checksDone}/{summary.sections} checks passed</span>}
+              {lesson && <span className="callno">{lesson.estimatedMinutes} min · {summary.checksDone}/{summary.sections} checks</span>}
             </div>
             {lesson ? (
               <>
@@ -211,7 +211,7 @@ export default function Topic() {
                   {lesson.sections.map((section, i) => (
                     <li key={i}>
                       <Link to={`/topic/${pack.id}/lesson#section-${i + 1}`}>
-                        <span className={`outline-dot${topic.checks?.[i] ? ' done' : ''}`} aria-hidden="true">{topic.checks?.[i] ? <CircleCheck size={16} /> : i + 1}</span>
+                        <span className={`outline-dot${topic.checks?.[i] ? ' done' : ''}`} aria-hidden="true">{topic.checks?.[i] ? <Check size={13} /> : String(i + 1).padStart(2, '0')}</span>
                         <span>{section.title}</span>
                         {topic.checks?.[i] && <span className="sr-only">(check passed)</span>}
                       </Link>
@@ -224,7 +224,10 @@ export default function Topic() {
             )}
           </section>
           <section className="card">
-            <h2 className="section-title" style={{ marginBottom: 'var(--s-3)' }}>Key terms</h2>
+            <div className="catalog-head" style={{ marginBottom: 'var(--s-2)' }}>
+              <h2 className="section-title">Key terms</h2>
+              {lesson?.keyTerms?.length > 0 && <span className="callno">{lesson.keyTerms.length} terms</span>}
+            </div>
             {lesson?.keyTerms?.length ? (
               <dl className="terms">
                 {lesson.keyTerms.map((t) => (
@@ -247,9 +250,9 @@ export default function Topic() {
         <div className="stack">
           {topic.feynman.map((entry, i) => (
             <article key={i} className="card">
-              <div className="row between xsmall subtle">
-                <span>{formatDate(entry.date)} · {entry.words} words</span>
-                {entry.score != null && <span className="chip">{entry.ai ? `AI score ${entry.score}` : `Self-rated ${entry.score}`}</span>}
+              <div className="catalog-head">
+                <span className="callno">{formatDate(entry.date)} · {entry.words} words</span>
+                {entry.score != null && <span className="stamp ink">{entry.ai ? `AI score ${entry.score}` : `Self-rated ${entry.score}`}</span>}
               </div>
               <p className="small" style={{ marginTop: 8, whiteSpace: 'pre-wrap' }}>{entry.text}</p>
             </article>
