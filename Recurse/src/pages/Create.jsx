@@ -37,13 +37,13 @@ function fromQuestion(q) {
 
 export default function Create() {
   const { packId } = useParams()
-  const { packMap, savePack, toast } = useApp()
+  const { packMap, savePack, toast, user } = useApp()
   const navigate = useNavigate()
   const existing = packId ? packMap.get(packId) : null
   useDocumentTitle(existing ? `Edit ${existing.name}` : 'Create a pack')
 
   const [name, setName] = useState(existing?.name || '')
-  const [subject, setSubject] = useState(existing?.subject || 'humanities')
+  const [subject, setSubject] = useState(existing?.subject || user.interests[0] || 'humanities')
   const [level, setLevel] = useState(existing?.level || 'beginner')
   const [description, setDescription] = useState(existing?.description || '')
   const [icon, setIcon] = useState(existing?.icon || '')

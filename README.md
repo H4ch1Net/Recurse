@@ -82,6 +82,10 @@ It runs entirely in the browser. There is no account, no server and no tracking.
     <td><img src="Recurse/docs/screenshots/library.png" alt="Library with search and subject filters" /><br /><sub>Library</sub></td>
     <td><img src="Recurse/docs/screenshots/progress.png" alt="Progress page with forecast and accuracy charts" /><br /><sub>Progress</sub></td>
   </tr>
+  <tr>
+    <td><img src="Recurse/docs/screenshots/create.png" alt="Pack builder for creating your own cards" /><br /><sub>Pack builder</sub></td>
+    <td><img src="Recurse/docs/screenshots/today-dark.png" alt="Today screen in dark mode" /><br /><sub>Today, dark theme</sub></td>
+  </tr>
 </table>
 
 <p align="center">
