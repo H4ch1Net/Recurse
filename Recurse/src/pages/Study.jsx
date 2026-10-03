@@ -1,6 +1,6 @@
 import { useEffect, useEffectEvent, useRef, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
-import { BookOpen, CircleCheck, CircleX, Clock, Eye, Lightbulb, Timer, X, RotateCcw, Brain } from 'lucide-react'
+import { BookOpen, CircleCheck, CircleX, Clock, Eye, Lightbulb, Timer, X, RotateCcw, Brain, Undo2 } from 'lucide-react'
 import { useApp } from '../state/context'
 import { useDocumentTitle } from '../hooks/useDocumentTitle'
 import { buildSession, requeue, dueSummary } from '../lib/session'
@@ -79,7 +79,7 @@ function LessonPrompt({ pack, onStart }) {
 export default function Study() {
   const { kind = 'review', topicId } = useParams()
   const navigate = useNavigate()
-  const { packs, packMap, progress, settings, stats, now, recordReview, finishSession, toast } = useApp()
+  const { packs, packMap, progress, settings, stats, now, recordReview, undoReview, finishSession, toast } = useApp()
   const [session] = useState(() => startSession({ kind, topicId, packs, packMap, progress, settings, stats }))
   const pack0 = topicId ? packMap.get(topicId) : null
   const needsLessonPrompt = kind === 'topic' && pack0?.lesson && !progress[topicId]?.lessonRead && !Object.keys(progress[topicId]?.cards || {}).length
@@ -98,6 +98,7 @@ export default function Study() {
   const [leaving, setLeaving] = useState(false)
   const [focusDone, setFocusDone] = useState(false)
   const [intervals, setIntervals] = useState(null)
+  const [undo, setUndo] = useState(null)
   const cardStart = useRef(session.started)
   const inputRef = useRef(null)
   const continueRef = useRef(null)
@@ -200,6 +201,7 @@ export default function Study() {
     const nextResults = [...results, result]
     const nextXp = xp + earned
     const nextItems = rating === Rating.Again ? requeue(items, index) : items
+    setUndo({ items, index, results, xp })
     setResults(nextResults)
     setXp(nextXp)
     setItems(nextItems)
@@ -214,6 +216,21 @@ export default function Study() {
     setOutcome(null)
     setShowLesson(false)
     cardStart.current = nowMs()
+  }
+
+  function undoLast() {
+    if (!undo || phase !== 'answer' || !undoReview()) return
+    setItems(undo.items)
+    setIndex(undo.index)
+    setResults(undo.results)
+    setXp(undo.xp)
+    setUndo(null)
+    setPicked(null)
+    setTyped('')
+    setOutcome(null)
+    setShowLesson(false)
+    cardStart.current = nowMs()
+    toast('Last answer undone')
   }
 
   const wrong = outcome && outcome.correct === false
@@ -231,6 +248,7 @@ export default function Study() {
     3: () => (canRate ? rate(Rating.Good) : false),
     4: () => (canRate ? rate(Rating.Easy) : false),
     e: () => (phase === 'feedback' ? setShowLesson((v) => !v) : false),
+    z: () => (undo && phase === 'answer' ? undoLast() : false),
     ' ': () => (phase === 'answer' && question?.type === 'recall' ? reveal() : false),
     Enter: () => {
       if (phase === 'feedback') rate(wrong ? Rating.Again : Rating.Good)
@@ -299,11 +317,16 @@ export default function Study() {
             <span className="study-title">{session.ahead ? 'Reviewing ahead' : session.title}{session.topicId && pack0 ? ` · ${pack0.name}` : ''}</span>
             <span className="tabular subtle" aria-label={`${remaining} cards left`}>{index + 1} / {items.length}</span>
           </div>
-          <div className="bar" role="progressbar" aria-valuemin={0} aria-valuemax={items.length} aria-valuenow={index}>
+          <div className="bar" role="progressbar" aria-label="Session progress" aria-valuemin={0} aria-valuemax={items.length} aria-valuenow={index}>
             <span style={{ width: `${progressRatio * 100}%` }} />
           </div>
         </div>
         <div className="study-bar-meta">
+          {undo && phase === 'answer' && (
+            <button type="button" className="btn btn-ghost btn-sm" onClick={undoLast} title="Undo last answer (Z)">
+              <Undo2 size={14} /> <span className="hide-mobile">Undo</span>
+            </button>
+          )}
           {settings.focusTimer && (
             <span className={`chip ${focusDone ? 'warn' : 'outline'}`} title="Focus timer">
               <Timer size={13} />

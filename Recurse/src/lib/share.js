@@ -4,7 +4,7 @@
 const PAPER = '#f7f6f2'
 const INK = '#1b1a17'
 const MUTED = '#6b665b'
-const ACCENT = '#12805c'
+const ACCENT = '#0f7754'
 
 function saveBlob(filename, blob) {
   const url = URL.createObjectURL(blob)

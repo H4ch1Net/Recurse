@@ -1,4 +1,4 @@
-# Pack authoring guide
+# Pack format and authoring guide
 
 Built-in packs live in `src/data/packs/<id>.json`. Each pack is one topic: a short lesson plus a
 question bank that Recurse schedules with spaced repetition. Validate with `npm run validate:packs`.
@@ -91,3 +91,27 @@ question bank that Recurse schedules with spaced repetition. Validate with `npm 
 Choice order is shuffled at study time, so `answer` can be any index. Spread answers across indexes anyway.
 Aim for a mix that fits the subject: programming packs lean on `mcq`, `code-fill`, `debug`, `typed`;
 math on `typed` and `mcq`; languages on `typed` and `recall`; humanities on `mcq`, `typed`, `recall`.
+
+## Your own packs
+
+Packs you create in the app, import from a file or URL, or generate with AI use the same format with
+looser rules: only `id`, `name` and `questions` are required, a lesson is optional, and question ids
+can be anything unique. The smallest useful pack:
+
+```json
+{
+  "id": "spanish-food",
+  "name": "Spanish: food words",
+  "subject": "languages",
+  "questions": [
+    { "id": "f1", "type": "typed", "question": "la manzana", "answer": "the apple", "accept": ["apple"] },
+    { "id": "f2", "type": "recall", "question": "How do you ask for the bill?", "answer": "La cuenta, por favor." }
+  ]
+}
+```
+
+To share a pack, export it from its topic page (Manage > Export), commit the JSON to any public
+repository, and send people the raw file URL. They add it with Library > Import > From URL.
+
+Imported text is length-limited and stripped of markup. Pack ids that collide with a built-in pack
+get a `-custom` suffix.

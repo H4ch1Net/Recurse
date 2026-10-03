@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { Plus, Search, SearchX, Upload } from 'lucide-react'
 import { useApp } from '../state/context'
@@ -48,14 +48,30 @@ export default function Library() {
   useHotkeys({ '/': () => searchRef.current?.focus() })
 
   const setParam = (key, value, fallback) => {
-    const next = new URLSearchParams(params)
-    if (!value || value === fallback) next.delete(key)
-    else next.set(key, value)
-    setParams(next, { replace: true })
+    setParams((current) => {
+      const next = new URLSearchParams(current)
+      if (!value || value === fallback) next.delete(key)
+      else next.set(key, value)
+      return next
+    }, { replace: true })
   }
 
+  // The input is driven by local state so fast typing never lags behind URL updates.
+  const [text, setText] = useState(query)
+  useEffect(() => {
+    const id = setTimeout(() => {
+      setParams((current) => {
+        const next = new URLSearchParams(current)
+        if (text.trim()) next.set('q', text)
+        else next.delete('q')
+        return next
+      }, { replace: true })
+    }, 250)
+    return () => clearTimeout(id)
+  }, [text, setParams])
+
   const filtered = useMemo(() => {
-    const terms = query.toLowerCase().split(/\s+/).filter(Boolean)
+    const terms = text.toLowerCase().split(/\s+/).filter(Boolean)
     const list = packs.filter((pack) => {
       const summary = summaries.get(pack.id)
       if (subject !== 'all' && pack.subject !== subject) return false
@@ -72,7 +88,7 @@ export default function Library() {
     if (sort === 'due') list.sort((a, b) => s(b).dueCount - s(a).dueCount)
     if (sort === 'recent') list.sort((a, b) => new Date(s(b).lastStudied || 0) - new Date(s(a).lastStudied || 0))
     return list
-  }, [packs, summaries, query, subject, status, sort])
+  }, [packs, summaries, text, subject, status, sort])
 
   const counts = useMemo(() => {
     const map = { all: packs.length }
@@ -80,7 +96,7 @@ export default function Library() {
     return map
   }, [packs])
 
-  const grouped = sort === 'path' && subject === 'all' && !query
+  const grouped = sort === 'path' && subject === 'all' && !text.trim()
   const groups = grouped
     ? SUBJECTS.map((s) => ({ subject: s, packs: filtered.filter((p) => p.subject === s.id) })).filter((g) => g.packs.length)
     : [{ subject: null, packs: filtered }]
@@ -107,12 +123,12 @@ export default function Library() {
             className="input"
             type="search"
             placeholder="Search topics, terms, tags"
-            value={query}
-            onChange={(e) => setParam('q', e.target.value)}
-            onKeyDown={(e) => e.key === 'Escape' && (setParam('q', ''), e.currentTarget.blur())}
+            value={text}
+            onChange={(e) => setText(e.target.value)}
+            onKeyDown={(e) => e.key === 'Escape' && (setText(''), e.currentTarget.blur())}
             aria-label="Search topics"
           />
-          {!query && <span className="kbd hide-mobile">/</span>}
+          {!text && <span className="kbd hide-mobile">/</span>}
         </div>
         <div className="row wrap library-selects">
           <div className="segmented" role="group" aria-label="Filter by status">
@@ -145,7 +161,7 @@ export default function Library() {
           <EmptyState
             icon={SearchX}
             title="No topics match"
-            action={<button type="button" className="btn" onClick={() => setParams({}, { replace: true })}>Clear filters</button>}
+            action={<button type="button" className="btn" onClick={() => { setText(''); setParams({}, { replace: true }) }}>Clear filters</button>}
           >
             Try a different search, or create a pack for this topic yourself.
           </EmptyState>

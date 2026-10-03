@@ -12,7 +12,7 @@ const mark = ({ size, maskable }) => {
   const radius = maskable ? 0 : size * 0.28
   return `<!doctype html><html><body style="margin:0;background:transparent">
 <svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" viewBox="0 0 ${size} ${size}">
-  <rect width="${size}" height="${size}" rx="${radius}" fill="#12805c"/>
+  <rect width="${size}" height="${size}" rx="${radius}" fill="#0f7754"/>
   <g transform="translate(${inset} ${inset}) scale(${inner / 32})">
     <path d="M22.6 11.2A8 8 0 1 0 24 16" fill="none" stroke="#fff" stroke-width="2.6" stroke-linecap="round"/>
     <path d="M24.8 7.6v4.6h-4.6" fill="none" stroke="#fff" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/>

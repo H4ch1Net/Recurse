@@ -120,8 +120,12 @@ export function AppProvider({ children }) {
    * Record one answered card: reschedule it, update the mistake journal and stats.
    * Returns { card, xp } so the study screen can show the outcome.
    */
+  // One-step undo for the last answered card (misclicks happen).
+  const undoRef = useRef(null)
+
   const recordReview = useCallback(({ packId, question, rating, correct, isNew, seconds = 0, given = '' }) => {
     const at = new Date()
+    undoRef.current = { progress: latest.current.progress, stats: latest.current.stats }
     let result
     apply(({ progress: p, stats: st, settings: se }) => {
       const topic = topicOf(p, packId)
@@ -167,9 +171,20 @@ export function AppProvider({ children }) {
     return result
   }, [apply])
 
+  const undoReview = useCallback(() => {
+    const snapshot = undoRef.current
+    if (!snapshot) return false
+    undoRef.current = null
+    latest.current = { ...latest.current, ...snapshot }
+    setProgress(snapshot.progress)
+    setStats(snapshot.stats)
+    return true
+  }, [])
+
   const finishSession = useCallback((summary) => {
     const record = { id: uid(), date: new Date().toISOString(), ...summary }
     setLastSession(record)
+    undoRef.current = null
     apply(({ stats: st }) => ({ stats: { ...st, sessions: [{ ...record, results: undefined }, ...(st.sessions || [])].slice(0, 100) } }))
     return record
   }, [apply])
@@ -265,6 +280,7 @@ export function AppProvider({ children }) {
     updateUser: (patch) => setUser((u) => ({ ...u, ...patch })),
     updateAI: (patch) => setAI((a) => ({ ...a, ...patch })),
     recordReview,
+    undoReview,
     finishSession,
     markLessonRead,
     passCheck,

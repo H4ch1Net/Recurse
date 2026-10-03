@@ -1,45 +1,30 @@
-# Recurse — Roadmap
+# Roadmap
 
-## v1 (current)
-- [x] FSRS spaced repetition
-- [x] Live memory health tracking
-- [x] MCQ, code-fill, debug question types
-- [x] 10 built-in topic packs
-- [x] Feynman mode (AI graded)
-- [x] Stats, achievements, streaks, XP, levels
-- [x] PWA (installable, offline)
-- [x] Community pack import
-- [x] Progress share card + certificates
+## Done in 2.0
 
-## v1.1 — Content expansion
-- [ ] JavaScript pack
-- [ ] SQL pack
-- [ ] Docker pack
-- [ ] React pack
-- [ ] System design pack
-- [ ] TypeScript pack
-- [ ] More questions per existing topic (20 per topic)
+- Study engine rebuilt on FSRS: due reviews first, new cards in lesson order, daily new-card limit,
+  in-session retries, interleaved daily review, accurate interval previews, undo
+- 37 topics across 9 subjects (programming, CS, tools, web, security, math, science, humanities,
+  languages), each with a lesson whose sections end in a check question
+- Typed-answer and open-recall card types alongside multiple choice, fill the blank and find the bug
+- Pack builder with bulk paste (Quizlet and Anki exports), JSON import, AI generation
+- Feynman mode that works without an API key
+- Progress page: forecast, activity, memory by topic, accuracy by type, mistake journal
+- Light and dark themes, keyboard shortcuts, mobile layout, offline PWA with bundled fonts
+- Storage v2 with automatic migration and backups
 
-## v1.2 — Polish
-- [ ] Multiplayer challenge mode (shared quiz link, compare scores)
-- [ ] CSUSB course tagging (filter by CSE 1250, CSE 2130, etc)
-- [ ] Interview mode (timed, no hints, harder questions only)
-- [ ] Mobile layout optimization
-- [ ] Keyboard shortcut cheatsheet modal (? key)
-- [ ] Dark/light mode toggle
+## Next
 
-## v2 — Backend
-- [ ] User accounts (sign up / log in)
-- [ ] Progress sync across devices
-- [ ] Community pack registry (browse and rate packs)
-- [ ] Leaderboards (opt-in, streak and XP based)
-- [ ] Shared mistake journal for CODIS club members
-- [ ] FastAPI backend + PostgreSQL
-- [ ] Deploy to VPS or Railway
+- [ ] More topics: React, statistics in practice, Rust, German, US history, music theory
+- [ ] Edit built-in cards locally (fix a typo or add a note without forking the pack)
+- [ ] Image support in cards (diagrams, anatomy, maps)
+- [ ] Per-topic settings (new cards per day, retention)
+- [ ] FSRS parameter optimization from the learner's own review history
+- [ ] Cloze deletion cards
+- [ ] Interview mode: timed, harder questions only, no hints
 
-## v3 — AI expansion
-- [ ] AI-generated lesson content per topic
-- [ ] Adaptive difficulty (AI adjusts question hardness per user)
-- [ ] Natural language question input ("quiz me on recursion")
-- [ ] Voice Feynman mode (speech to text explanation)
-- [ ] Personalized weak spot detection across all users
+## Later (needs a backend)
+
+- [ ] Optional sync across devices
+- [ ] Community pack registry with search and ratings
+- [ ] Shared decks for classes and study groups

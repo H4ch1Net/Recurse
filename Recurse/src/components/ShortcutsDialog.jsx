@@ -25,6 +25,7 @@ const GROUPS = [
       ['Enter', 'Submit, reveal, or continue'],
       ['1 – 4', 'Rate recall: Again, Hard, Good, Easy'],
       ['E', 'Show the lesson excerpt'],
+      ['Z', 'Undo the last answer'],
       ['Esc', 'Leave the session']
     ]
   }
