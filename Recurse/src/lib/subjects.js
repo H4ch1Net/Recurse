@@ -1,11 +1,13 @@
 // `code` is the subject's call-number prefix; `hue` drives its catalog tab color.
 export const SUBJECTS = [
   { id: 'programming', code: 'PRG', label: 'Programming', hue: 152, blurb: 'Languages, syntax and writing working code.' },
-  { id: 'cs', code: 'CSC', label: 'Computer Science', hue: 222, blurb: 'Data structures, algorithms and how systems work.' },
+  { id: 'cs', code: 'CSC', label: 'Computer Science', hue: 222, blurb: 'Data structures, algorithms, complexity and how computers work.' },
+  { id: 'swe', code: 'SWE', label: 'Software Engineering', hue: 268, blurb: 'Interview patterns, testing, design, APIs, databases and getting hired.' },
   { id: 'tools', code: 'TLS', label: 'Developer Tools', hue: 22, blurb: 'Git, the shell, containers and everyday tooling.' },
-  { id: 'web', code: 'WEB', label: 'Web', hue: 192, blurb: 'HTTP, browsers, HTML and CSS.' },
-  { id: 'security', code: 'SEC', label: 'Networks & Security', hue: 354, blurb: 'How networks work and how to defend them.' },
-  { id: 'math', code: 'MTH', label: 'Mathematics', hue: 262, blurb: 'Algebra, probability, logic and calculus.' },
+  { id: 'web', code: 'WEB', label: 'Web', hue: 192, blurb: 'HTTP, browsers, HTML, CSS and front-end basics.' },
+  { id: 'networking', code: 'NET', label: 'Networking', hue: 200, blurb: 'How networks work, from cables to routing protocols. Home of the CCNA path.' },
+  { id: 'security', code: 'SEC', label: 'Security', hue: 354, blurb: 'Threats, defenses and the cryptography underneath.' },
+  { id: 'math', code: 'MTH', label: 'Mathematics', hue: 292, blurb: 'Algebra, probability, logic and calculus.' },
   { id: 'science', code: 'SCI', label: 'Science', hue: 78, blurb: 'Physics, chemistry, biology and Earth science.' },
   { id: 'humanities', code: 'HUM', label: 'Humanities', hue: 40, blurb: 'History, geography, economics and how learning works.' },
   { id: 'languages', code: 'LNG', label: 'Languages', hue: 322, blurb: 'Vocabulary and grammar for new languages.' }
@@ -28,7 +30,11 @@ export const QUESTION_TYPE_LABELS = {
   'code-fill': 'Fill the blank',
   debug: 'Find the bug',
   typed: 'Type the answer',
-  recall: 'Recall'
+  cli: 'Type the command',
+  recall: 'Recall',
+  multi: 'Select all',
+  order: 'Put in order',
+  match: 'Match pairs'
 }
 
 const LEVEL_BASE = { beginner: 100, intermediate: 200, advanced: 300 }

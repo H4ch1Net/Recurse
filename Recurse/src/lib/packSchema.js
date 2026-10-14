@@ -1,12 +1,19 @@
 // Pack schema shared by the app (imports, pack builder) and the CLI validator.
 // Keep this file free of browser and Vite APIs so Node can import it directly.
 
-export const SUBJECT_IDS = ['programming', 'cs', 'tools', 'web', 'security', 'math', 'science', 'humanities', 'languages']
+import { ACTIVITY_TYPES } from '../activities/catalog.js'
+
+export const SUBJECT_IDS = ['programming', 'cs', 'swe', 'tools', 'web', 'networking', 'security', 'math', 'science', 'humanities', 'languages']
 export const LEVELS = ['beginner', 'intermediate', 'advanced']
 export const DIFFICULTIES = ['easy', 'medium', 'hard']
 export const CHOICE_TYPES = ['mcq', 'code-fill', 'debug']
-export const QUESTION_TYPES = [...CHOICE_TYPES, 'typed', 'recall']
-export const CODE_LANGUAGES = ['python', 'javascript', 'typescript', 'sql', 'bash', 'html', 'css', 'json', 'dockerfile', 'yaml', 'plaintext']
+// Types answered by typing a short string, graded automatically.
+export const TEXT_TYPES = ['typed', 'cli']
+// Types with their own interactive answer UI.
+export const INTERACTIVE_TYPES = ['multi', 'order', 'match']
+export const QUESTION_TYPES = [...CHOICE_TYPES, ...TEXT_TYPES, 'recall', ...INTERACTIVE_TYPES]
+export const CLI_SHELLS = ['ios', 'bash', 'git', 'sql', 'docker']
+export const CODE_LANGUAGES = ['python', 'javascript', 'typescript', 'java', 'cpp', 'go', 'sql', 'bash', 'html', 'css', 'json', 'dockerfile', 'yaml', 'cisco', 'plaintext']
 export const BLANK = '_____'
 
 // Category names used by v1 packs, mapped onto subjects.
@@ -42,6 +49,54 @@ function checkChoices(where, item, errors) {
   if (!Number.isInteger(item.answer) || item.answer < 0 || item.answer >= item.choices.length) {
     errors.push(`${where}: answer must be the index of a choice`)
   }
+}
+
+function checkActivity(where, activity, errors) {
+  if (!activity || typeof activity !== 'object') {
+    errors.push(`${where}: must be an object`)
+    return
+  }
+  if (!ACTIVITY_TYPES.includes(activity.type)) errors.push(`${where}: unknown activity type ${activity.type}`)
+  for (const key of ['title', 'prompt', 'goal']) {
+    if (activity[key] !== undefined && !isText(activity[key])) errors.push(`${where}: ${key} must be text`)
+  }
+  if (activity.props !== undefined && (typeof activity.props !== 'object' || Array.isArray(activity.props))) errors.push(`${where}: props must be an object`)
+}
+
+function checkMulti(where, q, errors) {
+  if (!Array.isArray(q.choices) || q.choices.length < 3 || q.choices.length > 6 || !q.choices.every(isText)) {
+    errors.push(`${where}: multi needs 3 to 6 text choices`)
+    return
+  }
+  const normalized = q.choices.map((c) => String(c).trim().toLowerCase())
+  if (new Set(normalized).size !== normalized.length) errors.push(`${where}: choices must be unique`)
+  const answers = q.answers
+  if (!Array.isArray(answers) || answers.length < 1 || !answers.every((a) => Number.isInteger(a) && a >= 0 && a < q.choices.length)) {
+    errors.push(`${where}: answers must be indexes of choices`)
+  } else if (new Set(answers).size !== answers.length) errors.push(`${where}: answers must not repeat`)
+  else if (answers.length === q.choices.length) errors.push(`${where}: at least one choice must be wrong`)
+}
+
+function checkOrder(where, q, errors) {
+  if (!Array.isArray(q.items) || q.items.length < 3 || q.items.length > 8 || !q.items.every(isText)) {
+    errors.push(`${where}: order needs 3 to 8 text items, listed in the correct order`)
+    return
+  }
+  if (new Set(q.items.map((i) => i.trim().toLowerCase())).size !== q.items.length) errors.push(`${where}: order items must be unique`)
+}
+
+function checkMatch(where, q, errors) {
+  if (!Array.isArray(q.pairs) || q.pairs.length < 3 || q.pairs.length > 6) {
+    errors.push(`${where}: match needs 3 to 6 pairs`)
+    return
+  }
+  if (!q.pairs.every((p) => p && isText(p.left) && isText(p.right))) {
+    errors.push(`${where}: every pair needs left and right text`)
+    return
+  }
+  const lefts = q.pairs.map((p) => p.left.trim().toLowerCase())
+  const rights = q.pairs.map((p) => p.right.trim().toLowerCase())
+  if (new Set(lefts).size !== lefts.length || new Set(rights).size !== rights.length) errors.push(`${where}: match sides must be unique`)
 }
 
 /**
@@ -82,6 +137,8 @@ export function validatePack(pack, { strict = false } = {}) {
         if (!isText(section?.title)) errors.push(`${where}: title is required`)
         if (!isText(section?.body)) errors.push(`${where}: body is required`)
         if (section?.language && !CODE_LANGUAGES.includes(section.language)) errors.push(`${where}: unknown language ${section.language}`)
+        if (section?.activity !== undefined) checkActivity(`${where}.activity`, section.activity, errors)
+        if (section?.pitfall !== undefined && !isText(section.pitfall)) errors.push(`${where}: pitfall must be text`)
         if (section?.check) {
           if (!isText(section.check.question)) errors.push(`${where}.check: question is required`)
           checkChoices(`${where}.check`, section.check, errors)
@@ -90,6 +147,7 @@ export function validatePack(pack, { strict = false } = {}) {
           errors.push(`${where}: check question is required`)
         }
       })
+      if (lesson.objectives !== undefined && (!Array.isArray(lesson.objectives) || !lesson.objectives.every(isText))) errors.push('lesson.objectives must be an array of text')
       if (lesson.keyTerms && !Array.isArray(lesson.keyTerms)) errors.push('lesson.keyTerms must be an array')
       ;(lesson.keyTerms || []).forEach((term, i) => {
         if (!isText(term?.term) || !isText(term?.definition)) errors.push(`lesson.keyTerms[${i}]: term and definition are required`)
@@ -147,10 +205,17 @@ export function validatePack(pack, { strict = false } = {}) {
     if (isChoiceType(q.type)) {
       checkChoices(where, q, errors)
       if (strict && q.choices?.length !== 4) errors.push(`${where}: built-in questions use exactly 4 choices`)
+    } else if (q.type === 'multi') {
+      checkMulti(where, q, errors)
+    } else if (q.type === 'order') {
+      checkOrder(where, q, errors)
+    } else if (q.type === 'match') {
+      checkMatch(where, q, errors)
     } else {
       if (!isText(q.answer)) errors.push(`${where}: answer must be text for ${q.type} questions`)
       if (q.accept !== undefined && (!Array.isArray(q.accept) || !q.accept.every(isText))) errors.push(`${where}: accept must be an array of strings`)
       if (q.type === 'typed' && isText(q.answer) && q.answer.length > 60) warnings.push(`${where}: typed answers should be short`)
+      if (q.type === 'cli' && q.shell !== undefined && !CLI_SHELLS.includes(q.shell)) errors.push(`${where}: shell must be one of ${CLI_SHELLS.join(', ')}`)
     }
     if (q.type === 'code-fill' && !(q.code || '').includes(BLANK)) errors.push(`${where}: code-fill code must contain the blank ${BLANK}`)
     if (q.type === 'debug' && !isText(q.code)) errors.push(`${where}: debug questions need code`)
@@ -233,6 +298,20 @@ export function sanitizePack(raw) {
         base.answer = clip(q?.answer ?? '', 600)
         if (Array.isArray(q?.accept)) base.accept = q.accept.filter(isText).slice(0, 10).map((a) => clip(a, 100))
       }
+      if (type === 'cli' && CLI_SHELLS.includes(q?.shell)) base.shell = q.shell
+      if (type === 'multi') {
+        base.choices = (Array.isArray(q?.choices) ? q.choices : []).slice(0, 6).map((c) => clip(c, 300))
+        base.answers = (Array.isArray(q?.answers) ? q.answers : []).map(Number).filter(Number.isInteger)
+        delete base.answer
+      }
+      if (type === 'order') {
+        base.items = (Array.isArray(q?.items) ? q.items : []).slice(0, 8).map((c) => clip(c, 200))
+        delete base.answer
+      }
+      if (type === 'match') {
+        base.pairs = (Array.isArray(q?.pairs) ? q.pairs : []).slice(0, 6).map((p) => ({ left: clip(p?.left, 160), right: clip(p?.right, 200) }))
+        delete base.answer
+      }
       if (Number.isInteger(q?.section)) base.section = q.section
       return base
     })
@@ -241,11 +320,19 @@ export function sanitizePack(raw) {
     pack.lesson = {
       estimatedMinutes: Number(raw.lesson.estimatedMinutes) || 10,
       intro: clip(raw.lesson.intro || '', 600),
-      sections: raw.lesson.sections.slice(0, 12).map((s) => {
-        const section = { title: clip(s?.title, 120), body: clip(s?.body, 3000) }
+      objectives: (Array.isArray(raw.lesson.objectives) ? raw.lesson.objectives : []).filter(isText).slice(0, 8).map((o) => clip(o, 200)),
+      sections: raw.lesson.sections.slice(0, 16).map((s) => {
+        const section = { title: clip(s?.title, 120), body: clip(s?.body, 6000) }
         if (s?.code) section.code = String(s.code).slice(0, 2000)
         if (s?.language && CODE_LANGUAGES.includes(s.language)) section.language = s.language
         if (s?.tip) section.tip = clip(s.tip, 300)
+        if (s?.pitfall) section.pitfall = clip(s.pitfall, 400)
+        if (s?.activity && ACTIVITY_TYPES.includes(s.activity.type)) {
+          section.activity = { type: s.activity.type }
+          for (const key of ['title', 'prompt', 'goal']) if (isText(s.activity[key])) section.activity[key] = clip(s.activity[key], 400)
+          const props = s.activity.props && typeof s.activity.props === 'object' && !Array.isArray(s.activity.props) ? JSON.stringify(s.activity.props) : ''
+          if (props && props.length <= 4000) section.activity.props = JSON.parse(props)
+        }
         if (s?.check && Array.isArray(s.check.choices)) {
           section.check = {
             question: clip(s.check.question, 400),
