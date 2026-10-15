@@ -5,6 +5,7 @@ import { useApp } from '../state/context'
 import { useDocumentTitle } from '../hooks/useDocumentTitle'
 import { PROJECTS } from '../lib/practice'
 import { portfolioMarkdown, skillsSummary } from '../lib/portfolio'
+import { interviewStats } from '../lib/interview'
 import { sfx } from '../lib/sfx'
 
 const STATUS = { planned: 'Planned', active: 'In progress', done: 'Finished' }
@@ -26,6 +27,7 @@ export default function Portfolio() {
   useDocumentTitle('Portfolio')
   const { packs, summaries, practice, user, toast } = useApp()
   const summary = useMemo(() => skillsSummary({ packs, summaries, practice }), [packs, summaries, practice])
+  const mocks = useMemo(() => interviewStats(practice.interviews), [practice.interviews])
   const markdown = useMemo(() => portfolioMarkdown(summary, { name: user.name }), [summary, user.name])
   const [preview, setPreview] = useState(false)
   const tracks = TRACKS.filter((t) => PROJECTS.some((p) => p.track === t.id))
@@ -69,6 +71,7 @@ export default function Portfolio() {
         <div className="stat"><div className="stat-label">Challenges solved</div><div className="stat-value">{summary.solved.length}</div><div className="stat-note">{summary.byDifficulty.easy} easy · {summary.byDifficulty.medium} medium · {summary.byDifficulty.hard} hard</div></div>
         <div className="stat"><div className="stat-label">Console labs</div><div className="stat-value">{summary.labs.length}</div><div className="stat-note">Cisco IOS, graded</div></div>
         <div className="stat"><div className="stat-label">Topics mastered</div><div className="stat-value">{summary.mastered.length}</div><div className="stat-note">{summary.practiced.length} more practiced</div></div>
+        <Link to="/practice/interview" className="stat stat-link"><div className="stat-label">Mock interviews</div><div className="stat-value">{mocks.total}</div><div className="stat-note">{mocks.total ? `${mocks.passed} passed${mocks.bestRubric !== null ? ` · best rubric ${mocks.bestRubric.toFixed(1)} / 4` : ''}` : 'Rehearse one'}</div></Link>
       </div>
 
       {preview && <pre className="markdown-preview rise">{markdown}</pre>}

@@ -18,6 +18,7 @@ import {
   tableFor,
   tableRows
 } from '../lib/route-lookup'
+import { useNarrow } from '../lib/use-width'
 import './route-lookup.css'
 
 const GOAL = 5
@@ -29,6 +30,14 @@ const POS = {
   lan: { x: 52, y: 126 },
   r2: { x: 308, y: 34 },
   r3: { x: 308, y: 126 }
+}
+// Phone diagram (viewBox 0 0 300 262): the same star, taller, with names and addresses on two lines.
+const PHONE_POS = {
+  r1: { x: 150, y: 130 },
+  isp: { x: 62, y: 54 },
+  lan: { x: 62, y: 206 },
+  r2: { x: 238, y: 54 },
+  r3: { x: 238, y: 206 }
 }
 const NEIGHBORS = [
   { id: 'isp', iface: 'Gi0/3', lines: ['ISP', '203.0.113.1'] },
@@ -67,31 +76,51 @@ function CloudGlyph({ x, y, active }) {
 }
 
 /** R1 with its four neighbors; the exit link lights up and the packet flies out of it. */
-function Topology({ exit, outcome, packetRef }) {
+function Topology({ exit, outcome, packetRef, phone }) {
+  const POS_ = phone ? PHONE_POS : POS
   return (
-    <svg className="route-topo" viewBox="0 0 360 160" role="img" aria-label="Router R1 with four neighbors: the ISP on Gi0/3, the LAN on Gi0/0, R2 on Gi0/1 and R3 on Gi0/2.">
+    <svg className={`route-topo${phone ? ' phone' : ''}`} viewBox={phone ? '0 0 300 262' : '0 0 360 160'} role="img" aria-label="Router R1 with four neighbors: the ISP on Gi0/3, the LAN on Gi0/0, R2 on Gi0/1 and R3 on Gi0/2.">
       {NEIGHBORS.map((n) => (
-        <line key={n.id} x1={POS.r1.x} y1={POS.r1.y} x2={POS[n.id].x} y2={POS[n.id].y} className={`route-link${exit === n.id ? ' active' : ''}`} />
+        <line key={n.id} x1={POS_.r1.x} y1={POS_.r1.y} x2={POS_[n.id].x} y2={POS_[n.id].y} className={`route-link${exit === n.id ? ' active' : ''}`} />
       ))}
       {NEIGHBORS.map((n) => {
-        const p = POS[n.id]
-        const lx = POS.r1.x + (p.x - POS.r1.x) * 0.36
-        const ly = POS.r1.y + (p.y - POS.r1.y) * 0.36 + (p.y < POS.r1.y ? -6 : 12)
+        const p = POS_[n.id]
+        let lx = POS_.r1.x + (p.x - POS_.r1.x) * 0.36
+        let ly = POS_.r1.y + (p.y - POS_.r1.y) * 0.36 + (p.y < POS_.r1.y ? -6 : 12)
+        if (phone) {
+          // Beside the link, toward the middle, far enough that the label never sits on the line.
+          const dx = p.x - POS_.r1.x
+          const dy = p.y - POS_.r1.y
+          const len = Math.hypot(dx, dy)
+          const nx = (Math.sign(-dx) * Math.abs(dy)) / len
+          const ny = (Math.sign(dy) * Math.abs(dx)) / len
+          const off = 6 + 18.5 * Math.abs(nx) + 6 * Math.abs(ny)
+          lx = POS_.r1.x + dx * 0.45 + nx * off
+          ly = POS_.r1.y + dy * 0.45 + ny * off + 4
+        }
         return (
           <text key={`if-${n.id}`} x={lx} y={ly} className={`route-iface${exit === n.id ? ' active' : ''}`} textAnchor="middle">
             {n.iface}
           </text>
         )
       })}
-      <CloudGlyph x={POS.isp.x} y={POS.isp.y} active={exit === 'isp'} />
-      <SwitchGlyph x={POS.lan.x} y={POS.lan.y} active={exit === 'lan'} />
-      <RouterGlyph x={POS.r2.x} y={POS.r2.y} active={exit === 'r2'} />
-      <RouterGlyph x={POS.r3.x} y={POS.r3.y} active={exit === 'r3'} />
-      <RouterGlyph x={POS.r1.x} y={POS.r1.y} active={outcome === 'local'} />
-      <text x={POS.r1.x} y={POS.r1.y + 34} className="route-dev-name" textAnchor="middle">R1</text>
+      <CloudGlyph x={POS_.isp.x} y={POS_.isp.y} active={exit === 'isp'} />
+      <SwitchGlyph x={POS_.lan.x} y={POS_.lan.y} active={exit === 'lan'} />
+      <RouterGlyph x={POS_.r2.x} y={POS_.r2.y} active={exit === 'r2'} />
+      <RouterGlyph x={POS_.r3.x} y={POS_.r3.y} active={exit === 'r3'} />
+      <RouterGlyph x={POS_.r1.x} y={POS_.r1.y} active={outcome === 'local'} />
+      <text x={POS_.r1.x} y={POS_.r1.y + 34} className="route-dev-name" textAnchor="middle">R1</text>
       {NEIGHBORS.map((n) => {
-        const p = POS[n.id]
-        const below = p.y > POS.r1.y
+        const p = POS_[n.id]
+        const below = p.y > POS_.r1.y
+        if (phone) {
+          return (
+            <text key={`lb-${n.id}`} x={p.x} y={below ? p.y + 34 : p.y - 38} className="route-dev-name" textAnchor="middle">
+              <tspan>{n.lines[0]}</tspan>
+              <tspan x={p.x} dy="15" className="route-dev-sub">{n.lines[1]}</tspan>
+            </text>
+          )
+        }
         return (
           <text key={`lb-${n.id}`} x={p.x} y={below ? p.y + 28 : p.y - 22} className="route-dev-name" textAnchor="middle">
             <tspan>{n.lines[0]} </tspan>
@@ -154,6 +183,7 @@ export default function RouteLookup({ onComplete, standalone }) {
   const [exploreNoDefault, setExploreNoDefault] = useState(false)
   const [flight, setFlight] = useState({ exit: null, outcome: null })
   const stageRef = useRef(null)
+  const phone = useNarrow(stageRef)
   const packetRef = useRef(null)
   const doneRef = useRef(false)
 
@@ -187,7 +217,7 @@ export default function RouteLookup({ onComplete, standalone }) {
     if (!node?.animate) return
     node.getAnimations().forEach((a) => a.cancel())
     const quick = reducedMotion()
-    const start = POS.r1
+    const start = (phone ? PHONE_POS : POS).r1
     let frames
     if (outcome === 'drop') {
       frames = [
@@ -202,7 +232,7 @@ export default function RouteLookup({ onComplete, standalone }) {
         { transform: `${at(start)} scale(0.5)`, opacity: 0 }
       ]
     } else {
-      const end = POS[exit] || start
+      const end = (phone ? PHONE_POS : POS)[exit] || start
       frames = [
         { transform: `${at(start)} scale(0.4)`, opacity: 0 },
         { transform: `${at(start)} scale(1.1)`, opacity: 1, offset: 0.2 },
@@ -314,7 +344,7 @@ export default function RouteLookup({ onComplete, standalone }) {
           <div className="route-question">
             <span className="route-q-label">Packet for</span>
             <strong className="route-q-ip">{question.ip}</strong>
-            <span className="small subtle route-q-focus">{question.focus} Click the route R1 uses{question.noDefault ? ', or drop it' : ''}.</span>
+            <span className="small subtle route-q-focus">{question.focus} Pick the route R1 uses{question.noDefault ? ', or drop it' : ''}.</span>
           </div>
         ) : (
           <div className="route-explore">
@@ -338,7 +368,7 @@ export default function RouteLookup({ onComplete, standalone }) {
             </button>
           </div>
         )}
-        <Topology exit={flight.exit} outcome={flight.outcome} packetRef={packetRef} />
+        <Topology exit={flight.exit} outcome={flight.outcome} packetRef={packetRef} phone={phone} />
       </div>
 
       <div className="terminal route-term">
@@ -400,7 +430,7 @@ export default function RouteLookup({ onComplete, standalone }) {
             <Binary size={15} /> {showMath ? 'Hide' : 'Show'} the AND math for {mathRoute.code} {routeLabel(mathRoute)}
           </button>
           {showMath && <MathPanel route={mathRoute} ip={ip} />}
-          {showMath && <p className="xsmall subtle">Tip: click any route in the table to check its math.</p>}
+          {showMath && <p className="xsmall subtle">Tip: select any route in the table to check its math.</p>}
         </div>
       )}
     </div>

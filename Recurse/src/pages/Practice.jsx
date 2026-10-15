@@ -1,6 +1,6 @@
 import { useMemo } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
-import { Check, Code, FileCheck2, FlaskConical, MousePointerClick, Repeat, Shuffle, Terminal, Timer, Wrench } from 'lucide-react'
+import { Check, Code, FileCheck2, FlaskConical, MessagesSquare, MousePointerClick, Repeat, Shuffle, Terminal, Timer, Wrench } from 'lucide-react'
 import { useApp } from '../state/context'
 import { useDocumentTitle } from '../hooks/useDocumentTitle'
 import { ACTIVITY_GROUPS } from '../activities/catalog'
@@ -89,8 +89,17 @@ function Challenges({ practice, pathFilter, stageFilter }) {
     sets.get(c.set).items.push(c)
   }
   const solved = list.filter((c) => practice.challenges?.[c.id]).length
+  const lastMock = (practice.interviews || [])[0]
   return (
     <div className="stack-lg">
+      <Link to="/practice/interview" className="card card-link practice-card mock-entry">
+        <div className="row between">
+          <span className="mode-icon"><MessagesSquare size={18} /></span>
+          {lastMock ? <span className={`stamp${lastMock.passed ? ' good' : ''}`}>Last: {typeof lastMock.score === 'number' ? `${lastMock.score}%` : 'saved'}</span> : <span className="chip outline">New</span>}
+        </div>
+        <h3 className="list-title">Mock interview</h3>
+        <p className="small muted">Rehearse the real thing: a coding interview, an online assessment or behavioral questions, on a clock with no hints. Then score yourself on the rubric interviewers use.</p>
+      </Link>
       <div className="row between wrap">
         <p className="small muted" style={{ maxWidth: '62ch' }}>Real problems, solved in JavaScript or Python and checked against hidden tests, the way online assessments work. Hints come in stages; the reference solution and its complexity unlock when you are done.</p>
         <span className="chip good"><Check size={12} /> {solved} / {list.length} solved</span>
