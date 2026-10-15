@@ -13,7 +13,8 @@ export function quizScope({ path, stageId, topicId, packs, packMap, progress }) 
     return pack ? { title: pack.name, groups: [{ id: pack.id, title: pack.name, weight: 1, packs: [pack] }] } : null
   }
   if (path) {
-    const stages = stageId ? path.stages.filter((s) => s.id === stageId) : path.stages
+    // A stage with weight 0 (such as a final review stage) is left out of whole-path quizzes.
+    const stages = stageId ? path.stages.filter((s) => s.id === stageId) : path.stages.filter((s) => s.weight !== 0)
     const groups = stages
       .map((s) => ({ id: s.id, title: s.title, weight: s.weight || 1, packs: s.topics.map((id) => packMap.get(id)).filter(Boolean) }))
       .filter((g) => g.packs.length)

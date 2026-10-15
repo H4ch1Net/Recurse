@@ -137,7 +137,7 @@ export default function PathDetail() {
                     <div className="row between wrap">
                       <h2 className="section-title" id={`stage-${stage.id}`}>{stage.title}</h2>
                       <div className="row" style={{ gap: 6 }}>
-                        {stage.weight && <span className="chip outline">{stage.weight}% of exam</span>}
+                        {stage.weight > 0 && <span className="chip outline">{stage.weight}% of exam</span>}
                         <span className="chip">{Math.round(report.progress * 100)}%</span>
                       </div>
                     </div>
