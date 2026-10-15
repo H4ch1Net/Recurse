@@ -21,6 +21,7 @@ import {
   poolUsage,
   sendFlow
 } from '../lib/nat-table'
+import { useNarrow } from '../lib/use-width'
 import './nat-table.css'
 
 // Diagram (viewBox 0 0 400 214).
@@ -29,6 +30,15 @@ const SW = { x: 128, y: 107 }
 const R1 = { x: 206, y: 107 }
 const NET = { x: 290, y: 107 }
 const SRV = { x: 364, y: 107 }
+const DESKTOP = { PC, SW, R1, NET, SRV }
+// Phone diagram (viewBox 0 0 300 362): inside on top, outside below, labels big enough to read.
+const PHONE = {
+  PC: HOSTS.map((h, i) => ({ id: h.id, x: 45 + i * 70, y: 62 })),
+  SW: { x: 150, y: 134 },
+  R1: { x: 150, y: 206 },
+  NET: { x: 150, y: 266 },
+  SRV: { x: 150, y: 332 }
+}
 const SPEEDS = [0.5, 1, 2]
 
 const reducedMotion = () => typeof window !== 'undefined' && Boolean(window.matchMedia?.('(prefers-reduced-motion: reduce)').matches)
@@ -58,7 +68,7 @@ function drop(node, p) {
     .finished.catch(() => {})
 }
 
-function PcGlyph({ x, y, active, label, sub, onSend }) {
+function PcGlyph({ x, y, active, label, sub, onSend, phone }) {
   return (
     <g
       className={`nat-dev nat-pc${active ? ' active' : ''}`}
@@ -74,23 +84,45 @@ function PcGlyph({ x, y, active, label, sub, onSend }) {
         }
       }}
     >
-      <rect x="-26" y="-22" width="52" height="44" className="nat-hit" />
+      {phone ? <rect x="-33" y="-50" width="66" height="72" className="nat-hit" /> : <rect x="-26" y="-22" width="52" height="44" className="nat-hit" />}
       <rect x="-14" y="-13" width="28" height="19" rx="3" className="nat-dev-body" />
       <path d="M0 6 V11 M-7 12 H7" className="nat-dev-mark" />
-      <text x="-22" y="-2" className="nat-dev-name" textAnchor="end">{label}</text>
-      <text x="-22" y="10" className="nat-dev-sub" textAnchor="end">{sub}</text>
+      {phone ? (
+        <>
+          <text y="-34" className="nat-dev-name" textAnchor="middle">{label}</text>
+          <text y="-19" className="nat-dev-sub" textAnchor="middle">{sub}</text>
+        </>
+      ) : (
+        <>
+          <text x="-22" y="-2" className="nat-dev-name" textAnchor="end">{label}</text>
+          <text x="-22" y="10" className="nat-dev-sub" textAnchor="end">{sub}</text>
+        </>
+      )}
     </g>
   )
 }
 
-function Topology({ packetRef, activeHost, onSend, flash }) {
+function Topology({ packetRef, activeHost, onSend, flash, phone }) {
+  const { PC, SW, R1, NET, SRV } = phone ? PHONE : DESKTOP
   return (
-    <svg className="nat-topo" viewBox="0 0 400 214" role="group" aria-label="Four inside PCs on a switch, router R1 with its inside interface Gi0/0 and outside interface Gi0/1, the internet, and a web server at 198.51.100.80.">
-      <rect x="0" y="0" width={R1.x} height="214" className="nat-zone inside" />
-      <rect x={R1.x} y="0" width={400 - R1.x} height="214" className="nat-zone outside" />
-      <line x1={R1.x} y1="4" x2={R1.x} y2="210" className="nat-boundary" />
-      <text x={R1.x - 8} y="14" className="nat-zone-label" textAnchor="end">INSIDE</text>
-      <text x={R1.x + 8} y="14" className="nat-zone-label" textAnchor="start">OUTSIDE</text>
+    <svg className={`nat-topo${phone ? ' phone' : ''}`} viewBox={phone ? '0 0 300 362' : '0 0 400 214'} role="group" aria-label="Four inside PCs on a switch, router R1 with its inside interface Gi0/0 and outside interface Gi0/1, the internet, and a web server at 198.51.100.80.">
+      {phone ? (
+        <>
+          <rect x="0" y="0" width="300" height={R1.y} className="nat-zone inside" />
+          <rect x="0" y={R1.y} width="300" height={362 - R1.y} className="nat-zone outside" />
+          <line x1="4" y1={R1.y} x2="296" y2={R1.y} className="nat-boundary" />
+          <text x="292" y={R1.y - 8} className="nat-zone-label" textAnchor="end">INSIDE</text>
+          <text x="292" y={R1.y + 18} className="nat-zone-label" textAnchor="end">OUTSIDE</text>
+        </>
+      ) : (
+        <>
+          <rect x="0" y="0" width={R1.x} height="214" className="nat-zone inside" />
+          <rect x={R1.x} y="0" width={400 - R1.x} height="214" className="nat-zone outside" />
+          <line x1={R1.x} y1="4" x2={R1.x} y2="210" className="nat-boundary" />
+          <text x={R1.x - 8} y="14" className="nat-zone-label" textAnchor="end">INSIDE</text>
+          <text x={R1.x + 8} y="14" className="nat-zone-label" textAnchor="start">OUTSIDE</text>
+        </>
+      )}
       {PC.map((p) => (
         <line key={p.id} x1={p.x} y1={p.y} x2={SW.x} y2={SW.y} className="nat-link" />
       ))}
@@ -104,22 +136,41 @@ function Topology({ packetRef, activeHost, onSend, flash }) {
       <g className={`nat-dev${flash ? ' active' : ''}`} transform={`translate(${R1.x} ${R1.y})`} aria-hidden="true">
         <circle r="20" className="nat-dev-body" />
         <path d="M0 -4 V-13 M-3.5 -9.5 L0 -13 L3.5 -9.5 M0 4 V13 M-3.5 9.5 L0 13 L3.5 9.5 M-13 0 H-4 M-7.5 -3.5 L-4 0 L-7.5 3.5 M13 0 H4 M7.5 -3.5 L4 0 L7.5 3.5" className="nat-dev-mark" />
-        <text y="36" className="nat-dev-name" textAnchor="middle">R1</text>
-        <text x="-24" y="-26" className="nat-if" textAnchor="end">{INSIDE_IF.short} inside</text>
-        <text x="24" y="-26" className="nat-if" textAnchor="start">{OUTSIDE_IF.short} outside</text>
+        {phone ? (
+          <>
+            <text x="28" y="5" className="nat-dev-name">R1</text>
+            <text x="-26" y="-12" className="nat-if" textAnchor="end">{INSIDE_IF.short} inside</text>
+            <text x="-26" y="25" className="nat-if" textAnchor="end">{OUTSIDE_IF.short} outside</text>
+          </>
+        ) : (
+          <>
+            <text y="36" className="nat-dev-name" textAnchor="middle">R1</text>
+            <text x="-24" y="-26" className="nat-if" textAnchor="end">{INSIDE_IF.short} inside</text>
+            <text x="24" y="-26" className="nat-if" textAnchor="start">{OUTSIDE_IF.short} outside</text>
+          </>
+        )}
       </g>
       <g className="nat-dev" transform={`translate(${NET.x} ${NET.y})`} aria-hidden="true">
         <path d="M-20 11 C-32 11 -32 -5 -19 -4 C-18 -15 -2 -17 2 -9 C9 -17 23 -12 21 -2 C32 -2 32 11 20 11 Z" className="nat-dev-body" />
-        <text y="30" className="nat-dev-sub" textAnchor="middle">internet</text>
+        {phone ? <text x="38" y="6" className="nat-dev-sub">internet</text> : <text y="30" className="nat-dev-sub" textAnchor="middle">internet</text>}
       </g>
       <g className="nat-dev" transform={`translate(${SRV.x} ${SRV.y})`} aria-hidden="true">
         <rect x="-12" y="-18" width="24" height="36" rx="3" className="nat-dev-body" />
         <path d="M-7 -9 H7 M-7 -2 H7 M-7 5 H7" className="nat-dev-mark" />
-        <text y="32" className="nat-dev-name" textAnchor="middle">Web</text>
-        <text y="44" className="nat-dev-sub" textAnchor="middle">{SERVER.ip}</text>
+        {phone ? (
+          <>
+            <text x="22" y="-2" className="nat-dev-name">Web</text>
+            <text x="22" y="14" className="nat-dev-sub">{SERVER.ip}</text>
+          </>
+        ) : (
+          <>
+            <text y="32" className="nat-dev-name" textAnchor="middle">Web</text>
+            <text y="44" className="nat-dev-sub" textAnchor="middle">{SERVER.ip}</text>
+          </>
+        )}
       </g>
       {HOSTS.map((h, i) => (
-        <PcGlyph key={h.id} x={PC[i].x} y={PC[i].y} label={h.name} sub={`.${h.ip.split('.')[3]}`} active={activeHost === h.id} onSend={() => onSend(h.id)} />
+        <PcGlyph key={h.id} x={PC[i].x} y={PC[i].y} label={h.name} sub={`.${h.ip.split('.')[3]}`} active={activeHost === h.id} onSend={() => onSend(h.id)} phone={phone} />
       ))}
       <g ref={packetRef} className="nat-packet" style={{ opacity: 0 }} aria-hidden="true">
         <rect x="-10" y="-7" width="20" height="14" rx="3" />
@@ -151,7 +202,7 @@ export default function NatTable({ onComplete }) {
   const [mode, setMode] = useState('pat')
   const [nat, setNat] = useState(() => Object.fromEntries(MODES.map((m) => [m, initialNat(m)])))
   const [header, setHeader] = useState(null)
-  const [caption, setCaption] = useState({ text: 'Click a PC (or a Send button) to start a web flow to the server.', tone: '' })
+  const [caption, setCaption] = useState({ text: 'Pick a PC in the diagram (or a Send button) to start a web flow to the server.', tone: '' })
   const [busy, setBusy] = useState(false)
   const [speed, setSpeed] = useState(1)
   const [activeHost, setActiveHost] = useState(null)
@@ -163,6 +214,8 @@ export default function NatTable({ onComplete }) {
   const [quizMsg, setQuizMsg] = useState({ text: '', tone: '' })
   const packetRef = useRef(null)
   const stageRef = useRef(null)
+  const phone = useNarrow(stageRef)
+  const { PC: pcs, SW: sw, R1: r1, NET: net, SRV: srv } = phone ? PHONE : DESKTOP
   const quizRef = useRef(null)
   const runRef = useRef(0)
   const doneRef = useRef(false)
@@ -207,7 +260,7 @@ export default function NatTable({ onComplete }) {
     const id = ++runRef.current
     const live = () => id === runRef.current
     const node = packetRef.current
-    const pcPos = PC[hostIndex(hostId)]
+    const pcPos = pcs[hostIndex(hostId)]
     const h = result.host
     setBusy(true)
     setActiveHost(hostId)
@@ -215,7 +268,7 @@ export default function NatTable({ onComplete }) {
     sfx.tap()
     setHeader({ side: 'inside', src: { value: result.before.src, term: 'insideLocal' }, dst: { value: result.before.dst, term: 'outsideLocal' } })
     setCaption({ text: `${h.name} sends to the web server from its own address, ${result.before.src}.`, tone: '' })
-    await fly(node, [pcPos, SW, R1], speed)
+    await fly(node, [pcPos, sw, r1], speed)
     if (!live()) return
     setFlash(true)
 
@@ -223,7 +276,7 @@ export default function NatTable({ onComplete }) {
       setNat((n) => ({ ...n, [mode]: nextState }))
       sfx.error()
       setCaption({ text: result.text, tone: 'bad' })
-      await drop(node, R1)
+      await drop(node, r1)
       if (!live()) return
       setFlash(false)
       markTask('exhaust')
@@ -237,10 +290,10 @@ export default function NatTable({ onComplete }) {
       await pause(500, speed)
       setFlash(false)
       setHeader({ side: 'outside', src: { value: result.before.src, term: 'insideLocal' }, dst: { value: result.before.dst, term: 'outsideGlobal' } })
-      await fly(node, [R1, NET], speed)
+      await fly(node, [r1, net], speed)
       if (!live()) return
       sfx.error()
-      await drop(node, NET)
+      await drop(node, net)
       if (!live()) return
       setNat((n) => ({ ...n, [mode]: nextState }))
       setCaption({ text: result.text, tone: 'bad' })
@@ -258,14 +311,14 @@ export default function NatTable({ onComplete }) {
     await pause(1100, speed)
     if (!live()) return
     setFlash(false)
-    await fly(node, [R1, NET, SRV], speed)
+    await fly(node, [r1, net, srv], speed)
     if (!live()) return
     sfx.pop()
     setCaption({ text: `The server only ever sees ${result.after.src}. It replies to that address.`, tone: '' })
     setHeader({ side: 'outside', src: { value: result.after.dst, term: 'outsideGlobal' }, dst: { value: result.after.src, term: 'insideGlobal' } })
     await pause(700, speed)
     if (!live()) return
-    await fly(node, [SRV, NET, R1], speed)
+    await fly(node, [srv, net, r1], speed)
     if (!live()) return
     setFlash(true)
     sfx.flip()
@@ -274,7 +327,7 @@ export default function NatTable({ onComplete }) {
     await pause(900, speed)
     if (!live()) return
     setFlash(false)
-    await fly(node, [R1, SW, pcPos], speed)
+    await fly(node, [r1, sw, pcPos], speed)
     if (!live()) return
     sfx.pop()
     setCaption({ text: result.kind === 'pat' ? `Reply delivered to ${h.name}. Send from another PC to see them share one address.` : `Reply delivered to ${h.name}.`, tone: 'good' })
@@ -329,7 +382,7 @@ export default function NatTable({ onComplete }) {
       <p className="small nat-help">{MODE_HELP[mode]}</p>
 
       <div className="w-stage nat-stage" ref={stageRef}>
-        <Topology packetRef={packetRef} activeHost={activeHost} onSend={send} flash={flash} />
+        <Topology packetRef={packetRef} activeHost={activeHost} onSend={send} flash={flash} phone={phone} />
         <Header header={header} />
       </div>
 
