@@ -32,7 +32,18 @@ const TOPICS = {
   'cl-d5-device-hardening': 'ccna-device-security',
   'cl-d2-cdp-lldp': 'ccna-cdp-lldp',
   'cl-d3-ipv6-static': 'ccna-static-routing',
-  'cl-ts-trunk': 'ccna-trunking'
+  'cl-ts-trunk': 'ccna-trunking',
+  'cl-d3-l3switch': 'ccna-intervlan-routing',
+  'cl-d4-dhcp-relay': 'ccna-dhcp-dns',
+  'cl-d2-stp-guards': 'ccna-stp',
+  'cl-ts-dhcp': 'ccna-dhcp-dns',
+  'cl-ts-hsrp': 'ccna-fhrp',
+  'cl-ts-static': 'ccna-static-routing',
+  'cl-ts-portsec': 'ccna-layer2-security',
+  'cl-ts-ssh': 'ccna-ssh-tftp-ftp',
+  'cl-ts-etherchannel': 'ccna-etherchannel',
+  'cl-cap-branch-router': 'ccna-nat',
+  'cl-cap-access-switch': 'ccna-vlans'
 }
 
 function clock() {
@@ -53,9 +64,9 @@ function play(lab) {
 }
 
 describe('lab catalog', () => {
-  it('has the 30 labs with the expected ids and topics', () => {
-    expect(CONSOLE_LABS).toHaveLength(30)
-    expect(new Set(CONSOLE_LABS.map((l) => l.id)).size).toBe(30)
+  it('has the 41 labs with the expected ids and topics', () => {
+    expect(CONSOLE_LABS).toHaveLength(41)
+    expect(new Set(CONSOLE_LABS.map((l) => l.id)).size).toBe(41)
     for (const lab of CONSOLE_LABS) expect(lab.topic, lab.id).toBe(TOPICS[lab.id])
   })
 
@@ -75,7 +86,7 @@ describe('lab catalog', () => {
 
   it('marks the troubleshooting labs', () => {
     const ts = CONSOLE_LABS.filter((l) => l.kind === 'troubleshoot').map((l) => l.id).sort()
-    expect(ts).toEqual(['cl-d2-troubleshoot-vlan', 'cl-ts-acl', 'cl-ts-intervlan', 'cl-ts-nat', 'cl-ts-ospf', 'cl-ts-trunk'])
+    expect(ts).toEqual(['cl-d2-troubleshoot-vlan', 'cl-ts-acl', 'cl-ts-dhcp', 'cl-ts-etherchannel', 'cl-ts-hsrp', 'cl-ts-intervlan', 'cl-ts-nat', 'cl-ts-ospf', 'cl-ts-portsec', 'cl-ts-ssh', 'cl-ts-static', 'cl-ts-trunk'])
     for (const id of ts) expect(getConsoleLab(id).symptoms?.length, id).toBeGreaterThan(0)
   })
 
@@ -84,12 +95,13 @@ describe('lab catalog', () => {
     expect(getConsoleLab('nope')).toBeNull()
     const trunking = consoleLabsForTopic('ccna-trunking').map((l) => l.id)
     expect(trunking).toEqual(['cl-d2-trunk', 'cl-ts-trunk'])
-    expect(consoleLabsForTopic('ccna-static-routing')).toHaveLength(3)
+    expect(consoleLabsForTopic('ccna-static-routing').map((l) => l.id)).toEqual(['cl-d3-static', 'cl-d3-floating', 'cl-d3-ipv6-static', 'cl-ts-static'])
   })
 
-  it('keeps em dashes out of every learner-facing string', () => {
+  it('keeps em and en dashes out of every learner-facing string', () => {
     const text = JSON.stringify(CONSOLE_LABS)
     expect(text.includes(String.fromCharCode(0x2014))).toBe(false)
+    expect(text.includes(String.fromCharCode(0x2013))).toBe(false)
   })
 
   it('lowers the score a little for hints and solution steps', () => {
@@ -127,3 +139,60 @@ describe('troubleshooting labs start broken', () => {
     expect(gradeLab(lab, sim).filter((r) => !r.pass).length).toBeGreaterThan(0)
   })
 })
+
+describe('round 2 labs start with their seeded faults', () => {
+  const start = (id) => createLabSim(getConsoleLab(id), { now: clock() })
+
+  it('cl-d2-stp-guards: G0/5 is err-disabled by BPDU guard and SW4 is root', () => {
+    const sim = start('cl-d2-stp-guards')
+    expect(sim.op.errdisabled).toContain('GigabitEthernet0/5')
+    expect(sim.op.errInfo['GigabitEthernet0/5'].reason).toBe('bpduguard')
+    expect(sim.op.bootMsgs.join('\n')).toContain('%SPANTREE-2-BLOCK_BPDUGUARD')
+    const results = gradeLab(getConsoleLab('cl-d2-stp-guards'), sim)
+    expect(results.find((r) => r.label.startsWith('SW1 is the root')).pass).toBe(false)
+    expect(results.find((r) => r.label.startsWith('G0/5')).pass).toBe(false)
+  })
+
+  it('cl-ts-portsec: both ports are err-disabled by port security', () => {
+    const sim = start('cl-ts-portsec')
+    expect(sim.op.errdisabled.sort()).toEqual(['GigabitEthernet0/3', 'GigabitEthernet0/4'])
+    expect(sim.op.bootMsgs.filter((m) => m.includes('PSECURE_VIOLATION'))).toHaveLength(2)
+  })
+
+  it('cl-ts-etherchannel: mode on facing LACP err-disables both members', () => {
+    const sim = start('cl-ts-etherchannel')
+    expect(sim.op.errdisabled.sort()).toEqual(['GigabitEthernet0/1', 'GigabitEthernet0/2'])
+    expect(sim.op.bootMsgs[0]).toMatch(/%SPANTREE-2-CHNL_MISCFG/)
+  })
+
+  it('cl-ts-static: R1 LAN answers only some pings and R3 LAN none', () => {
+    const sim = start('cl-ts-static')
+    run(sim, 'enable')
+    expect(runLine(sim, 'ping 192.168.1.10').output).toContain('!.!.!')
+    expect(runLine(sim, 'ping 192.168.3.10').output).toContain('Success rate is 0 percent')
+  })
+
+  it('cl-ts-dhcp and cl-ts-ssh: nothing works yet', () => {
+    const dhcp = start('cl-ts-dhcp')
+    expect(gradeLab(getConsoleLab('cl-ts-dhcp'), dhcp).every((r) => !r.pass)).toBe(true)
+    const ssh = start('cl-ts-ssh')
+    run(ssh, 'enable')
+    expect(runLine(ssh, 'show ip ssh').output).toContain('SSH Disabled')
+  })
+
+  it('cl-ts-hsrp: R1 is alone in the wrong group', () => {
+    const sim = start('cl-ts-hsrp')
+    run(sim, 'enable')
+    expect(runLine(sim, 'show standby brief').output).toMatch(/Gi0\/0\s+1\s+90\s+Active\s+local\s+unknown\s+192\.168\.1\.253/)
+  })
+
+  it('capstones start from factory defaults', () => {
+    expect(start('cl-cap-branch-router').dev.hostname).toBe('Router')
+    expect(start('cl-cap-access-switch').dev.hostname).toBe('Switch')
+    expect(start('cl-d3-l3switch').dev.model).toBe('l3switch')
+  })
+})
+
+function run(sim, ...lines) {
+  for (const l of lines) runLine(sim, l)
+}

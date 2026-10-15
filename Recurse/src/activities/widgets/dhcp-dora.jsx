@@ -189,6 +189,8 @@ export default function DhcpDora({ onComplete }) {
   const copyRef = useRef(null)
   const cpRef = useRef(null)
   const stageRef = useRef(null)
+  const phone = useNarrow(stageRef)
+  const N = phone ? PHONE_NODES : NODES
   const sim = useRef({ index: -1, pending: null, playing: false, run: 0, steps, answered: new Set(), tasks: { lease: false, checks: false, norelay: false }, done: false, speed: 1 })
 
   const current = index >= 0 ? steps[index] : null
@@ -240,10 +242,10 @@ export default function DhcpDora({ onComplete }) {
     const main = mainRef.current
     const copy = copyRef.current
     hide(copy)
-    const pts = step.path.map((id) => NODES[id])
+    const pts = step.path.map((id) => N[id])
     if (step.dropped) {
       sfx.error()
-      await dropAt(main, NODES.r1)
+      await dropAt(main, N.r1)
       if (!live()) return false
       markTask('norelay')
     } else {
@@ -252,9 +254,9 @@ export default function DhcpDora({ onComplete }) {
       if (step.flood.length && swAt > 0) {
         await fly(main, pts.slice(0, swAt + 1), s.speed)
         if (!live()) return false
-        await Promise.all([fly(main, pts.slice(swAt), s.speed), fly(copy, [NODES.sw, NODES.pc2], s.speed, { fade: true })])
+        await Promise.all([fly(main, pts.slice(swAt), s.speed), fly(copy, [N.sw, N.pc2], s.speed, { fade: true })])
       } else if (step.flood.length && swAt === 0) {
-        await Promise.all([fly(main, pts, s.speed), fly(copy, [NODES.sw, NODES.pc2], s.speed, { fade: true })])
+        await Promise.all([fly(main, pts, s.speed), fly(copy, [N.sw, N.pc2], s.speed, { fade: true })])
       } else {
         await fly(main, pts, s.speed)
       }
@@ -311,7 +313,7 @@ export default function DhcpDora({ onComplete }) {
     if (prev < 0) hide(mainRef.current)
     else {
       const st = s.steps[prev]
-      place(mainRef.current, NODES[st.path[st.path.length - 1]])
+      place(mainRef.current, N[st.path[st.path.length - 1]])
     }
     sfx.tap()
   }
@@ -371,7 +373,7 @@ export default function DhcpDora({ onComplete }) {
       </ol>
 
       <div className="w-stage dhcp-stage" ref={stageRef}>
-        <Topology relay={relay} step={current} mainRef={mainRef} copyRef={copyRef} leased={leased} />
+        <Topology relay={relay} step={current} mainRef={mainRef} copyRef={copyRef} leased={leased} phone={phone} />
         <div className="w-legend">
           <span><i className="dhcp-key broadcast" />Broadcast</span>
           <span><i className="dhcp-key unicast" />Unicast</span>
