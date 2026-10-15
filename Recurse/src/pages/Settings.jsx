@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { useLocation } from 'react-router-dom'
+import { Link, useLocation } from 'react-router-dom'
 import { Download, Eye, EyeOff, Keyboard, Loader2, Monitor, Moon, Sun, Upload, ExternalLink, Volume2 } from 'lucide-react'
 import { useApp } from '../state/context'
 import { useDocumentTitle } from '../hooks/useDocumentTitle'
@@ -11,6 +11,8 @@ import Modal from '../components/Modal'
 import { ACCENTS, THEMES, THEME_MAP, accentHue } from '../lib/themes'
 import { sfx } from '../lib/sfx'
 import { celebrate } from '../lib/juice'
+import { modeOf } from '../lib/approaches'
+import ModeIcon from '../components/ModeIcon'
 
 /** A miniature of a theme: page, card, accent bar and two lines of text. */
 function ThemeSwatch({ theme }) {
@@ -192,6 +194,23 @@ export default function Settings() {
                 <button key={id} type="button" aria-pressed={settings.effects === id} onClick={() => { updateSettings({ effects: id }); if (id === 'full') setTimeout(() => celebrate(), 30) }}>{label}</button>
               ))}
             </div>
+          </Row>
+        </section>
+
+        <section className="settings-section" aria-labelledby="s-learning">
+          <h2 className="section-title" id="s-learning">Learning</h2>
+          <Row label="Learning approach" hint={`${modeOf(settings).label}: ${modeOf(settings).tagline} Changes what comes first in lessons and topics.`}>
+            <Link to="/approach" className="btn"><ModeIcon mode={modeOf(settings)} size={16} /> Change approach</Link>
+          </Row>
+          <Row label="Pop quizzes" hint="Questions from topics you studied earlier, mixed into sessions and lessons. They keep old topics from fading.">
+            <div className="segmented" role="group" aria-label="Pop quizzes">
+              {[['off', 'Off'], ['sometimes', 'Sometimes'], ['often', 'Often']].map(([id, label]) => (
+                <button key={id} type="button" aria-pressed={(settings.popQuiz || 'sometimes') === id} onClick={() => updateSettings({ popQuiz: id })}>{label}</button>
+              ))}
+            </div>
+          </Row>
+          <Row label="Lesson warm-ups" hint="Recall three things you learned before, at the start of a new lesson." htmlFor="warmups">
+            <Switch id="warmups" checked={settings.warmups !== false} onChange={(v) => updateSettings({ warmups: v })} label="Lesson warm-ups" />
           </Row>
         </section>
 

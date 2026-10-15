@@ -9,6 +9,8 @@ import { missingPrereqs } from '../lib/recommend'
 import TopicCard from '../components/TopicCard'
 import EmptyState from '../components/EmptyState'
 import ImportDialog from '../components/ImportDialog'
+import PathIcon from '../components/PathIcon'
+import { COLLECTIONS } from '../lib/collections'
 
 const STATUSES = [
   { id: 'all', label: 'All' },
@@ -113,6 +115,15 @@ export default function Library() {
           <button type="button" className="btn" onClick={() => setImportOpen(true)}><Upload size={16} /> Import</button>
           <Link to="/create" className="btn btn-primary"><Plus size={16} /> Create a pack</Link>
         </div>
+      </div>
+
+      <div className="library-paths">
+        <span className="small muted">Working toward a goal? Paths put these topics in order:</span>
+        {COLLECTIONS.map((c) => (
+          <Link key={c.id} to={`/path/${c.id}`} className="path-badge" style={{ '--hue': c.hue }}>
+            <PathIcon collection={c} size="sm" /> {c.short}
+          </Link>
+        ))}
       </div>
 
       <div className="library-controls">

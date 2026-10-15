@@ -253,11 +253,15 @@ const builtins = {
           textOut.push(`total ${total}`)
           rich.push(line(`total ${total}`))
         }
-        const sizeW = Math.max(...block.entries.map((e) => String(F.sizeOf(e.node)).length), 1)
+        const linkCount = (e) => (e.node.type === 'dir' ? 2 + F.children(fs, e.path).filter((n) => fs[F.resolve(e.path, n)].type === 'dir').length : 1)
+        const sizeText = (e) => (flags.has('h') && e.node.type === 'file' && F.sizeOf(e.node) >= 1024 ? `${(F.sizeOf(e.node) / 1024).toFixed(1)}K` : String(F.sizeOf(e.node)))
+        const width = (fn) => Math.max(1, ...block.entries.map((e) => String(fn(e)).length))
+        const linkW = width(linkCount)
+        const ownerW = width((e) => e.node.owner)
+        const sizeW = width(sizeText)
         for (const e of block.entries) {
-          const links = e.node.type === 'dir' ? 2 + F.children(fs, e.path).filter((n) => fs[F.resolve(e.path, n)].type === 'dir').length : 1
-          const size = flags.has('h') && e.node.type === 'file' && F.sizeOf(e.node) >= 1024 ? `${(F.sizeOf(e.node) / 1024).toFixed(1)}K` : String(F.sizeOf(e.node))
-          const prefix = `${F.modeString(e.node)} ${links} ${e.node.owner} ${e.node.owner} ${size.padStart(sizeW)} ${F.lsTime(e.node.mtime)} `
+          const owner = e.node.owner.padEnd(ownerW)
+          const prefix = `${F.modeString(e.node)} ${String(linkCount(e)).padStart(linkW)} ${owner} ${owner} ${sizeText(e).padStart(sizeW)} ${F.lsTime(e.node.mtime)} `
           textOut.push(prefix + e.name)
           rich.push({ parts: [{ text: prefix, tone: 'out' }, { text: e.name, tone: e.tone }] })
         }

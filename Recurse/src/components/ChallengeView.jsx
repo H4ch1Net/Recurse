@@ -18,7 +18,7 @@ import {
 import CodeEditor from './CodeEditor'
 import CodeBlock from './CodeBlock'
 import RichText, { Inline } from './RichText'
-import { getChallenge } from '../lib/challenges'
+import { getChallenge, loadChallenge } from '../lib/challenges'
 import { effectsLevel, feedbackComplete, feedbackCorrect, feedbackWrong } from '../lib/juice'
 import { sfx } from '../lib/sfx'
 import { loadPython, retryPython, runChallengeTests, LANGUAGE_LABELS } from '../activities/lib/runner'
@@ -91,7 +91,22 @@ function formatDuration(seconds) {
  *   language              preferred starting language
  */
 export default function ChallengeView({ id, challenge: given, ...rest }) {
-  const challenge = given || getChallenge(id)
+  const [state, setState] = useState({ id: null, challenge: null, failed: false })
+  const wanted = given ? null : id
+  useEffect(() => {
+    if (!wanted) return
+    let alive = true
+    loadChallenge(wanted)
+      .then((full) => alive && setState({ id: wanted, challenge: full, failed: !full }))
+      .catch(() => alive && setState({ id: wanted, challenge: null, failed: true }))
+    return () => {
+      alive = false
+    }
+  }, [wanted])
+  const challenge = given || (state.id === id ? state.challenge : null)
+  if (!challenge && !given && state.id !== id && getChallenge(id)) {
+    return <div className="activity-loading"><Loader2 size={18} className="spin" /> Loading the challenge</div>
+  }
   if (!challenge) {
     return (
       <div className="callout warn">

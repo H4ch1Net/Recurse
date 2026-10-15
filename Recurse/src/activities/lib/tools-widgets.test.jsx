@@ -34,7 +34,7 @@ afterEach(async () => {
 
 const buttons = (text) => [...host.querySelectorAll('button')].filter((b) => b.textContent.trim().startsWith(text))
 const click = async (el) => act(async () => el.dispatchEvent(new MouseEvent('click', { bubbles: true })))
-const noEmDash = () => expect(host.textContent).not.toMatch(/—/)
+const noEmDash = () => expect(host.textContent).not.toMatch(/\u2014/)
 const settle = (ms = 30) => act(() => new Promise((r) => setTimeout(r, ms)))
 
 function setValue(el, value) {

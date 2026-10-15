@@ -1,35 +1,41 @@
-// Coding challenges: every set in src/data/challenges, bundled at build time.
+// Coding challenges. Lists use a build-time index (titles, difficulty, topics); the full
+// challenge (statement, tests, solutions) loads with its set when it is opened.
 // The format is documented in docs/challenges.md.
-
-const modules = import.meta.glob('../data/challenges/*.json', { eager: true, import: 'default' })
+import INDEX from 'virtual:challenge-index'
 
 const DIFFICULTY_ORDER = { easy: 0, medium: 1, hard: 2 }
-
-function fileId(path) {
-  return path.split('/').pop().replace(/\.json$/, '')
-}
+const fullSets = import.meta.glob('../data/challenges/*.json', { import: 'default' })
 
 /** Every set, warm-ups and other low `order` values first, then by title. */
-export const CHALLENGE_SETS = Object.entries(modules)
-  .filter(([, set]) => set && Array.isArray(set.challenges))
-  .map(([path, set]) => ({
-    id: set.set || fileId(path),
-    title: set.title || set.set || fileId(path),
-    description: set.description || '',
-    order: Number.isFinite(set.order) ? set.order : 100,
-    challenges: set.challenges.filter((c) => c && typeof c.id === 'string')
-  }))
-  .sort((a, b) => a.order - b.order || a.title.localeCompare(b.title))
+export const CHALLENGE_SETS = [...INDEX].sort((a, b) => a.order - b.order || a.title.localeCompare(b.title))
 
-/** Every challenge, flattened, each tagged with its set id and title. */
+/** Every challenge (metadata only), flattened, each tagged with its set id and title. */
 export const ALL_CHALLENGES = CHALLENGE_SETS.flatMap((set) =>
-  set.challenges.map((challenge) => ({ ...challenge, set: set.id, setTitle: set.title }))
+  set.challenges.map((challenge) => ({ ...challenge, set: set.id, setTitle: set.title, file: set.file }))
 )
 
 const BY_ID = new Map(ALL_CHALLENGES.map((c) => [c.id, c]))
+const loaded = new Map()
 
+/** Metadata for a challenge, or null. */
 export function getChallenge(id) {
   return BY_ID.get(id) || null
+}
+
+/** The full challenge (statement, tests, starter code, solutions). */
+export function loadChallenge(id) {
+  const meta = BY_ID.get(id)
+  if (!meta) return Promise.resolve(null)
+  if (!loaded.has(id)) {
+    const load = fullSets[`../data/challenges/${meta.file}.json`]
+    const promise = (load ? load() : Promise.resolve({ challenges: [] })).then((set) => {
+      const full = set.challenges.find((c) => c.id === id)
+      return full ? { ...full, set: meta.set, setTitle: meta.setTitle } : null
+    })
+    promise.catch(() => loaded.delete(id))
+    loaded.set(id, promise)
+  }
+  return loaded.get(id)
 }
 
 /** Challenges that practice a pack (topic), easiest first. */

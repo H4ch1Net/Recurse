@@ -49,8 +49,42 @@ function packIndex() {
   }
 }
 
+const CHALLENGE_DIR = fileURLToPath(new URL('./src/data/challenges', import.meta.url))
+const CHALLENGE_INDEX_ID = 'virtual:challenge-index'
+const CHALLENGE_META = ['id', 'title', 'difficulty', 'pattern', 'topic', 'tags']
+
+/**
+ * `virtual:challenge-index`: challenge titles, difficulty and topics for lists. Problem
+ * statements, tests and solutions load with their set when a challenge is opened.
+ */
+function challengeIndex() {
+  return {
+    name: 'recurse-challenge-index',
+    resolveId(id) {
+      if (id === CHALLENGE_INDEX_ID) return `\0${CHALLENGE_INDEX_ID}`
+    },
+    load(id) {
+      if (id !== `\0${CHALLENGE_INDEX_ID}`) return
+      const sets = readdirSync(CHALLENGE_DIR).filter((f) => f.endsWith('.json')).sort().map((file) => {
+        const path = join(CHALLENGE_DIR, file)
+        this.addWatchFile(path)
+        const set = JSON.parse(readFileSync(path, 'utf8'))
+        return {
+          file: file.replace(/\.json$/, ''),
+          id: set.set || file.replace(/\.json$/, ''),
+          title: set.title || set.set,
+          description: set.description || '',
+          order: Number.isFinite(set.order) ? set.order : 100,
+          challenges: (set.challenges || []).filter((c) => c && typeof c.id === 'string').map((c) => Object.fromEntries(CHALLENGE_META.filter((k) => c[k] !== undefined).map((k) => [k, c[k]])))
+        }
+      })
+      return `export default JSON.parse(${JSON.stringify(JSON.stringify(sets))})`
+    }
+  }
+}
+
 export default defineConfig({
-  plugins: [react(), packIndex()],
+  plugins: [react(), packIndex(), challengeIndex()],
   define: {
     __APP_VERSION__: JSON.stringify(version)
   },
@@ -62,7 +96,7 @@ export default defineConfig({
       output: {
         codeSplitting: {
           groups: [
-            { name: 'library', test: /virtual:pack-index|src[\\/]data[\\/](collections|challenges|projects)[\\/]/ },
+            { name: 'library', test: /virtual:(pack|challenge)-index|src[\\/]data[\\/](collections|projects)[\\/]/ },
             { name: 'highlight', test: /node_modules[\\/]highlight\.js/ },
             { name: 'vendor', test: /node_modules/ }
           ]

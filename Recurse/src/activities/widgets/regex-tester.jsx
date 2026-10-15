@@ -261,7 +261,8 @@ function Puzzles({ puzzles: raw, run, onComplete }) {
   const key = `${index}|${flags}|${pattern}`
   const valid = Boolean(pattern) && !compile(pattern, flags).error
   const fresh = check?.key === key
-  const graded = valid && check?.results ? gradePuzzle(puzzle, check.results) : null
+  const samePuzzle = Boolean(check?.key?.startsWith(`${index}|`))
+  const graded = valid && samePuzzle && check?.results ? gradePuzzle(puzzle, check.results) : null
 
   const onChecked = useEffectEvent((k, res) => {
     setCheck({ key: k, ...res })

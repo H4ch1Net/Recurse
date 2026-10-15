@@ -1,155 +1,261 @@
 {
   "id": "operating-systems",
   "name": "Operating Systems",
-  "version": "2.0.0",
+  "version": "3.0.0",
   "author": "Recurse",
   "subject": "cs",
   "level": "intermediate",
-  "description": "Processes and threads, scheduling, virtual memory, locks and deadlock, system calls and file systems.",
+  "description": "System calls, processes and threads, scheduling, virtual memory, stack and heap, locks, file systems and I/O.",
   "icon": "OS",
-  "language": "plaintext",
-  "prereqs": [],
+  "language": "python",
+  "prereqs": [
+    "cs-computer-architecture",
+    "linux-cli"
+  ],
   "tags": [
     "operating systems",
     "processes",
     "threads",
+    "scheduling",
     "memory",
     "concurrency",
     "file systems"
   ],
   "lesson": {
-    "estimatedMinutes": 15,
-    "intro": "The operating system shares one machine between many programs. It decides who runs on the CPU, gives every process its own memory, and is the only path to disks and other hardware. Knowing how it works explains slowdowns, crashes and concurrency bugs that otherwise make no sense.",
+    "estimatedMinutes": 34,
+    "intro": "The operating system is the layer between your code and the hardware: it decides which program runs, gives each one private memory, and turns disks and network cards into files and sockets. Understanding it explains a whole family of bugs and performance problems, from race conditions to out-of-memory crashes to servers that buckle under many connections.",
+    "objectives": [
+      "Explain how user mode, kernel mode and system calls protect the machine",
+      "Compare processes and threads, and work out waiting times under FCFS, SJF and round robin",
+      "Describe virtual memory, paging, the stack and the heap, and what page faults and stack overflows mean",
+      "Spot race conditions and deadlocks and fix them with locks and a consistent lock order",
+      "Read Unix permissions and file descriptors, and explain how blocking, buffering and event loops handle slow I/O"
+    ],
     "sections": [
       {
-        "title": "Processes and threads",
-        "body": "A program is a file on disk. A process is a running instance of a program. The OS gives each process its own virtual address space (its memory), its own table of open files, and at least one thread.\n\nA thread is one sequence of execution inside a process. Each thread has its own registers, program counter and stack, but all threads in a process share its heap, global variables and open files.\n\n- Threads are cheaper to create and switch between, and can share data directly, but a bug in one thread can corrupt data that all of them use.\n- Processes are isolated: a crash in one cannot touch another's memory. They communicate through pipes, sockets or files.\n\nOn Unix, `fork()` creates a new process as a copy of the caller, and `exec()` replaces the program a process is running. A shell uses both to start every command you type.",
-        "code": "import threading\nfrom multiprocessing import Process\n\ncounter = 0\n\ndef bump():\n    global counter\n    counter += 1\n\nif __name__ == \"__main__\":\n    t = threading.Thread(target=bump)\n    t.start()\n    t.join()\n    print(\"after thread:\", counter)    # 1: the thread shares this memory\n\n    p = Process(target=bump)\n    p.start()\n    p.join()\n    print(\"after process:\", counter)   # still 1: the child bumped its own copy",
-        "language": "python",
-        "tip": "In standard CPython the global interpreter lock (GIL) lets only one thread run Python code at a time, so CPU-heavy Python work often uses processes instead.",
+        "title": "The kernel, user mode and system calls",
+        "body": "Open a music app while a download runs and a compiler builds your project. Each program behaves as if it owns the CPU, the memory and the disk, yet none of them does. The **operating system** (OS) makes that illusion work: it shares the hardware among programs, stops them from trampling each other, and gives them simple abstractions (processes, files, sockets) instead of raw hardware.\n\nThe core of the OS is the **kernel**, the code that runs with full control of the machine. The CPU itself enforces the boundary with two privilege levels:\n\n- **User mode**: where your programs run. Privileged instructions (talking to devices, changing memory mappings, disabling interrupts) are forbidden, and attempting one causes a fault.\n- **Kernel mode**: where the kernel runs, with access to everything.\n\nSo how does a program in user mode open a file or send a packet? It asks the kernel with a **system call**. The program puts a system call number and its arguments where the kernel expects them (usually registers) and executes a special trap instruction (`syscall` on x86-64). The CPU switches to kernel mode and jumps to a fixed kernel entry point. The kernel checks the request (does this process have permission? is that buffer address valid?), does the work, and returns a result as the CPU drops back to user mode.\n\nYou rarely make system calls directly. `open()` in Python, `fs.readFile` in Node and `printf` in C all end in library code that makes them for you. Common Unix system calls include `open`, `read`, `write`, `close`, `fork`, `execve`, `wait`, `mmap` and `socket`. A system call costs far more than an ordinary function call, often hundreds of nanoseconds plus disturbed caches, which is why libraries **buffer** output and write it in large chunks.\n\nOn Linux, `strace` prints every system call a program makes. Running it once on a tiny program is an eye-opener.",
+        "code": "$ strace -e trace=openat,read,write,close cat hello.txt\n...                                         (library loading, trimmed)\nopenat(AT_FDCWD, \"hello.txt\", O_RDONLY) = 3\nread(3, \"hi there\\n\", 131072)           = 9\nwrite(1, \"hi there\\n\", 9)               = 9\nhi there\nread(3, \"\", 131072)                     = 0\nclose(3)                                = 0",
+        "language": "bash",
+        "pitfall": "Thinking every library call is a system call. `len()`, sorting and string formatting never enter the kernel. Only work that touches hardware or other processes (files, network, process creation, memory mapping, the clock) needs one.",
         "check": {
-          "question": "Which is usually cheaper to create and to switch between?",
+          "question": "A program running in user mode executes a privileged instruction directly, such as one that commands a disk controller. What happens?",
           "choices": [
-            "Separate processes, because they share nothing",
-            "Threads in the same process",
-            "They cost exactly the same",
-            "It depends only on the programming language"
+            "The instruction runs, just more slowly",
+            "The CPU raises a fault, and the kernel typically terminates the program",
+            "The CPU quietly switches to kernel mode and runs it",
+            "Nothing: the instruction is skipped"
           ],
           "answer": 1,
-          "explanation": "Threads share their process's address space and open files, so the OS has less to set up and less to swap on a switch. A new process needs its own address space and page tables."
+          "explanation": "The CPU refuses privileged instructions in user mode and traps into the kernel, which usually kills the offending process. The only legitimate way in is the system call trap, where the kernel checks every request."
         }
       },
       {
-        "title": "Scheduling and context switches",
-        "body": "A CPU core runs one thread at a time, and the scheduler decides which thread runs next. At any moment a thread is running, ready (able to run, waiting for a core) or blocked (waiting for something such as the disk, the network, a lock or a timer). Blocked threads are skipped until what they wait for arrives.\n\nModern systems are preemptive: a timer interrupt hands control back to the OS after a time slice of a few milliseconds, so no thread can hog a core. Common policies:\n\n- First come, first served: simple, but one long job delays every short job behind it.\n- Shortest job first: lowest average waiting time, but it needs job lengths in advance and can starve long jobs.\n- Round robin: ready threads take turns, one time slice each, which gives good response time.\n- Priority: the most important ready thread runs first; aging slowly raises the priority of waiting threads so they are not starved.\n\nSwitching threads is a context switch: the OS saves the running thread's registers, program counter and stack pointer, then loads another thread's. Switching to a thread in a different process also switches the address space, which throws away cached address translations and makes the switch more expensive. Context switches do no useful work, so very short time slices waste CPU time.",
-        "code": "Round robin, time slice = 2 ms\nJobs arrive together: A needs 5 ms, B needs 2 ms, C needs 3 ms\n\ntime (ms)   0-2   2-4   4-6   6-8   8-9   9-10\nrunning      A     B     C     A     C     A\n\nB finishes at 4 ms, C at 9 ms, A at 10 ms",
-        "language": "plaintext",
+        "title": "Processes and threads",
+        "body": "Open the same text editor twice and you get two independent windows: typing in one does not change the other. Each is a **process**, a running instance of a program. The program is the file on disk; the process is that program in motion, with its own state.\n\nThe OS gives each process:\n\n- Its own **virtual address space**: code, global data, heap and stack, invisible to other processes.\n- Its own open resources: file descriptors, sockets, a current directory.\n- Bookkeeping in a **process control block (PCB)**: process ID, state, saved registers, scheduling priority, owner and permissions.\n\nOn Unix a new process is born with `fork()`, which creates a near-copy of the caller; the child then usually calls `exec()` to replace its program with a different one. That is how your shell runs `ls`: it forks itself, the child execs `/bin/ls`, and the shell waits for it to finish.\n\nA **thread** is one sequence of execution inside a process. Every process starts with one thread and can create more. Threads of the same process share the address space (code, globals, heap) and the open files, but each has its own **stack**, registers and program counter, because each is partway through its own chain of function calls.\n\nThat sharing is the trade-off:\n\n- Threads are cheaper to create and switch between than processes, and they share data simply by touching the same objects. But a bug in one thread can corrupt memory that every other thread uses, and shared data needs locks.\n- Processes are isolated. A crash stays contained, which is why browsers run tabs and sites in separate processes. Sharing data needs explicit channels such as pipes, sockets or shared memory.\n\nA Python note: CPython's Global Interpreter Lock (GIL) lets only one thread run Python bytecode at a time, so threads help with I/O-bound work (waiting on networks or disks) but not with CPU-bound work. For CPU-heavy Python, use multiple processes with `multiprocessing`. Python 3.13 introduced an experimental free-threaded build without the GIL.",
+        "code": "import os\nimport threading\n\ncounter = {\"hits\": 0}        # on the heap: every thread sees the same dict\n\ndef worker(name):\n    label = name.upper()     # a local: lives in this thread's own stack frame\n    counter[\"hits\"] += 1     # shared data (real code would need a lock)\n\nthreads = [threading.Thread(target=worker, args=(n,)) for n in [\"a\", \"b\"]]\nfor t in threads:\n    t.start()\nfor t in threads:\n    t.join()                 # wait for both threads to finish\nprint(\"process\", os.getpid(), \"hits\", counter[\"hits\"])   # hits 2",
+        "language": "python",
+        "pitfall": "Expecting threads to speed up CPU-bound Python. With the GIL, two threads crunching numbers take about as long as one. Use processes for CPU-bound work, and threads or asyncio for waiting on I/O.",
         "check": {
-          "question": "In the round-robin timeline, why does B finish before A even though all three jobs arrived together and A ran first?",
+          "question": "Which of these does each thread have its own copy of, instead of sharing it with the other threads in its process?",
           "choices": [
-            "Each job runs at most 2 ms per turn, and B needs only 2 ms",
-            "B has a higher priority than A",
-            "The scheduler always picks the shortest job",
-            "A was blocked waiting for the disk"
+            "The heap",
+            "Global variables",
+            "Open file descriptors",
+            "Its stack and registers"
           ],
-          "answer": 0,
-          "explanation": "Round robin gives every ready job one slice in turn. A uses its first 2 ms and goes to the back of the line; B then runs its whole 2 ms and finishes at 4 ms. No priorities or job lengths are involved."
+          "answer": 3,
+          "explanation": "Each thread is at a different point in its own chain of calls, so it needs its own stack, registers and program counter. The heap, globals and open files belong to the process and are shared, which is why shared data needs locking."
+        }
+      },
+      {
+        "title": "CPU scheduling",
+        "body": "Your laptop has perhaps 8 cores and hundreds of threads. At any moment most of those threads are waiting for something: a key press, a network packet, a disk read. The **scheduler** decides which ready thread runs on each core next, and for how long.\n\nEvery thread is in one of a few states:\n\n- **Running**: on a core right now.\n- **Ready**: able to run, waiting for a free core.\n- **Blocked** (waiting): cannot run until an event happens, such as data arriving or a lock being released. Blocked threads use no CPU at all.\n\nMoving a core from one thread to another is a **context switch**: save the old thread's registers and program counter, load the new one's. Between threads of the same process that is about all. Between processes, the memory mappings switch too, and the caches and TLB are full of the previous process's data, so the new one starts slowly. A context switch costs on the order of microseconds of pure overhead. Modern schedulers are **preemptive**: a hardware timer interrupt hands control back to the kernel when a time slice ends, so one busy loop cannot freeze the machine.\n\nThe classic policies show the trade-offs:\n\n- **First come, first served (FCFS)**: run jobs in arrival order until each finishes. Simple, but one long job makes everyone behind it wait (the convoy effect).\n- **Shortest job first (SJF)**: run the shortest job next. It gives the lowest average waiting time, but the OS rarely knows job lengths in advance, and long jobs can starve.\n- **Round robin (RR)**: every ready thread gets a fixed time slice (the quantum), then goes to the back of the queue. Good response time for interactive programs. Shorter slices feel snappier but waste more time switching; very long slices turn RR into FCFS.\n\nReal schedulers blend these ideas. Linux's scheduler (CFS for many years, replaced by EEVDF in 2023) tracks how much CPU time each thread has received and favors those that have had less, so an interactive program that mostly sleeps gets the CPU quickly when it wakes. The usual measures are **waiting time** (time spent ready but not running) and **turnaround time** (finish time minus arrival time).",
+        "code": "Jobs arrive at time 0: A needs 6 ms, B needs 3 ms, C needs 3 ms\n\nFCFS (A, B, C)\n  A: 0-6     B: 6-9     C: 9-12\n  waiting:  A 0, B 6, C 9    -> average 5 ms\n\nSJF (B, C, A)\n  B: 0-3     C: 3-6     A: 6-12\n  waiting:  B 0, C 3, A 6    -> average 3 ms\n\nSame total work (12 ms), very different waiting.",
+        "language": "plaintext",
+        "activity": {
+          "type": "cpu-scheduling",
+          "title": "Compare the policies",
+          "prompt": "Run FCFS, SJF and round robin on the same four processes. Which gives the lowest average waiting time, and what happens to P1, the long job, under each policy? Then set the round robin quantum to 1 and watch the timeline chop into smaller slices: short jobs finish sooner, but every slice boundary is a context switch.",
+          "props": {
+            "algorithms": [
+              "fcfs",
+              "sjf",
+              "rr"
+            ]
+          }
+        },
+        "pitfall": "Confusing ready with blocked. A ready thread would run if a core were free; a blocked thread could not run even on an idle core, because it is waiting for an event. More cores help ready threads, not blocked ones.",
+        "check": {
+          "question": "Why can't a single runaway infinite loop freeze a modern operating system?",
+          "choices": [
+            "Compilers detect and remove infinite loops",
+            "Every program runs on its own dedicated core",
+            "A timer interrupt returns control to the kernel, which preempts the loop when its time slice ends",
+            "The loop is moved to disk after a few seconds"
+          ],
+          "answer": 2,
+          "explanation": "Preemptive scheduling relies on a hardware timer: the kernel regains control at the end of every time slice and can run other threads. The loop keeps one core busy, but everything else still gets turns."
         }
       },
       {
         "title": "Virtual memory and paging",
-        "body": "Every process sees its own virtual address space, as if it had the machine's memory to itself. The hardware memory management unit (MMU) translates each virtual address to a physical one, using page tables that the OS keeps for each process.\n\nMemory is managed in fixed-size pages, commonly 4 KiB. The low bits of an address are the offset inside a page; the high bits are the page number, which the page table maps to a physical frame. A small cache called the TLB keeps recent translations so most lookups are fast.\n\nThis buys several things:\n\n- Isolation: a process has no way to name another process's memory.\n- Every process can use the same virtual addresses without clashing.\n- Pages can be moved to disk when RAM runs short, so programs can use more memory than is free.\n- Shared libraries can be mapped into many processes from one physical copy.\n\nWhen a process touches a page that is not in RAM, the CPU raises a page fault. If the access is valid, the kernel loads the page from disk or allocates a fresh one, updates the page table and reruns the instruction. If the address is invalid, the process gets a segmentation fault. When the pages in active use do not fit in RAM, the system spends most of its time moving pages to and from disk; this is called thrashing.",
-        "code": "Page size 4 KiB = 4096 bytes = 2^12, so the low 12 bits are the offset\n\nvirtual address    0x00403A2C\npage number        0x00403        (address >> 12)\noffset             0xA2C          (address & 0xFFF)\n\npage table entry   page 0x00403 -> frame 0x001F2\nphysical address   0x001F2A2C     (frame << 12 | offset)",
+        "body": "Two processes print the address of a variable and both see 0x7ffd5c3a1b2c. One changes its variable; the other's value is untouched. They are not sharing memory: each address is **virtual**, meaningful only inside its own process.\n\nWith **virtual memory**, every process gets a private address space, as if it had the whole machine to itself. The CPU's **memory management unit (MMU)** translates every virtual address into a physical address in RAM, on every single memory access, using tables the kernel maintains.\n\nThe translation works in fixed-size chunks called **pages**, typically 4 KiB. A virtual address splits into a **page number** (the high bits) and an **offset** within the page (the low bits: 12 of them for 4 KiB pages, since 4,096 = 2^12). The process's **page table** maps each virtual page to a physical **frame**, along with permission bits (read, write, execute) and a present bit.\n\nWalking page tables on every access would be slow, so the MMU caches recent translations in the **translation lookaside buffer (TLB)**. Nearly all accesses hit the TLB; switching to another process invalidates many of its entries, which is part of why process switches cost more than thread switches.\n\nWhat this buys:\n\n- **Isolation**: a process cannot even name another process's memory. A bad pointer crashes only the process that used it.\n- **Paging to disk**: pages not currently in RAM can live on disk. Touching one causes a **page fault**; the kernel loads the page into a free frame, updates the table and reruns the instruction, and the program notices only the delay. A disk read is thousands of times slower than RAM, so a machine that pages constantly (**thrashing**) slows to a crawl.\n- **Lazy loading**: program files and large allocations are mapped but not read until they are touched.\n- **Sharing and copy-on-write**: read-only pages such as library code are mapped once into many processes. After `fork()`, parent and child share every page until one of them writes, and only then is that page copied.",
+        "code": "Virtual address 0x5123 with 4 KiB pages (12 offset bits = 3 hex digits)\n\n        0x5          123\n  |- page number -|-- offset --|\n          |\n          v   page table lookup (usually answered by the TLB)\n  virtual page 5  ->  physical frame 0x2A1   present, read+write\n          |\n          v\n  physical address = (0x2A1 << 12) | 0x123 = 0x2A1123",
         "language": "plaintext",
+        "pitfall": "Treating every page fault as a crash. Page faults happen constantly and the kernel handles them silently. Only an access to an address the process has not mapped, or one that breaks the page's permissions (such as writing to read-only code), ends in a segmentation fault.",
         "check": {
-          "question": "Pages are 4 KiB. Roughly how many pages does a 10 MiB block of memory span?",
+          "question": "Two processes each read from virtual address 0x4000. What do they get?",
           "choices": [
-            "10",
-            "256",
-            "2,560",
-            "40,960"
+            "The same byte, because addresses are global to the machine",
+            "Each its own data, because each page table maps 0x4000 to a different frame (unless they deliberately share it)",
+            "A segmentation fault in the second process",
+            "Whichever value was written to 0x4000 most recently"
           ],
-          "answer": 2,
-          "explanation": "10 MiB is 10 * 1024 = 10,240 KiB, and 10,240 / 4 = 2,560 pages. 40,960 would be the count with 256-byte pages."
+          "answer": 1,
+          "explanation": "Virtual addresses only mean something within a process. Each process's page table decides which physical frame 0x4000 refers to, so by default the two reads touch different RAM."
         }
       },
       {
-        "title": "Race conditions, locks and deadlock",
-        "body": "A race condition happens when the result depends on the timing of threads that touch shared data. `count += 1` looks like one step but is three: read count, add 1, write it back. If two threads both read 5, both write 6, and one update is lost.\n\nCode that touches shared data is a critical section. A mutex (lock) protects it: only one thread can hold the lock, and the others block until it is released. In Python, `with lock:` acquires the lock and releases it even if an exception is raised. Keep critical sections short, and make sure a check and the action that depends on it happen under the same lock.\n\nLocks bring a new risk: deadlock, where threads wait for each other forever. It needs all four of these conditions at once (the Coffman conditions):\n\n- Mutual exclusion: a resource can be held by only one thread.\n- Hold and wait: a thread holds one resource while waiting for another.\n- No preemption: a resource cannot be taken away from its holder.\n- Circular wait: a cycle of threads, each waiting for a resource the next one holds.\n\nBreaking any one of them prevents deadlock. The usual fix is to always acquire locks in the same global order, which makes a circular wait impossible.",
-        "code": "import threading\n\ncount = 0\nlock = threading.Lock()\n\ndef work():\n    global count\n    for _ in range(100_000):\n        with lock:          # only one thread at a time runs this line\n            count += 1\n\nthreads = [threading.Thread(target=work) for _ in range(4)]\nfor t in threads:\n    t.start()\nfor t in threads:\n    t.join()\nprint(count)   # always 400000; without the lock, updates can be lost",
-        "language": "python",
+        "title": "Inside a process: the stack and the heap",
+        "body": "One program crashes with RecursionError, another with \"Segmentation fault\" after recursing too deep, and a third slowly eats 8 GB of RAM. All three stories are about where a process keeps its data.\n\nA process's virtual address space is divided into regions:\n\n- **Text**: the machine code, mapped read-only and executable.\n- **Data and BSS**: global and static variables.\n- **Heap**: memory requested while the program runs, growing toward higher addresses.\n- **Mapped region**: shared libraries and memory-mapped files.\n- **Stack**: function call frames, growing down from the top.\n\nThe **stack** holds one **frame** per active function call: its arguments, local variables and return address. Calling a function pushes a frame and returning pops it. Allocating is just moving the stack pointer, so it is extremely fast, and the memory is reclaimed automatically on return. The stack is small and fixed in size (on Linux the main thread typically gets 8 MB), so very deep recursion runs off its end: a **stack overflow**.\n\nThe **heap** holds data whose size or lifetime is not tied to a single call: objects returned from functions, growing lists, anything created with `new` or `malloc`. The allocator has to find free space for each request, which is slower than a stack push, and the memory stays allocated until it is freed. In C you call `free` yourself: forget it and you have a **memory leak**; free twice or use memory after freeing it and you have a serious bug. Java, Python, JavaScript and Go use a **garbage collector** that frees heap objects nothing can reach any more.\n\nIn Python and JavaScript nearly every object lives on the heap, and local variables in stack frames hold references to them. The how-code-runs pack follows that from the language's side. From the OS's side, both regions are just ranges of virtual pages, and the kernel maps more pages for the heap when the allocator asks (with `brk` or `mmap`).",
+        "code": "high addresses\n+--------------------------+\n|          stack           |  frames: locals, arguments, return addresses\n|            |             |  grows down; about 8 MB for the main thread\n|            v             |\n|                          |\n|   unmapped gap, mapped   |  (shared libraries and mapped files\n|   libraries and files    |   live up here too)\n|                          |\n|            ^             |\n|            |             |\n|           heap           |  malloc / new; grows up; freed or GC'd\n+--------------------------+\n|       data and BSS       |  global and static variables\n+--------------------------+\n|       text (code)        |  machine instructions, read-only\n+--------------------------+\nlow addresses",
+        "language": "plaintext",
+        "pitfall": "Returning a pointer to a local variable in C or C++. The frame is popped when the function returns, so the pointer dangles and later calls overwrite the data. Anything that must outlive the call belongs on the heap.",
         "check": {
-          "question": "Two threads each run count += 1 once with no lock, starting from count = 5. Which final values are possible?",
+          "question": "A function builds a list that its caller keeps using after the function returns. Where must that list live?",
           "choices": [
-            "Only 7",
-            "Only 6",
-            "5, 6 or 7",
-            "6 or 7"
+            "On the stack, because it is created inside a function",
+            "In the text region, next to the code",
+            "On the heap, because a stack frame is discarded when its function returns",
+            "In a CPU register"
+          ],
+          "answer": 2,
+          "explanation": "A frame and everything in it disappear when the call returns, so data that must survive the call goes on the heap. Languages like Python put objects on the heap automatically for exactly this reason."
+        }
+      },
+      {
+        "title": "Concurrency: race conditions, locks and deadlock",
+        "body": "Two threads each add 1 to a shared counter a million times. You expect 2,000,000, but in many languages you can get less, and a different number on every run. `counter += 1` looks like one step but is three: read the value, add one, write it back. If both threads read 41, both write 42, and one increment is lost. That is a **race condition**: the result depends on the timing of threads that share data.\n\nThe fix is to make the read, modify and write a **critical section** that only one thread can execute at a time. Operating systems and language runtimes provide **synchronization primitives**:\n\n- **Mutex (lock)**: one thread holds it at a time; any other thread that tries to acquire it blocks until it is released. In Python, `with lock:` acquires on entry and releases on exit, even if an exception is raised.\n- **Semaphore**: a counter that admits up to N holders at once. A semaphore set to 5 lets at most 5 threads use a pool of 5 database connections.\n- **Condition variable**: lets a thread sleep until another thread signals that something changed (say, a queue became non-empty), instead of burning CPU in a polling loop.\n- **Atomic operations**: hardware instructions such as compare-and-swap that update a single value safely without a lock.\n\nLocks bring their own failure: **deadlock**. Thread 1 holds lock A and waits for B; thread 2 holds B and waits for A. Neither can ever proceed. Deadlock needs all four Coffman conditions: mutual exclusion, hold and wait, no preemption, and circular wait. Break any one and it cannot happen. The practical rule is to **always acquire locks in the same global order**, which makes circular wait impossible, and to hold each lock as briefly as you can.\n\nWatch for two subtler bugs as well. In a **check-then-act** race the check and the action are not inside the same lock, so two threads both see one free seat and both book it. In **starvation**, one thread rarely or never gets the lock because others keep winning it.",
+        "code": "import threading\n\ncounter = 0\nlock = threading.Lock()\n\ndef add_many(times):\n    global counter\n    for _ in range(times):\n        with lock:            # critical section: read, add and write as one unit\n            counter += 1\n\nthreads = [threading.Thread(target=add_many, args=(100_000,)) for _ in range(4)]\nfor t in threads:\n    t.start()\nfor t in threads:\n    t.join()\nprint(counter)                # 400000 every time, thanks to the lock",
+        "language": "python",
+        "pitfall": "Locking only the write. If you check a condition outside the lock and act inside it, another thread can change the state in between. The check and the action belong in the same critical section.",
+        "check": {
+          "question": "Two threads run counter += 1 on a shared variable with no lock. Why can an increment be lost?",
+          "choices": [
+            "Threads are not allowed to write global variables",
+            "The CPU ignores writes coming from a second thread",
+            "Integers overflow when two threads use them",
+            "It is a read, an add and a write, and the other thread can write in between"
           ],
           "answer": 3,
-          "explanation": "If the two updates do not overlap, the result is 7. If both threads read 5 before either writes, both write 6 and one update is lost. Each thread writes a value of at least 6, so 5 is impossible."
+          "explanation": "If both threads read the same old value before either writes, both write the same new value and one increment disappears. A lock makes the three steps happen as one unit."
         }
       },
       {
-        "title": "System calls and file systems",
-        "body": "The CPU runs in at least two privilege levels. The kernel runs in kernel mode and can do anything: talk to devices, change page tables, read any memory. Normal programs run in user mode, where those instructions are forbidden.\n\nTo read a file, send a packet or start a process, a program makes a system call: a special instruction (such as `syscall` on x86-64) switches the CPU to kernel mode and jumps into the kernel, which checks permissions, does the work and returns to user mode. Examples include `open`, `read`, `write`, `close`, `fork`, `execve` and `mmap`. A system call costs much more than a normal function call, which is why I/O libraries buffer many small writes into fewer large ones. On Linux, `strace` lists the system calls a program makes.\n\nWhen a process opens a file, the kernel returns a file descriptor: a small integer that indexes the process's table of open files. Descriptors 0, 1 and 2 are standard input, output and error.\n\nOn Unix file systems, each file is described by an inode, which records its size, owner, permissions, timestamps and where its data blocks are. The name is not in the inode: a directory is a table that maps names to inode numbers. A hard link is a second name for the same inode, while a symbolic link is a small file that stores a path. `rm` removes a name; the data is freed only when no names and no open file descriptors refer to the inode.",
-        "code": "echo hello > a.txt\nln a.txt b.txt        # hard link: a second name for the same inode\nls -i a.txt b.txt     # both names show the same inode number\nrm a.txt              # removes one name, not the data\ncat b.txt             # prints: hello\nln -s b.txt c.txt     # symbolic link: a tiny file that stores the path \"b.txt\"\nrm b.txt\ncat c.txt             # fails: No such file or directory (the link dangles)",
+        "title": "File systems and permissions",
+        "body": "`ls -l` shows a file as `-rw-r--r-- 1 ana staff 120 report.txt`. Behind that one line, the **file system** has turned a disk, which only knows how to read and write numbered blocks, into named files in nested folders with owners and permissions.\n\nThe pieces of a Unix-style file system:\n\n- A **file** is a sequence of bytes. The OS does not care whether it holds text, an image or a database.\n- An **inode** stores everything about a file except its name: size, owner, permissions, timestamps and the location of its data blocks.\n- A **directory** is a special file that maps names to inode numbers. A name is just a link to an inode.\n\nThat last point explains links. A **hard link** is a second name for the same inode, and the data survives until every name is gone. A **symbolic link** is a tiny file that stores a path; if the target is deleted, the symlink dangles.\n\n**Permissions** come in three sets of three: read (r), write (w) and execute (x) for the **owner**, the **group** and **others**. Each set is one octal digit, adding r = 4, w = 2 and x = 1. So 755 is `rwxr-xr-x` (the owner can do everything; everyone else can read and run) and 600 is `rw-------` (only the owner can read and write). On a directory, x means permission to enter it. `chmod` changes permissions and `chown` changes the owner.\n\nPrograms work with open files through **file descriptors**, small integers handed out by `open()`. Every process starts with three: 0 is standard input, 1 standard output and 2 standard error, which is why `2> errors.log` redirects error messages in a shell.\n\nWrites are usually **buffered**: `write()` copies data into the kernel's page cache and returns, and the kernel flushes it to disk a little later. That makes writes fast, but a power cut can lose the most recent data, so databases call `fsync()` to force data onto the disk before they report a transaction as committed. Modern file systems such as ext4, APFS and NTFS keep a **journal** so that a crash halfway through an update cannot corrupt the file system's own structures.",
+        "code": "$ ln notes.txt backup.txt        # hard link: a second name for the same inode\n$ ln -s notes.txt shortcut.txt   # symlink: a new small file holding a path\n$ ls -li notes.txt backup.txt shortcut.txt\n1311 -rw-r--r-- 2 ana staff 120 Mar  3 09:12 backup.txt\n1311 -rw-r--r-- 2 ana staff 120 Mar  3 09:12 notes.txt\n1450 lrwxrwxrwx 1 ana staff   9 Mar  3 09:15 shortcut.txt -> notes.txt\n# inode, permissions, link count, owner, group, size, date, name\n\n$ chmod 600 notes.txt            # rw------- : only the owner\n$ chmod u+x deploy.sh            # add execute for the owner only",
         "language": "bash",
+        "activity": {
+          "type": "terminal",
+          "title": "Fix the permissions",
+          "prompt": "List the scripts folder with ls -l and read each permission string as owner, group and others. Try to run deploy.sh and read the error, fix it with chmod, and run it again. Finally, lock secret.txt so only you can read and write it.",
+          "props": {
+            "scenario": "permissions"
+          }
+        },
+        "pitfall": "Running chmod 777 to make a permission error go away. It lets every user on the machine modify the file. Grant the smallest permission that works, such as u+x for a script you own.",
         "check": {
-          "question": "Why can't an ordinary program send commands straight to the disk controller?",
+          "question": "What permission string does chmod 750 produce?",
           "choices": [
-            "Only programs written in C can talk to hardware",
-            "The disk can only be reached while the computer boots",
-            "It runs in user mode, so it must ask the kernel through a system call",
-            "The scheduler blocks any program that uses hardware"
+            "rwxr-x---",
+            "rwxr-xr-x",
+            "rw-r-x---",
+            "rwxrw----"
+          ],
+          "answer": 0,
+          "explanation": "7 is 4 + 2 + 1 (rwx) for the owner, 5 is 4 + 1 (r-x) for the group, and 0 is --- for others. rwxr-xr-x would be 755."
+        }
+      },
+      {
+        "title": "I/O: devices, interrupts and waiting",
+        "body": "A web server spends most of its life waiting: for a request to arrive, for the database to answer, for a disk read to finish. Reading 1 MB from an SSD takes on the order of a millisecond, time in which a CPU core could run millions of instructions. How the OS and your program handle that waiting decides how well they scale.\n\nDevices and the CPU cooperate in a few ways:\n\n- **Interrupts**: rather than the CPU repeatedly asking a device whether it is done (**polling**), the device signals the CPU when something happens, such as a packet arriving or a disk read completing. The CPU pauses what it was doing and runs the kernel's interrupt handler.\n- **DMA (direct memory access)**: the device copies data straight to or from RAM without the CPU moving each byte, then raises an interrupt when the transfer is done.\n- **Device drivers**: kernel code that knows how to talk to one kind of hardware, so programs only ever see uniform system calls such as `read` and `write`.\n\nFrom a program's point of view there are two styles of I/O:\n\n- **Blocking I/O**: `read()` does not return until data is available. The thread is marked blocked and the scheduler runs something else. It is simple to write, and the classic one-thread-per-connection server works this way, but it gets expensive at scale: 10,000 connections means 10,000 threads, each with its own stack and scheduling overhead.\n- **Non-blocking, event-driven I/O**: one thread asks the kernel to watch many sockets at once (`epoll` on Linux, `kqueue` on macOS) and handles whichever are ready. This is how Node.js, nginx and Python's asyncio serve thousands of mostly idle connections with a handful of threads.\n\nThe OS also hides slowness with **buffering and caching**. Writes land in memory and reach the disk later, and recently read file data stays in the **page cache**, so the second read of a file is far faster than the first. Your program's own buffers (Python file objects, C's stdio) batch many small writes into a few large system calls.\n\nRough numbers worth remembering: a RAM access takes about 100 nanoseconds, an SSD read tens to hundreds of microseconds, a hard disk seek several milliseconds, and an internet round trip tens to hundreds of milliseconds. I/O is where the time goes, so good programs overlap it, batch it and cache it.",
+        "code": "import asyncio\nimport time\n\nasync def fetch(name, seconds):\n    await asyncio.sleep(seconds)      # stands in for waiting on the network\n    return f\"{name} done\"\n\nasync def main():\n    start = time.perf_counter()\n    results = await asyncio.gather(fetch(\"a\", 1), fetch(\"b\", 1), fetch(\"c\", 1))\n    print(results, f\"{time.perf_counter() - start:.1f}s\")\n\nasyncio.run(main())   # ['a done', 'b done', 'c done'] 1.0s, not 3.0s",
+        "language": "python",
+        "pitfall": "Doing blocking work inside an event loop. One `time.sleep()` or synchronous database call in an asyncio or Node.js handler freezes every other connection that thread serves. Use the async version, or hand the blocking work to a thread pool.",
+        "check": {
+          "question": "Why does running cat bigfile.log a second time usually finish much faster than the first?",
+          "choices": [
+            "cat compresses files it has read before",
+            "The disk spins faster after the first read",
+            "The file's data is still in the kernel's page cache, so no disk read is needed",
+            "The shell remembers the output and replays it"
           ],
           "answer": 2,
-          "explanation": "Device access instructions are privileged and only work in kernel mode. Programs in any language reach the disk the same way: through system calls such as read and write."
+          "explanation": "The kernel keeps recently read file data in otherwise free RAM. The second read is served from memory, which is orders of magnitude faster than the disk."
         }
       }
     ],
     "keyTerms": [
       {
-        "term": "Process",
-        "definition": "A running program with its own address space, open files and one or more threads."
+        "term": "kernel",
+        "definition": "The core of the OS, running in privileged kernel mode with full control of the hardware."
       },
       {
-        "term": "Thread",
-        "definition": "A sequence of execution inside a process, with its own stack and registers but memory shared with the process."
+        "term": "system call",
+        "definition": "A request from a user-mode program to the kernel, made through a trap instruction, for work such as opening a file or creating a process."
       },
       {
-        "term": "Context switch",
-        "definition": "Saving the running thread's CPU state and loading another thread's so that it can run."
+        "term": "process",
+        "definition": "A running program with its own virtual address space, open files and process ID."
       },
       {
-        "term": "Page fault",
-        "definition": "A trap raised when a process touches a page that is not in RAM; the kernel then loads or allocates it."
+        "term": "thread",
+        "definition": "A sequence of execution inside a process. Threads share the process's memory but each has its own stack and registers."
       },
       {
-        "term": "Race condition",
-        "definition": "A bug where the result depends on the timing of threads accessing shared data."
+        "term": "context switch",
+        "definition": "Saving one thread's CPU state and loading another's so a core can run a different thread."
       },
       {
-        "term": "Mutex",
+        "term": "virtual memory",
+        "definition": "Giving each process a private address space that the MMU translates, page by page, into physical RAM."
+      },
+      {
+        "term": "page fault",
+        "definition": "A trap raised when a page is not currently mapped in RAM. The kernel loads it and resumes the program, or kills the program if the address is invalid."
+      },
+      {
+        "term": "stack frame",
+        "definition": "The block of stack memory for one function call: arguments, locals and return address. Pushed on call, popped on return."
+      },
+      {
+        "term": "mutex",
         "definition": "A lock that only one thread can hold at a time, used to protect a critical section."
       },
       {
-        "term": "Deadlock",
-        "definition": "A state where threads wait on each other's resources in a cycle, so none can proceed."
+        "term": "deadlock",
+        "definition": "Threads waiting on each other's locks forever. Prevented by acquiring locks in one global order."
       },
       {
-        "term": "System call",
-        "definition": "A request from a user-mode program to the kernel, such as open, read or fork."
+        "term": "inode",
+        "definition": "The record holding a file's metadata and data block locations. Directory entries map names to inodes."
+      },
+      {
+        "term": "file descriptor",
+        "definition": "A small integer naming an open file or socket in a process. 0, 1 and 2 are stdin, stdout and stderr."
       }
     ],
     "summary": [
-      "A process owns an isolated address space; threads inside it share memory but each has its own stack and registers.",
-      "The scheduler time-slices the CPU among ready threads, and every context switch is overhead.",
-      "Virtual memory maps each process's addresses to RAM page by page; a page fault lets the kernel load or allocate a page on demand.",
-      "Shared data needs a lock, and a fixed lock order prevents deadlock by ruling out circular wait.",
-      "Programs reach hardware only through system calls; on Unix a file is an inode, and names are directory entries that point to it."
+      "The kernel runs in privileged mode, and programs reach the hardware only through system calls.",
+      "Processes are isolated address spaces; threads share their process's memory but each has its own stack and registers.",
+      "The scheduler shares cores among ready threads, and FCFS, SJF and round robin trade average waiting time, fairness and responsiveness.",
+      "Virtual memory gives every process a private address space in pages; the TLB caches translations and page faults load pages on demand.",
+      "The stack holds call frames and is small and fast; the heap holds longer-lived data that must be freed or garbage collected.",
+      "Shared data needs locks and a consistent lock order, and slow I/O is handled with blocking threads, event loops, buffering and caching."
     ],
-    "feynmanPrompt": "Explain to a friend who has never programmed how one computer can run a browser, a music player and a chat app at the same time, and why one of them crashing usually does not take the others down."
+    "feynmanPrompt": "Explain to a friend what the operating system does when they open two apps at once: how both seem to run at the same time on one CPU core, why one app cannot read the other's memory, and what happens when an app asks to read a file."
   },
   "questions": [
     {
@@ -166,7 +272,7 @@
       "answer": 0,
       "explanation": "Processes have separate address spaces, so a crash or memory bug stays inside one tab. The isolation has a cost: processes are more expensive than threads and need pipes or sockets to share data.",
       "concept": "process isolation",
-      "section": 0
+      "section": 1
     },
     {
       "id": "operating-systems-q02",
@@ -184,7 +290,7 @@
       "answer": 2,
       "explanation": "After fork() there are two processes running the same code. The child gets a return value of 0 and prints True; the parent gets the child's process ID and prints False. The scheduler decides which runs first, so the order is not guaranteed.",
       "concept": "fork",
-      "section": 0
+      "section": 1
     },
     {
       "id": "operating-systems-q03",
@@ -200,7 +306,7 @@
       ],
       "explanation": "Each thread needs its own stack because each is partway through its own chain of function calls. The heap is shared, which is why objects on it need locking when several threads change them.",
       "concept": "what threads share",
-      "section": 0
+      "section": 1
     },
     {
       "id": "operating-systems-q04",
@@ -216,7 +322,7 @@
       "answer": 1,
       "explanation": "Every context switch saves and restores registers. Crossing processes also switches page tables, which invalidates TLB entries and leaves caches full of the other process's data, so the new thread starts slowly. Nothing is reloaded from disk on a normal switch.",
       "concept": "context switch cost",
-      "section": 1
+      "section": 2
     },
     {
       "id": "operating-systems-q05",
@@ -232,7 +338,7 @@
       "answer": 1,
       "explanation": "Shortest first gives waits of 0, 1 and 2 ms, an average of 1 ms. Running the 10 ms job first makes the short jobs wait 10 and 11 ms, an average of 7 ms. The total work is fixed, but who waits behind whom is not.",
       "concept": "scheduling policies",
-      "section": 1
+      "section": 2
     },
     {
       "id": "operating-systems-q06",
@@ -247,7 +353,7 @@
       ],
       "explanation": "It cannot make progress until data arrives, so the OS marks it blocked and runs other threads. When data arrives it becomes ready, and it runs once the scheduler picks it. Ready means able to run but waiting for a core.",
       "concept": "thread states",
-      "section": 1
+      "section": 2
     },
     {
       "id": "operating-systems-q07",
@@ -263,7 +369,7 @@
       "answer": 3,
       "explanation": "Short slices let every thread get a turn sooner, so interactive programs feel snappier, but every switch costs time that does no useful work. A very long slice has the opposite effect and makes round robin behave like first come, first served.",
       "concept": "time slice trade-off",
-      "section": 1
+      "section": 2
     },
     {
       "id": "operating-systems-q08",
@@ -279,7 +385,7 @@
       "answer": 0,
       "explanation": "Addresses a program can see are virtual. Each process has its own page tables, so the same virtual address can map to different physical frames. After fork the pages start out shared but are copied when either process writes (copy-on-write), so the parent keeps its value.",
       "concept": "virtual address spaces",
-      "section": 2
+      "section": 3
     },
     {
       "id": "operating-systems-q09",
@@ -292,7 +398,7 @@
       ],
       "explanation": "4 KiB is 4,096 bytes, and 4,096 = 2^12, so 12 bits are needed to pick any byte in a page. The remaining high bits form the page number.",
       "concept": "page offset",
-      "section": 2
+      "section": 3
     },
     {
       "id": "operating-systems-q10",
@@ -308,7 +414,7 @@
       "answer": 2,
       "explanation": "A page fault is not an error by itself. The kernel finds a free frame, reads the page back, updates the page table and resumes the program, which notices nothing except the delay. A segmentation fault only happens when the address is not valid for the process.",
       "concept": "page faults",
-      "section": 2
+      "section": 3
     },
     {
       "id": "operating-systems-q11",
@@ -326,7 +432,7 @@
       "answer": 3,
       "explanation": "A check and the action that depends on it must happen under the same lock. Here two threads can both see a balance of 100, both pass the check and both subtract. Moving the if inside `with lock:` fixes it. A lock created inside the function would be a new lock on every call, so it would protect nothing.",
       "concept": "check-then-act race",
-      "section": 3
+      "section": 5
     },
     {
       "id": "operating-systems-q12",
@@ -342,7 +448,7 @@
       "answer": 0,
       "explanation": "A fixed acquisition order removes circular wait: whichever thread gets A first will also get B, and the other thread waits for A while holding nothing. Sleeps and start order only change the timing, so the deadlock becomes rarer but is still possible.",
       "concept": "lock ordering",
-      "section": 3
+      "section": 5
     },
     {
       "id": "operating-systems-q13",
@@ -352,7 +458,7 @@
       "answer": "Mutual exclusion (a resource is held by one thread at a time), hold and wait (a thread holds one resource while waiting for another), no preemption (resources cannot be taken away), and circular wait (a cycle of threads, each waiting for the next).",
       "explanation": "These are the Coffman conditions. Removing any one prevents deadlock; a global lock order removes circular wait.",
       "concept": "Coffman conditions",
-      "section": 3
+      "section": 5
     },
     {
       "id": "operating-systems-q14",
@@ -370,7 +476,7 @@
       "answer": 1,
       "explanation": "`with lock:` acquires the lock on entry and releases it when the block ends, even if an exception is raised. Calling lock.acquire() and lock.release() by hand also works, but an exception between them leaves the lock held forever.",
       "concept": "using a mutex",
-      "section": 3
+      "section": 5
     },
     {
       "id": "operating-systems-q15",
@@ -386,7 +492,7 @@
       "answer": 3,
       "explanation": "Files live on devices that only the kernel may touch, so open must cross into kernel mode. Arithmetic, your own function calls and sorting in memory all run in user mode without the kernel's help.",
       "concept": "system calls",
-      "section": 4
+      "section": 0
     },
     {
       "id": "operating-systems-q16",
@@ -399,7 +505,7 @@
       ],
       "explanation": "Every process starts with three descriptors: 0 for standard input, 1 for standard output and 2 for standard error. That is why `2> errors.log` in a shell redirects error messages.",
       "concept": "file descriptors",
-      "section": 4
+      "section": 6
     },
     {
       "id": "operating-systems-q17",
@@ -417,7 +523,288 @@
       "answer": 2,
       "explanation": "A symbolic link only records the name notes.txt. After rm that name points nowhere, so the link dangles. A hard link is a second directory entry for the same inode, and the data stays as long as any name refers to it. The argument order is right: the target comes first, then the new link's name.",
       "concept": "hard vs symbolic links",
+      "section": 6
+    },
+    {
+      "id": "operating-systems-q18",
+      "type": "mcq",
+      "difficulty": "easy",
+      "question": "Why can't an ordinary program send commands straight to the disk controller?",
+      "choices": [
+        "Disks only accept commands from the firmware at boot time",
+        "The program would have to be written in assembly language",
+        "User mode forbids privileged instructions, so the program must ask the kernel with a system call",
+        "Disk controllers ignore programs that are not run as administrator"
+      ],
+      "answer": 2,
+      "explanation": "The CPU blocks device access in user mode. The program makes a system call such as read or write, and the kernel, running in kernel mode, checks permissions and drives the hardware. Even administrator programs go through the kernel.",
+      "concept": "user and kernel mode",
+      "section": 0
+    },
+    {
+      "id": "operating-systems-q19",
+      "type": "order",
+      "difficulty": "medium",
+      "question": "Put the steps of a system call in order.",
+      "items": [
+        "The program calls a library function such as write()",
+        "The library places the call number and arguments in registers and executes the trap instruction",
+        "The CPU switches to kernel mode and jumps to the kernel's entry point",
+        "The kernel checks the arguments and permissions and does the work",
+        "The kernel returns a result and the CPU switches back to user mode"
+      ],
+      "explanation": "The trap instruction is the only doorway into kernel mode, and the kernel validates everything before acting on it. That round trip is why a system call costs much more than an ordinary function call.",
+      "concept": "system call steps",
+      "section": 0
+    },
+    {
+      "id": "operating-systems-q20",
+      "type": "cli",
+      "difficulty": "easy",
+      "question": "Type a command that lists all running processes on a Linux system, not just the ones started from your terminal.",
+      "answer": "ps aux",
+      "accept": [
+        "ps -ef",
+        "ps -e",
+        "ps -A",
+        "ps ax",
+        "ps -aux",
+        "ps -eF"
+      ],
+      "shell": "bash",
+      "explanation": "ps aux (BSD style) or ps -ef (System V style) lists every process with its PID and owner. Plain ps shows only the processes attached to your terminal, and top shows the same information live.",
+      "concept": "listing processes",
+      "section": 1
+    },
+    {
+      "id": "operating-systems-q21",
+      "type": "multi",
+      "difficulty": "medium",
+      "question": "Which of these do threads of the same process share? Select all that apply.",
+      "choices": [
+        "The heap",
+        "Global variables",
+        "Open file descriptors",
+        "The stack",
+        "The program counter and registers",
+        "The program's code"
+      ],
+      "answers": [
+        0,
+        1,
+        2,
+        5
+      ],
+      "explanation": "Threads share the whole address space (code, globals, heap) and the process's open files. Each thread has its own stack, registers and program counter, because each is at a different point in its own chain of calls.",
+      "concept": "what threads share",
+      "section": 1
+    },
+    {
+      "id": "operating-systems-q22",
+      "type": "typed",
+      "difficulty": "medium",
+      "question": "Three processes arrive at time 0 in the order P1 (burst 8 ms), P2 (burst 2 ms) and P3 (burst 2 ms). With first come, first served scheduling, what is the average waiting time in ms?",
+      "answer": "6",
+      "accept": [
+        "6 ms",
+        "6ms"
+      ],
+      "explanation": "P1 waits 0, P2 waits 8 and P3 waits 10, so the average is 18 / 3 = 6 ms. Shortest job first would run P2, P3, then P1, with waits of 0, 2 and 4: an average of just 2 ms.",
+      "concept": "FCFS waiting time",
+      "section": 2
+    },
+    {
+      "id": "operating-systems-q23",
+      "type": "mcq",
+      "difficulty": "hard",
+      "question": "Round robin with a 2 ms quantum runs P1 (burst 5 ms) and P2 (burst 3 ms). Both arrive at time 0, with P1 first in the queue. When does P2 finish?",
+      "choices": [
+        "At 5 ms",
+        "At 7 ms",
+        "At 8 ms",
+        "At 4 ms"
+      ],
+      "answer": 1,
+      "explanation": "P1 runs 0 to 2, P2 runs 2 to 4, P1 runs 4 to 6, and P2 needs only 1 more ms, finishing at 7. P1 then runs its last 1 ms and finishes at 8. Answering 8 forgets that the two jobs take turns.",
+      "concept": "tracing round robin",
+      "section": 2
+    },
+    {
+      "id": "operating-systems-q24",
+      "type": "typed",
+      "difficulty": "hard",
+      "question": "With 4 KiB pages, what is the virtual page number of address 0x7A3F4? Give it in decimal.",
+      "answer": "122",
+      "accept": [
+        "0x7A",
+        "7A"
+      ],
+      "explanation": "A 4 KiB page needs 12 offset bits, which is the last three hex digits: 0x3F4. The remaining digits, 0x7A, are the page number, and 7 × 16 + 10 = 122.",
+      "concept": "splitting a virtual address",
+      "section": 3
+    },
+    {
+      "id": "operating-systems-q25",
+      "type": "mcq",
+      "difficulty": "easy",
+      "question": "What does the TLB (translation lookaside buffer) do?",
+      "choices": [
+        "Stores pages that were swapped out to disk",
+        "Holds the kernel's list of runnable threads",
+        "Buffers file writes before they reach the disk",
+        "Caches recent virtual-to-physical translations so most accesses skip the page table walk"
+      ],
+      "answer": 3,
+      "explanation": "Translating through multi-level page tables on every access would cost several extra memory reads. The TLB remembers recent translations, and most accesses hit it. Swapped-out pages live on disk, not in the TLB.",
+      "concept": "TLB",
+      "section": 3
+    },
+    {
+      "id": "operating-systems-q26",
+      "type": "mcq",
+      "difficulty": "medium",
+      "question": "A C program recurses a million levels deep and crashes with a segmentation fault. What happened?",
+      "choices": [
+        "Each call pushed a frame until the fixed-size stack ran out: a stack overflow",
+        "The heap ran out because every call allocated a new object",
+        "The CPU can only track 65,536 nested function calls",
+        "The kernel kills any process that runs for too long"
+      ],
+      "answer": 0,
+      "explanation": "Every pending call keeps a frame on the stack, which is small and fixed (about 8 MB for the main thread on Linux). Running past its end touches unmapped memory and faults. Python checks the depth first and raises RecursionError instead of crashing.",
+      "concept": "stack overflow",
       "section": 4
+    },
+    {
+      "id": "operating-systems-q27",
+      "type": "match",
+      "difficulty": "medium",
+      "question": "Match each region of a process's memory with what it holds.",
+      "pairs": [
+        {
+          "left": "Text",
+          "right": "The program's machine instructions, mapped read-only"
+        },
+        {
+          "left": "Data and BSS",
+          "right": "Global and static variables"
+        },
+        {
+          "left": "Heap",
+          "right": "Memory allocated at run time that can outlive a single call"
+        },
+        {
+          "left": "Stack",
+          "right": "Call frames: arguments, locals and return addresses"
+        }
+      ],
+      "explanation": "Code and globals are laid out when the program loads. The heap grows as the program allocates, and the stack grows and shrinks with every call and return.",
+      "concept": "process memory layout",
+      "section": 4
+    },
+    {
+      "id": "operating-systems-q28",
+      "type": "mcq",
+      "difficulty": "easy",
+      "question": "Which statement about the heap, compared with the stack, is true?",
+      "choices": [
+        "Heap memory is freed automatically when a function returns",
+        "The heap holds only global variables",
+        "Heap data can outlive the function that created it, but allocating it is slower",
+        "The heap is limited to about 8 MB per process"
+      ],
+      "answer": 2,
+      "explanation": "Heap memory lives until it is freed (by hand or by a garbage collector), so it suits data that must survive a call, but each allocation needs the allocator to find space. Freeing on return and the 8 MB limit describe the stack.",
+      "concept": "stack vs heap",
+      "section": 4
+    },
+    {
+      "id": "operating-systems-q29",
+      "type": "mcq",
+      "difficulty": "medium",
+      "question": "A semaphore guarding a pool of database connections is initialized to 5. What does it allow?",
+      "choices": [
+        "Exactly one thread at a time, like a mutex",
+        "Up to 5 threads to hold a connection at once; a sixth blocks until one is released",
+        "Five retries before a connection attempt fails",
+        "Each thread to hold up to 5 connections"
+      ],
+      "answer": 1,
+      "explanation": "Acquiring decrements the counter and releasing increments it; a thread that finds it at 0 blocks. A mutex is effectively a semaphore of 1 that also has an owner.",
+      "concept": "semaphores",
+      "section": 5
+    },
+    {
+      "id": "operating-systems-q30",
+      "type": "cli",
+      "difficulty": "easy",
+      "question": "Type the command that makes deploy.sh executable for its owner without changing any other permission bit.",
+      "answer": "chmod u+x deploy.sh",
+      "accept": [
+        "chmod u+x ./deploy.sh"
+      ],
+      "shell": "bash",
+      "explanation": "u+x adds execute for the user who owns the file and leaves group and others alone. chmod +x would add execute for everyone, and a number such as 755 replaces all nine bits at once.",
+      "concept": "chmod symbolic mode",
+      "section": 6
+    },
+    {
+      "id": "operating-systems-q31",
+      "type": "typed",
+      "difficulty": "medium",
+      "question": "Which three-digit octal mode gives the permissions rw-r--r--?",
+      "answer": "644",
+      "explanation": "The owner's rw- is 4 + 2 = 6, the group's r-- is 4, and others' r-- is 4. 644 is the usual mode for ordinary files: you can edit them and everyone else can read them.",
+      "concept": "octal permissions",
+      "section": 6
+    },
+    {
+      "id": "operating-systems-q32",
+      "type": "mcq",
+      "difficulty": "hard",
+      "question": "A chat server must hold 10,000 mostly idle connections. Why does an event loop (epoll, asyncio, Node.js) handle this better than one blocking thread per connection?",
+      "choices": [
+        "Event loops make the network itself faster",
+        "Blocking threads cannot read from sockets",
+        "Threads always crash above 1,000 connections",
+        "One thread can wait on every socket at once and serve whichever is ready, instead of paying for 10,000 stacks and context switches"
+      ],
+      "answer": 3,
+      "explanation": "Each blocked thread costs a stack and scheduler bookkeeping even while it does nothing. An event loop asks the kernel to report which sockets are ready and spends CPU only on those. The network is no faster either way.",
+      "concept": "event-driven I/O",
+      "section": 7
+    },
+    {
+      "id": "operating-systems-q33",
+      "type": "mcq",
+      "difficulty": "medium",
+      "question": "What does DMA (direct memory access) let a device do?",
+      "choices": [
+        "Copy data to or from RAM without the CPU moving each byte, then interrupt when the transfer is done",
+        "Run user programs without involving the kernel",
+        "Read other processes' virtual memory",
+        "Skip the file system's permission checks"
+      ],
+      "answer": 0,
+      "explanation": "Without DMA the CPU would spend its time copying bytes between devices and memory. With it, the CPU sets up the transfer, does other work, and handles a single interrupt at the end.",
+      "concept": "DMA and interrupts",
+      "section": 7
+    },
+    {
+      "id": "operating-systems-q34",
+      "type": "mcq",
+      "difficulty": "medium",
+      "question": "A program calls write() on a file and it returns successfully. Two seconds later the power fails, and the data is gone. Why?",
+      "choices": [
+        "write() only works on network sockets",
+        "The file was opened read-only",
+        "write() copied the data into the kernel's page cache, and it had not been flushed to disk yet; fsync() would have forced it",
+        "The disk rejected the write because it was too small"
+      ],
+      "answer": 2,
+      "explanation": "A successful write() means the kernel has the data, not that the disk does. Databases and anything else that promises durability call fsync() before reporting success.",
+      "concept": "write buffering and fsync",
+      "section": 7
     }
   ]
 }
