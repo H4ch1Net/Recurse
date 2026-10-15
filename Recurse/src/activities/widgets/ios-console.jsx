@@ -150,7 +150,10 @@ function Console({ lab, device, onComplete }) {
 
   useEffect(() => {
     const el = screenRef.current
-    if (el) el.scrollTop = el.scrollHeight
+    if (!el) return
+    el.scrollTop = el.scrollHeight
+    // Wide show output scrolls sideways on a phone; new output starts back at the prompt.
+    el.scrollLeft = 0
   }, [lines, input])
 
   useLayoutEffect(() => {
@@ -364,7 +367,7 @@ function Console({ lab, device, onComplete }) {
               <RotateCcw size={12} /> Reset
             </button>
           </div>
-          <div ref={screenRef} className="terminal-screen iosc-screen" role="log" aria-label={`${sim.dev.hostname} console output`} onMouseUp={onScreenUp}>
+          <div ref={screenRef} className="terminal-screen iosc-screen" role="log" aria-label={`${sim.dev.hostname} console output`} onClick={onScreenUp}>
             {lines.map((l) =>
               l.kind === 'echo' ? (
                 <div key={l.id} className="terminal-line">
@@ -409,8 +412,8 @@ function Console({ lab, device, onComplete }) {
           <KeyBtn label="?" title="Context help (?)" onPress={() => showHelp(input.slice(0, caret))} />
           <KeyBtn label={<ArrowUp size={13} />} title="Previous command (Up)" onPress={() => recall(-1)} />
           <KeyBtn label={<ArrowDown size={13} />} title="Next command (Down)" onPress={() => recall(1)} />
-          <KeyBtn label="Ctrl+Z" title="Leave configuration mode (Ctrl+Z)" onPress={() => ctrl('z')} />
-          <KeyBtn label="Ctrl+C" title="Cancel the line (Ctrl+C)" onPress={() => ctrl('c')} />
+          <KeyBtn label={<><span className="iosc-key-long">Ctrl+Z</span><span className="iosc-key-short">^Z</span></>} title="Leave configuration mode (Ctrl+Z)" onPress={() => ctrl('z')} />
+          <KeyBtn label={<><span className="iosc-key-long">Ctrl+C</span><span className="iosc-key-short">^C</span></>} title="Cancel the line (Ctrl+C)" onPress={() => ctrl('c')} />
         </div>
         <div className="iosc-chips" aria-label="Suggested commands">
           {chips.map((cmd) => (
@@ -587,10 +590,10 @@ function Console({ lab, device, onComplete }) {
   )
 }
 
-/** A key on the on-screen key row. Pointer down is swallowed so the phone keyboard stays open. */
+/** A key on the on-screen key row. Pointer and mouse down are swallowed so focus, and the phone keyboard, stay on the console. */
 function KeyBtn({ label, title, onPress }) {
   return (
-    <button type="button" className="iosc-key" title={title} aria-label={title} onPointerDown={(e) => e.preventDefault()} onClick={onPress}>
+    <button type="button" className="iosc-key" title={title} aria-label={title} onPointerDown={(e) => e.preventDefault()} onMouseDown={(e) => e.preventDefault()} onClick={onPress}>
       {label}
     </button>
   )

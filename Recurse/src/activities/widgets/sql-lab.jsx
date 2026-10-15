@@ -397,7 +397,7 @@ function ExerciseView({ exercise, number, total, item, status, onItem, onSolved,
       </div>
 
       <div className="sqllab-actions">
-        <button type="button" className="btn" onClick={run} disabled={Boolean(busy)}>
+        <button type="button" className="btn sqllab-run" onClick={run} disabled={Boolean(busy)}>
           {busy === 'run' ? <Loader2 size={15} className="spin" /> : <Play size={15} />} Run
           <span className="kbd sqllab-kbd" aria-hidden="true">
             {mod} Enter
@@ -591,7 +591,7 @@ function ExpectedView({ exercise, refs }) {
           )}
         </div>
       ) : (
-        <ResultTable result={ref.mine.result} label="Expected result" />
+        <ResultTable result={ref.mine.result} label="Expected result" compact />
       )}
     </details>
   )
