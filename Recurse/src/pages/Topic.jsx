@@ -20,7 +20,16 @@ import { challengesForTopic, labsForTopic, projectsForTopic } from '../lib/pract
 import { modeOf } from '../lib/approaches'
 import { ACTIVITY_MAP } from '../activities/catalog'
 import ResourceList from '../components/ResourceList'
+import QuestionGate from '../components/QuestionGate'
+import { loadLesson } from '../lib/packs'
 
+
+/** Download a pack as JSON, with its full lesson text (built-in lessons load on demand). */
+async function exportPack(pack) {
+  const lesson = await loadLesson(pack)
+  const { community: _community, questionsPartial: _partial, ...rest } = pack
+  downloadJSON(`${pack.id}.json`, lesson ? { ...rest, lesson } : rest)
+}
 
 function CardBrowser({ pack, topic, now }) {
   const [query, setQuery] = useState('')
@@ -328,7 +337,7 @@ export default function Topic() {
         </section>
       )}
 
-      {tab === 'cards' && <CardBrowser pack={pack} topic={topic} now={now} />}
+      {tab === 'cards' && <QuestionGate><CardBrowser pack={pack} topic={topic} now={now} /></QuestionGate>}
 
       {tab === 'explanations' && (
         <div className="stack">
@@ -346,46 +355,48 @@ export default function Topic() {
       )}
 
       {tab === 'manage' && (
-        <div className="card stack">
-          {pack.community && (
+        <QuestionGate>
+          <div className="card stack">
+            {pack.community && (
+              <div className="setting-row">
+                <div className="copy">
+                  <div className="label">Edit pack</div>
+                  <div className="hint">Change cards, answers and details. Progress on unchanged cards is kept.</div>
+                </div>
+                <div className="control"><Link to={`/create/${pack.id}`} className="btn"><Pencil size={16} /> Edit</Link></div>
+              </div>
+            )}
             <div className="setting-row">
               <div className="copy">
-                <div className="label">Edit pack</div>
-                <div className="hint">Change cards, answers and details. Progress on unchanged cards is kept.</div>
+                <div className="label">Export pack</div>
+                <div className="hint">Download this pack as JSON to share it or keep a copy.</div>
               </div>
-              <div className="control"><Link to={`/create/${pack.id}`} className="btn"><Pencil size={16} /> Edit</Link></div>
+              <div className="control">
+                <button type="button" className="btn" onClick={() => exportPack(pack)}>
+                  <Download size={16} /> Export
+                </button>
+              </div>
             </div>
-          )}
-          <div className="setting-row">
-            <div className="copy">
-              <div className="label">Export pack</div>
-              <div className="hint">Download this pack as JSON to share it or keep a copy.</div>
-            </div>
-            <div className="control">
-              <button type="button" className="btn" onClick={() => downloadJSON(`${pack.id}.json`, Object.fromEntries(Object.entries(pack).filter(([k]) => k !== 'community')))}>
-                <Download size={16} /> Export
-              </button>
-            </div>
-          </div>
-          <div className="setting-row">
-            <div className="copy">
-              <div className="label">Reset progress</div>
-              <div className="hint">Forget every review for this topic and start fresh. Other topics are not affected.</div>
-            </div>
-            <div className="control">
-              <button type="button" className="btn btn-danger" onClick={() => setConfirm('reset')} disabled={!summary.started}><RotateCcw size={16} /> Reset</button>
-            </div>
-          </div>
-          {pack.community && (
             <div className="setting-row">
               <div className="copy">
-                <div className="label">Delete pack</div>
-                <div className="hint">Remove this pack and its progress from your library.</div>
+                <div className="label">Reset progress</div>
+                <div className="hint">Forget every review for this topic and start fresh. Other topics are not affected.</div>
               </div>
-              <div className="control"><button type="button" className="btn btn-danger" onClick={() => setConfirm('delete')}><Trash2 size={16} /> Delete</button></div>
+              <div className="control">
+                <button type="button" className="btn btn-danger" onClick={() => setConfirm('reset')} disabled={!summary.started}><RotateCcw size={16} /> Reset</button>
+              </div>
             </div>
-          )}
-        </div>
+            {pack.community && (
+              <div className="setting-row">
+                <div className="copy">
+                  <div className="label">Delete pack</div>
+                  <div className="hint">Remove this pack and its progress from your library.</div>
+                </div>
+                <div className="control"><button type="button" className="btn btn-danger" onClick={() => setConfirm('delete')}><Trash2 size={16} /> Delete</button></div>
+              </div>
+            )}
+          </div>
+        </QuestionGate>
       )}
 
       {!pack.questions.length && <EmptyState title="No cards yet" />}

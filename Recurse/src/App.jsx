@@ -5,6 +5,7 @@ import { useApp } from './state/context'
 import ErrorBoundary from './components/ErrorBoundary'
 import Layout from './components/Layout'
 import Toasts from './components/Toasts'
+import QuestionGate from './components/QuestionGate'
 import Today from './pages/Today'
 import Library from './pages/Library'
 import Topic from './pages/Topic'
@@ -41,13 +42,13 @@ const Glossary = lazy(() => import('./pages/Glossary'))
 /** Remount the study screen for every navigation so "study again" builds a fresh queue. */
 function StudyRoute() {
   const location = useLocation()
-  return <Study key={location.key} />
+  return <QuestionGate page><Study key={location.key} /></QuestionGate>
 }
 
 /** A fresh quiz for every navigation, like the study screen. */
 function QuizRun() {
   const location = useLocation()
-  return <QuizRunner key={location.key} />
+  return <QuestionGate page><QuizRunner key={location.key} /></QuestionGate>
 }
 
 /** Old v1 URLs. */
@@ -86,8 +87,8 @@ function Routed() {
           <Route path="topic/:topicId" element={<Topic />} />
           <Route path="topic/:topicId/lesson" element={<Lesson />} />
           <Route path="topic/:topicId/explain" element={<Explain />} />
-          <Route path="complete" element={<Complete />} />
-          <Route path="stats" element={<Stats />} />
+          <Route path="complete" element={<QuestionGate page><Complete /></QuestionGate>} />
+          <Route path="stats" element={<QuestionGate page><Stats /></QuestionGate>} />
           <Route path="settings" element={<Settings />} />
           <Route path="create" element={<Create />} />
           <Route path="create/:packId" element={<Create />} />
@@ -100,7 +101,7 @@ function Routed() {
           <Route path="practice/interview/result/:interviewId" element={<MockInterviewResult />} />
           <Route path="practice/activity/:type" element={<ActivityPage />} />
           <Route path="quiz" element={<QuizSetup />} />
-          <Route path="quiz/result/:examId" element={<QuizResult />} />
+          <Route path="quiz/result/:examId" element={<QuestionGate page><QuizResult /></QuestionGate>} />
           <Route path="approach" element={<Approach />} />
           <Route path="approach/quiz" element={<ApproachQuiz />} />
           <Route path="approach/experiment" element={<Experiment />} />

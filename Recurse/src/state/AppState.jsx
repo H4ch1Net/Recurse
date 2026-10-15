@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { AppContext } from './context'
-import { BUILT_IN_IDS, BUILT_IN_PACKS, normalizePack, sortPacks } from '../lib/packs'
+import { BUILT_IN_IDS, BUILT_IN_PACKS, loadQuestionBank, normalizePack, questionsLoaded, sortPacks } from '../lib/packs'
 import { loadAll, migrateStorage, save, importSnapshot, resetStorage } from '../lib/storage'
 import { schedule, Rating } from '../lib/memory'
 import { emptyTopic, pruneOrphans, summarizeTopic, topicOf } from '../lib/progress'
@@ -137,6 +137,25 @@ export function AppProvider({ children }) {
     configureSound({ on: settings.sound, level: settings.soundVolume })
     configureEffects(settings.effects)
   }, [settings.sound, settings.soundVolume, settings.effects])
+
+  // Question text loads right after startup; screens that show questions wait for it.
+  const [questionsReady, setQuestionsReady] = useState(questionsLoaded)
+  const [questionsFailed, setQuestionsFailed] = useState(false)
+  const fetchQuestions = useCallback(() => {
+    setQuestionsFailed(false)
+    loadQuestionBank().then(() => setQuestionsReady(true), () => setQuestionsFailed(true))
+  }, [])
+  useEffect(() => {
+    if (questionsLoaded()) return
+    let alive = true
+    loadQuestionBank().then(
+      () => alive && setQuestionsReady(true),
+      () => alive && setQuestionsFailed(true)
+    )
+    return () => {
+      alive = false
+    }
+  }, [])
 
   const packs = useMemo(() => allPacks(communityPacks), [communityPacks])
   const packMap = useMemo(() => new Map(packs.map((p) => [p.id, p])), [packs])
@@ -473,6 +492,9 @@ export function AppProvider({ children }) {
   }, [reloadFromStorage])
 
   const value = {
+    questionsReady,
+    questionsFailed,
+    retryQuestions: fetchQuestions,
     now,
     packs,
     packMap,

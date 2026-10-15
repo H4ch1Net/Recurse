@@ -147,7 +147,7 @@ export default function OsiLayers({ onComplete }) {
     } else if (!wrong.length) {
       setMessage({ text: `${right.length} right, ${total - nowCorrect} to go.`, tone: 'good' })
     } else {
-      setMessage({ text: `${right.length} right and ${wrong.length} to rethink. The hints below point the way; drag the red cards to try again.`, tone: right.length ? '' : 'bad' })
+      setMessage({ text: `${right.length} right and ${wrong.length} to rethink. The hints below point the way; move the red cards to try again.`, tone: right.length ? '' : 'bad' })
     }
   }
 

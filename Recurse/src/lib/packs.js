@@ -46,6 +46,33 @@ export function sortPacks(packs) {
 export const BUILT_IN_PACKS = sortPacks(PACK_INDEX.map((pack) => normalizePack(pack)))
 export const BUILT_IN_IDS = new Set(BUILT_IN_PACKS.map((p) => p.id))
 
+// Questions in the index carry only id, type, section and difficulty so the app starts fast.
+// Their text, choices, answers and explanations arrive in one chunk right after startup.
+let bankReady = !PACK_INDEX.some((p) => p.questionsPartial)
+let bankPromise = null
+
+/** True once every built-in question has its full text. */
+export const questionsLoaded = () => bankReady
+
+/** Fill in the text of every built-in question, in place, once. */
+export function loadQuestionBank() {
+  if (bankReady) return Promise.resolve()
+  if (!bankPromise) {
+    bankPromise = import('virtual:question-bank').then(({ default: bank }) => {
+      for (const pack of BUILT_IN_PACKS) {
+        const full = new Map((bank[pack.id] || []).map((q) => [q.id, q]))
+        for (const q of pack.questions) Object.assign(q, full.get(q.id))
+        delete pack.questionsPartial
+      }
+      bankReady = true
+    })
+    bankPromise.catch(() => {
+      bankPromise = null
+    })
+  }
+  return bankPromise
+}
+
 const fullPacks = import.meta.glob('../data/packs/*.json', { import: 'default' })
 const lessonCache = new Map()
 

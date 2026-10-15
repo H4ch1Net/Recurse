@@ -123,7 +123,7 @@ function SectionBody({ pack, section, mode, index, topic, onActivity }) {
 
 export default function Lesson() {
   const { topicId } = useParams()
-  const { packs, packMap, callNos, progress, settings, passCheck, markLessonRead, recordActivity, toast, now } = useApp()
+  const { packs, packMap, callNos, progress, settings, passCheck, markLessonRead, recordActivity, toast, now, questionsReady } = useApp()
   const navigate = useNavigate()
   const location = useLocation()
   const pack = packMap.get(topicId)
@@ -159,13 +159,13 @@ export default function Lesson() {
 
   // Pretest questions for test-first mode: a bank question from each section, not its check.
   const pretests = useMemo(() => {
-    if (mode.id !== 'challenger' || !pack) return {}
+    if (mode.id !== 'challenger' || !pack || !questionsReady) return {}
     const out = {}
     pack.questions.forEach((q) => {
       if (q.type === 'mcq' && Number.isInteger(q.section) && !out[q.section]) out[q.section] = { question: q.question, choices: q.choices, answer: q.answer, explanation: q.explanation }
     })
     return out
-  }, [mode.id, pack])
+  }, [mode.id, pack, questionsReady])
 
   useEffect(() => {
     const onScroll = () => {
@@ -300,11 +300,11 @@ export default function Lesson() {
               </Link>
             </header>
 
-            {!warmupDone && recall.warmup.length > 0 && <RecallBurst kind="warmup" entries={recall.warmup} onDone={() => setWarmupDone(true)} />}
+            {questionsReady && !warmupDone && recall.warmup.length > 0 && <RecallBurst kind="warmup" entries={recall.warmup} onDone={() => setWarmupDone(true)} />}
 
             {lesson.sections.map((section, i) => (
               <div key={i}>
-                {recall.pops[i] && <RecallBurst kind="pop" entries={recall.pops[i]} />}
+                {questionsReady && recall.pops[i] && <RecallBurst kind="pop" entries={recall.pops[i]} />}
                 <section id={`section-${i + 1}`} data-index={i} className="lesson-section" aria-labelledby={`section-title-${i}`}>
                   <div className="lesson-section-num">§ {String(i + 1).padStart(2, '0')}</div>
                   <h2 id={`section-title-${i}`} className="lesson-section-title">{section.title}</h2>

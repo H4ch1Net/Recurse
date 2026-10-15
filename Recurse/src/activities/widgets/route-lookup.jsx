@@ -242,7 +242,7 @@ export default function RouteLookup({ onComplete, standalone }) {
     }
     const anim = node.animate(frames, { duration: quick ? 160 : 1100, easing: 'cubic-bezier(0.45, 0, 0.25, 1)', fill: 'forwards' })
     anim.finished.then(() => outcome !== 'drop' && sfx.pop(), () => {})
-  }, [])
+  }, [phone])
 
   const pick = (id) => {
     if (mode === 'explore' || answer) {
