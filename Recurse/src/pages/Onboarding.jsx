@@ -11,21 +11,14 @@ import Illustration from '../components/Illustration'
 import PathIcon from '../components/PathIcon'
 import ModeIcon from '../components/ModeIcon'
 import Tile from '../components/Tile'
+import GoalPicker from '../components/GoalPicker'
+import { goalSubjects } from '../lib/goals'
 
 const PRINCIPLES = [
   { icon: MousePointerClick, title: 'Learn by doing', body: 'Simulators, Cisco console labs and coding challenges right inside the lessons, with instant feedback.' },
   { icon: Brain, title: 'Recall, not reread', body: 'Every lesson, card, pop quiz and exam asks you to pull the answer from memory. That effort is what builds lasting memory.' },
   { icon: CalendarClock, title: 'Back right before you forget', body: 'Cards, labs and challenges are rescheduled from how well you knew them, so old topics stay sharp while you learn new ones.' }
 ]
-
-const PATH_SUBJECTS = {
-  ccna: ['networking', 'security'],
-  'swe-internship': ['programming', 'cs', 'swe', 'tools'],
-  'cs-fundamentals': ['cs', 'math'],
-  'web-development': ['web', 'programming'],
-  'security-foundations': ['security', 'networking'],
-  'math-for-cs': ['math']
-}
 
 export default function Onboarding() {
   const { updateUser, updateSettings, user, settings, packMap, summaries } = useApp()
@@ -42,7 +35,7 @@ export default function Onboarding() {
     updateUser({
       name: name.trim(),
       goals,
-      interests: [...new Set(goals.flatMap((g) => PATH_SUBJECTS[g] || []))],
+      interests: goalSubjects(goals, COLLECTIONS, packMap),
       onboardingComplete: true,
       createdAt: user.createdAt || new Date().toISOString()
     })
@@ -90,20 +83,9 @@ export default function Onboarding() {
 
         {step === 1 && (
           <form className="stack rise" onSubmit={(e) => { e.preventDefault(); setStep(2) }}>
-            <h1 className="page-title">What are you working toward?</h1>
-            <p className="page-sub">Pick one or more paths. Each one orders its topics, labs, challenges and exams toward the goal. You can study anything either way.</p>
-            <div className="goal-grid">
-              {COLLECTIONS.map((c) => (
-                <button key={c.id} type="button" className="goal-option" aria-pressed={goals.includes(c.id)} onClick={() => toggle(c.id)} style={{ '--hue': c.hue }}>
-                  <PathIcon collection={c} size="sm" />
-                  <span className="grow">
-                    <span className="list-title">{c.name}</span>
-                    <span className="xsmall subtle">{c.tagline}</span>
-                  </span>
-                  {goals.includes(c.id) && <Check size={16} className="check" aria-hidden="true" />}
-                </button>
-              ))}
-            </div>
+            <h1 className="page-title">What do you want to achieve?</h1>
+            <p className="page-sub">Pick one or more goals. Each one lays out everything it needs, in order: lessons, labs, challenges, projects and exams. You can change this any time on the Paths page, and study anything either way.</p>
+            <GoalPicker selected={goals} onToggle={toggle} />
             <div className="field">
               <label className="label" htmlFor="ob-name">Your name <span className="subtle">(optional)</span></label>
               <input id="ob-name" className="input" value={name} onChange={(e) => setName(e.target.value)} placeholder="What should we call you?" maxLength={40} />

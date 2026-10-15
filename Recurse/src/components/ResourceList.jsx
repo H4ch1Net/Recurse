@@ -19,7 +19,7 @@ const hostOf = (url) => {
 }
 
 /** Outside resources (books, courses, docs, practice sites), each opening in a new tab. */
-export default function ResourceList({ resources }) {
+export default function ResourceList({ resources, why = false }) {
   if (!resources?.length) return null
   return (
     <ul className="resource-list">
@@ -33,7 +33,7 @@ export default function ResourceList({ resources }) {
               <span className="resource-icon" aria-hidden="true"><Icon size={16} /></span>
               <span className="grow">
                 <span className="resource-title">{r.title} <ExternalLink size={12} aria-label="opens in a new tab" /></span>
-                {r.note && <span className="resource-note">{r.note}</span>}
+                {r.note && <span className="resource-note">{why && <strong>Why: </strong>}{r.note}</span>}
                 <span className="resource-meta">{kind.label}{host ? ` · ${host}` : ''}</span>
               </span>
             </a>

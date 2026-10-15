@@ -321,8 +321,8 @@ export default function Topic() {
       {tab === 'overview' && pack.resources?.length > 0 && (
         <section className="card" style={{ marginTop: 'var(--s-5)' }} aria-labelledby="go-deeper-title">
           <div className="catalog-head" style={{ marginBottom: 'var(--s-3)' }}>
-            <h2 className="section-title" id="go-deeper-title">Go deeper</h2>
-            <span className="eyebrow">Outside Recurse</span>
+            <h2 className="section-title" id="go-deeper-title">Recommended</h2>
+            <span className="eyebrow">Optional extras</span>
           </div>
           <ResourceList resources={pack.resources} />
         </section>

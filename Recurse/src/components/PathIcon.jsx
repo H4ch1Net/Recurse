@@ -1,6 +1,7 @@
-import { Code, Cpu, Globe, Network, Shield, Sigma } from 'lucide-react'
+import { Braces, Briefcase, ChartColumn, CircuitBoard, Cloud, Code, Cpu, Globe, GraduationCap, Network, Router, Shield, Sigma } from 'lucide-react'
 
-const ICONS = { network: Network, code: Code, cpu: Cpu, globe: Globe, shield: Shield, sigma: Sigma }
+// Icon names a path's `icon` field may use.
+const ICONS = { network: Network, code: Code, cpu: Cpu, globe: Globe, shield: Shield, sigma: Sigma, braces: Braces, briefcase: Briefcase, chart: ChartColumn, circuit: CircuitBoard, cloud: Cloud, graduation: GraduationCap, router: Router }
 
 /** A learning path's emblem: its icon on a tile in the path's color. */
 export default function PathIcon({ collection, size = 'md' }) {
