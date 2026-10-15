@@ -11,7 +11,6 @@ export const ACTIVITY_GROUPS = {
   code: 'Coding',
   tools: 'Developer tools',
   network: 'Networking',
-  hardware: 'Hardware and embedded',
   math: 'Math and science'
 }
 
@@ -42,10 +41,6 @@ export const ACTIVITIES = [
   { type: 'regex-tester', group: 'tools', title: 'Regex tester', description: 'Write a pattern and see matches highlighted live, then solve match/do-not-match puzzles.', goal: 'Solve the puzzles.', props: { puzzles: 'array of { prompt, match: [strings], noMatch: [strings] }' } },
   { type: 'http-explorer', group: 'tools', title: 'HTTP explorer', description: 'Build requests to a mock REST API, choosing method, path, headers and body, and read the responses and status codes.', goal: 'Complete the API tasks.', props: { scenario: '"rest-basics" | "auth" | "errors"' } },
   { type: 'json-explorer', group: 'tools', title: 'JSON explorer', description: 'Explore a JSON document as a tree, read paths and types, and answer questions about it.', goal: 'Answer the path questions.', props: { json: 'optional JSON text' } },
-
-  // ---- Hardware and embedded ----
-  { type: 'mcu-registers', group: 'hardware', title: 'Microcontroller registers', description: 'Drive pins on a simulated microcontroller by writing registers: set, clear, toggle and read bits with masks, then try PWM duty cycles and timer prescalers.', goal: 'Complete the register tasks using masks, not whole-register writes.', props: { scenario: '"gpio" | "bitmasks" | "pwm" | "timer" | "explore"' } },
-  { type: 'serial-protocols', group: 'hardware', title: 'Serial protocols', description: 'Build and decode UART, SPI and I2C transfers bit by bit on a timing diagram: start bits, clock edges, addresses and acknowledgments.', goal: 'Decode each transfer and build one yourself.', props: { protocol: '"uart" | "spi" | "i2c" | "all"' } },
 
   // ---- Networking ----
   { type: 'ios-console', group: 'network', title: 'Cisco IOS console', description: 'A simulated Cisco router or switch CLI with modes, abbreviations, show commands and live grading.', goal: 'Pass every lab check.', props: { lab: 'console lab id, or omit for a free sandbox', device: '"router" | "switch" for the sandbox' } },

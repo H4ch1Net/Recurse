@@ -4,6 +4,7 @@ import { feedbackCorrect, feedbackWrong } from '../../lib/juice'
 import { sfx } from '../../lib/sfx'
 import { normalizeMac } from '../lib/net'
 import { useTokens } from '../lib/net-anim'
+import { useNarrow } from '../lib/use-width'
 import { Device, SpeedControl, Token } from '../lib/net-svg'
 import { LONG_COST, PRESETS, PRIORITIES, SHORT_COST, SPEEDS, electStp, gradePrediction, linkCost, listPorts, portKey, presetTopology, showSpanningTree } from '../lib/stp-election'
 import './stp-election.css'
@@ -13,13 +14,19 @@ const POSITIONS = {
   triangle: { SW1: { x: 210, y: 64 }, SW2: { x: 340, y: 228 }, SW3: { x: 80, y: 228 } },
   parallel: { SW1: { x: 210, y: 64 }, SW2: { x: 340, y: 228 }, SW3: { x: 80, y: 228 } }
 }
+// Phone layouts (viewBox 0 0 300 390): taller and narrower, so labels can be big enough to read.
+const PHONE_POSITIONS = {
+  square: { SW1: { x: 60, y: 100 }, SW2: { x: 240, y: 100 }, SW3: { x: 60, y: 300 }, SW4: { x: 240, y: 300 } },
+  triangle: { SW1: { x: 150, y: 100 }, SW2: { x: 242, y: 300 }, SW3: { x: 58, y: 300 } },
+  parallel: { SW1: { x: 150, y: 100 }, SW2: { x: 242, y: 300 }, SW3: { x: 58, y: 300 } }
+}
 const SPEED_LABEL = { '10M': '10 Mb/s', '100M': '100 Mb/s', '1G': '1 Gb/s', '10G': '10 Gb/s' }
 const ROLE_LETTER = { root: 'R', designated: 'D', blocked: 'B' }
 const ROLE_FILL = { root: 'var(--accent)', designated: 'var(--good)', blocked: 'var(--bad)' }
 const ROLE_NAME = { root: 'Root port', designated: 'Designated port', blocked: 'Blocked (alternate)' }
 
 /** Endpoints of each link, nudged apart when two links join the same pair of switches. */
-function linkGeometry(topology, pos) {
+function linkGeometry(topology, pos, inset = 42) {
   const seen = {}
   const counts = {}
   for (const l of topology.links) {
@@ -40,7 +47,6 @@ function linkGeometry(topology, pos) {
     const ny = ux * offset
     const A = { x: a.x + nx, y: a.y + ny }
     const B = { x: b.x + nx, y: b.y + ny }
-    const inset = 42
     out[l.id] = {
       A,
       B,
@@ -53,8 +59,8 @@ function linkGeometry(topology, pos) {
   return out
 }
 
-const pillText = (l) => `${l.speed} cost ${linkCost(l)}`
-const pillWidth = (l) => pillText(l).length * 5.8 + 14
+const pillText = (l, phone) => (phone ? `${l.speed} · ${linkCost(l)}` : `${l.speed} cost ${linkCost(l)}`)
+const pillWidth = (l, phone) => (phone ? pillText(l, true).length * 7.4 + 14 : pillText(l).length * 5.8 + 14)
 
 const randomMac = () =>
   normalizeMac(
@@ -78,10 +84,11 @@ export default function StpElection({ onComplete }) {
   const [wins, setWins] = useState(0)
   const [showFor, setShowFor] = useState(null)
   const stageRef = useRef(null)
+  const phone = useNarrow(stageRef)
   const { tokens, play, stop, busy } = useTokens()
 
-  const pos = POSITIONS[preset]
-  const geo = linkGeometry(topology, pos)
+  const pos = (phone ? PHONE_POSITIONS : POSITIONS)[preset]
+  const geo = linkGeometry(topology, pos, phone ? 36 : 42)
   const ports = listPorts(topology)
   const roles = phase === 'done' && result ? result.roles : {}
 
@@ -219,7 +226,7 @@ export default function StpElection({ onComplete }) {
       </div>
 
       <div className="w-stage grid-bg stp-stage" ref={stageRef}>
-        <svg viewBox="0 0 420 300" className="stp-svg" role="img" aria-label={`Spanning tree topology with ${topology.switches.length} switches. ${phase === 'done' && result ? `Root bridge ${result.root}. Blocked: ${result.blocked.join(', ') || 'none'}.` : 'Not converged yet.'}`}>
+        <svg viewBox={phone ? '0 0 300 390' : '0 0 420 300'} className={`stp-svg${phone ? ' phone' : ''}`} role="img" aria-label={`Spanning tree topology with ${topology.switches.length} switches. ${phase === 'done' && result ? `Root bridge ${result.root}. Blocked: ${result.blocked.join(', ') || 'none'}.` : 'Not converged yet.'}`}>
           {topology.links.map((l) => {
             const g = geo[l.id]
             const blockedHere = phase === 'done' && result?.links[l.id].blocked
@@ -227,8 +234,9 @@ export default function StpElection({ onComplete }) {
               <g key={l.id}>
                 <line x1={g.A.x} y1={g.A.y} x2={g.B.x} y2={g.B.y} className={`stp-link${blockedHere ? ' blocked' : ''}${l.speed === '10G' ? ' fast' : ''}`} />
                 <g className="stp-cost" transform={`translate(${g.mid.x} ${g.mid.y})`} onClick={() => !busy && cycleSpeed(l.id)}>
-                  <rect x={-pillWidth(l) / 2} y="-11" width={pillWidth(l)} height="22" rx="11" />
-                  <text y="4" textAnchor="middle">{pillText(l)}</text>
+                  {phone && <rect className="stp-cost-hit" x={-pillWidth(l, true) / 2 - 4} y="-20" width={pillWidth(l, true) + 8} height="40" />}
+                  <rect x={-pillWidth(l, phone) / 2} y={phone ? -13 : -11} width={pillWidth(l, phone)} height={phone ? 26 : 22} rx={phone ? 13 : 11} />
+                  <text y={phone ? 4.5 : 4} textAnchor="middle">{pillText(l, phone)}</text>
                 </g>
               </g>
             )
@@ -244,11 +252,11 @@ export default function StpElection({ onComplete }) {
               const n = geo[l.id].normal
               return (
                 <g key={key} className={`stp-port${role ? ' revealed' : ''}`}>
-                  <circle cx={p.x} cy={p.y} r="9.5" style={{ fill: role ? ROLE_FILL[role] : 'var(--card)', stroke: role ? ROLE_FILL[role] : predicted ? ROLE_FILL[predicted] : 'var(--rule-strong)', strokeWidth: 1.8, strokeDasharray: predicted ? '3 2' : undefined }} />
-                  <text x={p.x} y={p.y + 3.5} textAnchor="middle" className="stp-port-letter" style={{ fill: role ? 'var(--card)' : predicted ? ROLE_FILL[predicted] : 'var(--ink-3)' }}>
+                  <circle cx={p.x} cy={p.y} r={phone ? 11 : 9.5} style={{ fill: role ? ROLE_FILL[role] : 'var(--card)', stroke: role ? ROLE_FILL[role] : predicted ? ROLE_FILL[predicted] : 'var(--rule-strong)', strokeWidth: 1.8, strokeDasharray: predicted ? '3 2' : undefined }} />
+                  <text x={p.x} y={p.y + (phone ? 4.5 : 3.5)} textAnchor="middle" className="stp-port-letter" style={{ fill: role ? 'var(--card)' : predicted ? ROLE_FILL[predicted] : 'var(--ink-3)' }}>
                     {role ? ROLE_LETTER[role] : predicted ? `${ROLE_LETTER[predicted]}?` : ''}
                   </text>
-                  <text x={p.x + n.x * 18} y={p.y + n.y * 18 + 3} textAnchor="middle" className="stp-port-name">{end.port}</text>
+                  <text x={p.x + n.x * (phone ? 26 : 18)} y={p.y + n.y * (phone ? 22 : 18) + 4} textAnchor="middle" className="stp-port-name">{end.port}</text>
                 </g>
               )
             })
@@ -257,6 +265,21 @@ export default function StpElection({ onComplete }) {
             const p = pos[s.id]
             const top = p.y < 150
             const isRoot = phase === 'done' && result?.root === s.id
+            if (phone) {
+              // Name, priority and MAC on separate lines; the crown is left out because "(root)" says it.
+              const lines = [s.id + (isRoot ? ' (root)' : ''), String(s.priority), s.mac]
+              const cost = phase === 'done' && result && !isRoot ? `root cost ${result.rootCost[s.id]}` : null
+              const y0 = top ? p.y - 49 : p.y + 36
+              return (
+                <g key={s.id}>
+                  <Device kind="switch" x={p.x} y={p.y} w={52} h={28} state={isRoot ? 'good' : predRoot === s.id ? 'active' : 'idle'} />
+                  <text x={p.x} y={y0} textAnchor="middle" className="stp-name">{lines[0]}</text>
+                  <text x={p.x} y={y0 + 14} textAnchor="middle" className="stp-bid">{lines[1]}</text>
+                  <text x={p.x} y={y0 + 28} textAnchor="middle" className="stp-bid">{lines[2]}</text>
+                  {cost && <text x={p.x} y={top ? y0 - 15 : y0 + 43} textAnchor="middle" className="stp-cost-to-root">{cost}</text>}
+                </g>
+              )
+            }
             return (
               <g key={s.id}>
                 <Device kind="switch" x={p.x} y={p.y} w={58} h={30} state={isRoot ? 'good' : predRoot === s.id ? 'active' : 'idle'} />

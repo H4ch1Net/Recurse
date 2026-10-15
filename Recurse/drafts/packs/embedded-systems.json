@@ -1,0 +1,1129 @@
+{
+  "id": "embedded-systems",
+  "name": "Embedded Systems and Microcontrollers",
+  "version": "1.0.0",
+  "author": "Recurse",
+  "subject": "cs",
+  "level": "intermediate",
+  "description": "How microcontrollers work: memory-mapped registers, bit masks, volatile, GPIO, interrupts, timers, PWM, ADC and the build-flash loop.",
+  "icon": "MCU",
+  "language": "cpp",
+  "prereqs": [
+    "cs-computer-architecture",
+    "swe-bit-manipulation",
+    "c-memory"
+  ],
+  "tags": [
+    "embedded",
+    "microcontrollers",
+    "firmware",
+    "registers",
+    "interrupts",
+    "gpio",
+    "timers",
+    "c"
+  ],
+  "resources": [
+    {
+      "title": "Wokwi simulator",
+      "url": "https://wokwi.com/",
+      "kind": "tool",
+      "note": "Free browser simulator for Arduino, ESP32 and Pi Pico boards, so you can practice without hardware."
+    },
+    {
+      "title": "Embedded Systems: Shape The World",
+      "url": "https://users.ece.utexas.edu/~valvano/Volume1/E-Book/",
+      "kind": "book",
+      "note": "Free university e-book by Jonathan Valvano that teaches microcontrollers from registers up."
+    },
+    {
+      "title": "Modern Embedded Systems Programming course",
+      "url": "https://www.youtube.com/playlist?list=PLPW8O6W-1chwyTzI3BHwBLbGQoPFxPAPM",
+      "kind": "video",
+      "note": "Miro Samek's free video course on Cortex-M from blinky through interrupts and RTOS."
+    },
+    {
+      "title": "Interrupt blog: From zero to main()",
+      "url": "https://interrupt.memfault.com/blog/zero-to-main-1",
+      "kind": "article",
+      "note": "What the startup code and linker do before main runs, explained by firmware engineers."
+    },
+    {
+      "title": "Arm Cortex-M4 Devices Generic User Guide",
+      "url": "https://developer.arm.com/documentation/dui0553/latest/",
+      "kind": "docs",
+      "note": "The official reference for the memory map, exceptions and NVIC."
+    }
+  ],
+  "lesson": {
+    "estimatedMinutes": 40,
+    "intro": "A microcontroller is a whole small computer on one chip, and firmware is the program that brings it to life: reading buttons and sensors, driving LEDs and motors, and running for years without anyone watching. This lesson builds the mental model every embedded engineer uses, from registers and bit masks up to interrupts, timers and the build and debug loop.",
+    "objectives": [
+      "Locate a peripheral register from a base address and offset and access it from C",
+      "Set, clear, toggle and test register bits and multi-bit fields with masks",
+      "Explain when volatile and critical sections are needed and what each does not do",
+      "Configure GPIO, write a safe interrupt service routine and calculate timer, PWM and ADC values",
+      "Describe the build, flash and debug loop from source code to a running chip"
+    ],
+    "sections": [
+      {
+        "title": "Inside a microcontroller",
+        "body": "Press a key fob and a car unlocks. Inside the fob is a chip smaller than a fingernail that sleeps for weeks on a coin cell, wakes within microseconds when a button closes, sends a radio packet and goes back to sleep. That chip is a **microcontroller** (MCU), and the program stored inside it is **firmware**.\n\nA microcontroller puts a whole small computer on one chip:\n\n- a **CPU core**, often an Arm Cortex-M, an 8-bit AVR or a RISC-V core, clocked anywhere from a few MHz to a few hundred\n- **flash** memory that holds the firmware and survives power loss, from tens of KB to a few MB\n- **SRAM** for variables and the stack, from a couple of KB to a few hundred KB\n- **peripherals**: hardware blocks that drive pins (GPIO), count time (timers), talk on serial buses and measure voltages (ADC)\n- a **clock** source and reset circuitry\n\nA laptop or a Raspberry Pi 4 uses a **microprocessor** (MPU) instead: a fast CPU with RAM and storage on separate chips, which needs an operating system such as Linux before it does anything useful. Real numbers make the difference concrete. The ATmega328P on an Arduino Uno has 32 KB of flash and 2 KB of SRAM at 16 MHz. An STM32F411 has a Cortex-M4 at 100 MHz with 512 KB of flash and 128 KB of SRAM. The RP2040 on a Raspberry Pi Pico has two Cortex-M0+ cores and 264 KB of SRAM, and keeps its firmware in a separate flash chip.\n\nEmbedded work is shaped by constraints desktop code rarely meets: kilobytes instead of gigabytes, deadlines in microseconds, batteries that must last years, parts that cost cents in volumes of millions, and no screen to show an error. Firmware starts at reset, sets up the hardware, then runs one loop forever. `main` never returns, because there is nothing to return to.",
+        "code": "void clock_init(void);\nvoid gpio_init(void);\nvoid read_inputs(void);\nvoid update_outputs(void);\n\nint main(void) {\n    clock_init();          /* runs once after reset */\n    gpio_init();\n    for (;;) {             /* the superloop: runs until power is removed */\n        read_inputs();\n        update_outputs();\n    }\n}",
+        "language": "cpp",
+        "tip": "Desktop habits that do not transfer: calling malloc after startup, printf everywhere, and expecting a crash to print a stack trace.",
+        "pitfall": "Treating an MCU like a small PC. Most have no memory protection, so a bad pointer quietly overwrites another variable instead of crashing, and on many Cortex-M parts reading through a null pointer returns whatever sits at address 0. Bugs show up far from their cause, so check pointers and array bounds before you trust them.",
+        "check": {
+          "question": "The battery in a device is replaced. Where must the firmware live so it is still there afterward?",
+          "choices": [
+            "SRAM",
+            "Flash memory",
+            "The CPU registers",
+            "The stack"
+          ],
+          "answer": 1,
+          "explanation": "Flash is non-volatile: it keeps its contents without power. SRAM, registers and the stack (which lives in SRAM) all lose their contents when power is removed."
+        }
+      },
+      {
+        "title": "The memory map and memory-mapped registers",
+        "body": "On a microcontroller, turning on an LED is a memory write. Every resource has an address in one 32-bit address space, the **memory map**, and the chip's reference manual lists where everything lives. On Arm Cortex-M chips Arm fixes the big regions:\n\n- `0x0000_0000` and up: code, usually flash (STM32 parts place flash at `0x0800_0000` and mirror it at address 0)\n- `0x2000_0000` and up: SRAM for variables, the stack and the heap\n- `0x4000_0000` and up: peripheral registers for GPIO, timers, UARTs and the ADC\n- `0xE000_0000` and up: the core's own system registers, such as the interrupt controller and SysTick\n\nA **register** here is not a CPU register but a 32-bit location inside a peripheral. Writing it configures or drives the hardware; reading it reports status. This is **memory-mapped I/O**: the same load and store instructions that touch variables touch hardware. The manual gives each peripheral a **base address** and each register an **offset**. On an STM32F4, GPIOA starts at `0x4002_0000` and its output data register (ODR) sits at offset `0x14`, so writing `0x4002_0014` changes the pins.\n\nIn C you turn that number into a pointer to a `volatile uint32_t` and dereference it. Vendor headers (the CMSIS files) wrap the same idea in structs, so you write `GPIOA->ODR` instead of raw addresses, but the compiler generates the same store.\n\nYour own program is laid out by the linker into **sections**: code and `const` data (`.text`, `.rodata`) stay in flash; initialized globals (`.data`) are copied from flash into RAM at startup; zero-initialized globals (`.bss`) are cleared to zero; the stack and heap take the rest of RAM.\n\nMulti-byte values have a byte order. Cortex-M parts are almost always **little-endian**: the least significant byte sits at the lowest address. That matters the moment you send a `uint32_t` over a wire or read a register map byte by byte.",
+        "code": "#include <stdint.h>\n\n#define GPIOA_BASE  0x40020000u\n#define GPIOA_ODR   (*(volatile uint32_t *)(GPIOA_BASE + 0x14u))\n\nvoid led_on(void) {\n    GPIOA_ODR |= (1u << 5);     /* PA5 drives the user LED on many Nucleo boards */\n}",
+        "language": "cpp",
+        "pitfall": "Adding the offset after the cast. `(volatile uint32_t *)GPIOA_BASE + 0x14` moves 0x14 elements of 4 bytes, landing at base + 0x50. Add the byte offset to the integer address first, then cast, as in the code above.",
+        "check": {
+          "question": "GPIOA starts at 0x40020000 and its input data register is at offset 0x10. Which address do you read to see the pin levels?",
+          "choices": [
+            "0x40020010",
+            "0x40020100",
+            "0x40020040",
+            "0x00000010"
+          ],
+          "answer": 0,
+          "explanation": "Register address = base + offset = 0x40020000 + 0x10 = 0x40020010. 0x40020040 is what you get if you add 0x10 to a uint32_t pointer, which scales the offset by 4."
+        }
+      },
+      {
+        "title": "Bit masks on registers",
+        "body": "A 32-bit GPIO output register controls 16 or 32 pins at once, one bit each. Firmware almost never wants to change all of them: it wants pin 5 on and everything else left alone. That is what **bit masks** are for, and they are the most used idiom in embedded C:\n\n- set bit n: `REG |= (1u << n);`\n- clear bit n: `REG &= ~(1u << n);`\n- toggle bit n: `REG ^= (1u << n);`\n- test bit n: `if (REG & (1u << n))` or `(REG >> n) & 1u`\n\nMany settings are **fields** wider than one bit. On an STM32 the GPIO mode register gives each pin two bits: `00` input, `01` output, `10` alternate function, `11` analog. Pin 5 owns bits 11 and 10. To set it to output, first clear both bits with a mask, then OR in the new value: `MODER &= ~(3u << 10); MODER |= (1u << 10);`. Skipping the clear step leaves old bits behind, so a pin that was `10` would become `11` instead of `01`.\n\nEach `|=` is really three steps: read the register, modify the value, write it back. This **read-modify-write** is not atomic. If an interrupt fires between the read and the write and changes another bit of the same register, the write puts the old value back and the interrupt's change is lost. Chip designers solve this with dedicated set and reset registers. On STM32, writing 1 to bit n of `BSRR` sets pin n and writing 1 to bit n + 16 resets it; zeros are ignored. One plain write, no read, nothing to race.\n\nUse `1u`, not `1`. `1 << 31` shifts into the sign bit of a signed int, which is undefined behavior in C, and mixing signed values into mask arithmetic invites surprises.",
+        "code": "#include <stdint.h>\n#include <stdio.h>\n\n/* Write `value` into a `width`-bit field at bit `pos`, keeping every other bit. */\nstatic uint32_t field_set(uint32_t reg, unsigned pos, unsigned width, uint32_t value) {\n    uint32_t mask = ((1u << width) - 1u) << pos;\n    return (reg & ~mask) | ((value << pos) & mask);\n}\n\nint main(void) {\n    uint32_t moder = 0x00000800u;              /* pin 5 currently 10: alternate function */\n    moder = field_set(moder, 5 * 2, 2, 1u);    /* make pin 5 an output (01) */\n    printf(\"0x%08X\\n\", (unsigned)moder);      /* prints 0x00000400 */\n\n    uint32_t odr = 0x0Fu;\n    odr ^= (1u << 1);                          /* toggle bit 1 */\n    printf(\"0x%02X\\n\", (unsigned)odr);        /* prints 0x0D */\n    return 0;\n}",
+        "language": "cpp",
+        "activity": {
+          "type": "mcu-registers",
+          "title": "Masks on a live register",
+          "prompt": "Set, clear and toggle single bits, then write a two-bit field, using masks so the other bits survive. Before each write, say out loud which bits will change.",
+          "props": {
+            "scenario": "bitmasks"
+          }
+        },
+        "pitfall": "Writing `GPIOA_ODR = (1u << 5);` when you meant `|=`. Plain assignment sets bit 5 and clears the other 31, switching off every other output on the port. Use |=, &= ~ and ^= for single bits, or the set and reset register.",
+        "check": {
+          "question": "Which line clears bit 3 of REG and leaves every other bit unchanged?",
+          "choices": [
+            "REG |= ~(1u << 3);",
+            "REG &= (1u << 3);",
+            "REG &= ~(1u << 3);",
+            "REG ^= (1u << 3);"
+          ],
+          "answer": 2,
+          "explanation": "The mask ~(1u << 3) has every bit set except bit 3, so AND keeps all bits but forces bit 3 to 0. REG &= (1u << 3) clears every bit except bit 3, and ^= flips bit 3 instead of clearing it."
+        }
+      },
+      {
+        "title": "volatile: telling the compiler the hardware is watching",
+        "body": "Here is a bug that only appears when you turn on optimization. An interrupt sets `data_ready` when a byte arrives, and `main` waits for it:\n\n`while (!data_ready) { }`\n\nWith `-O0` it works. With `-O2` it hangs forever. The optimizer sees that nothing inside the loop changes `data_ready`, so it reads the variable once and turns the loop into a jump to itself. GCC really does produce exactly that. The compiler is following the rules: it only reasons about the code it can see, and it cannot see an interrupt or a hardware register changing memory behind its back.\n\nThe keyword **volatile** tells it that the value can change, or that the access itself has an effect, outside the visible code. Every read and write of a volatile object must actually happen, as many times as written and in program order relative to other volatile accesses. Use it for:\n\n- memory-mapped peripheral registers, where reading a status register may even clear a flag\n- global variables shared between an interrupt handler and the main loop\n- variables written by DMA or by another core, together with the barriers that hardware needs\n\nvolatile is not a lock. `count++` on a volatile variable is still a read, an add and a write, and an interrupt can land between them. It does not make multi-byte access indivisible either: on an 8-bit AVR, reading a 16-bit counter takes two instructions, so an interrupt can update it halfway through and you read half old, half new (a **torn read**). The fix for both is a short **critical section**: disable interrupts, copy or update the value, re-enable them.\n\nDo not sprinkle volatile everywhere just in case. It blocks optimizations, and it hides the real design question, which is who else touches this data and when.",
+        "code": "#include <stdint.h>\n\nstatic volatile uint8_t data_ready;     /* written by the UART interrupt */\nstatic volatile uint16_t ticks;         /* 16-bit counter, updated by a timer ISR */\n\nvoid disable_irq(void);\nvoid enable_irq(void);\n\nvoid wait_for_data(void) {\n    while (!data_ready) { }             /* volatile forces a fresh read every pass */\n    data_ready = 0;\n}\n\nuint16_t read_ticks(void) {\n    disable_irq();                      /* no torn read on an 8-bit CPU */\n    uint16_t copy = ticks;\n    enable_irq();\n    return copy;\n}",
+        "language": "cpp",
+        "pitfall": "Believing volatile makes shared updates safe. It only stops the compiler from removing or merging accesses. Increments, multi-byte copies and check-then-act sequences shared with an interrupt still need a critical section or a hardware atomic operation.",
+        "check": {
+          "question": "A loop polls a global flag set by an interrupt. It works in a debug build and hangs in a release build. What is the most likely fix?",
+          "choices": [
+            "Add a short delay inside the loop",
+            "Declare the flag volatile",
+            "Make the flag a 32-bit integer",
+            "Move the flag into the stack"
+          ],
+          "answer": 1,
+          "explanation": "In the release build the optimizer reads the flag once and spins forever. volatile forces a real read on every pass. A delay might hide the bug by accident, but it does not fix it."
+        }
+      },
+      {
+        "title": "GPIO: pins, pulls and drive modes",
+        "body": "General-purpose input/output (**GPIO**) pins are where firmware meets the physical world: LEDs, buttons, relays, chip-select lines. Each pin is configured through a few registers, and the reference manual's GPIO chapter tells you which. On an STM32 they are the mode register (input, output, alternate function, analog), output type, speed, pull-up/pull-down, input data (IDR) and output data (ODR), plus the set and reset register.\n\nConfiguration choices that matter:\n\n- **Input or output.** An output drives the pin; an input only senses it.\n- **Push-pull or open-drain** output. Push-pull actively drives both high and low. **Open-drain** can only pull low; when it lets go, an external or internal pull-up resistor brings the line high. Open-drain lets several devices share one wire safely, which is why I2C uses it.\n- **Pull-up, pull-down or none** on inputs. An input connected to nothing **floats**: it picks up noise and reads random values. A pull-up resistor holds it at 1 until something pulls it to ground.\n- **Alternate function.** The pin is handed to a peripheral, such as a UART's TX line or a timer's PWM output, instead of being driven by ODR.\n\nA typical button wires the pin to ground through the switch, with a pull-up enabled. Released, the pin reads 1. Pressed, it reads 0. That is called **active low**, and it is the most common wiring because ground is easy to reach and the internal pull-up costs nothing.\n\nOne step trips up everyone once. To save power, most peripherals start with their clock switched off. Until you enable the GPIO port's clock (in the RCC on STM32), writes to its registers are ignored and reads return 0. The code looks right, the pin never moves.",
+        "code": "#include <stdint.h>\n\n#define REG(addr)     (*(volatile uint32_t *)(addr))\n#define RCC_AHB1ENR   REG(0x40023830u)\n#define GPIOA_MODER   REG(0x40020000u)\n#define GPIOA_PUPDR   REG(0x4002000Cu)\n#define GPIOA_IDR     REG(0x40020010u)\n#define GPIOA_BSRR    REG(0x40020018u)\n\nvoid board_init(void) {\n    RCC_AHB1ENR |= (1u << 0);              /* 1. clock for GPIOA on */\n    GPIOA_MODER &= ~(3u << (5 * 2));       /* 2. PA5: clear both mode bits */\n    GPIOA_MODER |=  (1u << (5 * 2));       /*    then 01 = output */\n    GPIOA_MODER &= ~(3u << (0 * 2));       /* 3. PA0: 00 = input */\n    GPIOA_PUPDR &= ~(3u << (0 * 2));\n    GPIOA_PUPDR |=  (1u << (0 * 2));       /*    01 = pull-up */\n}\n\nvoid mirror_button(void) {\n    if ((GPIOA_IDR & (1u << 0)) == 0) {    /* active low: 0 means pressed */\n        GPIOA_BSRR = (1u << 5);            /* LED on */\n    } else {\n        GPIOA_BSRR = (1u << (5 + 16));     /* LED off */\n    }\n}",
+        "language": "cpp",
+        "activity": {
+          "type": "mcu-registers",
+          "title": "Drive the pins",
+          "prompt": "Configure a pin as an output and light the LED, then read a button input. Notice which register each step touches and what happens if a step is skipped.",
+          "props": {
+            "scenario": "gpio"
+          }
+        },
+        "pitfall": "Forgetting to enable the peripheral clock. The register writes compile, run and do nothing. When a peripheral seems dead, check its clock-enable bit first.",
+        "check": {
+          "question": "A button connects a pin to ground, and the pin has its internal pull-up enabled. What does the pin read while the button is not pressed?",
+          "choices": [
+            "0, because the button is open",
+            "A random value, because the pin floats",
+            "1, because the pull-up holds it high",
+            "It depends on the last value written to ODR"
+          ],
+          "answer": 2,
+          "explanation": "With the switch open, the only path is the pull-up to the supply, so the pin reads 1. Pressing the button connects it to ground and it reads 0. It would float only if there were no pull resistor at all."
+        }
+      },
+      {
+        "title": "Interrupts and interrupt service routines",
+        "body": "A UART at 115,200 baud delivers a byte roughly every 87 microseconds. Firmware can **poll**, checking the \"byte received\" flag over and over, but then it can do little else, and a slow step in the loop means a missed byte. The alternative is an **interrupt**: the peripheral raises a signal, the CPU finishes its current instruction, saves its state and jumps to a function written for that event, the **interrupt service routine** (ISR), then resumes where it left off.\n\nOn Cortex-M the pieces are:\n\n- the **vector table**, an array of handler addresses at the start of flash, one entry per interrupt source\n- the **NVIC** (nested vectored interrupt controller), which enables each interrupt and gives it a priority. A lower number means a more urgent interrupt, and a more urgent one can preempt a less urgent ISR that is already running\n- the hardware itself, which pushes eight registers onto the stack automatically (more when the floating-point unit is in use), so an ISR is an ordinary C function with a name that matches the vector table, such as `EXTI0_IRQHandler`\n\nRules every embedded interviewer expects you to know:\n\n- Keep ISRs short. Record the event, grab the data, clear the cause, get out.\n- Clear the interrupt flag, or the interrupt fires again as soon as the ISR returns and the main loop never runs.\n- Never block: no delays, no waiting on another interrupt, no `printf`, no `malloc`.\n- Share data with the main loop through volatile variables, and protect anything bigger than one aligned word with a critical section.\n- Defer the real work. The ISR sets a flag or pushes into a buffer; the main loop (or an RTOS task) does the processing.\n\nInterrupts are not free. Each one costs entry and exit time (on a Cortex-M4 the hardware needs 12 cycles just to reach the first instruction of the handler), and a long ISR delays every lower-priority interrupt behind it.",
+        "code": "#include <stdint.h>\n\n#define EXTI_PR (*(volatile uint32_t *)0x40013C14u)   /* STM32F4 pending register */\n\nstatic volatile uint32_t button_presses;   /* written only by the ISR */\n\nvoid EXTI0_IRQHandler(void) {               /* name must match the vector table */\n    if (EXTI_PR & (1u << 0)) {\n        EXTI_PR = (1u << 0);                /* write 1 to clear the pending flag */\n        button_presses++;                   /* record it and leave */\n    }\n}\n\nvoid toggle_led(void);\n\nvoid main_loop(void) {\n    uint32_t seen = 0;\n    for (;;) {\n        uint32_t now = button_presses;      /* one aligned 32-bit read: atomic on Cortex-M */\n        if (now != seen) {\n            seen = now;\n            toggle_led();                   /* the real work happens here, not in the ISR */\n        }\n    }\n}",
+        "language": "cpp",
+        "pitfall": "Leaving the interrupt flag set. The ISR returns, the still-pending interrupt fires again at once, and the device appears frozen even though the CPU is busy. Many flags are cleared by writing 1 to them, not 0, so read the register description.",
+        "check": {
+          "question": "Which of these belongs inside an ISR for a \"byte received\" interrupt?",
+          "choices": [
+            "Parse the full command line and reply over the UART",
+            "Copy the byte into a buffer and clear the flag",
+            "Wait 10 ms in case more bytes arrive",
+            "printf the byte for debugging"
+          ],
+          "answer": 1,
+          "explanation": "Grab the data and clear the cause, then return. Parsing and replying belong in the main loop, waiting blocks every lower-priority interrupt, and printf is slow and often not safe to call from an ISR."
+        }
+      },
+      {
+        "title": "Timers: counting time in hardware",
+        "body": "Blinking an LED with a delay loop works on your desk and fails in a product. A loop like `for (i = 0; i < 1000000; i++) { }` takes a different time at every clock speed and optimization level (the optimizer may delete it entirely), burns the CPU, and blocks everything else while it runs. Real firmware measures time with **hardware timers**.\n\nA timer is a counter clocked from the system clock through a **prescaler**. It counts from 0 up to the **auto-reload** value (ARR), wraps back to 0 and sets an update flag, which can raise an interrupt. Both settings are stored as \"minus one\" values, so:\n\n`update rate = timer clock / ((PSC + 1) x (ARR + 1))`\n\nWith a 16 MHz clock, PSC = 15999 divides it down to 1 kHz (one count per millisecond), and ARR = 999 makes the timer overflow once per second. Change ARR to 499 and it overflows twice a second.\n\nThe same hardware does more than periodic interrupts:\n\n- **input capture** latches the counter value when a pin changes, which measures pulse widths and frequencies precisely\n- **output compare** toggles a pin when the counter reaches a value, with no software delay\n- **PWM**, covered next, is output compare done continuously\n\nCortex-M cores also include **SysTick**, a 24-bit down-counter built into the core, usually set to interrupt every millisecond. Its ISR increments a tick counter, and code compares tick values instead of waiting. A 32-bit millisecond counter wraps after about 49.7 days, which is exactly the kind of bug that appears in the field and never on the bench. Compare elapsed time by subtracting with unsigned arithmetic, `(uint32_t)(now - start) >= interval`, which stays correct across the wrap, instead of `now >= start + interval`, which does not.",
+        "code": "#include <stdint.h>\n#include <stdio.h>\n\n/* Elapsed-time check that survives the 32-bit tick counter wrapping to 0. */\nstatic int interval_passed(uint32_t now, uint32_t start, uint32_t interval) {\n    return (uint32_t)(now - start) >= interval;\n}\n\nint main(void) {\n    uint32_t start = 0xFFFFFF00u;    /* 256 ticks before the counter wraps */\n    uint32_t now   = 0x00000010u;    /* 272 ticks later, after the wrap */\n\n    printf(\"%d\\n\", interval_passed(now, start, 200));   /* 1: correct */\n    printf(\"%d\\n\", now >= start + 200);                  /* 0: the naive check is wrong */\n    return 0;\n}",
+        "language": "cpp",
+        "activity": {
+          "type": "mcu-registers",
+          "title": "Set the prescaler",
+          "prompt": "Pick prescaler and auto-reload values to hit the target rates. Work the formula on paper first, then check it against the simulated timer.",
+          "props": {
+            "scenario": "timer"
+          }
+        },
+        "pitfall": "Forgetting the plus one. To divide a clock by 16,000 you write 15999 into the prescaler, and an ARR of 1000 gives 1001 counts per period. Off-by-one timer settings make clocks drift by about 0.1 percent, which adds up to more than a minute a day.",
+        "check": {
+          "question": "A timer runs from an 84 MHz clock with PSC = 83 and ARR = 999. How often does it overflow?",
+          "choices": [
+            "Every 1 ms (1 kHz)",
+            "Every 1 s (1 Hz)",
+            "Every 1 us (1 MHz)",
+            "Every 10 ms (100 Hz)"
+          ],
+          "answer": 0,
+          "explanation": "84,000,000 / (83 + 1) = 1,000,000 counts per second. Dividing by (999 + 1) gives 1,000 overflows per second, one every millisecond."
+        }
+      },
+      {
+        "title": "PWM out, ADC in",
+        "body": "Digital pins only know high and low, yet firmware dims LEDs, sets motor speeds and reads temperatures. Two peripherals bridge the gap.\n\n**PWM** (pulse-width modulation) switches a pin on and off fast at a fixed frequency and varies how long it stays on. In PWM mode a timer drives the pin high while the counter is below the compare value (CCR) and low for the rest of the period, so:\n\n`duty cycle = CCR / (ARR + 1)`\n\nWith ARR = 999, CCR = 250 gives 25 percent. A 3.3 V pin at 25 percent duty delivers an average of about 0.8 V. An LED switched at 1 kHz looks steadily dimmer to the eye, a motor behind a transistor sees a lower average voltage, and a hobby servo reads the pulse width directly: a 50 Hz signal (20 ms period) with a pulse of about 1 to 2 ms, 1.5 ms for center. The trade-off is resolution against frequency. A larger ARR gives finer duty steps but, for the same clock, a lower maximum PWM frequency.\n\nAn **ADC** (analog-to-digital converter) does the reverse: it samples a voltage and returns a number. An n-bit ADC splits the range from 0 to the reference voltage Vref into 2^n steps. A 12-bit ADC with Vref = 3.3 V has 4096 codes, about 0.8 mV each, and\n\n`voltage = code x Vref / 4095`\n\nso a reading of 2048 means about 1.65 V. Practical points:\n\n- inputs must stay between 0 and Vref. Scale bigger voltages down with a voltage divider\n- readings are noisy. Average several samples, or filter them\n- sample faster than twice the highest frequency in the signal, or fast changes alias into slow, wrong ones\n- each conversion takes time, so long scans are usually triggered by a timer and moved into memory by DMA",
+        "code": "#include <stdint.h>\n#include <stdio.h>\n\n/* 12-bit ADC code to millivolts with integer math (no floating point needed). */\nstatic uint32_t adc_to_mv(uint32_t code, uint32_t vref_mv) {\n    return (code * vref_mv + 2047u) / 4095u;      /* +2047 rounds to nearest */\n}\n\nint main(void) {\n    uint32_t arr = 999, ccr = 250;\n    printf(\"duty %u%%\\n\", (unsigned)(ccr * 100u / (arr + 1u)));   /* duty 25% */\n    printf(\"%u mV\\n\", (unsigned)adc_to_mv(2048, 3300));          /* 1651 mV */\n    printf(\"%u mV\\n\", (unsigned)adc_to_mv(4095, 3300));          /* 3300 mV */\n    return 0;\n}",
+        "language": "cpp",
+        "activity": {
+          "type": "mcu-registers",
+          "title": "Dial in a duty cycle",
+          "prompt": "Change the compare value and watch the waveform and average voltage follow. Then change ARR and notice what happens to the frequency and to the size of each duty step.",
+          "props": {
+            "scenario": "pwm"
+          }
+        },
+        "pitfall": "Wiring a sensor that can exceed Vref straight into an ADC pin. Readings clip at the maximum code, and a voltage above the supply can damage the pin. Scale it with a divider and check the absolute maximum ratings in the datasheet.",
+        "check": {
+          "question": "A PWM timer has ARR = 999. Which CCR value gives a 25 percent duty cycle?",
+          "choices": [
+            "25",
+            "250",
+            "750",
+            "999"
+          ],
+          "answer": 1,
+          "explanation": "Duty = CCR / (ARR + 1) = 250 / 1000 = 25 percent. 750 would be 75 percent, and 25 would be 2.5 percent."
+        }
+      },
+      {
+        "title": "Watchdogs, low power and the superloop",
+        "body": "Devices in the field must recover on their own. A **watchdog timer** is a hardware counter that resets the whole chip unless firmware refreshes it (\"kicks\" or \"feeds\" it) before it runs out. The independent watchdog on STM32 runs from its own low-speed oscillator, so it keeps counting even if the main clock fails. Refresh it from one place that proves the system is healthy, typically the end of the main loop after every job has run. Never refresh it from a timer interrupt: interrupts keep firing while the main loop is stuck, so the watchdog never bites. At boot, read the reset-cause register and log whether the last reset came from the watchdog, so field failures leave evidence.\n\nBattery devices spend most of their life asleep. The cheapest saving is the **WFI** (wait for interrupt) instruction at the bottom of the main loop: the core stops until the next interrupt, while timers and peripherals keep running. Deeper stop and standby modes switch off clocks and even RAM, and wake on a pin or the real-time clock. The arithmetic is simple and decides the design: battery life is roughly capacity divided by average current. A 220 mAh coin cell at an average of 20 microamps lasts about 11,000 hours, well over a year. At 2 mA it lasts under five days.\n\nSo far the firmware has been a **superloop**: one `for (;;)` that checks flags set by interrupts and runs each job in turn. It is small, easy to reason about and has no hidden scheduling. Its weakness is that every job waits for every other job, so one slow step (writing to an SD card, say) delays a time-critical one. When that starts to hurt, the next step is a **real-time operating system** (RTOS): independent tasks with priorities, where an urgent task preempts a slow one. An RTOS costs RAM (a stack per task) and brings new bugs, such as deadlocks and priority inversion, so choose it for real timing needs, not by habit.",
+        "code": "#include <stdint.h>\n\n#define EVT_BUTTON  (1u << 0)\n#define EVT_TICK    (1u << 1)\n\nextern volatile uint32_t events;   /* bits set by ISRs */\nvoid disable_irq(void);\nvoid enable_irq(void);\nvoid handle_button(void);\nvoid update_display(void);\nvoid watchdog_refresh(void);\nvoid wait_for_interrupt(void);     /* wraps the WFI instruction */\n\nvoid superloop(void) {\n    for (;;) {\n        disable_irq();\n        uint32_t pending = events;  /* take and clear the flags atomically */\n        events = 0;\n        enable_irq();\n\n        if (pending & EVT_BUTTON) handle_button();\n        if (pending & EVT_TICK)   update_display();\n\n        watchdog_refresh();         /* reached only while the loop keeps cycling */\n        wait_for_interrupt();       /* sleep until the next event */\n    }\n}",
+        "language": "cpp",
+        "pitfall": "Refreshing the watchdog from a periodic timer ISR. The ISR keeps running even when the main loop is deadlocked, so the watchdog never resets a hung device. Refresh it where only a healthy main loop can reach.",
+        "check": {
+          "question": "Why is the main loop a better place to refresh the watchdog than a 1 ms timer interrupt?",
+          "choices": [
+            "Timer interrupts cannot write to watchdog registers",
+            "The main loop runs more often than the timer",
+            "A hung main loop stops the refresh, so the watchdog resets the chip",
+            "Refreshing from an ISR resets the chip immediately"
+          ],
+          "answer": 2,
+          "explanation": "The watchdog should detect that the application has stopped making progress. A timer ISR keeps firing even when the main loop is stuck, so refreshing there hides exactly the failure the watchdog exists to catch."
+        }
+      },
+      {
+        "title": "Build, flash, debug",
+        "body": "Firmware is built on a laptop for a different CPU, so it needs a **cross-compiler**: for Cortex-M that is usually `arm-none-eabi-gcc` (\"none\" because there is no OS). The pipeline is the familiar one plus two embedded pieces:\n\n- compile each `.c` file to an object file, with flags for the exact core, such as `-mcpu=cortex-m4 -mthumb`\n- link with a **linker script** that says where flash and RAM are and how big, and which sections go where\n- the result is an **ELF** file holding code, data, symbols and debug information\n- `objcopy` turns it into a raw `.bin` or an Intel `.hex` file for flashing tools that do not read ELF\n- `arm-none-eabi-size` reports `text`, `data` and `bss`: flash use is text plus data, static RAM use is data plus bss\n\nBefore `main` runs, the **startup code** does what an OS would: the vector table supplies the initial stack pointer and the reset handler's address, and the reset handler copies `.data` from flash to RAM, zeroes `.bss`, sets up the clock and calls `main`.\n\nTo get the image onto the chip and watch it run you use a **debug probe** (ST-LINK, J-Link, a CMSIS-DAP probe or a second Pico running debug probe firmware) connected over **SWD**, Arm's two-wire debug port (SWDIO and SWCLK plus ground), or the older four-wire **JTAG**. Software such as OpenOCD talks to the probe and exposes a GDB server, and GDB connects to it: `load` flashes the ELF, `break` and `continue` work as on a desktop, and you can halt the core and read any register or peripheral. Boards like the Arduino Uno and the Pico also accept firmware through a bootloader over USB, which is convenient but gives you no debugger.\n\nSimulators close the gap when you have no hardware. Wokwi runs Arduino, ESP32 and Pico firmware in the browser, with LEDs, buttons, sensors and a virtual logic analyzer.",
+        "code": "# compile and link for a Cortex-M4\narm-none-eabi-gcc -mcpu=cortex-m4 -mthumb -O2 -g -c main.c -o main.o\narm-none-eabi-gcc -mcpu=cortex-m4 -mthumb -T stm32f411.ld -nostartfiles main.o startup.o -o app.elf\narm-none-eabi-size app.elf          # text, data and bss in bytes\narm-none-eabi-objcopy -O binary app.elf app.bin\n\n# terminal 1: GDB server for an ST-LINK probe\nopenocd -f interface/stlink.cfg -f target/stm32f4x.cfg\n\n# terminal 2: connect, flash and run to main\narm-none-eabi-gdb app.elf -ex \"target extended-remote :3333\" -ex \"load\" -ex \"break main\" -ex \"continue\"",
+        "language": "bash",
+        "pitfall": "Flashing a .bin file without its address. A raw binary has no addresses inside, so the tool must be told where it goes (0x08000000 for STM32 flash). An ELF or .hex file carries its addresses, which is why debuggers prefer them.",
+        "check": {
+          "question": "arm-none-eabi-size reports text = 14000, data = 300, bss = 2700. How much RAM do the program's static variables use?",
+          "choices": [
+            "14300 bytes",
+            "2700 bytes",
+            "17000 bytes",
+            "3000 bytes"
+          ],
+          "answer": 3,
+          "explanation": "Static RAM is data (initialized globals, copied into RAM at startup) plus bss (zeroed globals): 300 + 2700 = 3000 bytes. Flash use is text plus data, because the initial values of .data are stored in flash too."
+        }
+      }
+    ],
+    "keyTerms": [
+      {
+        "term": "microcontroller (MCU)",
+        "definition": "A single chip containing a CPU core, flash, SRAM and peripherals such as GPIO, timers and ADCs, used to run dedicated firmware."
+      },
+      {
+        "term": "firmware",
+        "definition": "The program stored in a device's non-volatile memory that runs directly on its hardware, usually without a general-purpose operating system."
+      },
+      {
+        "term": "memory-mapped I/O",
+        "definition": "Controlling hardware by reading and writing peripheral registers that appear at fixed addresses in the processor's address space."
+      },
+      {
+        "term": "peripheral register",
+        "definition": "A memory-mapped location inside a hardware block, written to configure or drive it and read to get its status or data."
+      },
+      {
+        "term": "bit mask",
+        "definition": "A value with chosen bits set, combined with AND, OR or XOR to test, clear, set or toggle only those bits of a register."
+      },
+      {
+        "term": "read-modify-write",
+        "definition": "Updating part of a register by reading it, changing some bits and writing it back. Not atomic, so an interrupt in between can lose an update."
+      },
+      {
+        "term": "volatile",
+        "definition": "A C qualifier telling the compiler every access to an object must really happen, because hardware or an interrupt may change or observe it. It does not make operations atomic."
+      },
+      {
+        "term": "critical section",
+        "definition": "A short stretch of code run with interrupts (or task switches) disabled so a shared variable is updated or copied without interference."
+      },
+      {
+        "term": "GPIO",
+        "definition": "General-purpose input/output: a pin that firmware configures as a digital input or output, or hands to a peripheral as an alternate function."
+      },
+      {
+        "term": "open-drain output",
+        "definition": "An output that can only pull a line low and otherwise lets it float, relying on a pull-up resistor. Lets several devices share one wire."
+      },
+      {
+        "term": "interrupt service routine (ISR)",
+        "definition": "A function the CPU runs automatically when a hardware event fires. It should be short, clear the event's flag and defer heavy work."
+      },
+      {
+        "term": "NVIC",
+        "definition": "The nested vectored interrupt controller in Arm Cortex-M cores, which enables interrupts, assigns priorities and lets urgent ones preempt others."
+      },
+      {
+        "term": "vector table",
+        "definition": "An array at the start of flash holding the initial stack pointer and the address of the handler for each exception and interrupt."
+      },
+      {
+        "term": "prescaler",
+        "definition": "A divider in front of a timer's counter that slows its input clock. The register usually holds the divide value minus one."
+      },
+      {
+        "term": "PWM duty cycle",
+        "definition": "The fraction of each PWM period a signal is high, set by compare value / (auto-reload + 1). It controls average power to LEDs and motors."
+      },
+      {
+        "term": "ADC resolution",
+        "definition": "The number of bits an analog-to-digital converter returns. An n-bit ADC divides its reference voltage range into 2^n codes."
+      },
+      {
+        "term": "watchdog timer",
+        "definition": "A hardware timer that resets the chip unless firmware refreshes it in time, so a hung device recovers by itself."
+      },
+      {
+        "term": "SWD",
+        "definition": "Serial Wire Debug: Arm's two-wire debug interface (SWDIO and SWCLK) used to flash, halt and inspect a running microcontroller."
+      },
+      {
+        "term": "linker script",
+        "definition": "A file that tells the linker where flash and RAM are and which sections of the program go into each."
+      }
+    ],
+    "summary": [
+      "An MCU is a CPU, flash, SRAM and peripherals on one chip; firmware sets up the hardware and loops forever.",
+      "Peripherals are controlled through memory-mapped registers at base + offset addresses.",
+      "Use masks to change only the bits you mean to, and set/reset registers to avoid read-modify-write races.",
+      "volatile stops the compiler from caching hardware and ISR-shared values, but it is not a lock.",
+      "ISRs record the event, clear the flag and return; the main loop does the work.",
+      "Timers measure time in hardware: rate = clock / ((PSC + 1)(ARR + 1)), duty = CCR / (ARR + 1)."
+    ],
+    "feynmanPrompt": "Explain to a web developer what really happens, from register writes to interrupts, when a microcontroller turns on an LED each time a button is pressed."
+  },
+  "questions": [
+    {
+      "id": "embedded-systems-q01",
+      "type": "mcq",
+      "difficulty": "easy",
+      "question": "Which description fits a microcontroller rather than a microprocessor?",
+      "choices": [
+        "A fast CPU that needs external RAM, storage and an OS such as Linux",
+        "A CPU core, flash, SRAM and peripherals such as timers and ADCs on one chip",
+        "A graphics chip that runs thousands of small cores in parallel",
+        "A chip that only stores data, with no CPU inside"
+      ],
+      "answer": 1,
+      "explanation": "An MCU integrates the core, program memory, data memory and peripherals on one chip and usually runs bare-metal firmware or a small RTOS. A microprocessor such as the one in a laptop relies on separate RAM and storage chips and a full operating system.",
+      "concept": "MCU versus MPU",
+      "section": 0
+    },
+    {
+      "id": "embedded-systems-q02",
+      "type": "match",
+      "difficulty": "easy",
+      "question": "Match each part of a microcontroller with its job.",
+      "pairs": [
+        {
+          "left": "Flash",
+          "right": "Holds the firmware across power loss"
+        },
+        {
+          "left": "SRAM",
+          "right": "Holds variables and the stack while running"
+        },
+        {
+          "left": "Peripherals",
+          "right": "Hardware blocks for pins, timers, buses and the ADC"
+        },
+        {
+          "left": "Clock",
+          "right": "Paces the core and the peripherals"
+        }
+      ],
+      "explanation": "Flash is non-volatile program storage, SRAM is fast working memory that is lost at power-off, peripherals do I/O work in hardware, and the clock sets the pace for everything.",
+      "concept": "MCU anatomy",
+      "section": 0
+    },
+    {
+      "id": "embedded-systems-q03",
+      "type": "mcq",
+      "difficulty": "easy",
+      "question": "Why does the main function of typical bare-metal firmware end in an infinite loop?",
+      "choices": [
+        "The compiler requires it for every C program",
+        "There is no operating system to return to, so the program must keep running",
+        "Infinite loops use less power than straight-line code",
+        "It stops the watchdog from resetting the chip"
+      ],
+      "answer": 1,
+      "explanation": "On a desktop, main returns to the OS. On bare metal nothing is waiting for the return value, so firmware sets up the hardware and then loops forever handling events. The loop has nothing to do with the watchdog by itself.",
+      "concept": "superloop",
+      "section": 0
+    },
+    {
+      "id": "embedded-systems-q04",
+      "type": "recall",
+      "difficulty": "medium",
+      "question": "Name four constraints that make embedded programming different from writing desktop applications.",
+      "answer": "Tiny memory (KB of RAM and flash), real-time deadlines, power limits (often a battery), low unit cost, no screen or OS to report errors, and the need to run unattended for years.",
+      "explanation": "Every design decision in firmware, from avoiding malloc to sleeping between events, follows from these constraints.",
+      "concept": "embedded constraints",
+      "section": 0
+    },
+    {
+      "id": "embedded-systems-q05",
+      "type": "typed",
+      "difficulty": "easy",
+      "question": "A peripheral starts at base address 0x40020000. Its output data register is at offset 0x14. What is the register's address, in hex?",
+      "answer": "0x40020014",
+      "accept": [
+        "40020014",
+        "0x4002_0014"
+      ],
+      "explanation": "Register address = base + byte offset. 0x40020000 + 0x14 = 0x40020014.",
+      "concept": "base plus offset",
+      "section": 1
+    },
+    {
+      "id": "embedded-systems-q06",
+      "type": "debug",
+      "difficulty": "medium",
+      "question": "This macro should point at the register at byte offset 0x14, but writes go to the wrong place. Why?",
+      "code": "#define GPIOA_BASE 0x40020000u\n#define GPIOA_ODR  (*((volatile uint32_t *)GPIOA_BASE + 0x14))",
+      "language": "cpp",
+      "choices": [
+        "The cast happens first, so + 0x14 moves 0x14 words (0x50 bytes) instead of 0x14 bytes",
+        "volatile cannot be used inside a macro",
+        "The base address needs a UL suffix, not u",
+        "Dereferencing a cast pointer is undefined behavior in C"
+      ],
+      "answer": 0,
+      "explanation": "Pointer arithmetic scales by the size of the pointed-to type. After the cast, adding 0x14 to a uint32_t pointer moves 0x14 x 4 = 0x50 bytes. Add the offset to the integer first, then cast: (volatile uint32_t *)(GPIOA_BASE + 0x14).",
+      "concept": "pointer arithmetic on registers",
+      "section": 1
+    },
+    {
+      "id": "embedded-systems-q07",
+      "type": "mcq",
+      "difficulty": "medium",
+      "question": "Where does `const uint8_t sine_table[256] = { ... };` usually end up on a Cortex-M microcontroller?",
+      "choices": [
+        "In SRAM, copied there at startup",
+        "In flash, in the read-only data section",
+        "On the stack of main",
+        "In a CPU register"
+      ],
+      "answer": 1,
+      "explanation": "The linker script places .rodata, where const globals go, in flash alongside the code. Without const, the table would be .data: stored in flash and copied into scarce RAM at startup, costing 256 bytes of RAM for no reason.",
+      "concept": "const in flash",
+      "section": 1
+    },
+    {
+      "id": "embedded-systems-q08",
+      "type": "mcq",
+      "difficulty": "medium",
+      "question": "A global is declared `int count = 5;`. What does the startup code do for it before main runs?",
+      "choices": [
+        "Nothing: the value is computed the first time count is read",
+        "Zeroes it, because all globals start at 0",
+        "Copies its initial value 5 from flash into its RAM location",
+        "Asks the debugger to write 5 into RAM"
+      ],
+      "answer": 2,
+      "explanation": "Initialized globals live in .data. Their starting values are stored in flash, and the reset handler copies them into RAM. Zeroing is what happens to .bss, the globals with no initializer or an initializer of 0.",
+      "concept": ".data and .bss",
+      "section": 1
+    },
+    {
+      "id": "embedded-systems-q09",
+      "type": "typed",
+      "difficulty": "medium",
+      "question": "A little-endian Cortex-M stores the 32-bit value 0x12345678 at address 0x20000000. Which byte value is at address 0x20000000? Answer in hex.",
+      "answer": "0x78",
+      "accept": [
+        "78"
+      ],
+      "explanation": "Little-endian stores the least significant byte at the lowest address: 78 56 34 12. A big-endian machine would put 0x12 first.",
+      "concept": "endianness",
+      "section": 1
+    },
+    {
+      "id": "embedded-systems-q10",
+      "type": "code-fill",
+      "difficulty": "easy",
+      "question": "Complete the line so it sets bit 7 of REG without changing any other bit.",
+      "code": "REG _____ (1u << 7);",
+      "language": "cpp",
+      "choices": [
+        "= ",
+        "|=",
+        "&=",
+        "^="
+      ],
+      "answer": 1,
+      "explanation": "OR with a mask sets the masked bit and leaves the rest. Plain = would clear every other bit, &= would clear every bit except 7, and ^= would flip bit 7 rather than set it.",
+      "concept": "set a bit",
+      "section": 2
+    },
+    {
+      "id": "embedded-systems-q11",
+      "type": "typed",
+      "difficulty": "easy",
+      "question": "REG holds 0x0F. What does it hold after `REG ^= (1u << 1);`? Answer in hex.",
+      "answer": "0x0D",
+      "accept": [
+        "0xD",
+        "D",
+        "0D",
+        "13"
+      ],
+      "explanation": "0x0F is 1111 in binary. XOR with 0010 flips bit 1, giving 1101, which is 0x0D.",
+      "concept": "toggle a bit",
+      "section": 2
+    },
+    {
+      "id": "embedded-systems-q12",
+      "type": "debug",
+      "difficulty": "easy",
+      "question": "Pressing the button should turn on the LED on pin 5 only. Instead every other LED on the port goes out. What is wrong?",
+      "code": "if (button_pressed()) {\n    GPIOB_ODR = (1u << 5);\n}",
+      "language": "cpp",
+      "choices": [
+        "1u should be 1",
+        "Plain assignment clears every other bit; it should be |=",
+        "The shift should be 5 << 1u",
+        "ODR cannot be written, only read"
+      ],
+      "answer": 1,
+      "explanation": "Assigning the mask writes 1 to bit 5 and 0 to all 31 other bits. Use GPIOB_ODR |= (1u << 5), or the set and reset register, to change only pin 5.",
+      "concept": "assignment versus OR",
+      "section": 2
+    },
+    {
+      "id": "embedded-systems-q13",
+      "type": "mcq",
+      "difficulty": "medium",
+      "question": "An STM32 mode register gives each pin a 2-bit field. Pin 5 is currently 10 (alternate function). Which sequence makes it 01 (output) correctly?",
+      "choices": [
+        "MODER |= (1u << 10);",
+        "MODER &= ~(3u << 10); MODER |= (1u << 10);",
+        "MODER = (1u << 10);",
+        "MODER ^= (1u << 10);"
+      ],
+      "answer": 1,
+      "explanation": "Pin 5 owns bits 11 and 10. Clearing the whole field first and then ORing in 01 gives exactly 01. ORing alone turns 10 into 11 (analog), and plain assignment reconfigures every other pin on the port.",
+      "concept": "multi-bit fields",
+      "section": 2
+    },
+    {
+      "id": "embedded-systems-q14",
+      "type": "mcq",
+      "difficulty": "hard",
+      "question": "Why do many microcontrollers provide a separate bit set/reset register (such as BSRR) in addition to the output data register?",
+      "choices": [
+        "It drives the pins faster than ODR can",
+        "It lets one write change chosen pins without a read-modify-write that an interrupt could corrupt",
+        "It is the only way to read the pin levels",
+        "It stores the pin state across a reset"
+      ],
+      "answer": 1,
+      "explanation": "ODR |= mask is read, modify, write. If an ISR changes another pin in between, the final write restores the stale value. Writing 1s to a set/reset register changes only the chosen pins in a single write, so there is nothing to interrupt.",
+      "concept": "atomic pin writes",
+      "section": 2
+    },
+    {
+      "id": "embedded-systems-q15",
+      "type": "typed",
+      "difficulty": "medium",
+      "question": "What is the value of `(0xB6 >> 4) & 0x3`? Answer as a decimal number.",
+      "answer": "3",
+      "accept": [
+        "0x3"
+      ],
+      "explanation": "0xB6 is 1011 0110. Shifting right by 4 leaves 1011 (0xB). AND with 0x3 (binary 11) keeps the low two bits, 11, which is 3. This is how you extract a 2-bit field at bit 4.",
+      "concept": "extracting a field",
+      "section": 2
+    },
+    {
+      "id": "embedded-systems-q16",
+      "type": "multi",
+      "difficulty": "medium",
+      "question": "Which of these should be declared volatile? Select all that apply.",
+      "choices": [
+        "A pointer to a memory-mapped status register",
+        "A global flag set in an ISR and polled in main",
+        "A local loop counter inside one function",
+        "A const lookup table in flash",
+        "A global counter that only main reads and writes"
+      ],
+      "answers": [
+        0,
+        1
+      ],
+      "explanation": "volatile is for values that change, or whose access matters, outside the code the compiler can see: hardware registers and data shared with interrupts. Locals, constants and variables used only by one flow of control gain nothing and lose optimizations.",
+      "concept": "when to use volatile",
+      "section": 3
+    },
+    {
+      "id": "embedded-systems-q17",
+      "type": "mcq",
+      "difficulty": "hard",
+      "question": "`volatile uint32_t count;` is incremented with `count++` both in main and in a timer ISR. Is this safe?",
+      "choices": [
+        "Yes, volatile makes the increment atomic",
+        "Yes, because 32-bit accesses are atomic on Cortex-M",
+        "No: count++ is a read, an add and a write, and the ISR can run between them, losing an increment",
+        "No: volatile variables cannot be written from an ISR"
+      ],
+      "answer": 2,
+      "explanation": "A single aligned 32-bit load or store is atomic, but an increment is three steps. If the ISR increments between main's read and write, main writes back a stale value. Wrap main's increment in a critical section, or use an atomic instruction.",
+      "concept": "volatile is not atomic",
+      "section": 3
+    },
+    {
+      "id": "embedded-systems-q18",
+      "type": "debug",
+      "difficulty": "medium",
+      "question": "This works with -O0 and hangs forever with -O2. Which change fixes it?",
+      "code": "static uint8_t tx_done;          /* set to 1 by the UART ISR */\n\nvoid send_and_wait(uint8_t b) {\n    tx_done = 0;\n    uart_start(b);\n    while (!tx_done) { }\n}",
+      "language": "cpp",
+      "choices": [
+        "Make tx_done an int",
+        "Declare tx_done as static volatile uint8_t",
+        "Add tx_done = 1 inside the loop",
+        "Move the while loop into the ISR"
+      ],
+      "answer": 1,
+      "explanation": "Without volatile the optimizer may read tx_done once, see 0, and loop forever without re-reading memory. volatile forces a fresh load each pass. A wider type changes nothing about the optimization.",
+      "concept": "missing volatile",
+      "section": 3
+    },
+    {
+      "id": "embedded-systems-q19",
+      "type": "mcq",
+      "difficulty": "hard",
+      "question": "On an 8-bit AVR, main reads a 16-bit counter that a timer ISR updates. Occasionally main sees a value that is wildly wrong for one read. Why?",
+      "choices": [
+        "The counter overflowed",
+        "The 16-bit read takes two instructions, and the ISR updated it between the two bytes",
+        "volatile was used, which disables caching",
+        "The ISR ran at the wrong priority"
+      ],
+      "answer": 1,
+      "explanation": "An 8-bit CPU reads the low and high bytes separately. If the counter goes from 0x00FF to 0x0100 between the two loads, main can assemble 0x01FF or 0x0000. Copy it with interrupts disabled for those few instructions.",
+      "concept": "torn reads",
+      "section": 3
+    },
+    {
+      "id": "embedded-systems-q20",
+      "type": "order",
+      "difficulty": "medium",
+      "question": "Put the steps in order to make pin PA5 an output and drive it high on an STM32.",
+      "items": [
+        "Enable the GPIOA clock in the RCC",
+        "Clear PA5's two mode bits",
+        "Set PA5's mode bits to 01 (output)",
+        "Write 1 to bit 5 of BSRR (or set bit 5 of ODR)"
+      ],
+      "explanation": "Until the port's clock is on, its registers ignore writes. Clearing the mode field before setting it avoids leftover bits. Only then does writing the output have a visible effect.",
+      "concept": "GPIO bring-up",
+      "section": 4
+    },
+    {
+      "id": "embedded-systems-q21",
+      "type": "mcq",
+      "difficulty": "medium",
+      "question": "Several chips share one interrupt line that any of them may pull low. Which output configuration should each chip use?",
+      "choices": [
+        "Push-pull, so each can drive the line high and low",
+        "Open-drain with a pull-up resistor on the line",
+        "Analog mode",
+        "Input with no pull resistor"
+      ],
+      "answer": 1,
+      "explanation": "Open-drain outputs can only pull low, so any chip can assert the line and none can fight another by driving high. The pull-up returns the line to high when nobody pulls. Two push-pull outputs driving opposite levels would short the supply through the pins.",
+      "concept": "open-drain",
+      "section": 4
+    },
+    {
+      "id": "embedded-systems-q22",
+      "type": "typed",
+      "difficulty": "easy",
+      "question": "A button connects a pin to ground and the pin has its internal pull-up enabled. What value does the pin read while the button is held down?",
+      "answer": "0",
+      "accept": [
+        "low",
+        "zero"
+      ],
+      "explanation": "Pressing the button connects the pin straight to ground, which overpowers the weak pull-up, so it reads 0. That is active-low wiring.",
+      "concept": "active low",
+      "section": 4
+    },
+    {
+      "id": "embedded-systems-q23",
+      "type": "debug",
+      "difficulty": "medium",
+      "question": "This code compiles and runs, but the LED never lights. What is the most likely cause?",
+      "code": "void led_init(void) {\n    GPIOC_MODER &= ~(3u << (13 * 2));\n    GPIOC_MODER |=  (1u << (13 * 2));\n}\n\nvoid led_on(void) {\n    GPIOC_BSRR = (1u << 13);\n}",
+      "language": "cpp",
+      "choices": [
+        "BSRR needs the bit at 13 + 16 to set the pin",
+        "The GPIOC clock was never enabled, so the writes are ignored",
+        "The mode field for pin 13 is at bit 13, not 26",
+        "MODER can only be written once after reset"
+      ],
+      "answer": 1,
+      "explanation": "Peripheral clocks start disabled to save power, and a port with no clock ignores register writes. Enable GPIOC in the RCC before configuring it. Bit 13 of BSRR sets the pin; bit 29 would reset it.",
+      "concept": "peripheral clock enable",
+      "section": 4
+    },
+    {
+      "id": "embedded-systems-q24",
+      "type": "match",
+      "difficulty": "medium",
+      "question": "Match each 2-bit STM32 GPIO mode value with its meaning.",
+      "pairs": [
+        {
+          "left": "00",
+          "right": "Input"
+        },
+        {
+          "left": "01",
+          "right": "General-purpose output"
+        },
+        {
+          "left": "10",
+          "right": "Alternate function, such as UART TX"
+        },
+        {
+          "left": "11",
+          "right": "Analog, such as an ADC input"
+        }
+      ],
+      "explanation": "These four modes appear in almost every STM32 GPIO setup. Alternate function hands the pin to a peripheral; analog disconnects the digital input buffer so the ADC sees the raw voltage.",
+      "concept": "GPIO modes",
+      "section": 4
+    },
+    {
+      "id": "embedded-systems-q25",
+      "type": "mcq",
+      "difficulty": "medium",
+      "question": "After enabling a pin-change interrupt, the device seems to freeze: the main loop stops running, but a breakpoint in the ISR is hit again and again. What is the most likely bug?",
+      "choices": [
+        "The ISR does not clear the interrupt's pending flag",
+        "The ISR is too short",
+        "The main loop variable is volatile",
+        "The interrupt priority is too low"
+      ],
+      "answer": 0,
+      "explanation": "If the pending flag stays set, the interrupt fires again as soon as the ISR returns, starving the main loop. Clear the flag in the ISR, and check whether this peripheral clears it by writing 1.",
+      "concept": "clearing interrupt flags",
+      "section": 5
+    },
+    {
+      "id": "embedded-systems-q26",
+      "type": "multi",
+      "difficulty": "medium",
+      "question": "Which of these belong inside an interrupt service routine? Select all that apply.",
+      "choices": [
+        "Clear the interrupt's pending flag",
+        "Copy the received byte into a buffer",
+        "printf a debug message",
+        "Wait 50 ms for a button to stop bouncing",
+        "Set a flag for the main loop to act on"
+      ],
+      "answers": [
+        0,
+        1,
+        4
+      ],
+      "explanation": "An ISR should record the event, grab urgent data, clear the cause and return. Printing is slow and often not reentrant, and waiting inside an ISR blocks every lower-priority interrupt and the main loop.",
+      "concept": "ISR rules",
+      "section": 5
+    },
+    {
+      "id": "embedded-systems-q27",
+      "type": "order",
+      "difficulty": "hard",
+      "question": "Put the events of a Cortex-M interrupt in order.",
+      "items": [
+        "A peripheral sets its pending flag",
+        "The NVIC sees it is enabled and more urgent than the current code",
+        "The CPU pushes registers onto the stack",
+        "The CPU loads the handler address from the vector table",
+        "The ISR runs and clears the flag",
+        "Returning restores the registers and the interrupted code resumes"
+      ],
+      "explanation": "The hardware does the saving and the table lookup, which is why an ISR can be a plain C function. Returning unstacks the same registers, so the interrupted code never knows it was paused.",
+      "concept": "interrupt sequence",
+      "section": 5
+    },
+    {
+      "id": "embedded-systems-q28",
+      "type": "typed",
+      "difficulty": "medium",
+      "question": "On a Cortex-M NVIC, one interrupt has priority 1 and another has priority 5. Which priority number is more urgent?",
+      "answer": "1",
+      "accept": [
+        "priority 1"
+      ],
+      "explanation": "On Cortex-M a lower priority number means higher urgency. A priority 1 interrupt can preempt a running priority 5 ISR.",
+      "concept": "NVIC priority numbers",
+      "section": 5
+    },
+    {
+      "id": "embedded-systems-q29",
+      "type": "recall",
+      "difficulty": "medium",
+      "question": "When is polling a better choice than interrupts?",
+      "answer": "When events are frequent and predictable or the CPU has nothing else to do (a tight loop waiting for an SPI transfer that lasts a few microseconds), or when interrupt overhead would cost more than the check. Interrupts win for rare, unpredictable events and for sleeping between them.",
+      "explanation": "Interrupt entry and exit cost cycles, so very short waits are often cheaper to poll. Rare events are cheaper with interrupts because the CPU can sleep or do other work.",
+      "concept": "polling versus interrupts",
+      "section": 5
+    },
+    {
+      "id": "embedded-systems-q30",
+      "type": "typed",
+      "difficulty": "medium",
+      "question": "A timer runs from a 16 MHz clock with PSC = 15999 and ARR = 499. How many times per second does it overflow?",
+      "answer": "2",
+      "accept": [
+        "2 Hz",
+        "twice"
+      ],
+      "explanation": "16,000,000 / 16,000 = 1,000 counts per second. 1,000 / 500 = 2 overflows per second.",
+      "concept": "timer frequency",
+      "section": 6
+    },
+    {
+      "id": "embedded-systems-q31",
+      "type": "mcq",
+      "difficulty": "medium",
+      "question": "A timer clock is 84 MHz and ARR is fixed at 999. Which prescaler gives a 1 kHz update rate?",
+      "choices": [
+        "84",
+        "83",
+        "839",
+        "8399"
+      ],
+      "answer": 1,
+      "explanation": "84 MHz / (PSC + 1) / 1000 = 1 kHz needs PSC + 1 = 84, so PSC = 83. Writing 84 is the classic off-by-one, giving about 988 Hz.",
+      "concept": "prescaler minus one",
+      "section": 6
+    },
+    {
+      "id": "embedded-systems-q32",
+      "type": "code-fill",
+      "difficulty": "hard",
+      "question": "Which condition still works after the 32-bit tick counter wraps from 0xFFFFFFFF to 0?",
+      "code": "if (_____) {\n    toggle_led();\n    start = now;\n}",
+      "language": "cpp",
+      "choices": [
+        "now >= start + interval",
+        "(uint32_t)(now - start) >= interval",
+        "now - interval >= start",
+        "start + interval <= now"
+      ],
+      "answer": 1,
+      "explanation": "Unsigned subtraction wraps the same way the counter does, so now - start is the true elapsed count even across the wrap. The other forms compare absolute values, which go wrong when start + interval wraps or now is small after the wrap.",
+      "concept": "tick wraparound",
+      "section": 6
+    },
+    {
+      "id": "embedded-systems-q33",
+      "type": "mcq",
+      "difficulty": "easy",
+      "question": "Why do production firmware projects avoid delay loops such as `for (i = 0; i < 100000; i++) { }` for timing?",
+      "choices": [
+        "Loops are not allowed in C on microcontrollers",
+        "Their duration changes with clock speed and optimization, and they block all other work",
+        "They use more flash than a timer",
+        "They disable interrupts while running"
+      ],
+      "answer": 1,
+      "explanation": "The optimizer can shorten or delete an empty loop, a clock change alters its length, and while it spins nothing else in the superloop runs. A hardware timer measures time independently of the code.",
+      "concept": "busy-wait delays",
+      "section": 6
+    },
+    {
+      "id": "embedded-systems-q34",
+      "type": "mcq",
+      "difficulty": "medium",
+      "question": "You need to measure the width of pulses arriving on a pin, to the microsecond. Which timer feature fits best?",
+      "choices": [
+        "Output compare",
+        "Input capture",
+        "PWM mode",
+        "The watchdog"
+      ],
+      "answer": 1,
+      "explanation": "Input capture copies the counter value into a register at the instant the pin changes, so the difference between two captures is the pulse width, with no software latency. Output compare and PWM generate signals rather than measure them.",
+      "concept": "input capture",
+      "section": 6
+    },
+    {
+      "id": "embedded-systems-q35",
+      "type": "typed",
+      "difficulty": "easy",
+      "question": "A PWM timer has ARR = 399 and CCR = 300. What is the duty cycle, in percent?",
+      "answer": "75",
+      "accept": [
+        "75%",
+        "75 percent"
+      ],
+      "explanation": "Duty = CCR / (ARR + 1) = 300 / 400 = 0.75, so 75 percent.",
+      "concept": "PWM duty cycle",
+      "section": 7
+    },
+    {
+      "id": "embedded-systems-q36",
+      "type": "typed",
+      "difficulty": "medium",
+      "question": "A 12-bit ADC with a 3.3 V reference returns 2048. About what voltage is on the pin, to two decimal places?",
+      "answer": "1.65",
+      "accept": [
+        "1.65 V",
+        "1.65V"
+      ],
+      "explanation": "voltage = code x Vref / 4095 = 2048 x 3.3 / 4095, about 1.65 V. That is half scale.",
+      "concept": "ADC conversion",
+      "section": 7
+    },
+    {
+      "id": "embedded-systems-q37",
+      "type": "mcq",
+      "difficulty": "medium",
+      "question": "A hobby servo expects a PWM signal at 50 Hz. What is its period?",
+      "choices": [
+        "2 ms",
+        "20 ms",
+        "50 ms",
+        "1.5 ms"
+      ],
+      "answer": 1,
+      "explanation": "Period = 1 / 50 Hz = 20 ms. Within each 20 ms frame the high pulse lasts about 1 to 2 ms, and that pulse width sets the angle, with about 1.5 ms at center.",
+      "concept": "servo PWM",
+      "section": 7
+    },
+    {
+      "id": "embedded-systems-q38",
+      "type": "mcq",
+      "difficulty": "hard",
+      "question": "With a fixed timer clock, you raise ARR from 255 to 4095 to get finer PWM duty steps. What else changes?",
+      "choices": [
+        "Nothing else",
+        "The PWM frequency drops by a factor of 16",
+        "The duty cycle doubles",
+        "The ADC resolution rises to 12 bits"
+      ],
+      "answer": 1,
+      "explanation": "Frequency = timer clock / ((PSC + 1)(ARR + 1)), so 16 times as many counts per period means one sixteenth the frequency. Resolution and frequency trade against each other unless the timer clock rises.",
+      "concept": "PWM resolution trade-off",
+      "section": 7
+    },
+    {
+      "id": "embedded-systems-q39",
+      "type": "typed",
+      "difficulty": "easy",
+      "question": "How many distinct output codes does a 10-bit ADC have?",
+      "answer": "1024",
+      "accept": [
+        "2^10"
+      ],
+      "explanation": "2^10 = 1024 codes, from 0 to 1023.",
+      "concept": "ADC resolution",
+      "section": 7
+    },
+    {
+      "id": "embedded-systems-q40",
+      "type": "debug",
+      "difficulty": "medium",
+      "question": "The product hangs in the field and never recovers, even though the watchdog is enabled. What is wrong with this design?",
+      "code": "void SysTick_Handler(void) {     /* every 1 ms */\n    ms_ticks++;\n    watchdog_refresh();\n}\n\nint main(void) {\n    init();\n    for (;;) {\n        run_jobs();               /* sometimes deadlocks */\n    }\n}",
+      "language": "cpp",
+      "choices": [
+        "SysTick runs too often to refresh the watchdog",
+        "Refreshing from the timer ISR keeps the watchdog happy even while the main loop is stuck",
+        "The watchdog must be refreshed before init()",
+        "ms_ticks must be volatile for the watchdog to work"
+      ],
+      "answer": 1,
+      "explanation": "Interrupts keep firing when the main loop deadlocks, so the watchdog is refreshed forever and never resets the chip. Move the refresh into the main loop, after the jobs, so a stuck loop stops refreshing.",
+      "concept": "watchdog placement",
+      "section": 8
+    },
+    {
+      "id": "embedded-systems-q41",
+      "type": "typed",
+      "difficulty": "medium",
+      "question": "A sensor node draws an average of 20 microamps from a 220 mAh coin cell. About how many hours will the battery last (ignoring self-discharge)?",
+      "answer": "11000",
+      "accept": [
+        "11,000",
+        "11000 hours",
+        "11,000 hours"
+      ],
+      "explanation": "220 mAh / 0.020 mA = 11,000 hours, about 15 months. Average current, dominated by sleep current, decides battery life.",
+      "concept": "battery life",
+      "section": 8
+    },
+    {
+      "id": "embedded-systems-q42",
+      "type": "mcq",
+      "difficulty": "medium",
+      "question": "A superloop runs five jobs. One of them, writing a log to an SD card, occasionally takes 40 ms, and a motor-control job must run every 5 ms. What is the most fitting next step?",
+      "choices": [
+        "Add more watchdog refreshes",
+        "Move to an RTOS with the motor job as a higher-priority task, or split the SD write into small steps",
+        "Run the SD card write inside the motor ISR",
+        "Raise the clock speed and hope"
+      ],
+      "answer": 1,
+      "explanation": "In a superloop every job waits for every other job. An RTOS lets the urgent task preempt the slow one; alternatively, break the slow job into short non-blocking steps. Moving slow work into an ISR makes timing worse for everything.",
+      "concept": "superloop versus RTOS",
+      "section": 8
+    },
+    {
+      "id": "embedded-systems-q43",
+      "type": "order",
+      "difficulty": "medium",
+      "question": "Put the steps from source code to running firmware in order.",
+      "items": [
+        "Cross-compile each .c file to an object file",
+        "Link the objects with the linker script into an ELF file",
+        "Convert the ELF to .bin or .hex if the flashing tool needs it",
+        "Write the image to flash through a debug probe or bootloader",
+        "Reset: the startup code copies .data, zeroes .bss and calls main"
+      ],
+      "explanation": "Compilation and linking happen on the host. The ELF is the master artifact; .bin and .hex are flashing formats. On reset the startup code prepares RAM before main runs.",
+      "concept": "build pipeline",
+      "section": 9
+    },
+    {
+      "id": "embedded-systems-q44",
+      "type": "cli",
+      "difficulty": "medium",
+      "question": "Type the command that converts app.elf into a raw binary file named app.bin with the Arm GNU toolchain.",
+      "answer": "arm-none-eabi-objcopy -O binary app.elf app.bin",
+      "shell": "bash",
+      "accept": [
+        "arm-none-eabi-objcopy -Obinary app.elf app.bin",
+        "arm-none-eabi-objcopy --output-target=binary app.elf app.bin"
+      ],
+      "explanation": "objcopy copies sections between formats; -O binary writes raw bytes with no addresses. The flashing tool must then be told the load address.",
+      "concept": "objcopy",
+      "section": 9
+    },
+    {
+      "id": "embedded-systems-q45",
+      "type": "mcq",
+      "difficulty": "easy",
+      "question": "Which signals does Arm's Serial Wire Debug (SWD) use, besides ground?",
+      "choices": [
+        "TX and RX",
+        "SWDIO and SWCLK",
+        "SDA and SCL",
+        "TCK, TMS, TDI and TDO"
+      ],
+      "answer": 1,
+      "explanation": "SWD is a two-wire debug port: a bidirectional data line and a clock. TCK, TMS, TDI and TDO are JTAG, and the other pairs belong to UART and I2C.",
+      "concept": "SWD",
+      "section": 9
+    },
+    {
+      "id": "embedded-systems-q46",
+      "type": "match",
+      "difficulty": "medium",
+      "question": "Match each build output with what it contains.",
+      "pairs": [
+        {
+          "left": ".elf",
+          "right": "Code, data, symbols and debug information"
+        },
+        {
+          "left": ".bin",
+          "right": "Raw bytes of the image with no addresses"
+        },
+        {
+          "left": ".hex",
+          "right": "Text records that include load addresses"
+        },
+        {
+          "left": ".map",
+          "right": "Where the linker placed every symbol and section"
+        }
+      ],
+      "explanation": "Debuggers load the ELF because it has symbols. Flash tools often take .bin (you supply the address) or .hex (addresses inside). The map file answers \"why is flash full?\" and \"where did this variable go?\".",
+      "concept": "build artifacts",
+      "section": 9
+    }
+  ]
+}

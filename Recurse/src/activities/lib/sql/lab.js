@@ -128,7 +128,7 @@ export function toggleSqlComment(value, start, end) {
   return { from, to, text: out.join('\n'), selStart, selEnd }
 }
 
-/** Solved count and score for a set. progress[id] = { solved, revealed }; a revealed solution earns half. */
+/** Solved count and score for a set. progress[id] = { solved, helped }; solving after seeing the solution earns half. */
 export function scoreSet(exercises, progress = {}) {
   let solved = 0
   let helped = 0
@@ -137,7 +137,7 @@ export function scoreSet(exercises, progress = {}) {
     const p = progress[exercise.id]
     if (!p?.solved) continue
     solved++
-    if (p.revealed) {
+    if (p.helped) {
       helped++
       points += 0.5
     } else {

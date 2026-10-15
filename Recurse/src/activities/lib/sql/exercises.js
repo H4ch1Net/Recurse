@@ -758,13 +758,20 @@ export const SET_IDS = Object.keys(SETS)
 /** The set for an id, falling back to basics. */
 export const setFor = (id) => (SETS[id] ? id : 'basics')
 
-/** A set's exercises with their dataset filled in, limited to `only` (ids) when given. */
+// Exercises with their dataset filled in, built once so every caller gets the same objects.
+const FULL = Object.fromEntries(Object.entries(SETS).map(([id, set]) => [id, set.exercises.map((exercise) => ({ dataset: set.dataset, ...exercise }))]))
+const picks = new Map()
+
+/** A set's exercises, limited to the ids in `only` when given (unknown ids are ignored). */
 export function exercisesFor(setId, only) {
-  const set = SETS[setFor(setId)]
-  const all = set.exercises.map((exercise) => ({ dataset: set.dataset, ...exercise }))
+  const all = FULL[setFor(setId)]
   if (!Array.isArray(only) || !only.length) return all
-  const picked = all.filter((exercise) => only.includes(exercise.id))
-  return picked.length ? picked : all
+  const key = `${setFor(setId)}|${only.join(',')}`
+  if (!picks.has(key)) {
+    const picked = all.filter((exercise) => only.includes(exercise.id))
+    picks.set(key, picked.length ? picked : all)
+  }
+  return picks.get(key)
 }
 
 /** "modify" exercises are graded on the state they leave behind, not on their own output. */
