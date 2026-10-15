@@ -9,16 +9,26 @@ import { sfx } from '../lib/sfx'
 
 const STATUS = { planned: 'Planned', active: 'In progress', done: 'Finished' }
 
+// Project tracks in display order; any track not listed here falls into "Other projects".
+const TRACKS = [
+  { id: 'swe', title: 'Software engineering projects', icon: Code },
+  { id: 'web', title: 'Web development projects', icon: Code },
+  { id: 'python', title: 'Python projects', icon: Code },
+  { id: 'data', title: 'Data projects', icon: Code },
+  { id: 'devops', title: 'DevOps and cloud projects', icon: Terminal },
+  { id: 'embedded', title: 'Embedded projects', icon: Terminal },
+  { id: 'ccna', title: 'Networking projects', icon: Terminal },
+  { id: 'network', title: 'Network engineering projects', icon: Terminal },
+  { id: 'security', title: 'Security projects', icon: Terminal }
+]
+
 export default function Portfolio() {
   useDocumentTitle('Portfolio')
   const { packs, summaries, practice, user, toast } = useApp()
   const summary = useMemo(() => skillsSummary({ packs, summaries, practice }), [packs, summaries, practice])
   const markdown = useMemo(() => portfolioMarkdown(summary, { name: user.name }), [summary, user.name])
   const [preview, setPreview] = useState(false)
-  const tracks = [
-    { id: 'swe', title: 'Software engineering projects', icon: Code },
-    { id: 'ccna', title: 'Networking projects', icon: Terminal }
-  ]
+  const tracks = TRACKS.filter((t) => PROJECTS.some((p) => p.track === t.id))
 
   const copy = async () => {
     try {

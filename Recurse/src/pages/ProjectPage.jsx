@@ -9,6 +9,18 @@ import { sfx } from '../lib/sfx'
 import RichText from '../components/RichText'
 import Tile from '../components/Tile'
 
+const TRACK_META = {
+  swe: { label: 'Software project', hue: 268 },
+  web: { label: 'Web project', hue: 192 },
+  python: { label: 'Python project', hue: 140 },
+  data: { label: 'Data project', hue: 40 },
+  devops: { label: 'DevOps project', hue: 215 },
+  embedded: { label: 'Embedded project', hue: 30 },
+  ccna: { label: 'Networking project', hue: 200 },
+  network: { label: 'Network engineering project', hue: 200 },
+  security: { label: 'Security project', hue: 354 }
+}
+
 const isUrl = (value) => /^https?:\/\/\S+$/i.test(String(value || '').trim())
 
 export default function ProjectPage() {
@@ -59,9 +71,9 @@ export default function ProjectPage() {
     <div className="page">
       <Link to="/portfolio" className="back-link small"><ChevronLeft size={16} /> Portfolio</Link>
       <header className="path-hero">
-        <span className="path-icon lg" style={{ '--hue': project.track === 'ccna' ? 200 : 268 }} aria-hidden="true"><FolderGit2 size={30} /></span>
+        <span className="path-icon lg" style={{ '--hue': TRACK_META[project.track]?.hue ?? 268 }} aria-hidden="true"><FolderGit2 size={30} /></span>
         <div className="grow stack-sm">
-          <div className="eyebrow">{project.track === 'ccna' ? 'Networking project' : 'Software project'} · {project.level} · <Clock size={11} style={{ verticalAlign: '-1px' }} /> about {project.hours} hours</div>
+          <div className="eyebrow">{TRACK_META[project.track]?.label || 'Project'} · {project.level} · <Clock size={11} style={{ verticalAlign: '-1px' }} /> about {project.hours} hours</div>
           <h1 className="page-title">{project.title}</h1>
           <p className="page-sub">{project.summary}</p>
           <div className="row wrap" style={{ gap: 6 }}>{(project.skills || []).map((s) => <span key={s} className="chip outline">{s}</span>)}</div>
