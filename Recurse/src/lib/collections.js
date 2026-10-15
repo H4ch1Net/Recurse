@@ -81,3 +81,17 @@ export function nextTopic(collection, packMap, summaries) {
   }
   return null
 }
+
+/** Outside resources from a set of topics (each pack's `resources`), without duplicate links. */
+export function resourcesForTopics(packs) {
+  const seen = new Set()
+  const out = []
+  for (const pack of packs) {
+    for (const r of pack?.resources || []) {
+      if (seen.has(r.url)) continue
+      seen.add(r.url)
+      out.push(r)
+    }
+  }
+  return out
+}

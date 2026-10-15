@@ -87,7 +87,7 @@ function formatDuration(seconds) {
  *   standalone            two columns on wide screens (problem left, editor right)
  *   onComplete({ score, detail })                       activity contract, on a full solve
  *   onSolved({ id, language, hintsUsed, solutionViewed, seconds })   for progress tracking
- *   solvedBefore          the learner solved it on an earlier visit: the solution is open to them
+ *   solvedBefore          the learner solved it on an earlier visit: the solution is one click away
  *   language              preferred starting language
  */
 export default function ChallengeView({ id, challenge: given, ...rest }) {
@@ -137,7 +137,8 @@ function ChallengeWorkspace({ challenge, standalone = false, onComplete, onSolve
   const [failedSubmits, setFailedSubmits] = useState(0)
   const [solved, setSolved] = useState(Boolean(solvedBefore))
   const [solvedInfo, setSolvedInfo] = useState(null)
-  const [solutionOpen, setSolutionOpen] = useState(Boolean(solvedBefore))
+  // Closed even after an earlier solve: a redo is only useful from memory.
+  const [solutionOpen, setSolutionOpen] = useState(false)
   const [confirmSolution, setConfirmSolution] = useState(false)
   const [solutionLanguage, setSolutionLanguage] = useState(language)
   const [unlocked, setUnlocked] = useState(() => new Set())

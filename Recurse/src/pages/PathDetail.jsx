@@ -3,13 +3,14 @@ import { Link, Navigate, useParams } from 'react-router-dom'
 import { ArrowRight, Check, ChevronLeft, CircleCheck, Code, FileCheck2, FlaskConical, Hammer, Layers, Play, Repeat, Terminal, Timer, Trophy } from 'lucide-react'
 import { useApp } from '../state/context'
 import { useDocumentTitle } from '../hooks/useDocumentTitle'
-import { TOPIC_STEP_LABELS, getCollection, nextTopic } from '../lib/collections'
+import { TOPIC_STEP_LABELS, getCollection, nextTopic, resourcesForTopics } from '../lib/collections'
 import { readiness } from '../lib/practice'
 import { dueSummary } from '../lib/session'
 import { formatRelative } from '../lib/dates'
 import PathIcon from '../components/PathIcon'
 import MemoryRing from '../components/MemoryRing'
 import Tile from '../components/Tile'
+import ResourceList from '../components/ResourceList'
 
 function StepPill({ step }) {
   return <span className={`step-pill step-${step}`}><span className="step-dots" aria-hidden="true"><i /><i /><i /></span>{TOPIC_STEP_LABELS[step]}</span>
@@ -21,6 +22,11 @@ export default function PathDetail() {
   const { packs, packMap, summaries, practice, progress, settings, stats, now } = useApp()
   useDocumentTitle(collection?.name || 'Path')
   const ready = useMemo(() => (collection ? readiness(collection, { packMap, summaries, practice }) : null), [collection, packMap, summaries, practice])
+  const topicResources = useMemo(() => {
+    if (!collection) return []
+    const own = new Set((collection.resources || []).map((r) => r.url))
+    return resourcesForTopics(collection.packIds.map((id) => packMap.get(id)).filter(Boolean)).filter((r) => !own.has(r.url))
+  }, [collection, packMap])
   const due = useMemo(() => {
     if (!collection) return null
     const scoped = packs.filter((p) => collection.packIds.includes(p.id))
@@ -173,6 +179,23 @@ export default function PathDetail() {
           )
         })}
       </ol>
+
+      {(collection.resources?.length > 0 || topicResources.length > 0) && (
+        <section className="card path-resources" aria-labelledby="path-resources-title">
+          <div className="catalog-head" style={{ marginBottom: 'var(--s-3)' }}>
+            <h2 className="section-title" id="path-resources-title">Resources</h2>
+            <span className="eyebrow">Free first</span>
+          </div>
+          <p className="small muted" style={{ marginBottom: 'var(--s-4)' }}>Recurse covers the path end to end. These are the outside books, courses, tools and practice sites worth adding alongside it.</p>
+          <ResourceList resources={collection.resources} />
+          {topicResources.length > 0 && (
+            <details className="path-topic-resources">
+              <summary className="small">More from the topics in this path ({topicResources.length})</summary>
+              <ResourceList resources={topicResources} />
+            </details>
+          )}
+        </section>
+      )}
     </div>
   )
 }

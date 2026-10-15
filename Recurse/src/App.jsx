@@ -33,6 +33,7 @@ const ApproachQuiz = lazy(() => import('./pages/ApproachQuiz'))
 const Experiment = lazy(() => import('./pages/Experiment'))
 const Portfolio = lazy(() => import('./pages/Portfolio'))
 const ProjectPage = lazy(() => import('./pages/ProjectPage'))
+const Glossary = lazy(() => import('./pages/Glossary'))
 
 /** Remount the study screen for every navigation so "study again" builds a fresh queue. */
 function StudyRoute() {
@@ -77,6 +78,7 @@ function Routed() {
         <Route element={<Layout />}>
           <Route index element={<Today />} />
           <Route path="library" element={<Library />} />
+          <Route path="glossary" element={<Glossary />} />
           <Route path="topic/:topicId" element={<Topic />} />
           <Route path="topic/:topicId/lesson" element={<Lesson />} />
           <Route path="topic/:topicId/explain" element={<Explain />} />

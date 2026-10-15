@@ -34,6 +34,8 @@ function Metric({ label, value, note }) {
   )
 }
 
+
+const count = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`
 export default function Stats() {
   useDocumentTitle('Progress')
   const { packs, packMap, progress, stats, summaries, user, now, clearMistakes, practice, settings } = useApp()
@@ -120,7 +122,7 @@ export default function Stats() {
             <div className="grid-3 beyond-cards">
               <Link to="/portfolio" className="card card-link stack-sm">
                 <span className="eyebrow">Hands-on</span>
-                <span className="list-title">{Object.keys(practice.labs || {}).length} labs · {Object.keys(practice.challenges || {}).length} challenges · {Object.values(practice.projects || {}).filter((p) => p.status === 'done').length} projects</span>
+                <span className="list-title">{count(Object.keys(practice.labs || {}).length, 'lab')} · {count(Object.keys(practice.challenges || {}).length, 'challenge')} · {count(Object.values(practice.projects || {}).filter((p) => p.status === 'done').length, 'project')}</span>
                 <span className="xsmall subtle">Your portfolio and skills export</span>
               </Link>
               <Link to="/practice?tab=quizzes" className="card card-link stack-sm">

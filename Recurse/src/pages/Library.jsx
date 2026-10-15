@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
-import { Plus, Search, Upload } from 'lucide-react'
+import { BookA, Plus, Search, Upload } from 'lucide-react'
 import { useApp } from '../state/context'
 import { useHotkeys } from '../hooks/useHotkeys'
 import { useDocumentTitle } from '../hooks/useDocumentTitle'
@@ -112,6 +112,7 @@ export default function Library() {
           <p className="page-sub">{packs.length} topics and {totalCards} cards across {Object.keys(counts).length - 1} subjects. Every topic has a short lesson and a question bank.</p>
         </div>
         <div className="row wrap">
+          <Link to="/glossary" className="btn"><BookA size={16} /> Glossary</Link>
           <button type="button" className="btn" onClick={() => setImportOpen(true)}><Upload size={16} /> Import</button>
           <Link to="/create" className="btn btn-primary"><Plus size={16} /> Create a pack</Link>
         </div>

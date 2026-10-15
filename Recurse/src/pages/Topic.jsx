@@ -19,6 +19,7 @@ import { collectionsForPack } from '../lib/collections'
 import { challengesForTopic, labsForTopic, projectsForTopic } from '../lib/practice'
 import { modeOf } from '../lib/approaches'
 import { ACTIVITY_MAP } from '../activities/catalog'
+import ResourceList from '../components/ResourceList'
 
 
 function CardBrowser({ pack, topic, now }) {
@@ -314,6 +315,16 @@ export default function Topic() {
               </div>
             )}
           </div>
+        </section>
+      )}
+
+      {tab === 'overview' && pack.resources?.length > 0 && (
+        <section className="card" style={{ marginTop: 'var(--s-5)' }} aria-labelledby="go-deeper-title">
+          <div className="catalog-head" style={{ marginBottom: 'var(--s-3)' }}>
+            <h2 className="section-title" id="go-deeper-title">Go deeper</h2>
+            <span className="eyebrow">Outside Recurse</span>
+          </div>
+          <ResourceList resources={pack.resources} />
         </section>
       )}
 

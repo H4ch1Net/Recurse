@@ -70,6 +70,7 @@ export default function Layout() {
     '?': () => setShortcutsOpen(true),
     t: () => navigate('/'),
     l: () => navigate('/library'),
+    g: () => navigate('/glossary'),
     p: () => navigate('/paths'),
     x: () => navigate('/practice'),
     s: () => navigate('/stats'),

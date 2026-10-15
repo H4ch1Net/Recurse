@@ -5,6 +5,8 @@ import { ACTIVITY_TYPES } from '../activities/catalog.js'
 
 export const SUBJECT_IDS = ['programming', 'cs', 'swe', 'tools', 'web', 'networking', 'security', 'math', 'science', 'humanities', 'languages']
 export const LEVELS = ['beginner', 'intermediate', 'advanced']
+/** Kinds of outside resource a pack can point to ("Go deeper" on the topic page). */
+export const RESOURCE_KINDS = ['docs', 'book', 'course', 'video', 'practice', 'tool', 'article']
 export const DIFFICULTIES = ['easy', 'medium', 'hard']
 export const CHOICE_TYPES = ['mcq', 'code-fill', 'debug']
 // Types answered by typing a short string, graded automatically.
@@ -124,6 +126,18 @@ export function validatePack(pack, { strict = false } = {}) {
     if (!isText(pack.icon) || pack.icon.length > 3) errors.push('icon must be 1-3 characters')
     if (pack.language && !CODE_LANGUAGES.includes(pack.language)) errors.push(`language must be one of: ${CODE_LANGUAGES.join(', ')}`)
     if (!Array.isArray(pack.prereqs)) errors.push('prereqs must be an array (may be empty)')
+  }
+  if (pack.resources !== undefined) {
+    if (!Array.isArray(pack.resources)) errors.push('resources must be an array')
+    else {
+      pack.resources.forEach((r, i) => {
+        if (!isText(r?.title)) errors.push(`resources[${i}]: title is required`)
+        if (!isText(r?.url) || !/^https:\/\/[^\s]+$/.test(r.url)) errors.push(`resources[${i}]: url must be an https link`)
+        if (r?.kind !== undefined && !RESOURCE_KINDS.includes(r.kind)) errors.push(`resources[${i}]: kind must be one of ${RESOURCE_KINDS.join(', ')}`)
+        if (r?.note !== undefined && !isText(r.note)) errors.push(`resources[${i}]: note must be text`)
+      })
+      if (pack.resources.length > 8) warnings.push('more than 8 resources; only the first 8 are shown')
+    }
   }
 
   const lesson = pack.lesson
@@ -277,6 +291,10 @@ export function sanitizePack(raw) {
     icon: clip(raw.icon || raw.name?.slice(0, 2) || '?', 3),
     language: CODE_LANGUAGES.includes(raw.language) ? raw.language : 'plaintext',
     prereqs: Array.isArray(raw.prereqs) ? raw.prereqs.filter(isText).map((p) => clip(p, 60)) : [],
+    resources: (Array.isArray(raw.resources) ? raw.resources : [])
+      .filter((r) => isText(r?.title) && isText(r?.url) && /^https:\/\/[^\s]+$/.test(r.url))
+      .slice(0, 8)
+      .map((r) => ({ title: clip(r.title, 120), url: clip(r.url, 400), ...(RESOURCE_KINDS.includes(r.kind) ? { kind: r.kind } : {}), ...(isText(r.note) ? { note: clip(r.note, 200) } : {}) })),
     tags: Array.isArray(raw.tags) ? raw.tags.filter(isText).slice(0, 10).map((t) => clip(t, 30)) : [],
     community: true,
     questions: (Array.isArray(raw.questions) ? raw.questions : []).slice(0, 500).map((q, i) => {

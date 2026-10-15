@@ -33,6 +33,7 @@ export const ACTIVITIES = [
   // ---- Coding ----
   { type: 'code-runner', group: 'code', title: 'Code playground', description: 'Edit and run a short JavaScript or Python program in the browser and see its output.', goal: 'Run the code, then change it and run it again.', props: { language: '"javascript" | "python"', code: 'starting code', task: 'optional instruction', expectOutput: 'optional exact output that completes the goal' } },
   { type: 'challenge', group: 'code', title: 'Coding challenge', description: 'Solve a coding problem against hidden and visible tests, in JavaScript or Python.', goal: 'Pass every test.', props: { id: 'challenge id from src/data/challenges' } },
+  { type: 'sql-lab', group: 'code', title: 'SQL lab', description: 'Write SQL against a real SQLite database running in the browser and compare your result with the expected rows.', goal: 'Solve every query in the set.', props: { set: '"basics" | "joins" | "aggregates" | "subqueries" | "modify" | "interview"', exercises: 'optional array of exercise ids from the set to show' } },
 
   // ---- Developer tools ----
   { type: 'git-sim', group: 'tools', title: 'Git sandbox', description: 'Type git commands and watch the commit graph, branches and HEAD update.', goal: 'Complete the scenario steps.', props: { scenario: '"basics" | "branching" | "merge-conflict" | "rebase"' } },
@@ -56,6 +57,7 @@ export const ACTIVITIES = [
   { type: 'dhcp-dora', group: 'network', title: 'DHCP DORA', description: 'Step through Discover, Offer, Request and Acknowledge, including a relay agent across a router.', goal: 'Complete a lease through a relay.', props: {} },
   { type: 'ipv6-tool', group: 'network', title: 'IPv6 compressor', description: 'Compress and expand IPv6 addresses and build EUI-64 interface IDs.', goal: 'Compress five addresses correctly.', props: {} },
   { type: 'ospf-cost', group: 'network', title: 'OSPF cost', description: 'Change interface bandwidths and the reference bandwidth and watch the best path change.', goal: 'Make traffic take the other path by changing costs.', props: {} },
+  { type: 'wlc-gui', group: 'network', title: 'Wireless LAN controller', description: 'A simulated Cisco WLC web interface: create a WLAN, set WPA2 or WPA3 security with a PSK, map it to a VLAN interface and test a client join.', goal: 'Build a WLAN that the test client can join.', props: { scenario: '"create-wlan" | "wpa3" | "troubleshoot" | "explore"' } },
 
   // ---- Math and science ----
   { type: 'function-plot', group: 'math', title: 'Function plotter', description: 'Plot functions with sliders for their parameters and see slope and area change.', goal: 'Match the target curve.', props: { preset: '"linear" | "quadratic" | "exponential" | "sine"' } },

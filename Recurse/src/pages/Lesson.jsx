@@ -320,9 +320,12 @@ export default function Lesson() {
               <section id="key-terms" className="lesson-section">
                 <div className="row between wrap">
                   <h2 className="lesson-section-title">Key terms</h2>
-                  <button type="button" className="btn btn-sm" onClick={() => { setHideDefinitions((v) => !v); setRevealed({}) }} aria-pressed={hideDefinitions}>
-                    {hideDefinitions ? <Eye size={14} /> : <EyeOff size={14} />} {hideDefinitions ? 'Show definitions' : 'Quiz me: hide definitions'}
-                  </button>
+                  <div className="row wrap" style={{ gap: 6 }}>
+                    <button type="button" className="btn btn-sm" onClick={() => { setHideDefinitions((v) => !v); setRevealed({}) }} aria-pressed={hideDefinitions}>
+                      {hideDefinitions ? <Eye size={14} /> : <EyeOff size={14} />} {hideDefinitions ? 'Show definitions' : 'Quiz me: hide definitions'}
+                    </button>
+                    <Link to="/glossary" className="btn btn-sm btn-ghost">All terms</Link>
+                  </div>
                 </div>
                 <dl className="terms">
                   {lesson.keyTerms.map((t) => (

@@ -8,6 +8,7 @@ const GROUPS = [
       ['P', 'Go to Paths'],
       ['X', 'Go to Practice'],
       ['L', 'Go to Library'],
+      ['G', 'Open the glossary'],
       ['S', 'Go to Progress'],
       [',', 'Open Settings'],
       ['?', 'Show this list']
