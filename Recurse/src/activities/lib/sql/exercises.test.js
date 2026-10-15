@@ -1,6 +1,7 @@
 // Checks the SQL lab content: structure, the seed data, and every reference solution run on a
 // real SQLite (node:sqlite, in Node 22.5 and later) through the same grader the widget uses.
 // Alternative correct answers must pass and common mistakes must fail.
+import { readFileSync, readdirSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
 import { SETS, SET_IDS, changesData, exercisesFor, setFor } from './exercises.js'
 import { DATASETS, seedSql } from './datasets.js'
@@ -42,6 +43,24 @@ describe('exercise sets', () => {
       }
     }
     expect(DASHES.test(JSON.stringify(SETS) + JSON.stringify(DATASETS))).toBe(false)
+  })
+
+  it('only names real sets and exercises from lesson embeds', () => {
+    const dir = new URL('../../../data/packs/', import.meta.url)
+    let embeds = 0
+    for (const file of readdirSync(dir).filter((f) => f.endsWith('.json'))) {
+      const pack = JSON.parse(readFileSync(new URL(file, dir), 'utf8'))
+      for (const section of pack.lesson?.sections || []) {
+        const activity = section.activity
+        if (activity?.type !== 'sql-lab') continue
+        embeds++
+        const where = `${file} ${section.title}`
+        expect(SET_IDS, where).toContain(activity.props?.set)
+        const ids = SETS[activity.props.set].exercises.map((e) => e.id)
+        for (const id of activity.props.exercises || []) expect(ids, where).toContain(id)
+      }
+    }
+    expect(embeds).toBeGreaterThan(0)
   })
 
   it('picks exercises by id and falls back sensibly', () => {

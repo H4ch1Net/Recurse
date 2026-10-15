@@ -7,6 +7,7 @@ import { fileStates, headTree, headHash, short, PROJECT_DIR } from '../lib/git-s
 import { layoutGraph } from '../lib/git-sim/layout.js'
 import { SCENARIOS, SCENARIO_IDS, scenarioFor, explainEvent } from '../lib/git-sim/scenarios.js'
 import { gradeTasks, historyStep, commonPrefix } from '../lib/terminal/parse.js'
+import { TouchKeys } from '../lib/touch-keys'
 import './git-sim.css'
 
 const TONE_CLASS = { out: 'terminal-out', err: 'terminal-err', ok: 'terminal-ok', dim: 'terminal-dim', hash: 'gitsim-hash', ref: 'gitsim-ref', strong: 'gitsim-strong' }
@@ -132,22 +133,30 @@ function GitScenario({ scenario, onComplete }) {
     run(text)
   }
 
+  const recall = (dir) => {
+    const step = historyStep(history, histIndex, dir)
+    setHistIndex(step.index)
+    setInput(step.value)
+  }
+
+  const tabComplete = () => {
+    const c = completeGit(repo, input, commonPrefix)
+    if (c.line !== input) {
+      setInput(c.line)
+      sfx.tick()
+    } else if (c.options.length) setLines((ls) => [...ls, ...withIds([{ kind: 'cmd', prompt: promptFor(repo), text: input }, { tone: 'out', text: c.options.join('  ') }])])
+  }
+
   const onKeyDown = (e) => {
     if (e.key === 'Enter') {
       e.preventDefault()
       submit()
     } else if (e.key === 'ArrowUp' || e.key === 'ArrowDown') {
       e.preventDefault()
-      const step = historyStep(history, histIndex, e.key === 'ArrowUp' ? -1 : 1)
-      setHistIndex(step.index)
-      setInput(step.value)
+      recall(e.key === 'ArrowUp' ? -1 : 1)
     } else if (e.key === 'Tab') {
       e.preventDefault()
-      const c = completeGit(repo, input, commonPrefix)
-      if (c.line !== input) {
-        setInput(c.line)
-        sfx.tick()
-      } else if (c.options.length) setLines((ls) => [...ls, ...withIds([{ kind: 'cmd', prompt: promptFor(repo), text: input }, { tone: 'out', text: c.options.join('  ') }])])
+      tabComplete()
     } else if (e.key === 'l' && e.ctrlKey) {
       e.preventDefault()
       setLines([])
@@ -168,36 +177,48 @@ function GitScenario({ scenario, onComplete }) {
         </span>
       </div>
       <div className="gitsim-main">
-        <div className="terminal gitsim-console">
-          <div className="terminal-bar" aria-hidden="true">
-            <span className="dot" />
-            <span className="dot" />
-            <span className="dot" />
-            ~/project
-          </div>
-          <div className="terminal-screen" ref={screenRef} onClick={focusInput} role="log" aria-live="polite" aria-label="Terminal output">
-            {lines.map((l) => (
-              <ConsoleLine key={l.id} line={l} />
-            ))}
-            <div className="terminal-input-row">
-              <label htmlFor={inputId} className="terminal-prompt">
-                {promptFor(repo)}
-              </label>
-              <input
-                id={inputId}
-                ref={inputRef}
-                className="terminal-input"
-                value={input}
-                onChange={(e) => setInput(e.target.value)}
-                onKeyDown={onKeyDown}
-                autoComplete="off"
-                autoCapitalize="off"
-                autoCorrect="off"
-                spellCheck={false}
-                aria-label="Command"
-              />
+        <div className="gitsim-term-col">
+          <div className="terminal gitsim-console">
+            <div className="terminal-bar" aria-hidden="true">
+              <span className="dot" />
+              <span className="dot" />
+              <span className="dot" />
+              ~/project
+            </div>
+            <div className="terminal-screen" ref={screenRef} onClick={focusInput} role="log" aria-live="polite" aria-label="Terminal output">
+              {lines.map((l) => (
+                <ConsoleLine key={l.id} line={l} />
+              ))}
+              <div className="terminal-input-row">
+                <label htmlFor={inputId} className="terminal-prompt">
+                  {promptFor(repo)}
+                </label>
+                <input
+                  id={inputId}
+                  ref={inputRef}
+                  className="terminal-input"
+                  value={input}
+                  onChange={(e) => setInput(e.target.value)}
+                  onKeyDown={onKeyDown}
+                  autoComplete="off"
+                  autoCapitalize="off"
+                  autoCorrect="off"
+                  spellCheck={false}
+                  enterKeyHint="send"
+                  aria-label="Command"
+                />
+              </div>
             </div>
           </div>
+          <TouchKeys
+            label="Console keys"
+            keys={[
+              { label: 'Tab', title: 'Complete the command (Tab)', onPress: tabComplete },
+              { label: '↑', title: 'Previous command (Up)', onPress: () => recall(-1) },
+              { label: '↓', title: 'Next command (Down)', onPress: () => recall(1) },
+              { label: 'clear', title: 'Clear the screen (Ctrl+L)', onPress: () => setLines([]) }
+            ]}
+          />
         </div>
         <CommitGraph repo={repo} />
       </div>

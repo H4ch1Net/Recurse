@@ -5,6 +5,7 @@ import { sfx } from '../../lib/sfx'
 import { createShell, runShell, complete, prompt } from '../lib/terminal/shell.js'
 import { SCENARIOS, SCENARIO_IDS, BASE_FILES, scenarioFor, explainOutput } from '../lib/terminal/scenarios.js'
 import { gradeTasks, historyStep } from '../lib/terminal/parse.js'
+import { TouchKeys } from '../lib/touch-keys'
 import './terminal.css'
 
 const TONE_CLASS = {
@@ -128,29 +129,41 @@ function ShellScenario({ scenario, onComplete }) {
     setCaption(why ? { text: why, tone: 'bad' } : { text: '', tone: '' })
   }
 
+  const recall = (dir) => {
+    const step = historyStep(shell.history, histIndex, dir)
+    setHistIndex(step.index)
+    setInput(step.value)
+  }
+
+  const tabComplete = () => {
+    const c = complete(shell, input)
+    if (c.line !== input) {
+      setInput(c.line)
+      sfx.tick()
+    } else if (c.options.length) setLines((ls) => [...ls, ...withIds([{ kind: 'cmd', prompt: prompt(shell), text: input }, { tone: 'out', text: c.options.join('  ') }])])
+  }
+
+  const cancelLine = () => {
+    setLines((ls) => [...ls, ...withIds([{ kind: 'cmd', prompt: prompt(shell), text: `${input}^C` }])])
+    setInput('')
+  }
+
   const onKeyDown = (e) => {
     if (e.key === 'Enter') {
       e.preventDefault()
       submit()
     } else if (e.key === 'ArrowUp' || e.key === 'ArrowDown') {
       e.preventDefault()
-      const step = historyStep(shell.history, histIndex, e.key === 'ArrowUp' ? -1 : 1)
-      setHistIndex(step.index)
-      setInput(step.value)
+      recall(e.key === 'ArrowUp' ? -1 : 1)
     } else if (e.key === 'Tab') {
       e.preventDefault()
-      const c = complete(shell, input)
-      if (c.line !== input) {
-        setInput(c.line)
-        sfx.tick()
-      } else if (c.options.length) setLines((ls) => [...ls, ...withIds([{ kind: 'cmd', prompt: prompt(shell), text: input }, { tone: 'out', text: c.options.join('  ') }])])
+      tabComplete()
     } else if (e.key === 'l' && e.ctrlKey) {
       e.preventDefault()
       setLines([])
     } else if (e.key === 'c' && e.ctrlKey && !window.getSelection()?.toString()) {
       e.preventDefault()
-      setLines((ls) => [...ls, ...withIds([{ kind: 'cmd', prompt: prompt(shell), text: `${input}^C` }])])
-      setInput('')
+      cancelLine()
     }
   }
 
@@ -193,11 +206,22 @@ function ShellScenario({ scenario, onComplete }) {
               autoCapitalize="off"
               autoCorrect="off"
               spellCheck={false}
+              enterKeyHint="send"
               aria-label="Shell command"
             />
           </div>
         </div>
       </div>
+      <TouchKeys
+        label="Shell keys"
+        keys={[
+          { label: 'Tab', title: 'Complete the name (Tab)', onPress: tabComplete },
+          { label: '↑', title: 'Previous command (Up)', onPress: () => recall(-1) },
+          { label: '↓', title: 'Next command (Down)', onPress: () => recall(1) },
+          { label: '^C', title: 'Cancel the line (Ctrl+C)', onPress: cancelLine },
+          { label: 'clear', title: 'Clear the screen (Ctrl+L)', onPress: () => setLines([]) }
+        ]}
+      />
       <p className={`w-feedback ${caption.tone}`} aria-live="polite">
         {caption.text}
       </p>
