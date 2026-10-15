@@ -42,9 +42,15 @@ describe('comments and empty SQL', () => {
 
 describe('describeMismatch', () => {
   it('suggests DISTINCT or a join problem for repeated rows', () => {
-    const text = describeMismatch({ reason: 'row-count', actualCount: 6, expectedCount: 5, missing: [], extra: [['Ana']] }, table(['name'], []))
+    const text = describeMismatch({ reason: 'row-count', actualCount: 6, expectedCount: 5, missing: [], extra: [['Ana']] }, table(['name'], [['Ana'], ['Ben']]))
     expect(text).toMatch(/returned 6 rows; the expected result has 5/)
     expect(text).toMatch(/DISTINCT/)
+  })
+
+  it('names an extra row instead of suggesting DISTINCT when it is not a repeat', () => {
+    const text = describeMismatch({ reason: 'row-count', actualCount: 3, expectedCount: 2, missing: [], extra: [['Knife', 22]] }, table(['name', 'price'], [['Mouse', 24.99], ['Hub', 25]]))
+    expect(text).not.toMatch(/DISTINCT/)
+    expect(text).toMatch(/should not be there: \('Knife', 22\)/)
   })
 
   it('shows a missing row and suggests AS for names', () => {

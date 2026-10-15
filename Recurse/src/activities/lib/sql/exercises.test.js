@@ -177,6 +177,7 @@ const ACCEPT = {
 
 // Common mistakes, with the kind of feedback they should get.
 const REJECT = {
+  'basics/where-and': [['SELECT name, price, stock FROM products WHERE price < 30', 'mismatch']],
   'basics/order-limit': [['SELECT name, price FROM products ORDER BY price LIMIT 3', 'mismatch']],
   'basics/distinct': [
     ['SELECT DISTINCT city FROM customers', 'mismatch'],
