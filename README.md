@@ -87,6 +87,14 @@ It runs entirely in the browser. There is no account and no tracking. Progress i
     <td width="50%"><img src="Recurse/docs/screenshots/lab.png" alt="A Cisco IOS console lab in the dark theme" /><br /><sub>IOS console lab</sub></td>
   </tr>
   <tr>
+    <td><img src="Recurse/docs/screenshots/paths.png" alt="What do you want to achieve: goals grouped by career, certification and foundations" /><br /><sub>Choose a goal</sub></td>
+    <td><img src="Recurse/docs/screenshots/wlc.png" alt="Simulated Cisco wireless LAN controller GUI" /><br /><sub>Wireless LAN controller simulator</sub></td>
+  </tr>
+  <tr>
+    <td><img src="Recurse/docs/screenshots/interview.png" alt="Mock interview setup with coding, online assessment and behavioral formats" /><br /><sub>Mock interviews</sub></td>
+    <td><img src="Recurse/docs/screenshots/glossary.png" alt="Glossary filtered to the CCNA path" /><br /><sub>Glossary</sub></td>
+  </tr>
+  <tr>
     <td><img src="Recurse/docs/screenshots/activity.png" alt="An interactive subnetting activity inside a lesson" /><br /><sub>Activity inside a lesson</sub></td>
     <td><img src="Recurse/docs/screenshots/challenge.png" alt="A coding challenge with editor and tests" /><br /><sub>Coding challenge</sub></td>
   </tr>

@@ -460,7 +460,7 @@ function Console({ lab, device, onComplete }) {
         {topology?.length > 0 && (
           <div className="iosc-section">
             <h5 className="iosc-sub">Topology</h5>
-            <div className="iosc-table-wrap">
+            <div className="iosc-table-wrap w-scroll-hint">
               <table className="iosc-table">
                 <thead>
                   <tr>
