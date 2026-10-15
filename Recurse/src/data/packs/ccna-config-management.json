@@ -1,11 +1,11 @@
 {
   "id": "ccna-config-management",
   "name": "Configuration Management: Ansible and Terraform",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "author": "Recurse",
   "subject": "networking",
   "level": "intermediate",
-  "description": "Compare Ansible, Terraform, Puppet and Chef, read YAML playbooks and HCL, and explain idempotence, push vs pull and drift.",
+  "description": "Ansible and Terraform for network configuration: playbooks, YAML, plan and apply, state, idempotence and drift, plus Puppet and Chef.",
   "icon": "CM",
   "language": "yaml",
   "prereqs": [
@@ -20,16 +20,56 @@
     "terraform",
     "yaml",
     "infrastructure-as-code",
-    "devops"
+    "devops",
+    "puppet",
+    "chef"
+  ],
+  "resources": [
+    {
+      "title": "Ansible network automation: getting started",
+      "url": "https://docs.ansible.com/ansible/latest/network/getting_started/index.html",
+      "kind": "docs",
+      "note": "Official guide to inventories, network_cli and your first network playbook."
+    },
+    {
+      "title": "Terraform tutorials (HashiCorp)",
+      "url": "https://developer.hashicorp.com/terraform/tutorials",
+      "kind": "course",
+      "note": "Free step-by-step tutorials on init, plan, apply, state and providers."
+    },
+    {
+      "title": "Cisco IOS XE Terraform provider docs",
+      "url": "https://registry.terraform.io/providers/CiscoDevNet/iosxe/latest/docs",
+      "kind": "docs",
+      "note": "Real network resources such as iosxe_vlan, and how the provider connects."
+    },
+    {
+      "title": "Learn YAML in Y minutes",
+      "url": "https://learnxinyminutes.com/yaml/",
+      "kind": "article",
+      "note": "Fast tour of YAML syntax, including the quoting and indentation traps."
+    },
+    {
+      "title": "Cisco DevNet learning labs",
+      "url": "https://developer.cisco.com/learning/",
+      "kind": "practice",
+      "note": "Free labs that run Ansible and Terraform against Cisco sandboxes."
+    },
+    {
+      "title": "Free CCNA 200-301 complete course (Jeremy's IT Lab)",
+      "url": "https://www.youtube.com/playlist?list=PLxbwE86jKRgMpuZuLBivzlM8s2Dk5lXBQ",
+      "kind": "video",
+      "note": "Includes the configuration management lesson on Ansible and Terraform."
+    }
   ],
   "lesson": {
-    "estimatedMinutes": 26,
+    "estimatedMinutes": 34,
     "intro": "Configuring one router from the CLI is a skill. Keeping 500 devices exactly as intended, year after year, while a whole team changes them, is a different problem, and configuration management tools exist to solve it. This lesson explains how Ansible and Terraform work, where Puppet and Chef fit, and the handful of ideas (idempotence, declarative versus procedural, push versus pull, agents) that make the exam questions easy.",
     "objectives": [
       "Explain configuration drift and the source of truth, and how templates and version control address them",
       "Classify Ansible, Terraform, Puppet and Chef as agent or agentless, push or pull, and declarative or procedural",
-      "Read an Ansible inventory and playbook and predict what a run will change",
-      "Describe the Terraform workflow of init, plan and apply and the roles of providers and state",
+      "Read an Ansible inventory and playbook, predict what a run will change, and use Ansible for facts, backups and compliance checks",
+      "Describe the Terraform workflow and the roles of providers and state, and choose between Terraform and Ansible for a task",
       "Define idempotence and explain why it makes automation safe to rerun"
     ],
     "sections": [
@@ -120,6 +160,25 @@
         }
       },
       {
+        "title": "Ansible beyond config pushes: facts, checks, backups and state",
+        "body": "Pushing lines is only part of what Ansible does on a network. The same playbooks take over the operational chores that eat an engineer's week.\n\n- **Gathering facts.** `cisco.ios.ios_facts` collects structured facts from each device, such as `ansible_net_hostname`, `ansible_net_version`, `ansible_net_model` and `ansible_net_serialnum`. A playbook can turn them into an inventory report or a list of switches still on old software.\n- **Running show commands.** `cisco.ios.ios_command` runs commands and returns their output. `register` saves the result in a variable for later tasks, and `wait_for` fails the task unless the output contains what you expect, which turns a show command into an automated test.\n- **Backups.** `ios_config` with `backup: true` saves each device's running-config on the control node. Like a change you type, anything Ansible pushes lands in the running-config only; add `save_when: modified` to copy running-config to startup-config whenever they differ, or the change disappears at the next reload.\n- **Compliance checks.** Run the standards playbook with `--check --diff` every night. Nothing changes, and every device that would receive a line is a device that has drifted.\n\n**Resource modules** such as `ios_vlans`, `ios_interfaces` and `ios_static_routes` work on structured data instead of raw CLI lines, and their `state` option says how your list relates to the device:\n\n- `merged`: add or update what you list and leave everything else alone (the default).\n- `replaced`: make each listed item match exactly, leaving unlisted items alone.\n- `overridden`: make the device match your list exactly, removing anything not in it.\n- `deleted`: remove what you list.\n- `gathered`: read the current configuration back as structured data, changing nothing.\n\n`overridden` is the most powerful and the most dangerous: run it with a list of two VLANs and every other VLAN you created on the switch is deleted. Try it with `--check --diff` first.",
+        "code": "# nightly.yml\n---\n- name: Nightly checks on branch switches\n  hosts: branch_switches\n  gather_facts: false\n  tasks:\n    - name: Collect structured facts\n      cisco.ios.ios_facts:\n        gather_subset: min\n\n    - name: Report switches on old software\n      ansible.builtin.debug:\n        msg: \"{{ inventory_hostname }} runs {{ ansible_net_version }}\"\n      when: ansible_net_version != \"17.9.4\"\n\n    - name: Back up the running-config to the control node\n      cisco.ios.ios_config:\n        backup: true\n\n    - name: Fail unless the uplink is trunking\n      cisco.ios.ios_command:\n        commands: show interfaces trunk\n        wait_for: result[0] contains Gi1/0/48\n      register: trunk_check\n\n    - name: Make the VLAN list match exactly (removes all others)\n      cisco.ios.ios_vlans:\n        config:\n          - vlan_id: 10\n            name: USERS\n          - vlan_id: 30\n            name: VOICE\n        state: overridden",
+        "language": "yaml",
+        "tip": "Start every new playbook read-only: facts, show commands and --check runs. Add changes once the reports look right.",
+        "pitfall": "Ansible changes the running-config, not the startup-config. Without save_when (or a copy running-config startup-config task), a reload quietly undoes the whole run.",
+        "check": {
+          "question": "Which module would you use to run `show interfaces trunk` and fail the task unless Gi1/0/48 appears in the output?",
+          "choices": [
+            "cisco.ios.ios_config with backup: true",
+            "cisco.ios.ios_vlans with state: gathered",
+            "cisco.ios.ios_command with wait_for",
+            "cisco.ios.ios_facts with gather_subset: min"
+          ],
+          "answer": 2,
+          "explanation": "ios_command runs operational commands, and wait_for makes the task fail unless its condition, such as result[0] contains Gi1/0/48, becomes true. ios_config changes configuration, ios_vlans manages VLANs, and ios_facts gathers facts."
+        }
+      },
+      {
         "title": "Reading YAML without getting bitten",
         "body": "Ansible playbooks, inventories and variables files, CI pipelines, Kubernetes manifests: YAML is everywhere in automation. Its rules are few but strict.\n\n- **Indentation is structure.** Nesting is shown with spaces, and **tabs are not allowed** for indentation. Siblings must line up exactly; one space off changes the meaning or breaks the file.\n- `key: value` makes a mapping (a dictionary, like a JSON object). The space after the colon is required.\n- `- item` makes a list entry (like a JSON array element). A list item can itself be a mapping, which is why playbooks are full of `- name: ...` lines.\n- `---` marks the start of a document, and `#` starts a comment. JSON has no comments; YAML does.\n- Strings usually need no quotes, but quote anything that could be misread: a value starting with `{` or `*`, one containing `: `, or one that looks like a number or boolean but must stay text.\n\nTwo classic traps:\n\n1. **Jinja2 at the start of a value.** `host: {{ ansible_host }}` fails, because YAML reads `{` as the start of an inline mapping. Write `host: \"{{ ansible_host }}\"`.\n2. **Accidental booleans and numbers.** The YAML parser Ansible uses follows YAML 1.1, where unquoted `yes`, `no`, `on` and `off` become booleans. A VLAN named `no` or a description of `off` turns into `false`, and a value like `10.10` turns into a number. Quote values that must stay strings.\n\nYAML and JSON describe the same kinds of data: mappings, lists, strings, numbers, booleans and null. YAML 1.2 is designed as a superset of JSON, so most JSON documents are also valid YAML, and converting between them is easy.",
         "code": "# YAML\n---\nhostname: br1-sw1\nlldp: true\nvlans:\n  - id: 10\n    name: USERS\n  - id: 30\n    name: VOICE\n\n# The same data as JSON\n{\"hostname\": \"br1-sw1\", \"lldp\": true,\n \"vlans\": [{\"id\": 10, \"name\": \"USERS\"}, {\"id\": 30, \"name\": \"VOICE\"}]}\n\n# Traps\nhost: {{ ansible_host }}      # error: { starts an inline mapping\nhost: \"{{ ansible_host }}\"    # correct\nname: no                      # parsed as the boolean false\nname: \"no\"                    # stays the text no",
@@ -140,7 +199,7 @@
       },
       {
         "title": "Terraform: declarative infrastructure through APIs",
-        "body": "A team needs a new cloud branch: a virtual network (VPC), subnets for users and servers, routes back to headquarters, and the same again in two other regions. They could click through a web console for an afternoon, or they can describe the end state in a file and let **Terraform** build it.\n\nTerraform, from HashiCorp, is an **infrastructure as code** tool for creating, changing and deleting infrastructure through APIs. It is **declarative** and **agentless**: you describe the resources that should exist in **HCL** (HashiCorp Configuration Language) in `.tf` files, and Terraform works out which API calls to make.\n\nThe key parts:\n\n- **Providers** are plugins that know how to talk to one platform's API: AWS, Azure and Google Cloud, and network platforms too. Cisco publishes providers for platforms such as ACI, IOS XE, Catalyst Center and Meraki.\n- **Resources** are the things you manage, each with a type and a name, such as `aws_vpc.branch`. When one resource refers to another (`aws_vpc.branch.id`), Terraform learns the dependency and creates them in the right order.\n- **State** (`terraform.tfstate`) is Terraform's record of what it manages and how that maps to real objects. It compares your files, the state and reality to decide what to do. State can contain secrets, so teams keep it in a protected remote backend rather than in Git.\n\nThe workflow:\n\n1. `terraform init` downloads the providers and prepares the working directory.\n2. `terraform plan` shows what must be added, changed or destroyed to make reality match the files. Nothing changes yet.\n3. `terraform apply` makes those changes, after showing the plan again and asking for confirmation.\n4. `terraform destroy` removes everything this configuration manages, when you are done with it.\n\nBecause Terraform is declarative, running `plan` again after a successful `apply` shows no changes. If someone edits a managed resource by hand, the next plan shows Terraform wanting to put it back, which is drift detection built in.\n\nWhere it fits: Terraform shines at provisioning and the lifecycle of infrastructure (create, change, destroy) through APIs. Ansible shines at configuring devices and running ordered operational tasks. Many teams use both: Terraform to build, Ansible to configure.",
+        "body": "A team needs a new cloud branch: a virtual network (VPC), subnets for users and servers, routes back to headquarters, and the same again in two other regions. They could click through a web console for an afternoon, or they can describe the end state in a file and let **Terraform** build it.\n\nTerraform, from HashiCorp, is an **infrastructure as code** tool for creating, changing and deleting infrastructure through APIs. It is **declarative** and **agentless**: you describe the resources that should exist in **HCL** (HashiCorp Configuration Language) in `.tf` files, and Terraform works out which API calls to make.\n\nThe key parts:\n\n- **Providers** are plugins that know how to talk to one platform's API: AWS, Azure and Google Cloud, and network platforms too. Cisco publishes providers for platforms such as ACI, IOS XE, Catalyst Center and Meraki.\n- **Resources** are the things you manage, each with a type and a name, such as `aws_vpc.branch`. When one resource refers to another (`aws_vpc.branch.id`), Terraform learns the dependency and creates them in the right order.\n- **State** (`terraform.tfstate`) is Terraform's record of what it manages and how that maps to real objects. It compares your files, the state and reality to decide what to do. State can contain secrets, so teams keep it in a protected remote backend rather than in Git, and the backend locks the state so two engineers cannot apply at the same moment.\n\nThe workflow:\n\n1. `terraform init` downloads the providers and prepares the working directory.\n2. `terraform plan` shows what must be added, changed or destroyed to make reality match the files. Nothing changes yet.\n3. `terraform apply` makes those changes, after showing the plan again and asking for confirmation.\n4. `terraform destroy` removes everything this configuration manages, when you are done with it.\n\nTwo helpers run before plan: `terraform fmt` tidies the formatting of the files, and `terraform validate` checks them for syntax errors and internal consistency.\n\nBecause Terraform is declarative, running `plan` again after a successful `apply` shows no changes. If someone edits a managed resource by hand, the next plan shows Terraform wanting to put it back, which is drift detection built in.\n\nWhere it fits: Terraform shines at provisioning and the lifecycle of infrastructure (create, change, destroy) through APIs. Ansible shines at configuring devices and running ordered operational tasks. Many teams use both: Terraform to build, Ansible to configure.",
         "code": "# main.tf\nterraform {\n  required_providers {\n    aws = {\n      source  = \"hashicorp/aws\"\n      version = \"~> 5.0\"\n    }\n  }\n}\n\nprovider \"aws\" {\n  region = \"us-east-1\"\n}\n\nresource \"aws_vpc\" \"branch\" {\n  cidr_block = \"10.20.0.0/16\"\n  tags       = { Name = \"branch-vpc\" }\n}\n\nresource \"aws_subnet\" \"users\" {\n  vpc_id     = aws_vpc.branch.id\n  cidr_block = \"10.20.1.0/24\"\n}\n\n$ terraform plan\n  # aws_subnet.users will be created\n  + resource \"aws_subnet\" \"users\" {\n      + cidr_block = \"10.20.1.0/24\"\n      + id         = (known after apply)\n      + vpc_id     = (known after apply)\n      ...\n    }\n\n  # aws_vpc.branch will be created\n  + resource \"aws_vpc\" \"branch\" {\n      + cidr_block = \"10.20.0.0/16\"\n      + id         = (known after apply)\n      ...\n    }\n\nPlan: 2 to add, 0 to change, 0 to destroy.",
         "language": "plaintext",
         "tip": "Read every plan before you apply it. `+` means create, `~` means update in place, `-` means destroy, and `-/+` means destroy and recreate.",
@@ -158,8 +217,27 @@
         }
       },
       {
+        "title": "Ansible or Terraform? Choosing, and using both",
+        "body": "The CCNA blueprint names exactly these two tools, and comparing them is a favorite question. Start from what each was built for.\n\n**Terraform** manages the lifecycle of infrastructure through APIs: create it, change it, destroy it. It is declarative, keeps a **state file** recording everything it manages, and computes a plan from the difference between your files, the state and reality. That makes it excellent at \"build these 40 cloud networks, and tear them down cleanly when the project ends\", and at holding long-lived infrastructure exactly as declared.\n\n**Ansible** runs ordered tasks against inventory hosts over SSH, NETCONF or APIs. It keeps no state file: each run checks the device as it is right now. That makes it excellent at configuring existing devices and at operational jobs that really are sequences, such as \"back up, upgrade, reload, verify\".\n\nVendors publish for both. Cisco's IOS XE provider for Terraform manages switch configuration as resources, talking to the device over NETCONF (so `netconf-yang` must be enabled), and there are Cisco providers for Catalyst Center, ACI and Meraki. The example declares one VLAN; `terraform plan` compares the switch with the declaration and proposes the change.\n\nNow delete that resource block. The next plan proposes destroying VLAN 30, because Terraform removes real objects it no longer manages. Delete the matching task from an Ansible playbook instead, and Ansible simply stops touching VLAN 30; whatever it built stays on the switch. That difference catches people out in both directions.\n\nMany teams use both: Terraform to provision cloud networks, virtual machines and controller objects, and Ansible to configure the devices and run operational playbooks, all from the same Git repository.",
+        "code": "# main.tf: one VLAN on a Catalyst switch, managed by Terraform\nterraform {\n  required_providers {\n    iosxe = {\n      source = \"CiscoDevNet/iosxe\"\n    }\n  }\n}\n\nprovider \"iosxe\" {\n  host = \"10.1.1.2\"   # credentials from IOSXE_USERNAME and IOSXE_PASSWORD\n}\n\nresource \"iosxe_vlan\" \"voice\" {\n  vlan_id = 30\n  name    = \"VOICE\"\n}\n\n$ terraform plan\n  # iosxe_vlan.voice will be created\n  + resource \"iosxe_vlan\" \"voice\" {\n      + id      = (known after apply)\n      + name    = \"VOICE\"\n      + vlan_id = 30\n    }\n\nPlan: 1 to add, 0 to change, 0 to destroy.\n\n                 Ansible                     Terraform\nBuilt for        Configuring and operating   Provisioning infrastructure\nStyle            Ordered tasks (procedural)  Declared end state\nState            None; checks devices live   State file of what it manages\nAgent            Agentless                   Agentless\nTalks over       SSH, NETCONF, REST APIs     Provider plugins calling APIs\nItem removed     Left as-is on the device    Destroyed on the next apply\nWritten in       YAML playbooks              HCL (.tf files)",
+        "language": "plaintext",
+        "tip": "Exam shortcut: Terraform means declarative, state file, providers, plan and apply. Ansible means agentless, push, YAML playbooks and ordered tasks.",
+        "pitfall": "Do not mix ownership. If Terraform and Ansible both manage the same VLAN or interface, each run undoes the other. Give every object one tool that owns it.",
+        "check": {
+          "question": "Which statement correctly compares Terraform and Ansible?",
+          "choices": [
+            "Terraform keeps a state file and plans creates, changes and destroys; Ansible runs ordered tasks and keeps no state file",
+            "Ansible keeps a state file; Terraform checks devices live on every run",
+            "Terraform needs an agent on each device; Ansible is agentless",
+            "Both are pull-based tools written in Ruby"
+          ],
+          "answer": 0,
+          "explanation": "Terraform compares configuration, state and reality to build a plan. Ansible connects and checks the live device each time, running tasks in order. Both are agentless, and neither is pull-based or written in Ruby (that describes Chef recipes)."
+        }
+      },
+      {
         "title": "Puppet, Chef and a GitOps workflow",
-        "body": "Puppet and Chef grew up automating servers. You will see them less often on network devices, but the exam expects you to recognize them.\n\n**Puppet** describes each node's desired state in **manifests**, written in Puppet's own declarative language and built from resources grouped into classes and modules. A **Puppet agent** on each managed node **pulls** its configuration from the Puppet server (historically called the Puppet master) on a schedule, every 30 minutes by default, and corrects any drift it finds. For network devices that cannot run the agent, Puppet can use a proxy agent on another host that manages the device over SSH or an API.\n\n**Chef** uses **recipes** written in a Ruby-based language, grouped into **cookbooks**, with a **run list** naming which recipes a node runs. The **chef-client** agent on each node **pulls** from the Chef server. Because many network operating systems cannot run that agent, Chef sees little use on network gear.\n\nChoosing a tool comes down to fit: Ansible for device configuration and operational tasks, agentless and quick to start; Terraform for provisioning infrastructure through APIs with a clear plan; Puppet or Chef where a company already runs them for its servers.\n\nWhatever the tool, the modern workflow looks the same, often called **GitOps** or **NetDevOps**:\n\n1. An engineer edits a template, variables file or `.tf` file on a Git branch.\n2. They open a pull request, and a teammate reviews the diff.\n3. A CI pipeline checks it automatically: linting, then `ansible-playbook --check --diff` or `terraform plan`, maybe tests against a lab.\n4. Once approved and merged, the pipeline applies the change for real, usually in a change window and to a few pilot devices first.\n5. The repository is now the record of what the network should be, and drift checks compare devices against it.",
+        "body": "The current CCNA blueprint names Ansible and Terraform. Puppet and Chef were named in the earlier version and still appear in study material and question banks, so know them well enough to recognize them.\n\nPuppet and Chef grew up automating servers. You will see them less often on network devices.\n\n**Puppet** describes each node's desired state in **manifests**, written in Puppet's own declarative language and built from resources grouped into classes and modules. A **Puppet agent** on each managed node **pulls** its configuration from the Puppet server (historically called the Puppet master) on a schedule, every 30 minutes by default, and corrects any drift it finds. For network devices that cannot run the agent, Puppet can use a proxy agent on another host that manages the device over SSH or an API.\n\n**Chef** uses **recipes** written in a Ruby-based language, grouped into **cookbooks**, with a **run list** naming which recipes a node runs. The **chef-client** agent on each node **pulls** from the Chef server. Because many network operating systems cannot run that agent, Chef sees little use on network gear.\n\nChoosing a tool comes down to fit: Ansible for device configuration and operational tasks, agentless and quick to start; Terraform for provisioning infrastructure through APIs with a clear plan; Puppet or Chef where a company already runs them for its servers.\n\nWhatever the tool, the modern workflow looks the same, often called **GitOps** or **NetDevOps**:\n\n1. An engineer edits a template, variables file or `.tf` file on a Git branch.\n2. They open a pull request, and a teammate reviews the diff.\n3. A CI pipeline checks it automatically: linting, then `ansible-playbook --check --diff` or `terraform plan`, maybe tests against a lab.\n4. Once approved and merged, the pipeline applies the change for real, usually in a change window and to a few pilot devices first.\n5. The repository is now the record of what the network should be, and drift checks compare devices against it.",
         "code": "engineer         Git repository            CI pipeline                  network\n--------         --------------            -----------                  -------\nedit vars  --->  pull request   --->  lint + --check or plan\n                 review + merge  <---  results posted on the PR\n                       |\n                       +----------->  apply to pilot devices   --->  5 switches\n                                      apply to the rest        --->  395 switches\n                                      scheduled drift checks   --->  all devices",
         "language": "plaintext",
         "tip": "Puppet: manifests and pull. Chef: recipes, cookbooks and pull. Both rely on an agent on the managed node.",
@@ -225,17 +303,41 @@
       {
         "term": "Terraform state",
         "definition": "Terraform's record of the resources it manages, used to compute plans."
+      },
+      {
+        "term": "Inventory",
+        "definition": "The Ansible file listing managed hosts, organized in groups, with connection variables."
+      },
+      {
+        "term": "Module",
+        "definition": "The unit of work an Ansible task calls, such as cisco.ios.ios_config or cisco.ios.ios_facts."
+      },
+      {
+        "term": "Check mode",
+        "definition": "An Ansible dry run (--check) that reports what would change without changing anything; with --diff it shows the lines."
+      },
+      {
+        "term": "Terraform provider",
+        "definition": "A plugin that translates Terraform resources into API calls for one platform, such as AWS, Meraki or IOS XE."
+      },
+      {
+        "term": "HCL",
+        "definition": "HashiCorp Configuration Language, the declarative language of Terraform .tf files."
+      },
+      {
+        "term": "Infrastructure as code",
+        "definition": "Defining and changing infrastructure through version-controlled files that tools apply, instead of by hand."
       }
     ],
     "summary": [
       "Configuration drift comes from manual one-off changes; a version-controlled source of truth plus automated enforcement fixes it.",
       "Templates (Jinja2) hold what devices share and variables (YAML) hold what differs, so one template change fixes every device.",
-      "Ansible is agentless and push-based, with YAML playbooks running tasks in order over SSH, NETCONF or APIs.",
-      "Terraform is declarative and agentless: HCL files, providers for each platform's API, a state file, and an init, plan, apply workflow.",
-      "Puppet (manifests) and Chef (recipes and cookbooks) use agents that pull their configuration from a server.",
-      "Idempotent automation can be rerun safely, and a run that changes nothing proves there is no drift."
+      "Ansible is agentless and push-based, with YAML playbooks running ordered tasks over SSH, NETCONF or APIs, and it also gathers facts, runs checks and takes backups.",
+      "Terraform is declarative and agentless: HCL files, providers for each platform's API, a locked state file, and an init, plan, apply workflow that destroys what you stop declaring.",
+      "Puppet (manifests) and Chef (recipes and cookbooks) use agents that pull their configuration from a server; the current blueprint names Ansible and Terraform.",
+      "Idempotent automation can be rerun safely, and a check run that would change nothing proves there is no drift."
     ],
-    "feynmanPrompt": "Explain to a teammate who configures switches by hand why the team should keep configurations in Git and push them with Ansible, and when Terraform would be the better tool. Use the words drift, idempotent, push and declarative."
+    "feynmanPrompt": "Explain to a teammate who configures switches by hand why the team should keep configurations in Git and push them with Ansible, and when Terraform would be the better tool. Use the words drift, idempotent, push, declarative and state."
   },
   "questions": [
     {
@@ -417,7 +519,7 @@
       "answer": 3,
       "explanation": "A plain value that begins with { is parsed as YAML flow mapping syntax. Writing backup_dir: \"{{ playbook_dir }}/backups\" makes it a string that Ansible fills in with Jinja2.",
       "concept": "quoting Jinja2 in YAML",
-      "section": 4
+      "section": 5
     },
     {
       "id": "ccna-config-management-q11",
@@ -435,7 +537,7 @@
       "answer": 1,
       "explanation": "Under YAML 1.1 rules, unquoted yes, no, on and off are booleans. The boolean false then gets turned back into the text False. Quoting the value keeps it a string.",
       "concept": "YAML boolean trap",
-      "section": 4
+      "section": 5
     },
     {
       "id": "ccna-config-management-q12",
@@ -482,7 +584,7 @@
       ],
       "explanation": "You declare the resources first, init downloads the providers, plan previews the changes, and apply makes them.",
       "concept": "Terraform workflow",
-      "section": 5
+      "section": 6
     },
     {
       "id": "ccna-config-management-q15",
@@ -500,7 +602,7 @@
       "answer": 1,
       "explanation": "~ marks an in-place update and - marks a destroy, matching the summary line: 1 to change, 1 to destroy. A replacement would be marked -/+, and plan never changes anything by itself.",
       "concept": "reading a plan",
-      "section": 5
+      "section": 6
     },
     {
       "id": "ccna-config-management-q16",
@@ -516,7 +618,7 @@
       "answer": 3,
       "explanation": "Terraform compares the configuration with the state and the real infrastructure to decide what to change. Without state it would not know which real objects it created.",
       "concept": "Terraform state",
-      "section": 5
+      "section": 6
     },
     {
       "id": "ccna-config-management-q17",
@@ -532,7 +634,7 @@
       "answer": 0,
       "explanation": "Providers translate resources into API calls for one platform, such as AWS, ACI or Meraki. Terraform itself is agentless.",
       "concept": "Terraform providers",
-      "section": 5
+      "section": 6
     },
     {
       "id": "ccna-config-management-q18",
@@ -548,7 +650,7 @@
       "answer": 2,
       "explanation": "Terraform refreshes its view of the real resource, sees it no longer matches the declared configuration, and plans to restore the declared state. The fix belongs in the .tf files.",
       "concept": "Terraform drift",
-      "section": 5
+      "section": 6
     },
     {
       "id": "ccna-config-management-q19",
@@ -559,7 +661,7 @@
       "answer": "terraform plan",
       "explanation": "terraform plan shows what would be added, changed or destroyed. terraform apply would actually make the changes.",
       "concept": "terraform plan",
-      "section": 5
+      "section": 6
     },
     {
       "id": "ccna-config-management-q20",
@@ -575,7 +677,7 @@
       "answer": 1,
       "explanation": "Puppet uses a pull model: the agent checks in with the Puppet server on a schedule (every 30 minutes by default), receives its desired state and corrects drift.",
       "concept": "Puppet pull model",
-      "section": 6
+      "section": 8
     },
     {
       "id": "ccna-config-management-q21",
@@ -591,7 +693,7 @@
       "answer": 3,
       "explanation": "Chef is agent-based and pull-based. Network devices generally cannot run the agent, which is why agentless Ansible dominates network configuration.",
       "concept": "Chef agent limits",
-      "section": 6
+      "section": 8
     },
     {
       "id": "ccna-config-management-q22",
@@ -661,7 +763,7 @@
       "answer": 1,
       "explanation": "Terraform manages the full lifecycle of API-driven infrastructure, including clean teardown. Ansible configures existing devices over SSH. Chef and Puppet are agent-based and pull, so the reasons in the other options are wrong.",
       "concept": "choosing a tool",
-      "section": 6
+      "section": 7
     },
     {
       "id": "ccna-config-management-q26",
@@ -678,7 +780,7 @@
       ],
       "explanation": "Changes start in the source of truth, are reviewed and tested automatically before merge, then roll out gradually so a mistake reaches only a few devices first.",
       "concept": "GitOps workflow",
-      "section": 6
+      "section": 8
     },
     {
       "id": "ccna-config-management-q27",
@@ -737,6 +839,263 @@
       "explanation": "The ordering of tasks is procedural, while state-based modules declare what should exist and make the change only when needed. That combination is why Ansible is described both ways.",
       "concept": "procedural vs declarative",
       "section": 2
+    },
+    {
+      "id": "ccna-config-management-q31",
+      "type": "mcq",
+      "difficulty": "hard",
+      "question": "Before this task runs, show vlan brief on the switch lists VLANs 1, 10, 20, 30 and 40. What happens to VLANs 20 and 40 when it runs?",
+      "code": "- name: Make the VLAN list match exactly\n  cisco.ios.ios_vlans:\n    config:\n      - vlan_id: 10\n        name: USERS\n      - vlan_id: 30\n        name: VOICE\n    state: overridden",
+      "language": "yaml",
+      "choices": [
+        "Nothing; Ansible only touches VLANs that are listed",
+        "They are renamed USERS and VOICE",
+        "The task fails because VLANs 20 and 40 are not in the list",
+        "They are deleted, because overridden makes the device match the list exactly"
+      ],
+      "answer": 3,
+      "explanation": "overridden replaces the whole VLAN configuration with the list, so VLANs you created that are not listed are removed. merged or replaced would leave 20 and 40 alone. Run overridden with --check --diff first.",
+      "concept": "state overridden",
+      "section": 4
+    },
+    {
+      "id": "ccna-config-management-q32",
+      "type": "match",
+      "difficulty": "medium",
+      "question": "Match each Ansible resource module state to what it does.",
+      "pairs": [
+        {
+          "left": "merged",
+          "right": "Add or update the listed items, leave the rest"
+        },
+        {
+          "left": "replaced",
+          "right": "Make each listed item match exactly, leave unlisted ones"
+        },
+        {
+          "left": "overridden",
+          "right": "Make the device match the list, removing everything else"
+        },
+        {
+          "left": "deleted",
+          "right": "Remove the listed items"
+        },
+        {
+          "left": "gathered",
+          "right": "Read current config as structured data, change nothing"
+        }
+      ],
+      "explanation": "The state says how your list relates to the device. merged is the default and the safest; overridden is the one that removes unlisted configuration.",
+      "concept": "resource module states",
+      "section": 4
+    },
+    {
+      "id": "ccna-config-management-q33",
+      "type": "mcq",
+      "difficulty": "easy",
+      "question": "Which module collects structured device facts such as the software version, model and serial number?",
+      "choices": [
+        "cisco.ios.ios_config",
+        "cisco.ios.ios_facts",
+        "cisco.ios.ios_vlans",
+        "cisco.ios.ios_banner"
+      ],
+      "answer": 1,
+      "explanation": "ios_facts returns facts such as ansible_net_version, ansible_net_model and ansible_net_serialnum for later tasks or reports. ios_config changes configuration lines, and ios_vlans and ios_banner manage specific features.",
+      "concept": "ios_facts",
+      "section": 4
+    },
+    {
+      "id": "ccna-config-management-q34",
+      "type": "mcq",
+      "difficulty": "hard",
+      "question": "A playbook added logging host 10.0.0.20 to 50 routers and reported changed on each. After a power outage, the line is missing on every router that reloaded. Why, and what fixes it?",
+      "choices": [
+        "Ansible changed only the running-config; add save_when: modified (or save the config) so it reaches startup-config",
+        "Ansible changes are temporary by design and must be pushed after every reload",
+        "The logging host line is invalid, so IOS dropped it",
+        "Ansible wrote to the startup-config, which a power outage erases"
+      ],
+      "answer": 0,
+      "explanation": "Like commands typed at the CLI, Ansible changes the running-config. Unless running-config is copied to startup-config, a reload loads the old startup-config. save_when: modified saves it whenever the two differ.",
+      "concept": "save_when",
+      "section": 4
+    },
+    {
+      "id": "ccna-config-management-q35",
+      "type": "mcq",
+      "difficulty": "medium",
+      "question": "A nightly job runs the standards playbook with --check --diff. This morning it shows changed for three switches. What does that mean?",
+      "choices": [
+        "Three switches were reconfigured overnight by Ansible",
+        "The playbook has a syntax error on three hosts",
+        "Nothing was changed; those three switches have drifted and a real run would correct them",
+        "Three switches were unreachable"
+      ],
+      "answer": 2,
+      "explanation": "Check mode reports what would change without changing anything, so a changed result marks a device that no longer matches the standard. Unreachable hosts and syntax errors are reported differently.",
+      "concept": "check mode compliance",
+      "section": 4
+    },
+    {
+      "id": "ccna-config-management-q36",
+      "type": "code-fill",
+      "difficulty": "medium",
+      "question": "Fill the blank so a later task can use the output of show version.",
+      "code": "- name: Get the version\n  cisco.ios.ios_command:\n    commands: show version\n  _____: version_output",
+      "language": "yaml",
+      "choices": [
+        "vars",
+        "register",
+        "save_when",
+        "backup"
+      ],
+      "answer": 1,
+      "explanation": "register stores a task's result, including stdout, in a variable for later tasks. vars defines variables, and save_when and backup are ios_config options, not task keywords.",
+      "concept": "register",
+      "section": 4
+    },
+    {
+      "id": "ccna-config-management-q37",
+      "type": "mcq",
+      "difficulty": "hard",
+      "question": "An engineer removes the VLAN 30 task from an Ansible playbook for SW1, and removes the VLAN 30 resource from a Terraform configuration that manages SW2. What happens on the next run of each?",
+      "choices": [
+        "Both tools delete VLAN 30",
+        "Neither tool changes VLAN 30",
+        "Ansible leaves VLAN 30 on SW1, while Terraform plans to destroy VLAN 30 on SW2",
+        "Ansible deletes VLAN 30 on SW1, while Terraform leaves it on SW2"
+      ],
+      "answer": 2,
+      "explanation": "Terraform tracks what it manages in its state file, so a resource that disappears from the files is planned for destruction. Ansible keeps no state: a removed task just stops running, and the VLAN it once created stays.",
+      "concept": "removing managed items",
+      "section": 7
+    },
+    {
+      "id": "ccna-config-management-q38",
+      "type": "multi",
+      "difficulty": "medium",
+      "question": "Which two are characteristics of Terraform but not of Ansible? Choose two.",
+      "choices": [
+        "It keeps a state file of the resources it manages",
+        "It shows a plan of creates, changes and destroys before applying",
+        "It is agentless",
+        "It is written as YAML playbooks",
+        "It connects to network devices over SSH with network_cli"
+      ],
+      "answers": [
+        0,
+        1
+      ],
+      "explanation": "State and plan are Terraform's signature features. Both tools are agentless, while YAML playbooks and the network_cli SSH connection belong to Ansible.",
+      "concept": "Terraform vs Ansible",
+      "section": 7
+    },
+    {
+      "id": "ccna-config-management-q39",
+      "type": "match",
+      "difficulty": "medium",
+      "question": "Match each requirement or description to the tool it fits.",
+      "pairs": [
+        {
+          "left": "Create 40 cloud networks and tear them down after the project",
+          "right": "Terraform"
+        },
+        {
+          "left": "Back up, upgrade and verify 200 switches in sequence",
+          "right": "Ansible"
+        },
+        {
+          "left": "An agent pulls its manifest from a server every 30 minutes",
+          "right": "Puppet"
+        },
+        {
+          "left": "Ruby-based recipes grouped in cookbooks",
+          "right": "Chef"
+        }
+      ],
+      "explanation": "Terraform owns infrastructure lifecycles, Ansible runs ordered operational tasks, Puppet agents pull manifests, and Chef runs recipes from cookbooks.",
+      "concept": "choosing a tool",
+      "section": 7
+    },
+    {
+      "id": "ccna-config-management-q40",
+      "type": "cli",
+      "shell": "bash",
+      "difficulty": "easy",
+      "question": "Type the Terraform command that checks the .tf files for syntax errors and internal consistency, before you run a plan.",
+      "answer": "terraform validate",
+      "explanation": "terraform validate catches mistakes such as a missing argument or a bad reference without planning any changes. terraform fmt only fixes formatting.",
+      "concept": "terraform validate",
+      "section": 6
+    },
+    {
+      "id": "ccna-config-management-q41",
+      "type": "cli",
+      "shell": "bash",
+      "difficulty": "medium",
+      "question": "Type the command that runs the playbook site.yml against the inventory file inventory.yml.",
+      "answer": "ansible-playbook -i inventory.yml site.yml",
+      "accept": [
+        "ansible-playbook site.yml -i inventory.yml",
+        "ansible-playbook --inventory inventory.yml site.yml",
+        "ansible-playbook site.yml --inventory inventory.yml",
+        "ansible-playbook --inventory=inventory.yml site.yml",
+        "ansible-playbook -i ./inventory.yml site.yml"
+      ],
+      "explanation": "ansible-playbook runs playbooks, and -i (or --inventory) names the inventory. Add --check --diff for a dry run, or --limit to target a subset of hosts.",
+      "concept": "running a playbook",
+      "section": 3
+    },
+    {
+      "id": "ccna-config-management-q42",
+      "type": "mcq",
+      "difficulty": "hard",
+      "question": "Two engineers run terraform apply on the same configuration at the same moment, each from a laptop holding its own local copy of the state file. What is the risk, and the usual fix?",
+      "choices": [
+        "No risk, because Terraform reads the real infrastructure and ignores state",
+        "The state copies diverge or get overwritten, so Terraform loses track of what it manages; use a shared remote backend with state locking",
+        "The providers download twice; run terraform init less often",
+        "The plan becomes procedural; switch to Ansible"
+      ],
+      "answer": 1,
+      "explanation": "Terraform relies on state to know which real objects it owns. Separate local copies and simultaneous applies can corrupt or contradict that record. A remote backend shares one state and locks it during an apply.",
+      "concept": "state locking",
+      "section": 6
+    },
+    {
+      "id": "ccna-config-management-q43",
+      "type": "mcq",
+      "difficulty": "medium",
+      "question": "How does Terraform manage the configuration of a Catalyst switch running IOS XE?",
+      "choices": [
+        "Through a provider plugin that calls the switch's programmable interface (NETCONF for the IOS XE provider), with no agent on the switch",
+        "Through a Terraform agent installed on the switch that pulls the state file",
+        "By typing CLI commands over Telnet",
+        "By sending SNMP set requests generated from YAML playbooks"
+      ],
+      "answer": 0,
+      "explanation": "Terraform is agentless and works through providers. Cisco's IOS XE provider uses NETCONF, so netconf-yang must be enabled on the switch. Agents that pull are Puppet and Chef, and YAML playbooks are Ansible.",
+      "concept": "Terraform providers for devices",
+      "section": 7
+    },
+    {
+      "id": "ccna-config-management-q44",
+      "type": "debug",
+      "difficulty": "hard",
+      "question": "ansible-playbook stops with a YAML syntax error on this play. What is the bug?",
+      "code": "- name: Add the camera VLAN\n  hosts: access_switches\n  gather_facts: false\n  tasks:\n    - name: Ensure VLAN 40 exists\n      cisco.ios.ios_vlans:\n        config:\n          - vlan_id: 40\n           name: CAMERAS\n        state: merged",
+      "language": "yaml",
+      "choices": [
+        "VLAN names must be quoted",
+        "name: CAMERAS is indented one space less than vlan_id, so it is not part of the same list item",
+        "state must come before config",
+        "Task names cannot contain numbers"
+      ],
+      "answer": 1,
+      "explanation": "Keys of the same mapping must start in the same column. name sits one column left of vlan_id, so the parser cannot place it and fails. Indent it to line up with vlan_id. Plain words like CAMERAS need no quotes, and key order does not matter.",
+      "concept": "YAML indentation",
+      "section": 5
     }
   ]
 }
