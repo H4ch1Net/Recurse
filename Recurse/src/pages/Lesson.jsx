@@ -191,12 +191,33 @@ export default function Lesson() {
     return () => observer.disconnect()
   }, [lesson])
 
-  // Deep links like #section-3 work once the lesson text has arrived.
+  // Deep links like #section-3 work once the lesson text has arrived. Activities above the
+  // target load lazily and grow, so the target is kept in view until they settle or the
+  // reader scrolls on their own.
   const lessonReady = Boolean(lesson)
   useEffect(() => {
     if (!location.hash || !lessonReady) return
-    const id = setTimeout(() => document.getElementById(location.hash.slice(1))?.scrollIntoView({ block: 'start' }), 60)
-    return () => clearTimeout(id)
+    const align = () => document.getElementById(location.hash.slice(1))?.scrollIntoView({ block: 'start' })
+    let settled = false
+    const release = () => {
+      settled = true
+    }
+    const observer = new ResizeObserver(() => {
+      if (!settled) align()
+    })
+    const start = setTimeout(() => {
+      align()
+      observer.observe(document.body)
+    }, 60)
+    const stop = setTimeout(release, 2500)
+    const inputs = ['wheel', 'touchstart', 'keydown', 'mousedown']
+    inputs.forEach((type) => window.addEventListener(type, release, { passive: true }))
+    return () => {
+      clearTimeout(start)
+      clearTimeout(stop)
+      observer.disconnect()
+      inputs.forEach((type) => window.removeEventListener(type, release))
+    }
   }, [location.hash, lessonReady])
 
   if (!pack) return <Navigate to="/library" replace />

@@ -89,8 +89,9 @@ export default defineConfig({
     __APP_VERSION__: JSON.stringify(version)
   },
   build: {
-    // The library chunk holds every pack's metadata and questions; lessons load per topic.
-    chunkSizeWarningLimit: 2600,
+    // The library chunk holds every pack's metadata and questions (about 760 kB gzipped), which
+    // scheduling needs up front; lessons and challenge statements load per topic.
+    chunkSizeWarningLimit: 3200,
     // Content, framework and app code change at different rates; separate chunks cache independently.
     rolldownOptions: {
       output: {

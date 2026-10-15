@@ -14,10 +14,10 @@ organized into paths that take you from zero to the CCNA or a software engineeri
 ![License: MIT](https://img.shields.io/badge/license-MIT-2843c4)
 ![React 19](https://img.shields.io/badge/React-19-149eca)
 ![Vite 8](https://img.shields.io/badge/Vite-8-646cff)
-![@@TOPICS@@ topics](https://img.shields.io/badge/topics-@@TOPICS@@-2843c4)
-![@@QUESTIONS@@ questions](https://img.shields.io/badge/questions-@@QUESTIONS@@-2843c4)
-![@@LABS@@ console labs](https://img.shields.io/badge/console%20labs-@@LABS@@-2843c4)
-![@@CHALLENGES@@ challenges](https://img.shields.io/badge/challenges-@@CHALLENGES@@-2843c4)
+![106 topics](https://img.shields.io/badge/topics-106-2843c4)
+![3,373 questions](https://img.shields.io/badge/questions-3373-2843c4)
+![30 console labs](https://img.shields.io/badge/console%20labs-30-2843c4)
+![87 challenges](https://img.shields.io/badge/challenges-87-2843c4)
 
 <img src="Recurse/docs/screenshots/today.png" alt="Recurse Today screen showing the daily plan, paths in progress and memory health" width="900" />
 
@@ -44,16 +44,16 @@ It runs entirely in the browser. There is no account and no tracking. Progress i
 | | |
 |---|---|
 | **Paths to a goal** | Six paths: CCNA 200-301, Software Engineering Internship, Computer Science Fundamentals, Web Development, Security Foundations and a Math Toolkit. Each has ordered stages, labs, challenge sets, projects and a readiness score. |
-| **@@TOPICS@@ topics, @@QUESTIONS@@ questions** | @@SUBJECTS@@ subjects. CCNA covers every item in the 200-301 v1.1 blueprint across 36 topics. SWE covers interview patterns, testing, debugging, databases, APIs, system design, résumés and interviews. |
-| **@@ACTIVITIES@@ interactive simulators** | Sorting, binary search, Big-O growth, BST, graph search, recursion trees, DP tables, logic gates, CPU scheduling, regex, HTTP, git, a Linux terminal, subnetting, the OSI model, TCP handshakes, MAC learning, STP elections, VLAN trunks, route lookup, ACLs, NAT, DHCP, IPv6 and OSPF cost, among others. They sit inside lessons and in the practice hub. |
-| **Cisco IOS console labs** | @@LABS@@ labs in a simulated IOS CLI with abbreviations, `?` help, tab completion, `show` output and multi-device topologies. Build VLANs, trunks, EtherChannel, OSPF, HSRP, NAT, ACLs, port security and more, and troubleshoot broken networks. Each lab is checked against its goals. |
-| **Coding challenges** | @@CHALLENGES@@ problems in @@CHALLENGE_SETS@@ sets that follow the patterns interviews use, solved in JavaScript or Python (Pyodide) against visible and hidden tests, with staged hints and a reference solution. |
+| **106 topics, 3,373 questions** | Eleven subjects. CCNA covers every item in the 200-301 v1.1 blueprint across 36 topics. SWE covers interview patterns, testing, debugging, databases, APIs, system design, résumés and interviews. |
+| **36 interactive simulators** | Sorting, binary search, Big-O growth, BST, graph search, recursion trees, DP tables, logic gates, CPU scheduling, regex, HTTP, git, a Linux terminal, subnetting, the OSI model, TCP handshakes, MAC learning, STP elections, VLAN trunks, route lookup, ACLs, NAT, DHCP, IPv6 and OSPF cost, among others. They sit inside lessons and in the practice hub. |
+| **Cisco IOS console labs** | 30 labs in a simulated IOS CLI with abbreviations, `?` help, tab completion, `show` output and multi-device topologies. Build VLANs, trunks, EtherChannel, OSPF, HSRP, NAT, ACLs, port security and more, and troubleshoot broken networks. Each lab is checked against its goals. |
+| **Coding challenges** | 87 problems in 15 sets that follow the patterns interviews use, solved in JavaScript or Python (Pyodide) against visible and hidden tests, with staged hints and a reference solution. |
 | **Nine question types** | Multiple choice, select all, put in order, match pairs, fill the blank, find the bug, type the answer, type the command (IOS, bash, git, SQL, Docker with abbreviation matching), and open recall. |
 | **Quizzes and exams** | A quiz gives feedback after each question. An exam is timed, lets you flag and jump between questions, and scores only at the end, weighted by the path's blueprint. Every answer feeds the review schedule. |
 | **Recall that keeps coming back** | Daily review mixes due cards from every topic. Pop quizzes drop earlier questions into sessions and lessons, lessons open with a warm-up on what you studied before, and Recall roulette pulls random questions from everything you have seen. Labs and challenges come due for a redo too. |
 | **Explain it (Feynman)** | Write a plain-language explanation for a chosen audience. Key terms light up as you use them. An AI tutor (with your own key) says what is right and what is missing, and asks a follow-up until you have it. Works offline with a self-check. |
 | **Ways to learn, measured** | A short quiz suggests an approach (hands-on first, see it first, test me first, teach it back, or balanced) and a 10-minute recall experiment measures which study method actually worked best for you. Recurse then tracks your recall by approach. |
-| **Portfolio and projects** | @@PROJECTS@@ guided projects with milestones (a CLI task manager, a REST API, a full stack app, a multi-site OSPF network, and more). Finished work, labs, challenges and exam scores collect on a portfolio page you can export as Markdown. |
+| **Portfolio and projects** | 12 guided projects with milestones (a CLI task manager, a REST API, a full stack app, a multi-site OSPF network, and more). Finished work, labs, challenges and exam scores collect on a portfolio page you can export as Markdown. |
 | **Feedback that feels good** | A short tone on each correct answer that climbs with your streak, particle bursts, combo counters, confetti on level-ups and finished sessions. Three effect levels, volume control, and full respect for reduced motion. |
 | **Themes and accents** | Ten themes (Paper, Ink, Midnight, Terminal, Nebula, Forest, Sakura, Solar, Ocean, High contrast) and ten accent colors plus a custom hue. |
 | **Built for daily use** | Keyboard shortcuts for everything, a mobile layout with a tab bar, installable PWA that works offline. |
@@ -61,7 +61,19 @@ It runs entirely in the browser. There is no account and no tracking. Progress i
 <details>
 <summary><b>All topics by subject</b></summary>
 
-@@TOPIC_TABLE@@
+| Subject | Topics |
+|---|---|
+| Programming (9) | Asynchronous JavaScript, Intermediate Python, JavaScript Basics, Loops and Functions, Object-Oriented Programming, Python Basics, SQL Basics, TypeScript Basics, Variables and Types |
+| Computer Science (8) | Algorithms, Big-O and Complexity, Computer Architecture, Data Structures, How Code Runs, Number Systems and Data Representation, Operating Systems, System Design 101 |
+| Software Engineering (28) | Arrays and Strings, Behavioral Interviews, Binary Search, Binary Trees and BSTs, Bit Manipulation, Clean Code, Concurrency and Async, Databases in Practice, Debugging, Design Patterns and SOLID, Dynamic Programming, Finding an Internship, Git in a Team, Graphs: BFS, DFS and Beyond, Greedy Algorithms and Intervals, Hash Maps and Sets, Heaps and Priority Queues, Linked Lists, Recursion and Backtracking, REST APIs in Practice, Resume, GitHub and Portfolio, Secure Coding for the Web, Sliding Window, Stacks and Queues, System Design Interviews, Technical Interview Playbook, Testing Your Code, Two Pointers |
+| Developer Tools (4) | Docker Basics, Git Basics, Linux Command Line, Regular Expressions |
+| Web (2) | How the Web Works, HTML & CSS |
+| Networking (37) | Access Control Lists, AI and Machine Learning in Network Operations, Automation and Controller-Based Networking, Cabling and Interface Errors, CDP and LLDP, Configuration Management: Ansible and Terraform, Device Access Security, Device Management Access, DHCP and DNS, EtherChannel, Ethernet Switching, First Hop Redundancy, Inter-VLAN Routing, IPv4 Addressing, IPv6 Addressing, Layer 2 Security, NAT and PAT, Network Components and Architectures, Networking Basics, NTP, SNMP and Syslog, OSI, TCP/IP, TCP and UDP, OSPF, Quality of Service (QoS), REST APIs and JSON, Routing Table and Forwarding, Security Concepts, Spanning Tree, SSH, TFTP and FTP, Static Routing, Subnetting, Trunking, Virtualization and Client IP Settings, VLANs, VPNs and IPsec, Wireless Architectures, Wireless Principles, Wireless Security |
+| Security (2) | Cryptography Basics, Cybersecurity 101 |
+| Mathematics (5) | Algebra Essentials, Calculus Foundations, Linear Algebra Basics, Logic & Discrete Math, Probability & Statistics |
+| Science (4) | Biology: Cells & Genetics, Chemistry Basics, Earth & Space Science, Physics: Mechanics |
+| Humanities (4) | Economics Basics, How Learning Works, Modern World History, World Geography |
+| Languages (3) | French Essentials, Japanese: Hiragana, Spanish Essentials |
 
 </details>
 
@@ -104,7 +116,7 @@ It runs entirely in the browser. There is no account and no tracking. Progress i
 
 | Path | Stages | What you finish with |
 |---|---|---|
-| **CCNA 200-301** | Network Fundamentals 20%, Network Access 20%, IP Connectivity 25%, IP Services 10%, Security Fundamentals 15%, Automation and Programmability 10% | Every blueprint topic, @@LABS@@ console labs, 4 network projects and a 100-question, 120-minute practice exam |
+| **CCNA 200-301** | Network Fundamentals 20%, Network Access 20%, IP Connectivity 25%, IP Services 10%, Security Fundamentals 15%, Automation and Programmability 10% | Every blueprint topic, 30 console labs, 4 network projects and a 100-question, 120-minute practice exam |
 | **Software Engineering Internship** | Programming foundations, tools of the trade, CS core, interview patterns I and II, building real software, systems and scale, getting hired | Pattern-by-pattern coding challenges, 8 portfolio projects, a résumé and an interview playbook |
 | **Computer Science Fundamentals** | The machine, systems, data structures and algorithms, math for computing, security | How a computer runs your code, from bits to processes |
 | **Web Development** | The front end, how the web works, the back end | HTML, CSS, JavaScript, HTTP, APIs and databases, with 2 projects |
