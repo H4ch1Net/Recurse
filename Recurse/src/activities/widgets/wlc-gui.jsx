@@ -393,7 +393,7 @@ function Lab({ scenario, onComplete }) {
             </nav>
           </div>
           <div className="wlc-body">
-            <nav className="wlc-sidenav" aria-label={`${menu.title} pages`}>
+            <nav className={`wlc-sidenav${menu.items.length === 1 ? ' single' : ''}`} aria-label={`${menu.title} pages`}>
               <span className="wlc-sidetitle">{menu.title}</span>
               {menu.items.map(([id, label]) => (
                 <button key={id} type="button" className={`wlc-sideitem${id === activeItem ? ' on' : ''}`} aria-current={id === activeItem ? 'page' : undefined} onClick={() => go({ page: id })}>
@@ -1487,7 +1487,7 @@ function TestClient({ cfg, defaults, onConnect }) {
         {mode === 'list' && !listValue && <option value="">{networks.length ? 'Choose a network' : 'No networks in range'}</option>}
         {networks.map((n) => (
           <option key={n.ssid} value={n.ssid}>
-            {n.ssid} ({n.security})
+            {n.ssid} ({n.security}{/^WPA3/.test(n.security) && !dev.wpa3 ? ', not supported here' : ''})
           </option>
         ))}
         <option value="__other">Other network: type the SSID</option>

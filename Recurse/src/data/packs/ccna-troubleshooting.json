@@ -1,0 +1,1324 @@
+{
+  "id": "ccna-troubleshooting",
+  "name": "Troubleshooting and Show Commands",
+  "version": "1.0.0",
+  "author": "Recurse",
+  "subject": "networking",
+  "level": "intermediate",
+  "description": "A troubleshooting method plus how to read ping, traceroute and the key show commands, layer by layer.",
+  "icon": "TS",
+  "language": "cisco",
+  "prereqs": [
+    "ccna-cabling-interfaces",
+    "ccna-vlans",
+    "ccna-trunking",
+    "ccna-routing-table",
+    "ccna-ospf",
+    "ccna-acls"
+  ],
+  "tags": [
+    "ccna",
+    "troubleshooting",
+    "show-commands",
+    "exhibits",
+    "ping",
+    "traceroute"
+  ],
+  "resources": [
+    {
+      "title": "Understand Ping and Traceroute Commands (Cisco)",
+      "url": "https://www.cisco.com/c/en/us/support/docs/ios-nx-os-software/ios-software-releases-121-mainline/12778-ping-traceroute.html",
+      "kind": "docs",
+      "note": "Every ping and traceroute output character, with worked failure examples."
+    },
+    {
+      "title": "Troubleshoot Switch Port and Interface Problems (Cisco)",
+      "url": "https://www.cisco.com/c/en/us/support/docs/switches/catalyst-6500-series-switches/12027-53.html",
+      "kind": "docs",
+      "note": "Interface states, error counters, duplex and err-disabled causes."
+    },
+    {
+      "title": "Cisco Packet Tracer",
+      "url": "https://www.netacad.com/cisco-packet-tracer",
+      "kind": "tool",
+      "note": "Free simulator: break a lab network on purpose and practice finding the fault."
+    },
+    {
+      "title": "Free CCNA 200-301 complete course (Jeremy's IT Lab)",
+      "url": "https://www.youtube.com/playlist?list=PLxbwE86jKRgMpuZuLBivzlM8s2Dk5lXBQ",
+      "kind": "video",
+      "note": "Free videos and labs with plenty of show command output."
+    },
+    {
+      "title": "Cisco Modeling Labs",
+      "url": "https://www.cisco.com/site/us/en/learn/training-certifications/training/modeling-labs/index.html",
+      "kind": "tool",
+      "note": "Real IOS images in a lab; Cisco offers a free tier to start."
+    },
+    {
+      "title": "CCNA 200-301 Official Cert Guide, Volume 1 (2nd edition)",
+      "url": "https://www.ciscopress.com/store/ccna-200-301-official-cert-guide-volume-1-9780138229634",
+      "kind": "book",
+      "note": "Odom's chapters on interfaces, VLANs and troubleshooting IPv4 routing."
+    }
+  ],
+  "lesson": {
+    "estimatedMinutes": 70,
+    "intro": "Most CCNA questions that show command output are troubleshooting questions in disguise: something is broken, and the clue sits in one line of the exhibit. This lesson gives you a method for isolating faults, then walks through ping, traceroute and the show commands that matter, layer by layer, with the fields to read first and the classic faults each one reveals. Six troubleshooting labs let you practice on a live console.",
+    "objectives": [
+      "Choose a troubleshooting method (bottom-up, top-down, divide and conquer, follow the path, compare configurations) that fits the symptoms",
+      "Interpret ping and traceroute output to locate where a path fails",
+      "Find Layer 1 and Layer 2 faults in interface, VLAN, trunk, CDP, spanning tree and EtherChannel output",
+      "Diagnose routing, OSPF, HSRP, NAT, DHCP, NTP, ACL and port security problems from show command exhibits"
+    ],
+    "sections": [
+      {
+        "title": "A method beats guessing",
+        "body": "A user reports that \"the network is down.\" Before you type a command, turn that into a precise problem: which host, which destination, what works, what does not, and since when. \"PC1 in VLAN 10 cannot reach the file server 10.2.2.50 but can reach its gateway\" already rules out half the network.\n\nThen choose a method that fits what you know:\n\n- **Bottom-up:** start at Layer 1 (cables, interface status) and climb. Best when you suspect something physical or the symptom is broad (\"nothing on this switch works\"). Thorough, but slow.\n- **Top-down:** start at the application and work down. Best when the lower layers clearly work (other applications are fine) and one service fails, such as DNS or an ACL blocking one port.\n- **Divide and conquer:** start in the middle, usually with a ping. If a ping to the destination IP works, Layers 1 to 3 are fine along that path, so move up; if it fails, move down. The fastest choice for most exam scenarios.\n- **Follow the path:** trace the packet hop by hop from source to destination (host, access switch, trunk, gateway, each router) and check each device's forwarding decision. traceroute does part of this for you.\n- **Compare configurations:** compare the broken device with a working one: the other end of a trunk, the HSRP peer, a branch built from the same template. Most CCNA faults are mismatches (VLAN, native VLAN, allowed list, OSPF area, mask, timers).\n\nWhatever the method, the loop is the same: gather information, form a hypothesis, test it with one change, verify that the original symptom is gone, and document what you changed. Change one thing at a time, or you will never know which change fixed it.\n\nIn exam simlets you may only get user EXEC mode (R1>), which means no show running-config. Learn the show commands that reveal configuration indirectly: show ip interface (ACLs and helper addresses), show ip protocols (OSPF networks), show interfaces switchport (VLAN settings). When you can see the configuration, filter it instead of scrolling: `| section` shows a parent line with all its children, `| include` shows only matching lines (without the interface they belong to), and `| begin` starts the output at the first match.",
+        "code": "R1# show running-config | section router ospf\nrouter ospf 1\n router-id 1.1.1.1\n network 10.0.0.0 0.0.0.3 area 0\n\nR1# show running-config interface g0/1\nBuilding configuration...\n\nCurrent configuration : 122 bytes\n!\ninterface GigabitEthernet0/1\n ip address 192.168.1.1 255.255.255.0\n ip access-group 10 out\n duplex auto\n speed auto\nend\n\nR1# show running-config | include helper|access-group\n ip helper-address 10.9.9.9\n ip access-group 10 out",
+        "language": "cisco",
+        "tip": "Output filters are case sensitive regular expressions: | include Helper finds nothing, | include helper finds the line, and helper|access-group matches either word.",
+        "pitfall": "Changing several settings at once. If the symptom disappears you do not know which change fixed it, and an unneeded change can cause the next outage. Make one change, then retest.",
+        "check": {
+          "question": "A ping from PC1 to the server's IP address works, but browsing to the server by name fails. Using divide and conquer, where do you look next?",
+          "choices": [
+            "Down the stack: cabling and interface counters on the access switch",
+            "Up the stack: the DNS settings and the application",
+            "The trunk between the access switch and the distribution switch",
+            "The default gateway's routing table"
+          ],
+          "answer": 1,
+          "explanation": "A working ping to the IP address proves Layers 1 to 3 along the path, so divide and conquer moves up: name resolution and the application. Rechecking cables or routes would retest what the ping already proved."
+        }
+      },
+      {
+        "title": "Ping and traceroute: reading the symbols",
+        "body": "Ping and traceroute test the data plane: whether packets are actually forwarded. An IOS ping sends five echo requests by default with a 2-second timeout and prints one character for each:\n\n- `!` an echo reply arrived.\n- `.` nothing came back before the timeout. The packet or its reply was dropped somewhere, in either direction.\n- `U` a router sent back an ICMP destination unreachable: it had no route, or an ACL rejected the packet.\n- `Q`, `M`, `?` and `&` are rare: source quench, could not fragment, unknown packet type and packet lifetime exceeded.\n\n`.!!!!` on a first attempt is normal: the first echo timed out while a router or host resolved a MAC address with ARP. `U.U.U` means a router is actively rejecting the packets and rate-limits its unreachable messages, so every other probe simply times out. A U is good news: the router that sent it is reachable, and it is the one with the missing route or the ACL.\n\nA router's ping uses the outgoing interface address as its source. A successful ping from R1 therefore does not prove that the routers can route back to the users' subnet, and it is not filtered by ACLs that match the users' addresses. An **extended ping** fixes that: type ping with no arguments and answer the prompts, or use `ping 10.2.2.50 source g0/1` to source the packets from the LAN interface. Pinging a host on the same LAN from its router proves the LAN works but not the host's default gateway setting, because the reply never leaves the subnet.\n\ntraceroute sends probes with TTL 1, then 2, then 3. Each router that drops a probe for TTL reports its address, so you see the path hop by hop. Read from the top: the last hop that answers is the last router known to forward, and the fault lies just after it. `*` means no answer to that probe. Codes such as `!H` (host unreachable), `!N` (network unreachable) and `!A` (administratively prohibited, usually an ACL) say why a router refused. In the exhibit, R2 (10.1.12.2) answers hop 1 and then rejects the hop 2 probes itself: R2 has no route to 10.3.3.0/24, so its routing table is the next thing to check. Windows uses tracert, and IOS traceroute sends UDP probes while Windows sends ICMP echoes, so an ACL can block one and not the other.",
+        "code": "R1# ping 10.3.3.10\nType escape sequence to abort.\nSending 5, 100-byte ICMP Echos to 10.3.3.10, timeout is 2 seconds:\nU.U.U\nSuccess rate is 0 percent (0/5)\n\nR1# traceroute 10.3.3.10\nType escape sequence to abort.\nTracing the route to 10.3.3.10\nVRF info: (vrf in name/id, vrf out name/id)\n  1 10.1.12.2 4 msec 4 msec 4 msec\n  2 10.1.12.2 !H  *  !H",
+        "language": "cisco",
+        "tip": "A row of periods tells you that something dropped the packets, not where. Follow up with traceroute, or ping each hop in turn, to find where the path stops.",
+        "pitfall": "Testing from the router with a standard ping and declaring the path good. The router sources from its outgoing interface, so the return route to the users' subnet and ACLs that match their addresses are never tested. Use an extended ping sourced from the LAN interface.",
+        "check": {
+          "question": "What does the ping result .!!!! usually mean on a first attempt?",
+          "choices": [
+            "One of the five links along the path is down",
+            "An ACL denies the first packet of every flow",
+            "The path works; the first echo timed out while ARP resolved a MAC address",
+            "The destination rate-limits replies after the first one"
+          ],
+          "answer": 2,
+          "explanation": "Four replies prove the path works in both directions. The first echo was lost while a device on the path waited for an ARP reply, which is why the same ping repeated shows !!!!!."
+        }
+      },
+      {
+        "title": "Layer 1: interface state and error counters",
+        "body": "Start a bottom-up check with the one-line-per-interface commands. On a router, `show ip interface brief` lists each IP address with two status columns: line status (Layer 1) and protocol status (Layer 2). On a switch, `show interfaces status` gives one word per port and adds the VLAN, duplex and speed.\n\n- **administratively down / down** = **disabled**: shutdown is configured.\n- **down / down** = **notconnect**: no cable, a bad cable, the far end is shut down or powered off, or a speed mismatch.\n- **up / down**: a Layer 2 problem, such as mismatched encapsulation on a serial link. Not expected on a switch's Ethernet port.\n- **down / down (err-disabled)** = **err-disabled**: port security, BPDU guard or an EtherChannel misconfiguration shut the port. Fix the cause, then shutdown and no shutdown.\n- **up / up** = **connected**: working, at least physically.\n\nA **speed mismatch** takes the link down. A **duplex mismatch** does not: the link shows connected and performs badly. In show interfaces status the a- prefix means the value was autonegotiated, so a-half on a gigabit-capable port is a warning sign. It is what happens when the neighbor has speed 100 and duplex full configured (autonegotiation off): this switch senses 100 Mbps and falls back to half duplex.\n\nThen read the counters in `show interfaces`:\n\n- **runts** (frames under 64 bytes) and **giants** (over 1518 bytes): bad frame sizes; runts often come from collisions.\n- **input errors**: a total that includes runts, giants, CRC errors and more.\n- **CRC**: frames whose FCS check failed. CRC errors rising while collisions stay at zero point to a bad cable or interference.\n- **collisions**: normal only on half-duplex links.\n- **late collision**: a collision after the first 64 bytes of a frame. Today this almost always means a duplex mismatch, counted on the half-duplex side.\n\nThe exhibit shows all of it: Gi0/1 is connected but running a-half, with collisions and late collisions climbing. Counters are cumulative since boot or the last clear counters, so one number says little. Clear the counters, wait, and look again to see whether they are still rising.",
+        "code": "SW1# show interfaces status\n\nPort      Name               Status       Vlan       Duplex  Speed Type\nGi0/1     Uplink to SW2      connected    trunk      a-half  a-100 10/100/1000BaseTX\nGi0/2                        notconnect   1            auto   auto 10/100/1000BaseTX\nGi0/3     Printer            err-disabled 10           auto   auto 10/100/1000BaseTX\nGi0/4                        disabled     1            auto   auto 10/100/1000BaseTX\n\nSW1# show interfaces g0/1 | include duplex|errors|collision\n  Half-duplex, 100Mb/s, media type is 10/100/1000BaseTX\n     0 input errors, 0 CRC, 0 frame, 0 overrun, 0 ignored\n     0 output errors, 1874 collisions, 2 interface resets\n     0 babbles, 431 late collision, 0 deferred",
+        "language": "cisco",
+        "tip": "show interfaces status says err-disabled; show interfaces shows the same port as down, line protocol is down (err-disabled). The log, show port-security interface or the spanning tree messages tell you which feature did it.",
+        "pitfall": "Trusting connected. Up/up only proves the link is physically alive; a duplex mismatch, CRC errors or the wrong access VLAN all hide behind a connected port.",
+        "check": {
+          "question": "In the exhibit, SW1 Gi0/1 shows connected, a-half and a-100, and its late collision counter keeps rising. What is the most likely cause?",
+          "choices": [
+            "A speed mismatch with SW2",
+            "Electrical interference on the cable",
+            "SW2 Gi0/1 is administratively down",
+            "A duplex mismatch: SW2 has speed and duplex set manually, so autonegotiation fails"
+          ],
+          "answer": 3,
+          "explanation": "Half duplex learned by autonegotiation on a gigabit port, plus late collisions, is the duplex mismatch signature. A speed mismatch would bring the link down (notconnect), and interference shows up as CRC errors without collisions."
+        }
+      },
+      {
+        "title": "Access ports: VLANs, switchport and the MAC table",
+        "body": "A host that is physically connected but cannot reach anything in its own subnet is usually in the wrong VLAN, or its VLAN does not exist. Three commands find it:\n\n- `show vlan brief` lists each VLAN, its status and its access ports. Trunk ports never appear here, so a missing uplink is normal. A VLAN shown as act/lshut (shut down) or suspended forwards nothing.\n- `show interfaces g0/5 switchport` shows Administrative Mode (what you configured), Operational Mode (what the port is actually doing), Access Mode VLAN and Voice VLAN. If the access VLAN does not exist on the switch, the line reads, for example, Access Mode VLAN: 30 (Inactive), and the port forwards nothing.\n- `show mac address-table` (optionally with `dynamic`, `interface` or `vlan`) shows which MAC addresses the switch has learned, in which VLAN and on which port. A host's MAC learned in the wrong VLAN confirms the fault; a MAC learned on a trunk port tells you the host sits behind another switch.\n\nIn the exhibit, Gi0/5 is an access port in VLAN 99 (PARKING) instead of VLAN 10 (SALES), and the MAC table agrees: PC5's MAC was learned in VLAN 99. The port is connected and the host is fine; it is simply isolated in the wrong broadcast domain. The fix is `switchport access vlan 10` on Gi0/5. The uplink Gi0/1 is missing from the list because it is a trunk.\n\nTwo more access-port traps. When you enter switchport access vlan 30 for a VLAN that does not exist, IOS creates the VLAN for you, but if someone later deletes VLAN 30 its ports go inactive and disappear from show vlan brief. And a voice port carries two VLANs: the access VLAN for the PC and the voice VLAN for the phone, so check both values in show interfaces switchport.",
+        "code": "SW1# show vlan brief\n\nVLAN Name                             Status    Ports\n---- -------------------------------- --------- -------------------------------\n1    default                          active    Gi0/2, Gi0/3, Gi0/4\n10   SALES                            active    Gi0/6, Gi0/7, Gi0/8\n20   ENG                              active    Gi0/9, Gi0/10\n99   PARKING                          active    Gi0/5\n1002 fddi-default                     act/unsup\n1003 token-ring-default               act/unsup\n1004 fddinet-default                  act/unsup\n1005 trnet-default                    act/unsup\n\nSW1# show mac address-table interface g0/5\n          Mac Address Table\n-------------------------------------------\n\nVlan    Mac Address       Type        Ports\n----    -----------       --------    -----\n  99    0050.7966.6805    DYNAMIC     Gi0/5\nTotal Mac Addresses for this criterion: 1",
+        "language": "cisco",
+        "tip": "Read Operational Mode, not Administrative Mode, in show interfaces switchport. The administrative value is what you asked for; the operational value is what you got.",
+        "pitfall": "Looking for the uplink in show vlan brief and concluding it is broken because it is missing. Trunks are listed by show interfaces trunk, not show vlan brief.",
+        "activity": {
+          "type": "ios-console",
+          "title": "Troubleshoot: PC in the wrong VLAN",
+          "prompt": "A connected port leaves its user isolated. Start with show vlan brief and show interfaces status, find the port in the wrong VLAN, and fix it without creating new VLANs.",
+          "props": {
+            "lab": "cl-d2-troubleshoot-vlan"
+          }
+        },
+        "check": {
+          "question": "A PC port appears in no VLAN in show vlan brief and is not a trunk. show interfaces g0/8 switchport shows Access Mode VLAN: 30 (Inactive). What is wrong?",
+          "choices": [
+            "VLAN 30 does not exist on this switch, so the port cannot forward",
+            "The port is operating as a trunk",
+            "VLAN 30 is configured as the native VLAN",
+            "Port security has err-disabled the port"
+          ],
+          "answer": 0,
+          "explanation": "Inactive means the access VLAN is not defined (or was deleted). Ports in a missing VLAN drop out of show vlan brief and forward nothing until you create the VLAN or assign an existing one."
+        }
+      },
+      {
+        "title": "Between switches: trunks, CDP and LLDP",
+        "body": "When hosts in the same VLAN cannot talk across two switches, check the link between them. `show interfaces trunk` lists only ports that are operationally trunking, followed by three VLAN lists that narrow step by step:\n\n- **List 1, Vlans allowed on trunk:** 1-4094 minus anything removed with switchport trunk allowed vlan.\n- **List 2, Vlans allowed and active in management domain:** list 1 minus VLANs that do not exist on this switch or are shut down.\n- **List 3, Vlans in spanning tree forwarding state and not pruned:** list 2 minus VLANs that STP blocks on this port (or that VTP pruned).\n\nA VLAN missing from list 1 was removed by configuration. Missing from list 2 means create or enable it on this switch. Missing only from list 3 is usually STP doing its job. Compare both ends: each switch must allow the VLAN and know it. In the exhibit, VLAN 10 was removed from the allowed list (1-9,11-4094), so VLAN 10 frames never cross Gi0/24.\n\nIf the link is absent from show interfaces trunk, it is not trunking. Check show interfaces switchport on both ends. Dynamic auto on both sides waits forever, so both run as access ports. Worse is one side set to trunk with switchport nonegotiate while the other side does not trunk: the link is up, native VLAN traffic crosses untagged, and every other VLAN is silently dropped.\n\nThe **native VLAN** must match on both ends. A mismatch merges two VLANs for untagged frames, and CDP reports it with the %CDP-4-NATIVE_VLAN_MISMATCH message at the top of the exhibit: SW1 uses VLAN 1, SW2 uses VLAN 99.\n\nCDP and LLDP tell you who is really on the other end, so you can confirm the cabling matches the diagram before you trust either. In `show cdp neighbors detail`, **Interface** is your local port and **Port ID (outgoing port)** is the neighbor's port; the output also shows the neighbor's IP address, platform, IOS version and native VLAN. `show lldp neighbors detail` shows the same idea as Local Intf and Port id. CDP is on by default on Cisco devices; LLDP needs lldp run.",
+        "code": "%CDP-4-NATIVE_VLAN_MISMATCH: Native VLAN mismatch discovered on GigabitEthernet0/24 (1), with SW2 GigabitEthernet0/24 (99).\n\nSW1# show interfaces trunk\n\nPort        Mode             Encapsulation  Status        Native vlan\nGi0/24      on               802.1q         trunking      1\n\nPort        Vlans allowed on trunk\nGi0/24      1-9,11-4094\n\nPort        Vlans allowed and active in management domain\nGi0/24      1,20,30\n\nPort        Vlans in spanning tree forwarding state and not pruned\nGi0/24      1,20,30",
+        "language": "cisco",
+        "tip": "switchport trunk allowed vlan add 10 adds one VLAN. switchport trunk allowed vlan 10 replaces the whole list and can cut every other VLAN off the trunk.",
+        "pitfall": "Reading Interface in show cdp neighbors detail as the neighbor's port. Interface is yours; Port ID (outgoing port) belongs to the neighbor.",
+        "activity": {
+          "type": "ios-console",
+          "title": "Troubleshoot: VLAN 10 cannot cross the trunk",
+          "prompt": "The trunk is up, VLAN 20 works and VLAN 10 does not, and CDP keeps complaining. Use show interfaces trunk and show cdp neighbors detail to find both faults, then fix them without removing VLANs 20 or 99.",
+          "props": {
+            "lab": "cl-ts-trunk"
+          }
+        },
+        "check": {
+          "question": "VLAN 30 appears in the first and second VLAN lists of show interfaces trunk for Gi0/24, but not in the third. What is the most likely reason?",
+          "choices": [
+            "VLAN 30 was removed from the allowed list",
+            "Spanning tree is blocking VLAN 30 on Gi0/24",
+            "VLAN 30 does not exist on this switch",
+            "Gi0/24 is not trunking"
+          ],
+          "answer": 1,
+          "explanation": "Being in list 2 proves the VLAN is allowed, exists and is active. The third list removes VLANs in an STP blocking state (or VTP pruned), so STP is the likely reason, and that may be exactly what the design intends."
+        }
+      },
+      {
+        "title": "Spanning tree and EtherChannel",
+        "body": "STP rarely fails outright. Usually it works, just not as designed: the wrong switch is root, or traffic takes a longer path because a port you expected to forward is blocking. Read `show spanning-tree vlan 10` in two halves. The top shows the **Root ID** (the root bridge's priority and MAC, plus this switch's cost and root port toward it) and the **Bridge ID** (this switch). If they are the same, the output says This bridge is the root instead of a cost and port. The bottom lists each port's role (Root, Desg, Altn, Back), state (FWD, BLK, LRN), cost and type; P2p Edge marks a PortFast port.\n\nTo find the root across several switches, rule out every switch that has a root port (the root has none) and chase root ports: each root port points one hop closer to the root, and CDP tells you which switch is on the other end.\n\nThe protection features leave fingerprints:\n\n- **BPDU guard** err-disables a PortFast port that receives a BPDU. The port shows err-disabled and the log shows %SPANTREE-2-BLOCK_BPDUGUARD. Remove the cause, then shutdown and no shutdown.\n- **Root guard** puts a port that receives superior BPDUs into a root-inconsistent state, shown as BKN* and *ROOT_Inc, and lets it recover by itself when those BPDUs stop.\n- **Loop guard** puts a nondesignated port that stops receiving BPDUs into a loop-inconsistent state (*LOOP_Inc) instead of letting it start forwarding.\n\nFor EtherChannel, read `show etherchannel summary`. Each member port carries a flag: **P** bundled (good), **I** stand-alone (it did not negotiate with the other end), **s** suspended (its settings do not match the other members), **D** down. The port-channel itself shows SU for a working Layer 2 bundle (RU for Layer 3) and SD when it is down. Members must match in speed, duplex, access VLAN or trunk settings (mode, allowed list, native VLAN). The two ends must use compatible modes: active with active or passive (LACP), desirable with desirable or auto (PAgP), on only with on. Passive with passive and auto with auto never form a channel. Mode on facing LACP or PAgP is worse than no channel at all: the switch detects the risk of a loop, logs %SPANTREE-2-CHNL_MISCFG and err-disables the ports. In the exhibit, Po1 works on Gi0/23 alone, and Gi0/24 is suspended until its configuration matches.",
+        "code": "SW3# show spanning-tree vlan 10\n\nVLAN0010\n  Spanning tree enabled protocol rstp\n  Root ID    Priority    24586\n             Address     0019.e859.5380\n             Cost        4\n             Port        1 (GigabitEthernet0/1)\n             Hello Time   2 sec  Max Age 20 sec  Forward Delay 15 sec\n\n  Bridge ID  Priority    32778  (priority 32768 sys-id-ext 10)\n             Address     0019.e86a.6f80\n             Hello Time   2 sec  Max Age 20 sec  Forward Delay 15 sec\n             Aging Time  300 sec\n\nInterface           Role Sts Cost      Prio.Nbr Type\n------------------- ---- --- --------- -------- --------------------------------\nGi0/1               Root FWD 4         128.1    P2p\nGi0/2               Altn BLK 4         128.2    P2p\nGi0/3               Desg FWD 4         128.3    P2p Edge\nPo1                 Desg FWD 3         128.64   P2p\n\nSW3# show etherchannel summary | begin Group\nGroup  Port-channel  Protocol    Ports\n------+-------------+-----------+-----------------------------------------------\n1      Po1(SU)         LACP      Gi0/23(P)   Gi0/24(s)",
+        "language": "cisco",
+        "tip": "In the Root ID block, Cost and Port appear only on non-root switches. If you see This bridge is the root instead, you are logged in to the root.",
+        "pitfall": "Reading the Bridge ID priority as the root's priority. The top block (Root ID) describes the root bridge; the second block (Bridge ID) describes the switch you are logged in to.",
+        "activity": {
+          "type": "ios-console",
+          "title": "Troubleshoot: EtherChannel will not bundle",
+          "prompt": "Both links to SW2 are err-disabled and Po1 is down. Use show etherchannel summary and show interfaces status err-disabled to find the two faults, fix them, and bring both links into Po1 as (P).",
+          "props": {
+            "lab": "cl-ts-etherchannel"
+          }
+        },
+        "check": {
+          "question": "In the exhibit, Po1 shows (SU), Gi0/23 shows (P) and Gi0/24 shows (s). What does that mean?",
+          "choices": [
+            "Both ports are bundled and Gi0/24 is an LACP hot-standby link",
+            "The EtherChannel is down and both ports run as separate links",
+            "Gi0/24 is suspended because its settings do not match; Po1 runs on Gi0/23 only",
+            "Gi0/24 has been converted to a Layer 3 port"
+          ],
+          "answer": 2,
+          "explanation": "P means bundled and s means suspended, which IOS does when a member port's configuration differs from the channel (for example a different allowed VLAN list). SU says Po1 is a working Layer 2 channel. Hot-standby would show H."
+        }
+      },
+      {
+        "title": "Layer 3: the routing table and default gateways",
+        "body": "When two hosts in different subnets cannot talk, check the three things every routed packet needs: a correct address, mask and default gateway on the host; a route toward the destination on every router in the path; and a route back.\n\nStart on the host: ipconfig on Windows, ifconfig or ip addr on macOS and Linux. A gateway that is not in the host's own subnet, a wrong mask, or a 169.254.x.x address (no answer from DHCP) explains most single-host failures.\n\nThen read `show ip route` on each router. For each line, read the code (C connected, L local, S static, O OSPF, an asterisk for a candidate default), the prefix and mask, [administrative distance/metric], the next hop and the outgoing interface. The router uses the **longest prefix match**: in the exhibit, a packet to 10.2.2.10 matches both 10.2.2.0/24 (OSPF) and 10.2.2.0/26 (static), and the /26 wins because it is more specific, not because of its AD. A packet to 10.2.2.100 matches only the /24 and goes via 10.1.12.2. AD only breaks ties between routes to the identical prefix. Gateway of last resort is not set means there is no default route, so R1 drops packets to unknown destinations and sends back U.\n\nConnected routes exist only while their interface is up/up, so a down interface removes its subnet and any static route whose next hop was reached through it. A floating static route (a higher AD than the primary) appears only when the primary route disappears; give it the same AD by mistake and the router load-shares across both. Alternating ping results such as !.!.! often mean exactly that: traffic is shared across two paths and only one of them works.\n\nFor router-on-a-stick, check that each subinterface's encapsulation dot1q tag matches its VLAN and that the switch port facing the router is a trunk carrying those VLANs. A wrong tag looks perfect in show ip interface brief (up/up with the right address), yet that VLAN's hosts cannot reach their gateway.",
+        "code": "R1# show ip route\nCodes: L - local, C - connected, S - static, R - RIP, M - mobile, B - BGP\n       D - EIGRP, EX - EIGRP external, O - OSPF, IA - OSPF inter area\n! lines omitted for brevity\n\nGateway of last resort is not set\n\n      10.0.0.0/8 is variably subnetted, 6 subnets, 4 masks\nC        10.1.12.0/30 is directly connected, GigabitEthernet0/0\nL        10.1.12.1/32 is directly connected, GigabitEthernet0/0\nC        10.1.13.0/30 is directly connected, GigabitEthernet0/2\nL        10.1.13.1/32 is directly connected, GigabitEthernet0/2\nO        10.2.2.0/24 [110/2] via 10.1.12.2, 00:14:07, GigabitEthernet0/0\nS        10.2.2.0/26 [1/0] via 10.1.13.3\n      192.168.1.0/24 is variably subnetted, 2 subnets, 2 masks\nC        192.168.1.0/24 is directly connected, GigabitEthernet0/1\nL        192.168.1.1/32 is directly connected, GigabitEthernet0/1",
+        "language": "cisco",
+        "tip": "For each router on the path ask two questions: is there a route to the destination, and does the next router have a route back? A missing return route makes pings time out (.....) rather than return U.",
+        "pitfall": "Picking the route with the lowest AD before checking prefix length. Longest prefix match comes first; AD only compares routes to exactly the same prefix.",
+        "activity": {
+          "type": "ios-console",
+          "title": "Troubleshoot: static routes on a transit router",
+          "prompt": "Three static routing faults on R2 break traffic in three different ways. Read show ip route static closely, including every next hop and distance, fix all three, and prove it with pings.",
+          "props": {
+            "lab": "cl-ts-static"
+          }
+        },
+        "check": {
+          "question": "Using the exhibit, which route does R1 use for a packet to 10.2.2.100?",
+          "choices": [
+            "S 10.2.2.0/26 via 10.1.13.3",
+            "None, so the packet is dropped",
+            "Both routes, load balanced",
+            "O 10.2.2.0/24 via 10.1.12.2"
+          ],
+          "answer": 3,
+          "explanation": "10.2.2.0/26 covers 10.2.2.0 to 10.2.2.63, so 10.2.2.100 does not match it. The only matching route is the OSPF /24 via 10.1.12.2."
+        }
+      },
+      {
+        "title": "OSPF neighbors and HSRP",
+        "body": "OSPF problems fall into two buckets, and the show commands tell you which one you have. If `show ip ospf neighbor` is missing a router you expected, the adjacency failed. If the neighbor is FULL but a subnet is missing from show ip route, the adjacency is fine and that subnet is not being advertised.\n\nFor a missing neighbor, compare both routers' `show ip ospf interface` output. The interfaces must be up/up, in the same subnet and area, with matching hello and dead timers, matching authentication and network type, and not passive. Router IDs must be unique (a duplicate logs %OSPF-4-DUP_RTRID_NBR). A neighbor stuck in EXSTART or EXCHANGE usually has a different interface MTU. On a broadcast segment, 2WAY/DROTHER between two DROTHERs is normal: routers only go FULL with the DR and BDR.\n\nIn the exhibit R1 is a DROTHER: FULL with the BDR, 2WAY with the other DROTHER (fine), and stuck in EXSTART with the DR, 4.4.4.4. The hello checks passed, or the neighbor would not be listed at all, so compare the MTU on the two interfaces.\n\nFor a missing subnet, check `show ip protocols` (Routing for Networks) or `show ip ospf interface brief`: the LAN interface must be in OSPF. Passive is fine for a LAN, because a passive interface still advertises its subnet.\n\n**HSRP** gives hosts one virtual gateway shared by two routers. `show standby brief` lists each group's priority, a P if preemption is configured, the state, the active and standby routers and the virtual IP. Healthy output has one Active and one Standby, with the same group number and virtual IP on both routers. Both routers Active, with Standby unknown, means they cannot hear each other's hellos (a Layer 2 problem between them, or mismatched group numbers). If the higher-priority router is back up but not Active, preemption is missing on it.",
+        "code": "R1# show ip ospf neighbor\n\nNeighbor ID     Pri   State           Dead Time   Address         Interface\n2.2.2.2           1   FULL/BDR        00:00:36    10.1.1.2        GigabitEthernet0/0\n3.3.3.3           1   2WAY/DROTHER    00:00:33    10.1.1.3        GigabitEthernet0/0\n4.4.4.4           1   EXSTART/DR      00:00:38    10.1.1.4        GigabitEthernet0/0\n\nR1# show standby brief\n                     P indicates configured to preempt.\n                     |\nInterface   Grp  Pri P State   Active          Standby         Virtual IP\nGi0/1       10   110 P Active  local           192.168.1.3     192.168.1.254",
+        "language": "cisco",
+        "tip": "Neighbor ID is the neighbor's router ID; Address is its interface IP on the shared link. Exhibit questions often swap the two in the answer choices.",
+        "pitfall": "Treating 2WAY/DROTHER as a broken adjacency. On a LAN with a DR and BDR, DROTHERs stay in 2WAY with each other by design.",
+        "activity": {
+          "type": "ios-console",
+          "title": "Troubleshoot: OSPF is not advertising the LAN",
+          "prompt": "R1 is FULL with R2, yet R2 never learns R1's LAN. Use show ip protocols and show ip ospf interface brief to see what OSPF covers, then add what is missing without breaking the adjacency.",
+          "props": {
+            "lab": "cl-ts-ospf"
+          }
+        },
+        "check": {
+          "question": "In the exhibit, why is neighbor 4.4.4.4 most likely stuck in EXSTART?",
+          "choices": [
+            "Its interface MTU does not match R1's",
+            "Its hello timer does not match R1's",
+            "It is in a different OSPF area",
+            "Its router ID duplicates R1's"
+          ],
+          "answer": 0,
+          "explanation": "Hello timer and area mismatches stop the neighbor from appearing at all, because the hellos are rejected. A neighbor that reached EXSTART passed the hello checks and is stuck exchanging database descriptions, which is the classic MTU mismatch symptom."
+        }
+      },
+      {
+        "title": "IP services: NAT, DHCP and NTP",
+        "body": "**NAT.** `show ip nat translations` lists the inside local address (the private address of the inside host), the inside global address (what it is translated to), and the outside addresses. With PAT, many inside local addresses share one inside global address and are told apart by port numbers, as in the exhibit. An empty table while users are sending traffic means NAT is not matching. Check `show ip nat statistics` for the inside and outside interfaces (swapped ip nat inside and ip nat outside is a classic), confirm that the ACL in ip nat inside source list permits the inside subnet (its match counters help), and confirm overload is present when one address must serve many hosts. A dynamic pool without overload runs out once every address is in use: the first hosts keep working and new ones fail.\n\n**DHCP.** A client showing 169.254.x.x never got an answer. If the server is on another subnet, the router interface facing the clients needs `ip helper-address` pointing to the server; show ip interface shows it as Helper address is. On an IOS DHCP server, `show ip dhcp binding` lists the leases (address, client ID or MAC, expiry), `show ip dhcp pool` shows how many addresses are in use, and `show ip dhcp conflict` lists addresses the server found already taken. Forgetting ip dhcp excluded-address for the router and server addresses causes those conflicts.\n\n**NTP.** `show ntp status` says Clock is synchronized, with the stratum and the reference, or Clock is unsynchronized. `show ntp associations` lists the configured servers: an asterisk marks the one in use (sys.peer), a tilde marks a configured server, and reach shows recent replies as an octal bit map (377 means the last eight polls were all answered, 0 means none). In the exhibit, R1 is unsynchronized and reach is 0: it has never heard from 10.9.9.123, so check routing, ACLs and the server address. Synchronizing also takes a few minutes after configuration, so wait before you call it broken.",
+        "code": "R1# show ip nat translations\nPro Inside global         Inside local          Outside local         Outside global\ntcp 203.0.113.2:51000     192.168.1.10:51000    93.184.216.34:443     93.184.216.34:443\ntcp 203.0.113.2:51001     192.168.1.11:51001    93.184.216.34:443     93.184.216.34:443\nudp 203.0.113.2:1024      192.168.1.12:53211    8.8.8.8:53            8.8.8.8:53\n\nR1# show ntp status\nClock is unsynchronized, stratum 16, no reference clock\n\nR1# show ntp associations\n\n  address         ref clock       st   when   poll reach  delay  offset   disp\n ~10.9.9.123      .INIT.          16      -     64     0  0.000   0.000 15937.\n * sys.peer, # selected, + candidate, - outlyer, x falseticker, ~ configured",
+        "language": "cisco",
+        "tip": "Inside local and inside global are the same inside host before and after translation: local is the address used inside the network, global is the address the outside world sees.",
+        "pitfall": "Configuring ip helper-address on the interface facing the DHCP server. It belongs on the interface that receives the clients' broadcasts, the one facing the clients.",
+        "activity": {
+          "type": "ios-console",
+          "title": "Troubleshoot: NAT is translating nothing",
+          "prompt": "PAT is configured, the default route is there, and the translation table stays empty. Use show ip nat statistics to see which interface IOS treats as inside, fix it, and watch translations appear.",
+          "props": {
+            "lab": "cl-ts-nat"
+          }
+        },
+        "check": {
+          "question": "In the exhibit, what is the inside local address of the host whose DNS query was translated?",
+          "choices": [
+            "203.0.113.2",
+            "8.8.8.8",
+            "192.168.1.12",
+            "192.168.1.1"
+          ],
+          "answer": 2,
+          "explanation": "The UDP entry to 8.8.8.8 port 53 is the DNS query. Its inside local column shows the host's private address, 192.168.1.12; 203.0.113.2 is the shared inside global address, and 8.8.8.8 is the outside server."
+        }
+      },
+      {
+        "title": "Filters: ACLs and port security",
+        "body": "When pings and routes look right but specific traffic still fails, suspect a filter.\n\nFor **ACLs**, work in three steps. First find where ACLs are applied and in which direction: show ip interface lists Outgoing access list and Inbound access list for each interface, which works even when you cannot see the configuration. Then read the ACL with `show access-lists`, top to bottom: the first match wins, and an invisible deny any ends every ACL. Finally use the match counters: send test traffic and see which line's counter climbs. A line that should match but never increments means an earlier line catches the traffic, or the traffic never reaches this router.\n\nIn the exhibit, ACL 101 filters traffic arriving on R2 G0/0. Hosts in 10.1.1.0/24 can reach the web server 10.2.2.50 on port 80 (line 10), everything else they send is denied (line 20), OSPF is allowed (line 30), and traffic from any other subnet hits the implicit deny.\n\nCommon ACL faults: a deny-only ACL (the implicit deny blocks everything else), lines in the wrong order (a broad permit before a specific deny), source and destination reversed for the direction, a standard ACL placed near the source so it blocks more than intended, and an inbound ACL on a router link that also drops OSPF hellos.\n\nFor **port security**, `show port-security interface` tells the story: Port Status (Secure-up, or Secure-shutdown when the port is err-disabled), Violation Mode, Maximum MAC Addresses, the Last Source Address:Vlan that caused the violation, and the Security Violation Count. In shutdown mode a violation err-disables the port: remove the cause (or raise the maximum), then shutdown and no shutdown. In restrict mode the port stays up and drops, logs and counts the offending frames. Protect mode drops them silently without counting, which makes it the hardest to spot.",
+        "code": "R2# show ip interface g0/0\nGigabitEthernet0/0 is up, line protocol is up\n  Internet address is 10.1.12.2/30\n! lines omitted for brevity\n  Outgoing access list is not set\n  Inbound  access list is 101\n\nR2# show access-lists\nExtended IP access list 101\n    10 permit tcp 10.1.1.0 0.0.0.255 host 10.2.2.50 eq www (214 matches)\n    20 deny ip 10.1.1.0 0.0.0.255 any (37 matches)\n    30 permit ospf any any (1290 matches)\n\nSW1# show port-security interface g0/3\nPort Security              : Enabled\nPort Status                : Secure-shutdown\nViolation Mode             : Shutdown\nAging Time                 : 0 mins\nAging Type                 : Absolute\nSecureStatic Address Aging : Disabled\nMaximum MAC Addresses      : 1\nTotal MAC Addresses        : 1\nConfigured MAC Addresses   : 0\nSticky MAC Addresses       : 1\nLast Source Address:Vlan   : 0050.7966.6812:10\nSecurity Violation Count   : 1",
+        "language": "cisco",
+        "tip": "While troubleshooting, add an explicit deny ip any any at the end of an ACL. It behaves like the implicit deny but has a match counter, so you can see what is being dropped.",
+        "pitfall": "Looking only at Port Status. In restrict and protect modes it stays Secure-up while frames are dropped, so check the violation count (restrict) or which MAC addresses were learned (protect) as well.",
+        "activity": {
+          "type": "ios-console",
+          "title": "Troubleshoot: an ACL is blocking everything",
+          "prompt": "An ACL meant to block one subnet blocks every host. Read show access-lists, think about the invisible last line, and fix it so only 192.168.20.0/24 is denied.",
+          "props": {
+            "lab": "cl-ts-acl"
+          }
+        },
+        "check": {
+          "question": "In the exhibit, users in 10.1.1.0/24 can open http://10.2.2.50, but https://10.2.2.50 fails. Why?",
+          "choices": [
+            "Line 20 denies it, because line 10 permits only TCP port 80 (www)",
+            "The implicit deny drops it, because it matches no line",
+            "Line 30 drops it because it is not OSPF",
+            "ACL 101 is applied outbound, so the HTTPS replies are dropped"
+          ],
+          "answer": 0,
+          "explanation": "HTTPS is TCP port 443, which does not match line 10 (eq www is port 80). The packet comes from 10.1.1.0/24, so line 20 matches and denies it before the implicit deny is reached. show ip interface shows the ACL is inbound."
+        }
+      }
+    ],
+    "keyTerms": [
+      {
+        "term": "Bottom-up troubleshooting",
+        "definition": "Start at Layer 1 (cables, interface status) and work up the layers until you find the fault."
+      },
+      {
+        "term": "Top-down troubleshooting",
+        "definition": "Start at the application and work down; best when lower layers clearly work."
+      },
+      {
+        "term": "Divide and conquer",
+        "definition": "Start in the middle, usually with a ping, and move up or down depending on the result."
+      },
+      {
+        "term": "Follow the path",
+        "definition": "Check each device a packet crosses from source to destination, hop by hop."
+      },
+      {
+        "term": "Compare configurations",
+        "definition": "Find the fault by comparing a broken device or link with a working one."
+      },
+      {
+        "term": "Extended ping",
+        "definition": "A router ping with options such as a chosen source interface, used to test the return route to a LAN."
+      },
+      {
+        "term": "U (ping output)",
+        "definition": "An ICMP destination unreachable from a router with no route or a denying ACL; U.U.U shows rate limiting."
+      },
+      {
+        "term": "TTL exceeded",
+        "definition": "The ICMP message a router sends when it drops a packet whose TTL reached 0; traceroute uses it to list hops."
+      },
+      {
+        "term": "err-disabled",
+        "definition": "A port shut down by a feature such as port security, BPDU guard or EtherChannel misconfiguration; needs shutdown and no shutdown after the fix."
+      },
+      {
+        "term": "Late collision",
+        "definition": "A collision after the first 64 bytes of a frame; today it almost always means a duplex mismatch."
+      },
+      {
+        "term": "CRC error",
+        "definition": "A received frame that failed the FCS check; rising CRC counts without collisions point to cabling or interference."
+      },
+      {
+        "term": "Native VLAN mismatch",
+        "definition": "The two ends of a trunk use different native VLANs; CDP logs %CDP-4-NATIVE_VLAN_MISMATCH."
+      },
+      {
+        "term": "Root-inconsistent (ROOT_Inc)",
+        "definition": "The state root guard puts a port in while superior BPDUs arrive; it clears by itself."
+      },
+      {
+        "term": "EtherChannel flags P, I, s",
+        "definition": "In show etherchannel summary: bundled, stand-alone (no negotiation partner) and suspended (settings mismatch)."
+      },
+      {
+        "term": "EXSTART",
+        "definition": "An OSPF neighbor state; a neighbor stuck there or in EXCHANGE usually has an MTU mismatch."
+      },
+      {
+        "term": "Inside local / inside global",
+        "definition": "An inside host's address before NAT (usually private) and after NAT (as the internet sees it)."
+      },
+      {
+        "term": "Helper address",
+        "definition": "ip helper-address on the client-facing interface relays DHCP broadcasts to a server in another subnet."
+      },
+      {
+        "term": "Secure-shutdown",
+        "definition": "The port security status of a port err-disabled by a violation in shutdown mode."
+      }
+    ],
+    "summary": [
+      "Define the problem precisely, pick a method (bottom-up, top-down, divide and conquer, follow the path, compare configurations), change one thing at a time and verify.",
+      "Ping: ! reply, . timeout, U unreachable from a router; .!!!! is ARP, U.U.U is a router without a route or with an ACL. Use extended ping to test return routes.",
+      "Layer 1: down/down is physical or speed, up/down is Layer 2, err-disabled needs a bounce; a-half with late collisions is a duplex mismatch, CRC without collisions is the cable.",
+      "Layer 2: show vlan brief (access ports only), show interfaces switchport (operational mode), the three VLAN lists in show interfaces trunk, CDP Interface is local and Port ID is remote.",
+      "STP and EtherChannel: chase root ports to the root; BKN* ROOT_Inc is root guard; P bundled, I stand-alone, s suspended.",
+      "Layer 3 and services: longest prefix first, then AD; EXSTART means MTU; two HSRP Actives cannot hear each other; check NAT inside/outside, helper placement, NTP reach, ACL order and counters, and port security status."
+    ],
+    "feynmanPrompt": "A colleague says \"the branch cannot reach the file server.\" Explain how you would isolate the fault: which method you would start with, which commands you would run in what order, and what in each output would make you stop and fix something."
+  },
+  "questions": [
+    {
+      "id": "ccna-troubleshooting-q01",
+      "type": "mcq",
+      "difficulty": "easy",
+      "question": "Which troubleshooting method begins with cabling and interface status and works up through the layers?",
+      "choices": [
+        "Top-down",
+        "Bottom-up",
+        "Divide and conquer",
+        "Compare configurations"
+      ],
+      "answer": 1,
+      "explanation": "Bottom-up starts at Layer 1 and climbs. Top-down starts at the application; divide and conquer starts in the middle, usually with a ping.",
+      "concept": "bottom-up method",
+      "section": 0
+    },
+    {
+      "id": "ccna-troubleshooting-q02",
+      "type": "match",
+      "difficulty": "medium",
+      "question": "Match each troubleshooting method to the situation where it fits best.",
+      "pairs": [
+        {
+          "left": "Bottom-up",
+          "right": "A newly cabled switch where nothing works"
+        },
+        {
+          "left": "Top-down",
+          "right": "Every application works except one web app"
+        },
+        {
+          "left": "Divide and conquer",
+          "right": "You ping first to decide whether to look up or down the stack"
+        },
+        {
+          "left": "Follow the path",
+          "right": "You check each hop between the host and the server in turn"
+        },
+        {
+          "left": "Compare configurations",
+          "right": "Branch 2 works; branch 3, built from the same template, does not"
+        }
+      ],
+      "explanation": "Pick the method from the evidence: broad physical symptoms suggest bottom-up, a single failing service top-down, an unknown layer divide and conquer, a multi-hop path follow the path, and a working twin compare configurations.",
+      "concept": "choosing a method",
+      "section": 0
+    },
+    {
+      "id": "ccna-troubleshooting-q03",
+      "type": "order",
+      "difficulty": "easy",
+      "question": "Put the steps of a structured troubleshooting process in order.",
+      "items": [
+        "Define the problem precisely: who, what, since when",
+        "Gather information with show commands and tests",
+        "Form a hypothesis about the cause",
+        "Make one change to test the hypothesis",
+        "Verify that the original symptom is gone",
+        "Document the cause and the fix"
+      ],
+      "explanation": "Gather, hypothesize, change one thing, verify, document. Verifying against the original symptom (not just \"the command took\") is what proves the fix.",
+      "concept": "troubleshooting process",
+      "section": 0
+    },
+    {
+      "id": "ccna-troubleshooting-q04",
+      "type": "cli",
+      "difficulty": "medium",
+      "question": "Type the command that displays only the router ospf part of the running configuration, with all its subcommands.",
+      "shell": "ios",
+      "answer": "show running-config | section router ospf",
+      "accept": [
+        "show running-config | section ospf",
+        "show running-config | section router"
+      ],
+      "explanation": "| section prints each matching parent line with its indented children. | include would show only the lines containing the word, without the network and router-id lines under them.",
+      "concept": "show run section filter",
+      "section": 0
+    },
+    {
+      "id": "ccna-troubleshooting-q05",
+      "type": "mcq",
+      "difficulty": "hard",
+      "question": "In a simlet you only have user EXEC access (R1>) and must find which ACL is applied inbound on G0/0. Which command shows it?",
+      "choices": [
+        "show running-config interface g0/0",
+        "show access-lists",
+        "show interfaces g0/0",
+        "show ip interface g0/0"
+      ],
+      "answer": 3,
+      "explanation": "show ip interface lists Inbound access list and Outgoing access list per interface and runs in user EXEC. show running-config needs privileged EXEC, and show access-lists shows the ACL contents but not where it is applied.",
+      "concept": "user EXEC simlet",
+      "section": 0
+    },
+    {
+      "id": "ccna-troubleshooting-q06",
+      "type": "match",
+      "difficulty": "easy",
+      "question": "Match each IOS ping output character to its meaning.",
+      "pairs": [
+        {
+          "left": "!",
+          "right": "An echo reply arrived"
+        },
+        {
+          "left": ".",
+          "right": "No reply before the timeout"
+        },
+        {
+          "left": "U",
+          "right": "A router returned destination unreachable"
+        },
+        {
+          "left": "M",
+          "right": "The packet could not be fragmented"
+        },
+        {
+          "left": "Q",
+          "right": "Source quench: the destination is too busy"
+        }
+      ],
+      "explanation": "! and . are the everyday ones. U is the useful failure: a router actively said it cannot deliver the packet, which tells you a route or ACL problem exists on that router.",
+      "concept": "ping output characters",
+      "section": 1
+    },
+    {
+      "id": "ccna-troubleshooting-q07",
+      "type": "mcq",
+      "difficulty": "easy",
+      "question": "R1 pings host B for the first time. What is the most likely reason the first echo failed?",
+      "code": "R1# ping 172.16.2.101\nType escape sequence to abort.\nSending 5, 100-byte ICMP Echos to 172.16.2.101, timeout is 2 seconds:\n.!!!!\nSuccess rate is 80 percent (4/5), round-trip min/avg/max = 1/2/4 ms",
+      "language": "cisco",
+      "choices": [
+        "A device on the path was resolving a MAC address with ARP",
+        "Host B was rate-limiting replies",
+        "The route to 172.16.2.0 was flapping",
+        "An ACL denied the first packet"
+      ],
+      "answer": 0,
+      "explanation": "The path clearly works (four replies). The first echo was lost while a router or host waited for an ARP reply, which is why a repeat of the same ping shows !!!!!.",
+      "concept": "ARP on first ping",
+      "section": 1
+    },
+    {
+      "id": "ccna-troubleshooting-q08",
+      "type": "mcq",
+      "difficulty": "hard",
+      "question": "R3 (10.1.23.3) connects to R4, which owns 10.4.4.0/24. Based on the exhibit, where should you look first?",
+      "code": "R1# traceroute 10.4.4.10\nType escape sequence to abort.\nTracing the route to 10.4.4.10\nVRF info: (vrf in name/id, vrf out name/id)\n  1 10.1.12.2 4 msec 4 msec 4 msec\n  2 10.1.23.3 8 msec 8 msec 8 msec\n  3  *  *  *\n  4  *  *  *\n  5  *  *  *",
+      "language": "cisco",
+      "choices": [
+        "R3's routing table, because R3 has no route to 10.4.4.0/24",
+        "Between R1 and R2, because the first hop answered fastest",
+        "Past R3: the R3 to R4 link, R4 itself, or R4's route back to R1",
+        "Nowhere; timeouts are normal at the end of every traceroute"
+      ],
+      "answer": 2,
+      "explanation": "R3 forwarded the TTL 3 probes; if it had no route it would have answered with !H or !N. Silence after R3 means R4 never received them, or R4's TTL exceeded replies cannot get back to R1, so check the link, R4 and R4's return route.",
+      "concept": "reading traceroute timeouts",
+      "section": 1
+    },
+    {
+      "id": "ccna-troubleshooting-q09",
+      "type": "mcq",
+      "difficulty": "medium",
+      "question": "What does this ping output indicate?",
+      "code": "R1# ping 10.5.5.5\nType escape sequence to abort.\nSending 5, 100-byte ICMP Echos to 10.5.5.5, timeout is 2 seconds:\nU.U.U\nSuccess rate is 0 percent (0/5)",
+      "language": "cisco",
+      "choices": [
+        "A router in the path is rejecting the packets with ICMP unreachables",
+        "The destination host is powered off or disconnected",
+        "The link to the destination is dropping every other packet",
+        "The destination replies, but after the 2-second timeout"
+      ],
+      "answer": 0,
+      "explanation": "U is an ICMP destination unreachable returned by a router. Routers rate-limit those messages, so the probes in between time out and print periods. A powered-off host on a working path would give .....",
+      "concept": "U.U.U pattern",
+      "section": 1
+    },
+    {
+      "id": "ccna-troubleshooting-q10",
+      "type": "multi",
+      "difficulty": "hard",
+      "question": "A standard ping from R1 to host B in a remote subnet succeeds. Host A sits on R1's LAN and is the one with the problem. Which of these has the ping NOT tested? (Choose three.)",
+      "choices": [
+        "The route from host B's subnet back to host A's subnet",
+        "ACLs that filter only host A's address",
+        "Host A's default gateway setting",
+        "R1's route to host B's subnet",
+        "Host B's default gateway setting"
+      ],
+      "answers": [
+        0,
+        1,
+        2
+      ],
+      "explanation": "R1 sources the ping from its outgoing interface, so the replies return to that address, not to host A's subnet, and host A is not involved at all. The ping does prove R1 has a route to B and that B can reply to an address in another subnet, which needs B's gateway.",
+      "concept": "limits of a standard ping",
+      "section": 1
+    },
+    {
+      "id": "ccna-troubleshooting-q11",
+      "type": "cli",
+      "difficulty": "medium",
+      "question": "R1's G0/1 is its LAN interface (192.168.1.1). Type a one-line ping to 10.2.2.50 that uses G0/1 as the source, to test the return route to the LAN.",
+      "shell": "ios",
+      "answer": "ping 10.2.2.50 source GigabitEthernet0/1",
+      "accept": [
+        "ping 10.2.2.50 source 192.168.1.1"
+      ],
+      "explanation": "The source keyword makes the echo requests carry the LAN address, so the replies must be routed back to 192.168.1.0/24. Typing ping alone and answering the extended prompts does the same.",
+      "concept": "extended ping source",
+      "section": 1
+    },
+    {
+      "id": "ccna-troubleshooting-q12",
+      "type": "match",
+      "difficulty": "easy",
+      "question": "Match each interface status (line / protocol) to its usual cause.",
+      "pairs": [
+        {
+          "left": "administratively down / down",
+          "right": "shutdown is configured"
+        },
+        {
+          "left": "down / down",
+          "right": "No cable, a bad cable, or the far end is off"
+        },
+        {
+          "left": "up / down",
+          "right": "A Layer 2 problem such as an encapsulation mismatch"
+        },
+        {
+          "left": "down / down (err-disabled)",
+          "right": "A feature such as port security or BPDU guard shut the port"
+        },
+        {
+          "left": "up / up",
+          "right": "Layers 1 and 2 are working"
+        }
+      ],
+      "explanation": "The first status is Layer 1, the second Layer 2. Only up/up passes traffic, and err-disabled needs the cause removed plus shutdown and no shutdown.",
+      "concept": "interface status codes",
+      "section": 2
+    },
+    {
+      "id": "ccna-troubleshooting-q13",
+      "type": "mcq",
+      "difficulty": "easy",
+      "question": "Which interface in the exhibit most likely has a Layer 2 problem, such as mismatched encapsulation?",
+      "code": "R1# show ip interface brief\nInterface              IP-Address      OK? Method Status                Protocol\nGigabitEthernet0/0     10.1.12.1       YES NVRAM  up                    up\nGigabitEthernet0/1     192.168.1.1     YES NVRAM  administratively down down\nGigabitEthernet0/2     10.1.13.1       YES NVRAM  down                  down\nSerial0/0/0            10.1.14.1       YES manual up                    down",
+      "language": "cisco",
+      "choices": [
+        "GigabitEthernet0/1",
+        "GigabitEthernet0/2",
+        "Serial0/0/0",
+        "GigabitEthernet0/0"
+      ],
+      "answer": 2,
+      "explanation": "Up/down means Layer 1 works but the data link protocol does not, typically PPP on one end and HDLC on the other. G0/1 is shut down and G0/2 has a physical problem.",
+      "concept": "up/down status",
+      "section": 2
+    },
+    {
+      "id": "ccna-troubleshooting-q14",
+      "type": "mcq",
+      "difficulty": "hard",
+      "question": "SW2 Gi0/2 is configured with speed 100 and duplex full. SW1 Gi0/1, at the other end, shows the output below and users complain of a slow, unreliable link. What is the best fix?",
+      "code": "SW1# show interfaces g0/1 status\n\nPort      Name               Status       Vlan       Duplex  Speed Type\nGi0/1     Uplink to SW2      connected    trunk      a-half  a-100 10/100/1000BaseTX\n\nSW1# show interfaces g0/1 | include late\n     0 babbles, 2194 late collision, 0 deferred",
+      "language": "cisco",
+      "choices": [
+        "Replace the cable between SW1 and SW2",
+        "Configure duplex half on SW2 Gi0/2 to match SW1",
+        "Shut and re-enable SW1 Gi0/1 to clear the counters",
+        "Set SW2 Gi0/2 back to speed auto and duplex auto"
+      ],
+      "answer": 3,
+      "explanation": "Setting speed and duplex on SW2 disabled autonegotiation, so SW1 sensed 100 Mbps and defaulted to half duplex. Make both ends autonegotiate or configure both identically. Forcing half duplex would remove the mismatch but cripple the link.",
+      "concept": "fixing a duplex mismatch",
+      "section": 2
+    },
+    {
+      "id": "ccna-troubleshooting-q15",
+      "type": "mcq",
+      "difficulty": "medium",
+      "question": "What is the most likely cause of the errors on this full-duplex port?",
+      "code": "SW1# show interfaces g0/7\nGigabitEthernet0/7 is up, line protocol is up (connected)\n! lines omitted for brevity\n  Full-duplex, 1000Mb/s, media type is 10/100/1000BaseTX\n! lines omitted for brevity\n     0 runts, 0 giants, 0 throttles\n     2381 input errors, 2377 CRC, 4 frame, 0 overrun, 0 ignored\n! lines omitted for brevity\n     0 output errors, 0 collisions, 1 interface resets\n     0 babbles, 0 late collision, 0 deferred",
+      "language": "cisco",
+      "choices": [
+        "A damaged cable or electrical interference",
+        "A duplex mismatch",
+        "Frames larger than 1518 bytes",
+        "The wrong access VLAN"
+      ],
+      "answer": 0,
+      "explanation": "CRC errors climbing with zero collisions on a full-duplex link point to the physical medium. A duplex mismatch shows late collisions on the half-duplex side, and oversized frames are counted as giants.",
+      "concept": "CRC without collisions",
+      "section": 2
+    },
+    {
+      "id": "ccna-troubleshooting-q16",
+      "type": "mcq",
+      "difficulty": "medium",
+      "question": "PC5 on Gi0/5 should be in VLAN 10 with the Sales hosts. Gi0/1 is the uplink to the distribution switch. Based on the exhibit, what is wrong?",
+      "code": "SW1# show vlan brief\n\nVLAN Name                             Status    Ports\n---- -------------------------------- --------- -------------------------------\n1    default                          active    Gi0/2, Gi0/3, Gi0/4\n10   SALES                            active    Gi0/6, Gi0/7, Gi0/8\n20   ENG                              active    Gi0/9, Gi0/10\n99   PARKING                          active    Gi0/5\n1002 fddi-default                     act/unsup\n1003 token-ring-default               act/unsup\n1004 fddinet-default                  act/unsup\n1005 trnet-default                    act/unsup",
+      "language": "cisco",
+      "choices": [
+        "Gi0/1 is missing from every VLAN, so the uplink is down",
+        "VLAN 10 is not active on SW1",
+        "Gi0/5 is an access port in VLAN 99 instead of VLAN 10",
+        "PC5 needs a voice VLAN to join VLAN 10"
+      ],
+      "answer": 2,
+      "explanation": "show vlan brief lists Gi0/5 under VLAN 99 (PARKING). Gi0/1 is absent because it is a trunk, which is normal, and VLAN 10 is active with three ports.",
+      "concept": "host in wrong VLAN",
+      "section": 3
+    },
+    {
+      "id": "ccna-troubleshooting-q17",
+      "type": "cli",
+      "difficulty": "easy",
+      "question": "You are in interface configuration mode for Gi0/5. Type the command that makes it an access port member of VLAN 10.",
+      "shell": "ios",
+      "answer": "switchport access vlan 10",
+      "explanation": "switchport access vlan sets the VLAN the port belongs to as an access port. Pair it with switchport mode access so the port never negotiates trunking.",
+      "concept": "assign access VLAN",
+      "section": 3
+    },
+    {
+      "id": "ccna-troubleshooting-q18",
+      "type": "mcq",
+      "difficulty": "medium",
+      "question": "PC2 (MAC 0050.7966.6802) is in VLAN 10. What does the exhibit tell you about where PC2 is?",
+      "code": "SW1# show mac address-table dynamic\n          Mac Address Table\n-------------------------------------------\n\nVlan    Mac Address       Type        Ports\n----    -----------       --------    -----\n  10    0050.7966.6801    DYNAMIC     Gi0/6\n  10    0050.7966.6802    DYNAMIC     Gi0/24\n  20    0050.7966.6809    DYNAMIC     Gi0/9\n  20    0050.7966.6810    DYNAMIC     Gi0/24\n  99    0050.7966.6805    DYNAMIC     Gi0/5\nTotal Mac Addresses for this criterion: 5",
+      "language": "cisco",
+      "choices": [
+        "SW1 has not learned it, so frames to it are flooded",
+        "It is in VLAN 99, the same VLAN as PC5",
+        "It is connected directly to access port Gi0/6",
+        "It is reached through Gi0/24, likely a trunk to another switch"
+      ],
+      "answer": 3,
+      "explanation": "The entry maps PC2's MAC in VLAN 10 to Gi0/24. Gi0/24 also has a MAC in VLAN 20, so it carries more than one VLAN: a trunk to another switch where PC2 is connected.",
+      "concept": "reading the MAC table",
+      "section": 3
+    },
+    {
+      "id": "ccna-troubleshooting-q19",
+      "type": "multi",
+      "difficulty": "hard",
+      "question": "Gi0/8 is cabled to a working device but does not appear anywhere in the exhibit. Which two explanations are possible? (Choose two.)",
+      "code": "SW1# show vlan brief\n\nVLAN Name                             Status    Ports\n---- -------------------------------- --------- -------------------------------\n1    default                          active    Gi0/2, Gi0/3, Gi0/4\n10   SALES                            active    Gi0/6, Gi0/7\n20   ENG                              active    Gi0/9, Gi0/10\n1002 fddi-default                     act/unsup\n1003 token-ring-default               act/unsup\n1004 fddinet-default                  act/unsup\n1005 trnet-default                    act/unsup",
+      "language": "cisco",
+      "choices": [
+        "Gi0/8 is operating as a trunk",
+        "Gi0/8 is assigned to a VLAN that does not exist on SW1",
+        "Gi0/8 is administratively shut down",
+        "Gi0/8 has a duplex mismatch",
+        "Gi0/8 is an access port in VLAN 1"
+      ],
+      "answers": [
+        0,
+        1
+      ],
+      "explanation": "show vlan brief lists access ports in existing VLANs, whether or not they are up. Trunks are never listed, and a port whose access VLAN does not exist is inactive and also disappears. A shut down or mismatched access port would still be listed.",
+      "concept": "port missing from show vlan",
+      "section": 3
+    },
+    {
+      "id": "ccna-troubleshooting-q20",
+      "type": "mcq",
+      "difficulty": "easy",
+      "question": "Which command shows a port's configured and operational switchport mode together with its access and voice VLANs?",
+      "choices": [
+        "show vlan brief",
+        "show interfaces switchport",
+        "show interfaces status",
+        "show mac address-table"
+      ],
+      "answer": 1,
+      "explanation": "show interfaces <id> switchport lists Administrative Mode, Operational Mode, Access Mode VLAN, Voice VLAN and the trunk native VLAN for one port or all ports.",
+      "concept": "show interfaces switchport",
+      "section": 3
+    },
+    {
+      "id": "ccna-troubleshooting-q21",
+      "type": "mcq",
+      "difficulty": "medium",
+      "question": "Hosts in VLAN 10 on SW1 cannot reach VLAN 10 hosts on SW2 across Gi0/24, while VLAN 20 works. Based on the exhibit, why?",
+      "code": "SW1# show interfaces trunk\n\nPort        Mode             Encapsulation  Status        Native vlan\nGi0/24      on               802.1q         trunking      99\n\nPort        Vlans allowed on trunk\nGi0/24      1-9,11-4094\n\nPort        Vlans allowed and active in management domain\nGi0/24      1,20,30,99\n\nPort        Vlans in spanning tree forwarding state and not pruned\nGi0/24      1,20,30,99",
+      "language": "cisco",
+      "choices": [
+        "VLAN 10 has been removed from the allowed list on Gi0/24",
+        "Spanning tree is blocking VLAN 10 on Gi0/24",
+        "The native VLAN does not match SW2",
+        "Gi0/24 is not trunking"
+      ],
+      "answer": 0,
+      "explanation": "The first list, Vlans allowed on trunk, skips 10 (1-9,11-4094), so configuration removed it. Restore it with switchport trunk allowed vlan add 10. STP blocking would remove it only from the third list.",
+      "concept": "allowed VLAN list",
+      "section": 4
+    },
+    {
+      "id": "ccna-troubleshooting-q22",
+      "type": "mcq",
+      "difficulty": "hard",
+      "question": "VLAN 10 hosts on this switch cannot use the trunk. Based on the exhibit, what is the cause?",
+      "code": "SW2# show interfaces trunk\n\nPort        Mode             Encapsulation  Status        Native vlan\nGi0/1       desirable        802.1q         trunking      1\n\nPort        Vlans allowed on trunk\nGi0/1       1-4094\n\nPort        Vlans allowed and active in management domain\nGi0/1       1,20,30\n\nPort        Vlans in spanning tree forwarding state and not pruned\nGi0/1       1,20,30",
+      "language": "cisco",
+      "choices": [
+        "VLAN 10 was removed with switchport trunk allowed vlan",
+        "VLAN 10 is pruned by VTP on Gi0/1",
+        "VLAN 10 does not exist on SW2, or it is shut down",
+        "Spanning tree blocks VLAN 10 on Gi0/1"
+      ],
+      "answer": 2,
+      "explanation": "VLAN 10 is allowed (list 1 is 1-4094) but missing from list 2, which drops VLANs that are not defined or are shut down on this switch. Pruning and STP blocking would only remove it from list 3.",
+      "concept": "second VLAN list",
+      "section": 4
+    },
+    {
+      "id": "ccna-troubleshooting-q23",
+      "type": "mcq",
+      "difficulty": "medium",
+      "question": "SW1 Gi0/1 is also configured as dynamic auto. Based on the exhibit from SW2, what is happening on the link and how do you fix it?",
+      "code": "SW2# show interfaces g0/2 switchport\nName: Gi0/2\nSwitchport: Enabled\nAdministrative Mode: dynamic auto\nOperational Mode: static access\nAdministrative Trunking Encapsulation: dot1q\nOperational Trunking Encapsulation: native\nNegotiation of Trunking: On\nAccess Mode VLAN: 1 (default)\nTrunking Native Mode VLAN: 1 (default)",
+      "language": "cisco",
+      "choices": [
+        "It is trunking normally, so no change is needed",
+        "The native VLAN is mismatched; set native VLAN 99 on both ends",
+        "DTP is disabled on SW2; remove switchport nonegotiate from Gi0/2",
+        "It is an access link in VLAN 1; set switchport mode trunk on at least one end"
+      ],
+      "answer": 3,
+      "explanation": "Operational Mode: static access proves the port is not trunking. Dynamic auto is passive, so two auto ends never negotiate. Configure trunk (or desirable) on at least one side; best practice is switchport mode trunk on both.",
+      "concept": "dynamic auto on both ends",
+      "section": 4
+    },
+    {
+      "id": "ccna-troubleshooting-q24",
+      "type": "mcq",
+      "difficulty": "easy",
+      "question": "Which port on SW1 connects to SW2?",
+      "code": "SW2# show cdp neighbors detail\n-------------------------\nDevice ID: SW1\nEntry address(es):\n  IP address: 10.1.99.1\nPlatform: cisco WS-C2960X-24TS-L,  Capabilities: Switch IGMP\nInterface: GigabitEthernet1/0/21,  Port ID (outgoing port): GigabitEthernet1/0/24\nHoldtime : 144 sec\n! lines omitted for brevity\nNative VLAN: 99\nDuplex: full",
+      "language": "cisco",
+      "choices": [
+        "GigabitEthernet1/0/21",
+        "GigabitEthernet1/0/24",
+        "VLAN 99",
+        "It cannot be determined from CDP"
+      ],
+      "answer": 1,
+      "explanation": "The command runs on SW2, so Interface (Gi1/0/21) is SW2's own port and Port ID (outgoing port) is the neighbor SW1's port, Gi1/0/24.",
+      "concept": "CDP local vs remote port",
+      "section": 4
+    },
+    {
+      "id": "ccna-troubleshooting-q25",
+      "type": "mcq",
+      "difficulty": "hard",
+      "question": "What is happening on Gi0/3?",
+      "code": "SW2# show spanning-tree vlan 20 | begin Interface\nInterface           Role Sts Cost      Prio.Nbr Type\n------------------- ---- --- --------- -------- --------------------------------\nGi0/1               Root FWD 4         128.1    P2p\nGi0/2               Desg FWD 4         128.2    P2p\nGi0/3               Desg BKN*4         128.3    P2p *ROOT_Inc",
+      "language": "cisco",
+      "choices": [
+        "BPDU guard err-disabled it; shutdown and no shutdown are needed",
+        "It is an alternate port, which is normal",
+        "Loop guard blocked it because BPDUs stopped arriving",
+        "Root guard is blocking it because superior BPDUs arrive on it; it recovers by itself when they stop"
+      ],
+      "answer": 3,
+      "explanation": "*ROOT_Inc marks root guard's root-inconsistent state: a switch beyond Gi0/3 is claiming to be a better root. Root guard blocks the port without err-disabling it and releases it automatically. Loop guard shows *LOOP_Inc, and BPDU guard shows err-disabled.",
+      "concept": "root guard inconsistent",
+      "section": 5
+    },
+    {
+      "id": "ccna-troubleshooting-q26",
+      "type": "mcq",
+      "difficulty": "easy",
+      "question": "A user plugged a small switch into the conference room port. After the switch is removed, what brings Gi0/12 back?",
+      "code": "%SPANTREE-2-BLOCK_BPDUGUARD: Received BPDU on port GigabitEthernet0/12 with BPDU Guard enabled. Disabling port.\n%PM-4-ERR_DISABLE: bpduguard error detected on Gi0/12, putting Gi0/12 in err-disable state\n\nSW1# show interfaces g0/12 status\n\nPort      Name               Status       Vlan       Duplex  Speed Type\nGi0/12    Conf room          err-disabled 10           auto   auto 10/100/1000BaseTX",
+      "language": "cisco",
+      "choices": [
+        "Nothing; it recovers by itself when BPDUs stop",
+        "Disabling PortFast on Gi0/12",
+        "shutdown followed by no shutdown on Gi0/12",
+        "Raising the port security maximum on Gi0/12"
+      ],
+      "answer": 2,
+      "explanation": "BPDU guard err-disables the port, and err-disabled ports stay down until you bounce them (or errdisable recovery is configured). Self-recovery describes root guard, not BPDU guard.",
+      "concept": "BPDU guard recovery",
+      "section": 5
+    },
+    {
+      "id": "ccna-troubleshooting-q27",
+      "type": "mcq",
+      "difficulty": "medium",
+      "question": "Both switches have channel-group 1 configured on Gi0/1 and Gi0/2. What is the most likely reason for this output?",
+      "code": "SW1# show etherchannel summary | begin Group\nGroup  Port-channel  Protocol    Ports\n------+-------------+-----------+-----------------------------------------------\n1      Po1(SD)         LACP      Gi0/1(I)    Gi0/2(I)",
+      "language": "cisco",
+      "choices": [
+        "The ports are bundled and in use",
+        "Both switches use mode passive, so neither starts LACP negotiation",
+        "The ports are suspended because their speeds differ",
+        "Po1 is a Layer 3 EtherChannel"
+      ],
+      "answer": 1,
+      "explanation": "SD means Po1 is down, and I means each port is stand-alone because negotiation never succeeded. Passive on both ends is a classic cause. Mismatched settings would show s (suspended), and a working channel shows SU with P.",
+      "concept": "EtherChannel stand-alone ports",
+      "section": 5
+    },
+    {
+      "id": "ccna-troubleshooting-q28",
+      "type": "multi",
+      "difficulty": "medium",
+      "question": "Which settings must match on all member ports for them to bundle into one EtherChannel? (Choose three.)",
+      "choices": [
+        "Speed and duplex",
+        "Access or trunk mode, and the allowed VLAN list",
+        "The access VLAN or the trunk native VLAN",
+        "The interface description",
+        "Whether CDP is enabled"
+      ],
+      "answers": [
+        0,
+        1,
+        2
+      ],
+      "explanation": "Members must look identical to the switch: speed, duplex, switchport mode, VLANs and allowed lists. A mismatched port is suspended (s). Descriptions and CDP do not affect bundling.",
+      "concept": "EtherChannel member consistency",
+      "section": 5
+    },
+    {
+      "id": "ccna-troubleshooting-q29",
+      "type": "order",
+      "difficulty": "medium",
+      "question": "You are in a simlet with four switches and need to find the root bridge for VLAN 10, starting on SW1. Put the steps in order.",
+      "items": [
+        "Run show spanning-tree vlan 10 on SW1 and look for This bridge is the root",
+        "If SW1 is not the root, note its root port",
+        "Use CDP to find which switch is on the other end of that root port",
+        "Run show spanning-tree vlan 10 on that neighbor",
+        "Repeat until a switch reports This bridge is the root"
+      ],
+      "explanation": "The root bridge has no root port, and every root port points one hop closer to it. Chasing root ports finds the root in a few commands instead of checking switches at random.",
+      "concept": "finding the root bridge",
+      "section": 5
+    },
+    {
+      "id": "ccna-troubleshooting-q30",
+      "type": "mcq",
+      "difficulty": "medium",
+      "question": "Using the exhibit, which route does R1 use for a packet to 10.2.2.10?",
+      "code": "R1# show ip route\nCodes: L - local, C - connected, S - static, R - RIP, M - mobile, B - BGP\n       D - EIGRP, EX - EIGRP external, O - OSPF, IA - OSPF inter area\n! lines omitted for brevity\n\nGateway of last resort is not set\n\n      10.0.0.0/8 is variably subnetted, 6 subnets, 4 masks\nC        10.1.12.0/30 is directly connected, GigabitEthernet0/0\nL        10.1.12.1/32 is directly connected, GigabitEthernet0/0\nC        10.1.13.0/30 is directly connected, GigabitEthernet0/2\nL        10.1.13.1/32 is directly connected, GigabitEthernet0/2\nO        10.2.2.0/24 [110/2] via 10.1.12.2, 00:14:07, GigabitEthernet0/0\nS        10.2.2.0/26 [1/0] via 10.1.13.3\n      192.168.1.0/24 is variably subnetted, 2 subnets, 2 masks\nC        192.168.1.0/24 is directly connected, GigabitEthernet0/1\nL        192.168.1.1/32 is directly connected, GigabitEthernet0/1",
+      "language": "cisco",
+      "choices": [
+        "S 10.2.2.0/26 via 10.1.13.3, because it is the longest matching prefix",
+        "O 10.2.2.0/24 via 10.1.12.2, because it was learned dynamically",
+        "O 10.2.2.0/24, because the /26 route has a lower metric",
+        "None; R1 has no gateway of last resort"
+      ],
+      "answer": 0,
+      "explanation": "10.2.2.10 falls inside 10.2.2.0/26 (10.2.2.0 to 10.2.2.63) and inside the /24. The longest prefix, /26, wins regardless of AD. The default route matters only when nothing matches.",
+      "concept": "longest prefix match",
+      "section": 6
+    },
+    {
+      "id": "ccna-troubleshooting-q31",
+      "type": "mcq",
+      "difficulty": "hard",
+      "question": "The host can reach other hosts in its own subnet but nothing beyond it. What is the cause?",
+      "code": "C:\\> ipconfig\n\nEthernet adapter Ethernet:\n\n   Connection-specific DNS Suffix  . :\n   IPv4 Address. . . . . . . . . . . : 192.168.1.130\n   Subnet Mask . . . . . . . . . . . : 255.255.255.128\n   Default Gateway . . . . . . . . . : 192.168.1.1",
+      "language": "plaintext",
+      "choices": [
+        "The subnet mask should be 255.255.255.0 for this gateway",
+        "The gateway 192.168.1.1 is outside the host's subnet, 192.168.1.128/25",
+        "The host has an APIPA address and never reached DHCP",
+        "The router is missing a route to 192.168.1.128/25"
+      ],
+      "answer": 1,
+      "explanation": "With a /25 mask, 192.168.1.130 lives in 192.168.1.128 to 192.168.1.255. The gateway 192.168.1.1 sits in the other half, so the host cannot reach it. The gateway must be an address in 192.168.1.129 to 192.168.1.254.",
+      "concept": "host gateway outside subnet",
+      "section": 6
+    },
+    {
+      "id": "ccna-troubleshooting-q32",
+      "type": "mcq",
+      "difficulty": "medium",
+      "question": "Hosts in VLAN 20 cannot reach their gateway 192.168.20.1, while VLAN 10 works. Based on the exhibit, what is wrong?",
+      "code": "R1# show running-config | section interface GigabitEthernet0/0\ninterface GigabitEthernet0/0\n no ip address\n duplex auto\n speed auto\ninterface GigabitEthernet0/0.10\n encapsulation dot1Q 10\n ip address 192.168.10.1 255.255.255.0\ninterface GigabitEthernet0/0.20\n encapsulation dot1Q 30\n ip address 192.168.20.1 255.255.255.0",
+      "language": "cisco",
+      "choices": [
+        "G0/0 needs an IP address for the subinterfaces to work",
+        "G0/0.20 tags frames with VLAN 30 instead of VLAN 20",
+        "Subinterface numbers must match the VLAN number exactly",
+        "The VLAN 20 gateway must be 192.168.20.254"
+      ],
+      "answer": 1,
+      "explanation": "encapsulation dot1Q 30 makes G0/0.20 send and accept VLAN 30 frames, so VLAN 20 hosts never reach it. The subinterface number is only a label; the dot1Q tag is what must match the VLAN.",
+      "concept": "router-on-a-stick tag",
+      "section": 6
+    },
+    {
+      "id": "ccna-troubleshooting-q33",
+      "type": "mcq",
+      "difficulty": "medium",
+      "question": "Why is the static route missing from R1's routing table?",
+      "code": "R1# show running-config | include ip route\nip route 10.5.5.0 255.255.255.0 10.1.13.3\nR1# show ip interface brief | include 0/2\nGigabitEthernet0/2     10.1.13.1       YES NVRAM  down                  down\nR1# show ip route 10.5.5.0\n% Network not in table",
+      "language": "cisco",
+      "choices": [
+        "Static routes must name an exit interface as well as a next hop",
+        "10.5.5.0/24 must be advertised by OSPF first",
+        "G0/2 is down, so R1 has no connected route to reach the next hop 10.1.13.3",
+        "A static route needs an AD configured before it is installed"
+      ],
+      "answer": 2,
+      "explanation": "IOS installs a static route only when the next hop is reachable. With G0/2 down, 10.1.13.0/30 disappears, so 10.1.13.3 is unreachable and the route is withdrawn until the interface comes back.",
+      "concept": "static route not installed",
+      "section": 6
+    },
+    {
+      "id": "ccna-troubleshooting-q34",
+      "type": "typed",
+      "difficulty": "easy",
+      "question": "What is the administrative distance of this route?",
+      "code": "O        10.2.2.0/24 [110/2] via 10.1.12.2, 00:14:07, GigabitEthernet0/0",
+      "language": "cisco",
+      "answer": "110",
+      "explanation": "The bracket holds [administrative distance/metric]: 110 is OSPF's default AD and 2 is the OSPF cost.",
+      "concept": "administrative distance",
+      "section": 6
+    },
+    {
+      "id": "ccna-troubleshooting-q35",
+      "type": "mcq",
+      "difficulty": "medium",
+      "question": "R1 and R2 never list each other in show ip ospf neighbor. Based on the exhibit, why?",
+      "code": "R1# show ip ospf interface g0/0 | include Area|Timer\n  Internet Address 10.1.12.1/30, Area 0, Attached via Network Statement\n  Timer intervals configured, Hello 10, Dead 40, Wait 40, Retransmit 5\n\nR2# show ip ospf interface g0/0 | include Area|Timer\n  Internet Address 10.1.12.2/30, Area 0, Attached via Network Statement\n  Timer intervals configured, Hello 5, Dead 20, Wait 20, Retransmit 5",
+      "language": "cisco",
+      "choices": [
+        "They are in different areas",
+        "Their addresses are in different subnets",
+        "Their hello and dead timers do not match",
+        "Their router IDs are the same"
+      ],
+      "answer": 2,
+      "explanation": "Both are in area 0 and in 10.1.12.0/30, but hello and dead intervals must match exactly, so each router ignores the other's hellos. Fix it with matching ip ospf hello-interval and dead-interval values.",
+      "concept": "OSPF timer mismatch",
+      "section": 7
+    },
+    {
+      "id": "ccna-troubleshooting-q36",
+      "type": "mcq",
+      "difficulty": "hard",
+      "question": "R3 is on a shared Ethernet segment with three other OSPF routers. What does the exhibit show?",
+      "code": "R3# show ip ospf neighbor\n\nNeighbor ID     Pri   State           Dead Time   Address         Interface\n1.1.1.1           1   FULL/DR         00:00:35    10.1.1.1        GigabitEthernet0/0\n2.2.2.2           1   FULL/BDR        00:00:31    10.1.1.2        GigabitEthernet0/0\n4.4.4.4           1   2WAY/DROTHER    00:00:38    10.1.1.4        GigabitEthernet0/0",
+      "language": "cisco",
+      "choices": [
+        "Normal: two DROTHERs stay in 2WAY with each other",
+        "R3 and 4.4.4.4 have mismatched hello timers",
+        "R3 and 4.4.4.4 have an interface MTU mismatch",
+        "R3 is the DR and should be FULL with every router"
+      ],
+      "answer": 0,
+      "explanation": "On a broadcast segment, DROTHERs form full adjacencies only with the DR and BDR. 2WAY between two DROTHERs is expected. Mismatched timers would hide the neighbor entirely, and an MTU problem shows EXSTART or EXCHANGE.",
+      "concept": "normal 2WAY state",
+      "section": 7
+    },
+    {
+      "id": "ccna-troubleshooting-q37",
+      "type": "mcq",
+      "difficulty": "hard",
+      "question": "R1 and R2 are configured as an HSRP pair for the 192.168.1.0/24 LAN. What does the exhibit indicate?",
+      "code": "R1# show standby brief\n                     P indicates configured to preempt.\n                     |\nInterface   Grp  Pri P State   Active          Standby         Virtual IP\nGi0/1       10   110 P Active  local           unknown         192.168.1.254\n\nR2# show standby brief\n                     P indicates configured to preempt.\n                     |\nInterface   Grp  Pri P State   Active          Standby         Virtual IP\nGi0/1       10   100   Active  local           unknown         192.168.1.254",
+      "language": "cisco",
+      "choices": [
+        "Normal operation, because R1 has the higher priority",
+        "Preemption is missing on R2, so both claim the role",
+        "The routers cannot hear each other's HSRP hellos",
+        "The two routers use different virtual IP addresses"
+      ],
+      "answer": 2,
+      "explanation": "Two Active routers with Standby unknown means neither hears the other. Look at the Layer 2 path between them (VLAN, trunk, port state) and at HSRP group settings. The virtual IPs match, and preemption only decides who takes over when both are talking.",
+      "concept": "HSRP both active",
+      "section": 7
+    },
+    {
+      "id": "ccna-troubleshooting-q38",
+      "type": "mcq",
+      "difficulty": "medium",
+      "question": "R1 has just recovered from a reload. It has the higher priority, yet R2 (192.168.1.3) stays active. Why?",
+      "code": "R1# show standby brief\n                     P indicates configured to preempt.\n                     |\nInterface   Grp  Pri P State   Active          Standby         Virtual IP\nGi0/1       10   110   Standby 192.168.1.3     local           192.168.1.254",
+      "language": "cisco",
+      "choices": [
+        "R2 has a higher priority than R1",
+        "R1 and R2 use different group numbers",
+        "The virtual IP is configured on R2 only",
+        "Preemption is not configured on R1"
+      ],
+      "answer": 3,
+      "explanation": "The P column is empty for R1, so it waits as Standby even with priority 110. Adding standby 10 preempt on R1 lets it reclaim the active role.",
+      "concept": "HSRP preemption",
+      "section": 7
+    },
+    {
+      "id": "ccna-troubleshooting-q39",
+      "type": "cli",
+      "difficulty": "easy",
+      "question": "Type the command that lists each OSPF neighbor with its router ID, state and interface.",
+      "shell": "ios",
+      "answer": "show ip ospf neighbor",
+      "explanation": "show ip ospf neighbor shows one line per neighbor: Neighbor ID, priority, state with DR/BDR role, dead time, the neighbor's address and your interface.",
+      "concept": "show ip ospf neighbor",
+      "section": 7
+    },
+    {
+      "id": "ccna-troubleshooting-q40",
+      "type": "mcq",
+      "difficulty": "medium",
+      "question": "G0/1 faces the 192.168.1.0/24 LAN and G0/0 faces the ISP. Users cannot reach the internet. Based on the exhibit, what is wrong?",
+      "code": "R1# show ip nat statistics\nTotal active translations: 0 (0 static, 0 dynamic; 0 extended)\nPeak translations: 0\nOutside interfaces:\n  GigabitEthernet0/1\nInside interfaces:\n  GigabitEthernet0/0\nHits: 0  Misses: 0\n! lines omitted for brevity\nDynamic mappings:\n-- Inside Source\n[Id: 1] access-list 1 interface GigabitEthernet0/0 refcount 0",
+      "language": "cisco",
+      "choices": [
+        "ip nat inside and ip nat outside are swapped on G0/1 and G0/0",
+        "The overload keyword is missing from the NAT rule",
+        "Access list 1 must be an extended ACL for NAT",
+        "PAT cannot translate to an interface address"
+      ],
+      "answer": 0,
+      "explanation": "The LAN interface is marked outside and the ISP interface inside, so traffic from the LAN never enters NAT from an inside interface and nothing is translated. Swap the two commands.",
+      "concept": "NAT inside/outside swapped",
+      "section": 8
+    },
+    {
+      "id": "ccna-troubleshooting-q41",
+      "type": "match",
+      "difficulty": "medium",
+      "question": "Match each NAT term to its meaning.",
+      "pairs": [
+        {
+          "left": "Inside local",
+          "right": "The inside host's address as used inside, usually private"
+        },
+        {
+          "left": "Inside global",
+          "right": "The inside host's address as the internet sees it"
+        },
+        {
+          "left": "Outside global",
+          "right": "The outside host's real address"
+        },
+        {
+          "left": "Outside local",
+          "right": "The outside host's address as seen from inside, usually the same as outside global"
+        }
+      ],
+      "explanation": "Inside or outside says whose address it is; local or global says which side of the router is looking. For source NAT, only the inside host's address changes.",
+      "concept": "NAT address terms",
+      "section": 8
+    },
+    {
+      "id": "ccna-troubleshooting-q42",
+      "type": "mcq",
+      "difficulty": "hard",
+      "question": "The first three inside hosts reach the internet; a fourth host cannot. Based on the exhibit, why?",
+      "code": "R1# show running-config | include nat\n ip nat inside\n ip nat outside\nip nat pool PUB 203.0.113.10 203.0.113.12 netmask 255.255.255.248\nip nat inside source list 1 pool PUB\n\nR1# show ip nat translations\nPro Inside global         Inside local          Outside local         Outside global\n--- 203.0.113.10          192.168.1.10          ---                   ---\n--- 203.0.113.11          192.168.1.11          ---                   ---\n--- 203.0.113.12          192.168.1.12          ---                   ---",
+      "language": "cisco",
+      "choices": [
+        "Access list 1 permits only three inside hosts",
+        "The netmask on the pool does not match the addresses",
+        "Dynamic NAT needs a static entry for each new host",
+        "The pool has three addresses and no overload, so all are in use"
+      ],
+      "answer": 3,
+      "explanation": "Without overload, dynamic NAT maps one inside host to one pool address. Three addresses serve three hosts at a time. Add overload to the ip nat inside source command (PAT) or enlarge the pool.",
+      "concept": "NAT pool exhaustion",
+      "section": 8
+    },
+    {
+      "id": "ccna-troubleshooting-q43",
+      "type": "mcq",
+      "difficulty": "medium",
+      "question": "Hosts on R1's G0/1 LAN receive 169.254.x.x addresses. The DHCP server is 10.9.9.9 in the data center, reached through G0/0. What is the fix?",
+      "code": "R1# show ip interface g0/1\nGigabitEthernet0/1 is up, line protocol is up\n  Internet address is 192.168.10.1/24\n  Broadcast address is 255.255.255.255\n  Address determined by non-volatile memory\n  MTU is 1500 bytes\n  Helper address is not set\n! lines omitted for brevity",
+      "language": "cisco",
+      "choices": [
+        "Add ip helper-address 10.9.9.9 on G0/0",
+        "Add ip dhcp excluded-address 192.168.10.1 on R1",
+        "Configure ip address dhcp on G0/1",
+        "Add ip helper-address 10.9.9.9 on G0/1"
+      ],
+      "answer": 3,
+      "explanation": "The clients' DHCP Discover broadcasts arrive on G0/1 and stop there. ip helper-address on G0/1 relays them as unicasts to 10.9.9.9. On G0/0 it would never see the broadcasts.",
+      "concept": "DHCP relay placement",
+      "section": 8
+    },
+    {
+      "id": "ccna-troubleshooting-q44",
+      "type": "typed",
+      "difficulty": "medium",
+      "question": "R1 is synchronized. What is the stratum of the server it synchronizes to?",
+      "code": "R1# show ntp status\nClock is synchronized, stratum 3, reference is 10.9.9.123\nnominal freq is 250.0000 Hz, actual freq is 250.0000 Hz, precision is 2**21\n! lines omitted for brevity\n\nR1# show ntp associations\n\n  address         ref clock       st   when   poll reach  delay  offset   disp\n*~10.9.9.123      10.9.9.1         2     33     64   377  1.204   0.315  1.902\n * sys.peer, # selected, + candidate, - outlyer, x falseticker, ~ configured",
+      "language": "cisco",
+      "answer": "2",
+      "explanation": "The st column shows the server at stratum 2, and a client is one stratum below its server, so R1 reports stratum 3. The asterisk marks 10.9.9.123 as the server in use, and reach 377 means every recent poll was answered.",
+      "concept": "NTP stratum",
+      "section": 8
+    },
+    {
+      "id": "ccna-troubleshooting-q45",
+      "type": "mcq",
+      "difficulty": "easy",
+      "question": "Which command on an IOS DHCP server lists the addresses it has leased and the clients that hold them?",
+      "choices": [
+        "show ip dhcp pool",
+        "show ip dhcp conflict",
+        "show ip dhcp binding",
+        "show ip interface"
+      ],
+      "answer": 2,
+      "explanation": "show ip dhcp binding lists each leased address with the client ID or MAC and the lease expiry. The pool command shows counts per pool, and conflict lists addresses found already in use.",
+      "concept": "show ip dhcp binding",
+      "section": 8
+    },
+    {
+      "id": "ccna-troubleshooting-q46",
+      "type": "mcq",
+      "difficulty": "medium",
+      "question": "Hosts in 10.1.5.0/24, also behind R1, cannot reach anything behind R2. Based on the exhibit, why?",
+      "code": "R2# show ip interface g0/0\nGigabitEthernet0/0 is up, line protocol is up\n  Internet address is 10.1.12.2/30\n! lines omitted for brevity\n  Outgoing access list is not set\n  Inbound  access list is 101\n\nR2# show access-lists\nExtended IP access list 101\n    10 permit tcp 10.1.1.0 0.0.0.255 host 10.2.2.50 eq www (214 matches)\n    20 deny ip 10.1.1.0 0.0.0.255 any (37 matches)\n    30 permit ospf any any (1290 matches)",
+      "language": "cisco",
+      "choices": [
+        "Line 20 denies them",
+        "No line matches their source addresses, so the implicit deny drops their packets",
+        "Line 30 drops them because they are not OSPF packets",
+        "The ACL is applied in the wrong direction for them"
+      ],
+      "answer": 1,
+      "explanation": "Lines 10 and 20 match only 10.1.1.0/24 sources and line 30 only OSPF, so packets from 10.1.5.0/24 reach the invisible deny any at the end. Add a permit for that subnet before the end of the ACL.",
+      "concept": "implicit deny",
+      "section": 9
+    },
+    {
+      "id": "ccna-troubleshooting-q47",
+      "type": "mcq",
+      "difficulty": "hard",
+      "question": "The policy says host 10.1.1.25 must not use SSH, yet it still can. What is the fix?",
+      "code": "R1# show access-lists 120\nExtended IP access list 120\n    10 permit ip 10.1.1.0 0.0.0.255 any (5120 matches)\n    20 deny tcp host 10.1.1.25 any eq 22\n    30 deny ip any any (12 matches)",
+      "language": "cisco",
+      "choices": [
+        "Change line 30 to permit ip any any",
+        "Apply the ACL in the other direction",
+        "Add the deny for host 10.1.1.25 with a sequence number lower than 10, such as 5",
+        "Replace line 20 with deny tcp any host 10.1.1.25 eq 22"
+      ],
+      "answer": 2,
+      "explanation": "ACLs stop at the first match. Line 10 permits all of 10.1.1.0/24, including 10.1.1.25, so line 20 never matches (its counter has no matches). The specific deny must come before the broad permit.",
+      "concept": "ACL line order",
+      "section": 9
+    },
+    {
+      "id": "ccna-troubleshooting-q48",
+      "type": "mcq",
+      "difficulty": "medium",
+      "question": "What happened on Gi0/3, and what restores it once the cause is removed?",
+      "code": "SW1# show port-security interface g0/3\nPort Security              : Enabled\nPort Status                : Secure-shutdown\nViolation Mode             : Shutdown\nAging Time                 : 0 mins\nAging Type                 : Absolute\nSecureStatic Address Aging : Disabled\nMaximum MAC Addresses      : 1\nTotal MAC Addresses        : 1\nConfigured MAC Addresses   : 0\nSticky MAC Addresses       : 1\nLast Source Address:Vlan   : 0050.7966.6812:10\nSecurity Violation Count   : 1",
+      "language": "cisco",
+      "choices": [
+        "A second MAC address (0050.7966.6812) appeared; the port is err-disabled until shutdown and no shutdown",
+        "The port is working normally and dropping one unknown device silently",
+        "The sticky MAC address expired; it relearns automatically",
+        "The port is in restrict mode and only logs the violation"
+      ],
+      "answer": 0,
+      "explanation": "Secure-shutdown with Violation Mode Shutdown and a count of 1 means the port is err-disabled after a frame from an unknown MAC. Remove the extra device (or raise the maximum), then shutdown and no shutdown.",
+      "concept": "port security shutdown",
+      "section": 9
+    },
+    {
+      "id": "ccna-troubleshooting-q49",
+      "type": "multi",
+      "difficulty": "medium",
+      "question": "Which two statements about Gi0/4 are true? (Choose two.)",
+      "code": "SW1# show port-security interface g0/4\nPort Security              : Enabled\nPort Status                : Secure-up\nViolation Mode             : Restrict\nAging Time                 : 0 mins\nAging Type                 : Absolute\nSecureStatic Address Aging : Disabled\nMaximum MAC Addresses      : 1\nTotal MAC Addresses        : 1\nConfigured MAC Addresses   : 1\nSticky MAC Addresses       : 0\nLast Source Address:Vlan   : 0200.3333.3333:10\nSecurity Violation Count   : 37",
+      "language": "cisco",
+      "choices": [
+        "The port still forwards traffic from its allowed MAC address",
+        "Frames from at least one other MAC address have been dropped",
+        "The port is err-disabled and needs shutdown and no shutdown",
+        "Protect mode would show the same violation count",
+        "The port allows two MAC addresses"
+      ],
+      "answers": [
+        0,
+        1
+      ],
+      "explanation": "Restrict keeps the port Secure-up, drops frames from unknown MACs, logs them and counts them (37 here). Shutdown mode would err-disable the port, and protect mode does not increment the counter.",
+      "concept": "port security restrict",
+      "section": 9
+    },
+    {
+      "id": "ccna-troubleshooting-q50",
+      "type": "order",
+      "difficulty": "medium",
+      "question": "Put the ACL troubleshooting steps in order.",
+      "items": [
+        "Find which interfaces have ACLs and in which direction (show ip interface)",
+        "Display each ACL with its match counters (show access-lists)",
+        "Work out which line the failing traffic matches first",
+        "Send test traffic and watch which counter increases",
+        "Fix the ACL and test again"
+      ],
+      "explanation": "Location and direction first, then contents, then first-match analysis confirmed by counters. Checking contents before location wastes time on ACLs the traffic never crosses.",
+      "concept": "ACL troubleshooting steps",
+      "section": 9
+    }
+  ]
+}

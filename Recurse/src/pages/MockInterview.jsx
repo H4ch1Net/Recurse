@@ -742,19 +742,11 @@ export function InterviewRun() {
   const navigate = useNavigate()
   const [session, setSession] = useState(() => loadActive())
   const closed = useRef(false)
-  const latest = useRef(session)
 
+  // Every change is saved right away: a reload, a closed tab or a trip away resumes it.
   useEffect(() => {
-    latest.current = session
-    if (closed.current || !session) return
-    const t = setTimeout(() => !closed.current && saveActive(session), 250)
-    return () => clearTimeout(t)
+    if (!closed.current && session) saveActive(session)
   }, [session])
-
-  // Save immediately when leaving, so the last keystrokes survive.
-  useEffect(() => () => {
-    if (!closed.current && latest.current) saveActive(latest.current)
-  }, [])
 
   const close = useCallback(() => {
     closed.current = true

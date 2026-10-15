@@ -119,6 +119,16 @@ describe('validation', () => {
     wpa3Only(d)
     expect(validateWlan(d, cfg)).toEqual([])
     d.security.pmf = 'optional'
+    expect(validateWlan(d, cfg)).toEqual(['WPA3 requires Protected Management Frames. Set PMF to Required.'])
+    d.security.wpa2 = true
+    d.security.akm.psk = true
+    d.security.pmf = 'disabled'
+    expect(validateWlan(d, cfg)).toEqual(['SAE needs PMF set to Optional or Required, even in transition mode.'])
+    d.security.pmf = 'optional'
+    expect(validateWlan(d, cfg)).toEqual([])
+    d.security.wpa2 = false
+    d.security.akm.psk = false
+    d.security.pmf = 'disabled'
     expect(validateWlan(d, cfg).join(' ')).toMatch(/PMF to Required/)
     d.security.pmf = 'required'
     d.security.akm.psk = true

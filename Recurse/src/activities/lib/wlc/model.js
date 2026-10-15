@@ -261,7 +261,7 @@ export function validateWlan(w, cfg) {
     if (o.wpa3 && !o.sae && !sec.akm.dot1x) errors.push('WPA3 Policy needs SAE (Personal) or 802.1X (Enterprise) key management.')
     if (!mixed && o.wpa3 && !o.wpa2 && sec.akm.psk) errors.push('With only WPA3 Policy selected, use SAE instead of PSK. PSK key management belongs to WPA2.')
     if (o.wpa3 && !o.wpa2 && sec.pmf !== 'required') errors.push('WPA3 requires Protected Management Frames. Set PMF to Required.')
-    if (o.sae && sec.pmf === 'disabled') errors.push('SAE needs PMF set to Optional or Required.')
+    if (o.sae && o.wpa2 && sec.pmf === 'disabled') errors.push('SAE needs PMF set to Optional or Required, even in transition mode.')
     if (o.psk || o.sae) errors.push(...pskErrors(sec.psk, sec.pskFormat))
   }
 

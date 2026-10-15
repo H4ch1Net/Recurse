@@ -17,8 +17,8 @@ const POSITIONS = {
 // Phone layouts (viewBox 0 0 300 390): taller and narrower, so labels can be big enough to read.
 const PHONE_POSITIONS = {
   square: { SW1: { x: 52, y: 100 }, SW2: { x: 248, y: 100 }, SW3: { x: 52, y: 300 }, SW4: { x: 248, y: 300 } },
-  triangle: { SW1: { x: 150, y: 100 }, SW2: { x: 246, y: 300 }, SW3: { x: 54, y: 300 } },
-  parallel: { SW1: { x: 150, y: 100 }, SW2: { x: 246, y: 300 }, SW3: { x: 54, y: 300 } }
+  triangle: { SW1: { x: 150, y: 92 }, SW2: { x: 246, y: 304 }, SW3: { x: 54, y: 304 } },
+  parallel: { SW1: { x: 150, y: 92 }, SW2: { x: 246, y: 304 }, SW3: { x: 54, y: 304 } }
 }
 const SPEED_LABEL = { '10M': '10 Mb/s', '100M': '100 Mb/s', '1G': '1 Gb/s', '10G': '10 Gb/s' }
 const ROLE_LETTER = { root: 'R', designated: 'D', blocked: 'B' }
@@ -26,7 +26,7 @@ const ROLE_FILL = { root: 'var(--accent)', designated: 'var(--good)', blocked: '
 const ROLE_NAME = { root: 'Root port', designated: 'Designated port', blocked: 'Blocked (alternate)' }
 
 /** Endpoints of each link, nudged apart when two links join the same pair of switches. */
-function linkGeometry(topology, pos, inset = 42) {
+function linkGeometry(topology, pos, inset = 42, spread = 28) {
   const seen = {}
   const counts = {}
   for (const l of topology.links) {
@@ -37,7 +37,7 @@ function linkGeometry(topology, pos, inset = 42) {
   for (const l of topology.links) {
     const pair = [l.a.sw, l.b.sw].sort().join('-')
     const index = (seen[pair] = (seen[pair] ?? -1) + 1)
-    const offset = counts[pair] > 1 ? (index - (counts[pair] - 1) / 2) * 28 : 0
+    const offset = counts[pair] > 1 ? (index - (counts[pair] - 1) / 2) * spread : 0
     const a = pos[l.a.sw]
     const b = pos[l.b.sw]
     const len = Math.hypot(b.x - a.x, b.y - a.y) || 1
@@ -60,7 +60,7 @@ function linkGeometry(topology, pos, inset = 42) {
 }
 
 const pillText = (l, phone) => (phone ? `${l.speed} · ${linkCost(l)}` : `${l.speed} cost ${linkCost(l)}`)
-const pillWidth = (l, phone) => (phone ? pillText(l, true).length * 7.2 + 12 : pillText(l).length * 5.8 + 14)
+const pillWidth = (l, phone) => (phone ? pillText(l, true).length * 7.2 + 10 : pillText(l).length * 5.8 + 14)
 
 const randomMac = () =>
   normalizeMac(
@@ -88,7 +88,7 @@ export default function StpElection({ onComplete }) {
   const { tokens, play, stop, busy } = useTokens()
 
   const pos = (phone ? PHONE_POSITIONS : POSITIONS)[preset]
-  const geo = linkGeometry(topology, pos, phone ? 48 : 42)
+  const geo = linkGeometry(topology, pos, phone ? 46 : 42, phone ? 44 : 28)
   const ports = listPorts(topology)
   const roles = phase === 'done' && result ? result.roles : {}
 
@@ -249,14 +249,25 @@ export default function StpElection({ onComplete }) {
               const key = portKey(end.sw, end.port)
               const role = roles[key]
               const predicted = !role && (predRootPorts[end.sw] === key ? 'root' : predBlocked[l.id] === key ? 'blocked' : null)
-              const n = geo[l.id].normal
+              let n = geo[l.id].normal
+              let off = 18
+              if (phone) {
+                // Port names go on the side away from the middle of the drawing, clear of the circle;
+                // on a level link they go toward the middle, because the switch labels sit outside.
+                const cx = topology.switches.reduce((t, x) => t + pos[x.id].x, 0) / topology.switches.length
+                const cy = topology.switches.reduce((t, x) => t + pos[x.id].y, 0) / topology.switches.length
+                const away = (p.x - cx) * n.x + (p.y - cy) * n.y >= 0 ? 1 : -1
+                const side = Math.abs(n.y) > 0.9 ? -away : away
+                n = { x: n.x * side, y: n.y * side }
+                off = 15 + 18 * Math.abs(n.x) + 6 * Math.abs(n.y)
+              }
               return (
                 <g key={key} className={`stp-port${role ? ' revealed' : ''}`}>
                   <circle cx={p.x} cy={p.y} r={phone ? 11 : 9.5} style={{ fill: role ? ROLE_FILL[role] : 'var(--card)', stroke: role ? ROLE_FILL[role] : predicted ? ROLE_FILL[predicted] : 'var(--rule-strong)', strokeWidth: 1.8, strokeDasharray: predicted ? '3 2' : undefined }} />
                   <text x={p.x} y={p.y + (phone ? 4.5 : 3.5)} textAnchor="middle" className="stp-port-letter" style={{ fill: role ? 'var(--card)' : predicted ? ROLE_FILL[predicted] : 'var(--ink-3)' }}>
                     {role ? ROLE_LETTER[role] : predicted ? `${ROLE_LETTER[predicted]}?` : ''}
                   </text>
-                  <text x={p.x + n.x * (phone ? 26 : 18)} y={p.y + n.y * (phone ? 22 : 18) + 4} textAnchor="middle" className="stp-port-name">{end.port}</text>
+                  <text x={p.x + n.x * off} y={p.y + n.y * off + 4} textAnchor="middle" className="stp-port-name">{end.port}</text>
                 </g>
               )
             })
