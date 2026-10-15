@@ -331,11 +331,22 @@ function ProblemStatement({ challenge }) {
   )
 }
 
+/** An example argument as editable text: spaced like the examples when it reads back the same. */
+function prefill(value) {
+  try {
+    const text = formatValue(value, { language: 'javascript' })
+    if (JSON.stringify(parseValue(text)) === JSON.stringify(value)) return text
+  } catch {
+    // Fall back to plain JSON.
+  }
+  return JSON.stringify(value)
+}
+
 /** Run the learner's code on an input they choose, the way you would test by hand. */
 function CustomCase({ challenge, getCode, onRan, locked }) {
   const params = challenge.params || []
   const example = selectTests(challenge, 'visible')[0]
-  const [values, setValues] = useState(() => params.map((_, i) => (example ? JSON.stringify(example.args[i]) : '')))
+  const [values, setValues] = useState(() => params.map((_, i) => (example ? prefill(example.args[i]) : '')))
   const [expected, setExpected] = useState('')
   const [state, setState] = useState(null)
   const job = useRef(null)

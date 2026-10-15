@@ -367,7 +367,7 @@ function Console({ lab, device, onComplete }) {
               <RotateCcw size={12} /> Reset
             </button>
           </div>
-          <div ref={screenRef} className="terminal-screen iosc-screen" role="log" aria-label={`${sim.dev.hostname} console output`} onClick={onScreenUp}>
+          <div ref={screenRef} className="terminal-screen iosc-screen w-scroll-hint" role="log" aria-label={`${sim.dev.hostname} console output`} onClick={onScreenUp}>
             {lines.map((l) =>
               l.kind === 'echo' ? (
                 <div key={l.id} className="terminal-line">
