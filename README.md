@@ -10,6 +10,8 @@ An interactive learning app built on spaced repetition. Short lessons with simul
 a Cisco IOS console, coding challenges in JavaScript and Python, quizzes, timed exams and projects,<br />
 organized into paths that take you from zero to the CCNA or a software engineering internship.
 
+**Live at [recurse-2ndl.netlify.app](https://recurse-2ndl.netlify.app)**
+
 [![CI](https://github.com/H4ch1Net/Recurse/actions/workflows/ci.yml/badge.svg)](https://github.com/H4ch1Net/Recurse/actions/workflows/ci.yml)
 ![License: MIT](https://img.shields.io/badge/license-MIT-2843c4)
 ![React 19](https://img.shields.io/badge/React-19-149eca)
@@ -364,6 +366,10 @@ import React, so they are tested directly.
   resources you choose to open.
 
 ## Deployment
+
+The live app is at [recurse-2ndl.netlify.app](https://recurse-2ndl.netlify.app), on Netlify's free plan.
+Netlify shows a small "Powered by Netlify" badge on free sites; tap it and choose **Hide this badge** to
+hide it in that browser.
 
 The app is a static site, so it can be hosted for free. The repository includes a `netlify.toml`, which
 makes Netlify the quickest option:
