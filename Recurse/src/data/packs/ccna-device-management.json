@@ -1,0 +1,681 @@
+{
+  "id": "ccna-device-management",
+  "name": "Device Management Access",
+  "version": "1.0.0",
+  "author": "Recurse",
+  "subject": "networking",
+  "level": "intermediate",
+  "description": "Choose between console, Telnet, SSH, HTTP, HTTPS, TACACS+, RADIUS and cloud management, and set up SSH-only access.",
+  "icon": "MG",
+  "language": "cisco",
+  "prereqs": [
+    "ccna-cabling-interfaces"
+  ],
+  "tags": [
+    "ccna",
+    "2.8",
+    "management",
+    "ssh",
+    "aaa"
+  ],
+  "lesson": {
+    "estimatedMinutes": 28,
+    "intro": "Every router, switch and controller needs a way for you to log in and manage it. The CCNA blueprint lists the options: console, Telnet, SSH, HTTP, HTTPS, AAA with TACACS+ or RADIUS, and cloud management. This lesson explains how each one works, when you would use it and which ones are safe, and it previews the SSH-only configuration you will build for real in the SSH lab later in the path.",
+    "objectives": [
+      "Distinguish out-of-band console access from in-band Telnet, SSH, HTTP and HTTPS access",
+      "Explain why SSH and HTTPS replace Telnet and HTTP, including their port numbers",
+      "Configure a switch for SSH-only vty access with local usernames",
+      "Compare TACACS+ and RADIUS for authenticating device logins",
+      "Describe how cloud-managed devices such as Cisco Meraki are provisioned and managed"
+    ],
+    "sections": [
+      {
+        "title": "Out-of-band: the console port",
+        "body": "You unbox a new switch. It has no IP address, so nothing on the network can reach it. The only way in is the **console port**: a serial connection from your laptop, using a rollover (console) cable to the RJ-45 console port, or a USB cable to the USB console port that many newer devices have. A terminal emulator such as PuTTY connects with the defaults: **9600 bits per second, 8 data bits, no parity, 1 stop bit, no flow control**.\n\nThe console is **out-of-band** management: it does not depend on the production network. That makes it essential for initial setup, password recovery and fixing a device after a bad change has cut off its network access. Larger networks extend the idea with a **terminal server** (console server) cabled to the console ports of many devices, often on a separate management network, so engineers can reach every console remotely even during an outage. Many routers also have a dedicated management Ethernet port, and older routers have an **AUX** port for a dial-in modem.\n\nAnything you reach through the normal network, using an IP address on an SVI or a routed interface, is **in-band** management: Telnet, SSH, HTTP, HTTPS, SNMP and so on. It is convenient, but it fails when the network fails.\n\nEven the console needs protection, because anyone with physical access can plug in. The simplest sound setup uses a local username and an idle timeout.",
+        "code": "SW1(config)# username admin secret Str0ngPa55\nSW1(config)# line console 0\nSW1(config-line)# login local\nSW1(config-line)# exec-timeout 5 0\nSW1(config-line)# logging synchronous",
+        "pitfall": "Assuming the console is safe because it is physical. Wiring closets get opened, and a console session left logged in is an open door. Use login local and an exec-timeout.",
+        "check": {
+          "question": "A bad change removed a switch's only management IP address, cutting off all remote access. How can an engineer still reach the CLI?",
+          "choices": [
+            "Through SSH on TCP 22, which does not need an IP address",
+            "Through the console port, which is out-of-band",
+            "Through HTTPS on TCP 443",
+            "Through Telnet from the default gateway"
+          ],
+          "answer": 1,
+          "explanation": "The console is a direct serial connection that does not depend on IP or the production network. SSH, HTTPS and Telnet are all in-band and need a reachable IP address."
+        }
+      },
+      {
+        "title": "In-band access: giving a switch an IP address",
+        "body": "To manage a Layer 2 switch remotely, it needs an IP address, but its physical ports are switchports with no IP. The address goes on a **switch virtual interface (SVI)**, a logical interface in a VLAN: interface vlan 1 by default, or better, a dedicated management VLAN. A Layer 2 switch also needs `ip default-gateway` so it can reply to administrators in other subnets; it does not route, so this is how it reaches anything off its own subnet. A router or Layer 3 switch simply uses one of its routed interfaces, an SVI or a loopback.\n\nOnce it has an address, the device accepts remote logins on its **vty lines** (virtual terminal lines). Each Telnet or SSH session uses one vty line. Switches typically have 16 (line vty 0 15); many routers have 5 (line vty 0 4) by default, though it varies by platform. Under line vty, `login local` checks the local username database, and `transport input` decides which protocols may connect.\n\nThe example puts the management address in VLAN 99. The SVI comes up only when VLAN 99 exists and at least one port in it is up and forwarding, usually the uplink trunk, so VLAN 99 must also be allowed on that trunk.",
+        "code": "SW1(config)# vlan 99\nSW1(config-vlan)# name MGMT\nSW1(config-vlan)# interface vlan 99\nSW1(config-if)# ip address 10.1.99.11 255.255.255.0\nSW1(config-if)# no shutdown\nSW1(config-if)# exit\nSW1(config)# ip default-gateway 10.1.99.1",
+        "pitfall": "Forgetting ip default-gateway on a Layer 2 switch. Admins in the same subnet can connect, but everyone else gets no reply, because the switch has no way to send traffic off its subnet.",
+        "check": {
+          "question": "A Layer 2 switch has 10.1.99.11/24 on interface vlan 99. Admins in 10.1.99.0/24 can SSH to it, but admins in 10.2.0.0/16 cannot. Which command is most likely missing?",
+          "choices": [
+            "ip routing",
+            "transport input all",
+            "ip default-gateway 10.1.99.1",
+            "no shutdown under interface vlan 1"
+          ],
+          "answer": 2,
+          "explanation": "Without a default gateway, the switch cannot reply to hosts outside its own subnet. ip routing would turn a Layer 3 switch into a router, which is not what a Layer 2 switch needs here."
+        }
+      },
+      {
+        "title": "Telnet versus SSH, and the SSH-only setup",
+        "body": "**Telnet** (TCP port 23) gives you a remote CLI, but everything, including the username and password, crosses the network in clear text. Anyone capturing packets on the path reads your credentials. It has no place on a production network.\n\n**SSH** (Secure Shell, TCP port 22) gives the same CLI over an encrypted, authenticated session. Use **SSH version 2**; version 1 has known weaknesses. To run SSH, IOS needs an RSA key pair. To generate the keys it needs a hostname and a domain name, because it names the key after the device's fully qualified domain name (for example SW1.example.com). SSH also needs username-based login, so it pairs with login local or AAA.\n\nHere is the standard SSH-only setup. You will configure it in the SSH lab later in the path; for now, read it line by line:\n\n- `hostname` and `ip domain-name`: build the FQDN that names the key.\n- `crypto key generate rsa modulus 2048`: create the key pair (SSH version 2 needs at least 768 bits; use 2048).\n- `ip ssh version 2`: refuse version 1 clients.\n- `username admin secret ...`: a local account with the password stored as a hash.\n- `line vty 0 15` and `login local`: check usernames on all 16 vty lines.\n- `transport input ssh`: allow only SSH, so Telnet is refused.\n- `exec-timeout 10 0`: close idle sessions after 10 minutes.\n\nVerify with show ip ssh (SSH status and version) and show ssh (current sessions). If show ip ssh says SSH Disabled, no RSA key exists yet.",
+        "code": "SW1(config)# hostname SW1\nSW1(config)# ip domain-name example.com\nSW1(config)# crypto key generate rsa modulus 2048\nThe name for the keys will be: SW1.example.com\n% The key modulus size is 2048 bits\n% Generating 2048 bit RSA keys, keys will be non-exportable...\n[OK] (elapsed time was 3 seconds)\nSW1(config)# ip ssh version 2\nSW1(config)# username admin secret Str0ngPa55\nSW1(config)# line vty 0 15\nSW1(config-line)# login local\nSW1(config-line)# transport input ssh\nSW1(config-line)# exec-timeout 10 0\nSW1(config-line)# end\nSW1# show ip ssh\nSSH Enabled - version 2.0\nAuthentication timeout: 120 secs; Authentication retries: 3\n! lines omitted",
+        "pitfall": "Setting transport input ssh on line vty 0 4 only. On a switch with 16 lines, lines 5 to 15 still accept Telnet. Apply the SSH-only settings to every vty line the device has.",
+        "activity": {
+          "type": "ios-console",
+          "title": "Try the SSH-only setup",
+          "prompt": "This is a free switch sandbox, not a graded lab. Type the configuration from this section in order, but first try crypto key generate rsa before setting ip domain-name and read the error. Finish by checking your work with show ip ssh and show running-config.",
+          "props": {
+            "device": "switch"
+          }
+        },
+        "check": {
+          "question": "Why must a hostname and ip domain-name be configured before crypto key generate rsa?",
+          "choices": [
+            "IOS names the RSA key pair after the device's fully qualified domain name",
+            "SSH uses DNS to encrypt each session",
+            "The domain name becomes the SSH password",
+            "Those commands disable Telnet first"
+          ],
+          "answer": 0,
+          "explanation": "The key is labeled with hostname.domain, so IOS refuses to generate it until both exist ('% Please define a domain-name first'). DNS plays no part in encrypting the session."
+        }
+      },
+      {
+        "title": "Web management: HTTP and HTTPS",
+        "body": "Many devices also offer a web GUI: WLCs always, autonomous APs, small business switches, and IOS routers and switches through a built-in web server. The rule is the same as Telnet versus SSH.\n\n- **HTTP** (TCP port 80): clear text. Credentials and configuration cross the network readable by anyone in the path.\n- **HTTPS** (TCP port 443): HTTP inside TLS. The session is encrypted, and the device proves its identity with a certificate (often self-signed on network gear, which is why browsers warn the first time).\n\nOn IOS, `ip http server` enables HTTP and `ip http secure-server` enables HTTPS, and `ip http authentication local` makes the web server use local usernames. Best practice is to disable HTTP with `no ip http server` and keep HTTPS only if you actually use the GUI. The same HTTPS service also carries REST APIs and controller-based management, which you will meet in the automation domain.\n\nThe WLC GUI that you use to create WLANs is reached with HTTPS to the controller's management interface, and by default it cannot be reached from wireless clients at all.",
+        "code": "SW1(config)# no ip http server\nSW1(config)# ip http secure-server\nSW1(config)# ip http authentication local",
+        "pitfall": "Leaving ip http server enabled because 'nobody uses the GUI'. An unused clear-text login page is still an attack surface; turn it off.",
+        "check": {
+          "question": "Which option encrypts a web-based management session to a switch?",
+          "choices": [
+            "HTTP on TCP 80",
+            "Telnet on TCP 23",
+            "HTTP on TCP 8080",
+            "HTTPS on TCP 443"
+          ],
+          "answer": 3,
+          "explanation": "HTTPS wraps HTTP in TLS on TCP 443. Plain HTTP on any port, and Telnet, send everything in clear text."
+        }
+      },
+      {
+        "title": "AAA with TACACS+ and RADIUS",
+        "body": "Local usernames work in a lab, but picture 300 devices and 25 administrators. Someone leaves the company and you must remove their account from 300 configurations. Someone forgets a password: same problem. And local accounts make it hard to see who ran which command.\n\nThe answer is **AAA** with a central server such as Cisco ISE:\n\n- **Authentication**: who are you?\n- **Authorization**: what are you allowed to do?\n- **Accounting**: what did you do (logins, commands)?\n\nThe switch becomes an AAA client. An administrator connects with SSH, the switch passes the credentials to the AAA server, and the server answers accept or reject. Two protocols carry that conversation:\n\n- **TACACS+**: developed by Cisco. TCP port **49**. Encrypts the **entire** message body. Keeps authentication, authorization and accounting separate, so it can authorize each command an administrator types and log it. The usual choice for **device administration**.\n- **RADIUS**: an open standard. UDP ports **1812** (authentication and authorization) and **1813** (accounting); older servers use 1645 and 1646. Encrypts **only the password**. Combines authentication and authorization in one exchange. The usual choice for **network access**, such as 802.1X on switch ports and Wi-Fi, and VPN users.\n\nAlways keep a local fallback. In a method list such as `group tacacs+ local`, the switch tries the next method (local) only when the server **does not respond**. If the server answers and rejects the password, the login fails; it does not fall through to local.",
+        "code": "SW1(config)# username admin secret Str0ngPa55\nSW1(config)# aaa new-model\nSW1(config)# tacacs server ISE1\nSW1(config-server-tacacs)# address ipv4 10.1.100.10\nSW1(config-server-tacacs)# key T4cacsK3y\nSW1(config-server-tacacs)# exit\nSW1(config)# aaa authentication login default group tacacs+ local\nSW1(config)# aaa authorization exec default group tacacs+ local\nSW1(config)# aaa accounting commands 15 default start-stop group tacacs+",
+        "pitfall": "Entering aaa new-model without a local username and a fallback method. Logins immediately follow the new AAA rules, and you can lock yourself out. Create the local account first and end method lists with local.",
+        "check": {
+          "question": "Which protocol encrypts the entire message body and is commonly used for device administration with per-command authorization?",
+          "choices": [
+            "RADIUS",
+            "TACACS+",
+            "Telnet",
+            "SNMPv2c"
+          ],
+          "answer": 1,
+          "explanation": "TACACS+ runs over TCP 49, encrypts the whole payload and separates authorization from authentication, which enables per-command control. RADIUS encrypts only the password and combines authentication and authorization."
+        }
+      },
+      {
+        "title": "Cloud-managed devices",
+        "body": "A company has 80 small branches and no network staff at any of them. With **cloud-managed** devices, such as the Cisco Meraki line of APs, switches and security appliances, the management plane lives in the vendor's cloud instead of on premises. It works like this:\n\n- The devices are claimed into the organization's account in the cloud dashboard, by serial number or order number.\n- At the branch, someone plugs a device in. It gets an address, connects outbound over the internet to the cloud, and downloads its configuration and firmware. This is zero-touch provisioning.\n- Administrators configure, monitor and troubleshoot every site from one web dashboard. The cloud also collects statistics, raises alerts and schedules firmware updates.\n\nOnly management and monitoring traffic goes to the cloud. User traffic is forwarded locally by the devices. If a branch loses its connection to the cloud, its network keeps forwarding with the last configuration; you just cannot change it or see live statistics until the connection returns.\n\nCompare the three ways to manage devices. **Device by device**: console, SSH and HTTPS to each box. **Controller-based**: an on-premises controller you run yourself, such as a WLC or Cisco Catalyst Center (formerly DNA Center). **Cloud-managed**: the controller role becomes a subscription service. The trade-offs: fast multi-site rollout and no controller hardware to maintain, against depending on internet access for management and paying an ongoing license.",
+        "code": "              Meraki cloud dashboard\n                       ^\n     management only   |   (each device connects outbound over HTTPS/TLS)\n            +----------+----------+\n            |                     |\n       Branch 1 AP          Branch 2 switch\n            |                     |\n   user traffic stays local at each branch",
+        "language": "plaintext",
+        "pitfall": "Assuming a cloud outage takes the branch offline. Forwarding continues locally; only configuration changes and monitoring wait for the cloud.",
+        "check": {
+          "question": "In a Meraki cloud-managed network, what happens to user traffic if a branch loses its connection to the cloud dashboard?",
+          "choices": [
+            "It stops until the dashboard is reachable again",
+            "It is redirected through the nearest WLC",
+            "It keeps flowing locally using the last configuration",
+            "It is dropped except for DNS"
+          ],
+          "answer": 2,
+          "explanation": "The cloud holds the management plane only. Devices keep forwarding traffic with their last configuration; changes and live monitoring resume when the cloud connection returns."
+        }
+      },
+      {
+        "title": "Choosing and locking down management access",
+        "body": "Every management method has a place, and every insecure one has a secure replacement. The table pulls the ports and properties together; know it cold for the exam.\n\nA hardening checklist that ties this lesson to the security domain later in the path:\n\n- Use SSH version 2 only (`transport input ssh`) on every vty line, and disable Telnet.\n- Use HTTPS only (`no ip http server`), or disable the web server entirely if nobody uses it.\n- Authenticate administrators through AAA (TACACS+ for device administration) and keep a local fallback account.\n- Restrict which addresses can reach the vty lines with an ACL applied by `access-class` under line vty.\n- Set `exec-timeout` so idle sessions close.\n- Keep console access available out-of-band for emergencies, protected with login local.\n- Put management interfaces in a dedicated management VLAN or an out-of-band network.",
+        "code": "Method     Port          Encrypted?          Typical use\nConsole    serial        n/a (physical)      Initial setup, recovery, outages\nTelnet     TCP 23        No                  Avoid; legacy only\nSSH        TCP 22        Yes                 Remote CLI\nHTTP       TCP 80        No                  Avoid; disable it\nHTTPS      TCP 443       Yes (TLS)           Web GUI, REST APIs\nTACACS+    TCP 49        Whole body          AAA for device administration\nRADIUS     UDP 1812/1813 Password only       AAA for network access (802.1X, VPN)\nCloud      HTTPS out     Yes                 Meraki dashboard management",
+        "language": "plaintext",
+        "pitfall": "Hardening the vty lines but leaving the HTTP server on. Attackers try every management door, so close all the ones you do not use.",
+        "check": {
+          "question": "An audit finds that a router accepts management logins over TCP 23 and TCP 80. Which changes fix both findings?",
+          "choices": [
+            "ip ssh version 1 and ip http secure-server",
+            "no cdp run and no lldp run",
+            "transport input ssh on all vty lines and no ip http server",
+            "exec-timeout 0 0 and ip http server"
+          ],
+          "answer": 2,
+          "explanation": "TCP 23 is Telnet, closed by allowing only SSH on the vty lines, and TCP 80 is the HTTP server, closed with no ip http server. exec-timeout 0 0 would actually disable the idle timeout."
+        }
+      }
+    ],
+    "keyTerms": [
+      {
+        "term": "Console port",
+        "definition": "Serial management port (9600 baud, 8 data bits, no parity, 1 stop bit) used with a rollover or USB cable."
+      },
+      {
+        "term": "Out-of-band management",
+        "definition": "Management access that does not depend on the production network, such as the console or a separate management network."
+      },
+      {
+        "term": "In-band management",
+        "definition": "Management over the production network to a device's IP address: Telnet, SSH, HTTP, HTTPS, SNMP."
+      },
+      {
+        "term": "vty line",
+        "definition": "A virtual terminal line that accepts one remote Telnet or SSH session; configured under line vty."
+      },
+      {
+        "term": "SSH",
+        "definition": "Secure Shell, TCP 22: encrypted remote CLI. Needs a hostname, domain name, RSA keys and username login."
+      },
+      {
+        "term": "Telnet",
+        "definition": "TCP 23 remote CLI that sends everything, including passwords, in clear text."
+      },
+      {
+        "term": "HTTPS",
+        "definition": "HTTP over TLS on TCP 443: encrypted web management, enabled on IOS with ip http secure-server."
+      },
+      {
+        "term": "AAA",
+        "definition": "Authentication, authorization and accounting, usually provided by a central server such as Cisco ISE."
+      },
+      {
+        "term": "TACACS+",
+        "definition": "Cisco-developed AAA protocol on TCP 49 that encrypts the whole body and separates the three A's; used for device administration."
+      },
+      {
+        "term": "RADIUS",
+        "definition": "Open-standard AAA protocol on UDP 1812/1813 that encrypts only the password; used for network access such as 802.1X."
+      },
+      {
+        "term": "Cloud-managed",
+        "definition": "Devices (such as Meraki) configured and monitored from a vendor cloud dashboard while forwarding user traffic locally."
+      }
+    ],
+    "summary": [
+      "The console (9600 8N1) is out-of-band and works with no IP; Telnet, SSH, HTTP and HTTPS are in-band.",
+      "A Layer 2 switch is managed through an SVI address plus ip default-gateway; remote sessions use vty lines.",
+      "SSH-only access: hostname, ip domain-name, crypto key generate rsa, ip ssh version 2, local username, login local and transport input ssh on all vty lines.",
+      "Use HTTPS (443) instead of HTTP (80); disable unused web servers with no ip http server.",
+      "TACACS+ (TCP 49, full encryption, per-command authorization) suits device admin; RADIUS (UDP 1812/1813, password only) suits network access.",
+      "Cloud-managed devices get configuration from the vendor cloud; user traffic stays local and keeps flowing if the cloud is unreachable."
+    ],
+    "feynmanPrompt": "Explain to a new network technician the different ways to get into a switch, from the console cable to SSH and the web GUI, why Telnet and HTTP are unsafe, and how a TACACS+ server makes managing 300 devices easier than local usernames."
+  },
+  "questions": [
+    {
+      "id": "ccna-device-management-q01",
+      "type": "mcq",
+      "difficulty": "easy",
+      "question": "Which terminal emulator settings are the defaults for a Cisco console port?",
+      "choices": [
+        "115200 bps, 8 data bits, even parity, 2 stop bits",
+        "9600 bps, 8 data bits, no parity, 1 stop bit",
+        "9600 bps, 7 data bits, odd parity, 1 stop bit",
+        "19200 bps, 8 data bits, no parity, 2 stop bits"
+      ],
+      "answer": 1,
+      "explanation": "Cisco console ports default to 9600 bps, 8 data bits, no parity, 1 stop bit and no flow control, often written 9600 8N1.",
+      "concept": "console settings",
+      "section": 0
+    },
+    {
+      "id": "ccna-device-management-q02",
+      "type": "mcq",
+      "difficulty": "medium",
+      "question": "Which is an example of out-of-band management?",
+      "choices": [
+        "SSH to the switch's management SVI",
+        "HTTPS to the WLC's management interface",
+        "A console server cabled to device console ports over a separate network",
+        "SNMP polling across the production network"
+      ],
+      "answer": 2,
+      "explanation": "Out-of-band access does not rely on the production network. A console server reaches each device's console port independently, so it still works when the data network is down.",
+      "concept": "out-of-band management",
+      "section": 0
+    },
+    {
+      "id": "ccna-device-management-q03",
+      "type": "typed",
+      "difficulty": "easy",
+      "question": "Which TCP port does SSH use?",
+      "answer": "22",
+      "accept": [
+        "tcp 22"
+      ],
+      "explanation": "SSH listens on TCP 22. Telnet uses TCP 23.",
+      "concept": "SSH port",
+      "section": 2
+    },
+    {
+      "id": "ccna-device-management-q04",
+      "type": "typed",
+      "difficulty": "easy",
+      "question": "Which TCP port does Telnet use?",
+      "answer": "23",
+      "accept": [
+        "tcp 23"
+      ],
+      "explanation": "Telnet uses TCP 23 and sends everything, including passwords, in clear text.",
+      "concept": "Telnet port",
+      "section": 2
+    },
+    {
+      "id": "ccna-device-management-q05",
+      "type": "match",
+      "difficulty": "medium",
+      "question": "Match each management protocol to its port.",
+      "pairs": [
+        {
+          "left": "SSH",
+          "right": "TCP 22"
+        },
+        {
+          "left": "Telnet",
+          "right": "TCP 23"
+        },
+        {
+          "left": "HTTP",
+          "right": "TCP 80"
+        },
+        {
+          "left": "HTTPS",
+          "right": "TCP 443"
+        },
+        {
+          "left": "TACACS+",
+          "right": "TCP 49"
+        },
+        {
+          "left": "RADIUS authentication",
+          "right": "UDP 1812"
+        }
+      ],
+      "explanation": "Note the transport split for AAA: TACACS+ uses TCP, RADIUS uses UDP (1812 for authentication, 1813 for accounting).",
+      "concept": "management ports",
+      "section": 6
+    },
+    {
+      "id": "ccna-device-management-q06",
+      "type": "cli",
+      "shell": "ios",
+      "difficulty": "medium",
+      "question": "Type the global command that sets a Layer 2 switch's default gateway to 10.1.99.1.",
+      "answer": "ip default-gateway 10.1.99.1",
+      "explanation": "A Layer 2 switch does not route, so ip default-gateway tells it where to send replies to hosts outside its management subnet.",
+      "concept": "switch default gateway",
+      "section": 1
+    },
+    {
+      "id": "ccna-device-management-q07",
+      "type": "mcq",
+      "difficulty": "easy",
+      "question": "Where is the management IP address configured on a Layer 2 switch?",
+      "choices": [
+        "On the physical uplink port",
+        "Under line vty 0 15",
+        "On the console line",
+        "On an SVI such as interface vlan 99"
+      ],
+      "answer": 3,
+      "explanation": "Switchports carry no IP address, so the switch's own address goes on a switch virtual interface in the management VLAN.",
+      "concept": "management SVI",
+      "section": 1
+    },
+    {
+      "id": "ccna-device-management-q08",
+      "type": "order",
+      "difficulty": "medium",
+      "question": "Put the steps of a TACACS+ login to a switch in order.",
+      "items": [
+        "The administrator opens an SSH session to the switch",
+        "The switch prompts for a username and password",
+        "The switch sends the credentials to the TACACS+ server",
+        "The server replies with accept or reject",
+        "The switch grants or denies access to the CLI"
+      ],
+      "explanation": "The switch is only the AAA client: it collects the credentials, the server decides, and the switch enforces the answer.",
+      "concept": "AAA login flow",
+      "section": 4
+    },
+    {
+      "id": "ccna-device-management-q09",
+      "type": "cli",
+      "shell": "ios",
+      "difficulty": "medium",
+      "question": "In line configuration mode for the vty lines, type the command that allows only SSH for remote logins.",
+      "answer": "transport input ssh",
+      "explanation": "transport input ssh refuses Telnet on those lines. Apply it to every vty line the device has.",
+      "concept": "SSH-only vty",
+      "section": 2
+    },
+    {
+      "id": "ccna-device-management-q10",
+      "type": "cli",
+      "shell": "ios",
+      "difficulty": "medium",
+      "question": "Type the global command that generates a 2048-bit RSA key pair for SSH without prompting for the size.",
+      "answer": "crypto key generate rsa modulus 2048",
+      "accept": [
+        "crypto key generate rsa general-keys modulus 2048"
+      ],
+      "explanation": "Adding modulus 2048 avoids the size prompt. SSH version 2 needs at least 768 bits, and 2048 is the usual choice.",
+      "concept": "generate RSA keys",
+      "section": 2
+    },
+    {
+      "id": "ccna-device-management-q11",
+      "type": "debug",
+      "difficulty": "medium",
+      "question": "The engineer is trying to enable SSH. What must be configured before this command will succeed?",
+      "code": "Switch(config)# hostname SW1\nSW1(config)# crypto key generate rsa modulus 2048\n% Please define a domain-name first.",
+      "language": "cisco",
+      "choices": [
+        "ip ssh version 2",
+        "ip domain-name example.com",
+        "username admin secret Str0ngPa55",
+        "transport input ssh"
+      ],
+      "answer": 1,
+      "explanation": "The key is named after hostname.domain, so a domain name is required (the hostname is already set). The other commands are part of the SSH setup but do not affect key generation.",
+      "concept": "SSH key prerequisites",
+      "section": 2
+    },
+    {
+      "id": "ccna-device-management-q12",
+      "type": "debug",
+      "difficulty": "hard",
+      "question": "A security scan shows this switch still accepts Telnet, even though SSH is configured. Based on the configuration, why?",
+      "code": "line vty 0 4\n login local\n transport input ssh\nline vty 5 15\n login local\n transport input telnet ssh",
+      "language": "cisco",
+      "choices": [
+        "ip ssh version 2 always allows Telnet as a fallback",
+        "login local permits Telnet on every line",
+        "Lines 5 to 15 still allow Telnet",
+        "The RSA key is shorter than 2048 bits"
+      ],
+      "answer": 2,
+      "explanation": "Each group of vty lines has its own transport setting. Lines 5 to 15 accept telnet and ssh, so a Telnet session lands on one of them. Set transport input ssh on line vty 0 15.",
+      "concept": "all vty lines",
+      "section": 2
+    },
+    {
+      "id": "ccna-device-management-q13",
+      "type": "mcq",
+      "difficulty": "hard",
+      "question": "show ip ssh on a switch returns 'SSH Disabled - version 1.99' and asks you to create RSA keys. What is the most likely reason SSH is disabled?",
+      "choices": [
+        "No RSA key pair has been generated",
+        "transport input ssh is missing",
+        "The domain name is too long",
+        "Telnet is still enabled on the vty lines"
+      ],
+      "answer": 0,
+      "explanation": "The SSH server runs only once an RSA key pair exists. Without keys, show ip ssh reports SSH disabled regardless of the vty settings.",
+      "concept": "SSH needs keys",
+      "section": 2
+    },
+    {
+      "id": "ccna-device-management-q14",
+      "type": "multi",
+      "difficulty": "hard",
+      "question": "Which three are required for a switch to accept SSH logins that use local usernames? (Choose three.)",
+      "choices": [
+        "An RSA key pair",
+        "A local username with a password or secret",
+        "login local on the vty lines",
+        "ip http secure-server",
+        "An SNMP community string"
+      ],
+      "answers": [
+        0,
+        1,
+        2
+      ],
+      "explanation": "SSH needs keys (which in turn need a hostname and domain name), a username to authenticate, and vty lines that check the local database. HTTPS and SNMP are unrelated.",
+      "concept": "SSH requirements",
+      "section": 2
+    },
+    {
+      "id": "ccna-device-management-q15",
+      "type": "cli",
+      "shell": "ios",
+      "difficulty": "medium",
+      "question": "Type the global command that disables the clear-text HTTP server on IOS.",
+      "answer": "no ip http server",
+      "explanation": "no ip http server stops the TCP 80 web server. ip http secure-server controls the HTTPS server separately.",
+      "concept": "disable HTTP",
+      "section": 3
+    },
+    {
+      "id": "ccna-device-management-q16",
+      "type": "mcq",
+      "difficulty": "easy",
+      "question": "Why is HTTPS preferred over HTTP for managing a device through its web GUI?",
+      "choices": [
+        "HTTPS loads pages faster",
+        "HTTP cannot display configuration pages",
+        "HTTPS encrypts the session with TLS, protecting credentials and configuration",
+        "HTTPS does not require a username"
+      ],
+      "answer": 2,
+      "explanation": "HTTP sends logins and configuration in clear text. HTTPS encrypts the session and lets the device prove its identity with a certificate.",
+      "concept": "HTTPS versus HTTP",
+      "section": 3
+    },
+    {
+      "id": "ccna-device-management-q17",
+      "type": "match",
+      "difficulty": "easy",
+      "question": "Match each part of AAA to the question it answers.",
+      "pairs": [
+        {
+          "left": "Authentication",
+          "right": "Who are you?"
+        },
+        {
+          "left": "Authorization",
+          "right": "What are you allowed to do?"
+        },
+        {
+          "left": "Accounting",
+          "right": "What did you do?"
+        }
+      ],
+      "explanation": "Authentication proves identity, authorization grants privileges, and accounting records activity such as logins and commands.",
+      "concept": "AAA functions",
+      "section": 4
+    },
+    {
+      "id": "ccna-device-management-q18",
+      "type": "mcq",
+      "difficulty": "hard",
+      "question": "Which statement correctly compares TACACS+ and RADIUS?",
+      "choices": [
+        "TACACS+ uses UDP 1812, and RADIUS uses TCP 49",
+        "Both encrypt only the password",
+        "RADIUS separates authentication and authorization, while TACACS+ combines them",
+        "TACACS+ uses TCP 49 and encrypts the whole body; RADIUS uses UDP and encrypts only the password"
+      ],
+      "answer": 3,
+      "explanation": "TACACS+ runs on TCP 49, encrypts the full payload and separates the AAA functions. RADIUS runs on UDP 1812/1813, encrypts just the password and combines authentication with authorization.",
+      "concept": "TACACS+ versus RADIUS",
+      "section": 4
+    },
+    {
+      "id": "ccna-device-management-q19",
+      "type": "multi",
+      "difficulty": "medium",
+      "question": "Which two statements describe RADIUS? (Choose two.)",
+      "choices": [
+        "It is an open standard",
+        "It uses TCP port 49",
+        "It combines authentication and authorization",
+        "It encrypts the entire message body",
+        "It is Cisco proprietary"
+      ],
+      "answers": [
+        0,
+        2
+      ],
+      "explanation": "RADIUS is an open standard over UDP that combines authentication and authorization and encrypts only the password. TCP 49, full encryption and Cisco origin describe TACACS+.",
+      "concept": "RADIUS facts",
+      "section": 4
+    },
+    {
+      "id": "ccna-device-management-q20",
+      "type": "mcq",
+      "difficulty": "hard",
+      "question": "A switch uses aaa authentication login default group tacacs+ local. The TACACS+ server is reachable and rejects user bob's password. What happens?",
+      "choices": [
+        "The login fails; local is tried only when the server does not respond",
+        "The switch checks bob's password against the local database",
+        "The switch admits bob with read-only access",
+        "The switch keeps retrying the server until it accepts"
+      ],
+      "answer": 0,
+      "explanation": "A method list moves to the next method only on an error, such as no response from the server. A reject is a final answer, so the local fallback is not used.",
+      "concept": "AAA method fallback",
+      "section": 4
+    },
+    {
+      "id": "ccna-device-management-q21",
+      "type": "mcq",
+      "difficulty": "medium",
+      "question": "Which AAA protocol would you normally use to authenticate wireless users with 802.1X?",
+      "choices": [
+        "TACACS+",
+        "RADIUS",
+        "SSH",
+        "LDAP over Telnet"
+      ],
+      "answer": 1,
+      "explanation": "RADIUS is the standard protocol for network access control, including 802.1X on Wi-Fi and wired ports. TACACS+ is typically used for administrators logging in to network devices.",
+      "concept": "RADIUS for network access",
+      "section": 4
+    },
+    {
+      "id": "ccna-device-management-q22",
+      "type": "cli",
+      "shell": "ios",
+      "difficulty": "medium",
+      "question": "Type the global command that enables the AAA model on IOS.",
+      "answer": "aaa new-model",
+      "explanation": "aaa new-model activates AAA so that aaa authentication, authorization and accounting commands take effect. Create a local fallback user first so you cannot lock yourself out.",
+      "concept": "aaa new-model",
+      "section": 4
+    },
+    {
+      "id": "ccna-device-management-q23",
+      "type": "mcq",
+      "difficulty": "medium",
+      "question": "How does a new Meraki device get its configuration when it is first plugged in at a branch?",
+      "choices": [
+        "An engineer must connect to the console and paste the configuration",
+        "It connects outbound to the Meraki cloud and downloads the configuration assigned to it in the dashboard",
+        "It receives it from a local WLC over CAPWAP",
+        "It copies the configuration of its CDP neighbor"
+      ],
+      "answer": 1,
+      "explanation": "Cloud-managed devices are claimed in the dashboard ahead of time. When powered on with internet access, they contact the cloud and download their configuration and firmware: zero-touch provisioning.",
+      "concept": "zero-touch provisioning",
+      "section": 5
+    },
+    {
+      "id": "ccna-device-management-q24",
+      "type": "mcq",
+      "difficulty": "medium",
+      "question": "Which statement about cloud-managed networks is true?",
+      "choices": [
+        "All user traffic is tunneled through the vendor's cloud",
+        "Each device must be configured locally before the cloud can see it",
+        "Management and monitoring happen in the cloud, while user traffic is forwarded locally",
+        "Cloud management requires an on-premises controller at every site"
+      ],
+      "answer": 2,
+      "explanation": "The cloud hosts the management plane only. Devices forward user data locally, and no on-site controller is needed.",
+      "concept": "cloud management model",
+      "section": 5
+    },
+    {
+      "id": "ccna-device-management-q25",
+      "type": "mcq",
+      "difficulty": "easy",
+      "question": "Which cable traditionally connects a PC's serial port to a Cisco RJ-45 console port?",
+      "choices": [
+        "Crossover cable",
+        "Straight-through cable",
+        "Fiber patch cable",
+        "Rollover (console) cable"
+      ],
+      "answer": 3,
+      "explanation": "The console cable is a rollover cable, usually with a USB-to-serial adapter on modern laptops. Many newer devices also offer a USB console port.",
+      "concept": "console cable",
+      "section": 0
+    },
+    {
+      "id": "ccna-device-management-q26",
+      "type": "cli",
+      "shell": "ios",
+      "difficulty": "medium",
+      "question": "In line configuration mode, type the command that disconnects sessions after 10 minutes of inactivity.",
+      "answer": "exec-timeout 10 0",
+      "accept": [
+        "exec-timeout 10"
+      ],
+      "explanation": "exec-timeout takes minutes and seconds. exec-timeout 0 0 disables the timeout, which is a bad idea on production lines.",
+      "concept": "exec-timeout",
+      "section": 6
+    },
+    {
+      "id": "ccna-device-management-q27",
+      "type": "recall",
+      "difficulty": "easy",
+      "question": "Why do networks use a TACACS+ or RADIUS server instead of local usernames on every device?",
+      "answer": "A central AAA server keeps one database of administrators, so accounts are added, changed or removed in one place, and it can authorize commands and log who did what. Local usernames must be maintained on every device separately.",
+      "explanation": "Centralized AAA scales to hundreds of devices and gives accountability; a local account remains only as an emergency fallback.",
+      "concept": "why centralized AAA",
+      "section": 4
+    },
+    {
+      "id": "ccna-device-management-q28",
+      "type": "typed",
+      "difficulty": "medium",
+      "question": "A switch is configured with line vty 0 15. How many simultaneous Telnet or SSH sessions can it accept? (Number only.)",
+      "answer": "16",
+      "explanation": "Lines 0 through 15 are 16 vty lines, and each remote session uses one.",
+      "concept": "vty line count",
+      "section": 1
+    },
+    {
+      "id": "ccna-device-management-q29",
+      "type": "mcq",
+      "difficulty": "hard",
+      "question": "Policy: administrators must use an encrypted CLI, and only from the management subnet 10.1.99.0/24. Which configuration meets both requirements?",
+      "choices": [
+        "transport input ssh plus an access-class ACL permitting 10.1.99.0/24 on all vty lines",
+        "transport input telnet plus ip http secure-server",
+        "no ip http server plus exec-timeout 0 0",
+        "login local on the console plus ip ssh version 1"
+      ],
+      "answer": 0,
+      "explanation": "transport input ssh enforces encryption, and access-class applies an ACL to the vty lines so only the management subnet can connect. The other options leave Telnet or SSH v1 in use or do not restrict sources.",
+      "concept": "restricting vty access",
+      "section": 6
+    }
+  ]
+}

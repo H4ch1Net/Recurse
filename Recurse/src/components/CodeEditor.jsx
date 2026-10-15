@@ -6,6 +6,7 @@ import {
   backspaceEdit,
   indentEdit,
   lineRange,
+  modKey,
   newlineEdit,
   toggleCommentEdit,
   typeCharEdit
@@ -18,6 +19,14 @@ if (!hljs.getLanguage('python')) hljs.registerLanguage('python', python)
 const LABELS = { javascript: 'JavaScript', python: 'Python' }
 const MAX_HIGHLIGHT = 40000
 
+function execEdit(text) {
+  try {
+    return text ? document.execCommand('insertText', false, text) : document.execCommand('delete', false)
+  } catch {
+    return false
+  }
+}
+
 const escapeHtml = (text) => text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
 
 function highlight(code, language) {
@@ -27,13 +36,6 @@ function highlight(code, language) {
   } catch {
     return escapeHtml(code)
   }
-}
-
-const isMac = () => typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent || '')
-
-/** "Ctrl" or "⌘" for shortcut hints. */
-export function modKey() {
-  return isMac() ? '⌘' : 'Ctrl'
 }
 
 /**
@@ -60,6 +62,9 @@ export default function CodeEditor({
 }) {
   const textareaRef = useRef(null)
   const scrollRef = useRef(null)
+  const gutterRef = useRef(null)
+  const measureRef = useRef(null)
+  const revealFrame = useRef(0)
   const escapeArmed = useRef(false)
   const hintId = useId()
   const text = typeof value === 'string' ? value : ''
@@ -90,6 +95,30 @@ export default function CodeEditor({
     }
   }))
 
+  // Browsers keep the caret in view, but they do not know the sticky line-number gutter
+  // covers the left edge. Nudge the shared scroller so the caret is never hidden under it.
+  const revealCaret = () => {
+    cancelAnimationFrame(revealFrame.current)
+    revealFrame.current = requestAnimationFrame(() => {
+      const area = textareaRef.current
+      const box = scrollRef.current
+      const probe = measureRef.current
+      if (!area || !box || !probe || document.activeElement !== area) return
+      const pos = area.selectionDirection === 'backward' ? area.selectionStart : area.selectionEnd
+      const lineStart = area.value.lastIndexOf('\n', pos - 1) + 1
+      const before = area.value.slice(lineStart, pos)
+      const columns = before.length + (before.split('\t').length - 1) * 3
+      const charWidth = probe.getBoundingClientRect().width / 10 || 8
+      const padLeft = parseFloat(getComputedStyle(area).paddingLeft) || 0
+      const gutter = gutterRef.current?.offsetWidth || 0
+      const x = padLeft + columns * charWidth
+      const view = box.clientWidth - gutter
+      const margin = charWidth * 2
+      if (x - margin < box.scrollLeft) box.scrollLeft = Math.max(0, x - margin)
+      else if (x + margin > box.scrollLeft + view) box.scrollLeft = x + margin - view
+    })
+  }
+
   const apply = (area, edit) => {
     if (!edit) return
     const current = area.value
@@ -97,13 +126,7 @@ export default function CodeEditor({
     if (expected !== current) {
       area.setSelectionRange(edit.from, edit.to)
       // execCommand keeps the browser's own undo history working; fall back if it is missing.
-      let ok = false
-      try {
-        ok = edit.text ? document.execCommand('insertText', false, edit.text) : document.execCommand('delete', false)
-      } catch {
-        ok = false
-      }
-      if (!ok || area.value !== expected) {
+      if (!execEdit(edit.text) || area.value !== expected) {
         area.value = expected
         onChange?.(expected)
       }
@@ -185,7 +208,7 @@ export default function CodeEditor({
       style={{ '--ce-digits': String(lineCount).length, '--ce-min-lines': minLines }}
     >
       <div className="ce-scroll" ref={scrollRef}>
-        <div className="ce-gutter" aria-hidden="true">
+        <div className="ce-gutter" aria-hidden="true" ref={gutterRef}>
           {numbers.map((n) => (
             <span key={n} className={n === badLine ? 'ce-num ce-num-error' : 'ce-num'}>
               {n}
@@ -194,6 +217,9 @@ export default function CodeEditor({
         </div>
         <div className="ce-code">
           {badLine && <div className="ce-error-band" style={{ '--ce-line': badLine }} aria-hidden="true" />}
+          <span className="ce-measure" ref={measureRef} aria-hidden="true">
+            0123456789
+          </span>
           <pre className="ce-pre" aria-hidden="true">
             <code className={`hljs language-${language}`} dangerouslySetInnerHTML={{ __html: `${html}\n` }} />
           </pre>
@@ -204,6 +230,9 @@ export default function CodeEditor({
             onChange={(event) => onChange?.(event.target.value)}
             onKeyDown={onKeyDown}
             onScroll={onTextareaScroll}
+            onKeyUp={revealCaret}
+            onSelect={revealCaret}
+            onInput={revealCaret}
             onFocus={onFocus}
             readOnly={readOnly}
             aria-label={label || `${LABELS[language] || 'Code'} editor`}

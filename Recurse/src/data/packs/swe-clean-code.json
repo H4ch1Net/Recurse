@@ -1,0 +1,802 @@
+{
+  "id": "swe-clean-code",
+  "name": "Clean Code",
+  "version": "1.0.0",
+  "author": "Recurse",
+  "subject": "swe",
+  "level": "intermediate",
+  "description": "Write code teammates enjoy reading: clear names, small focused functions, guard clauses, pure functions and honest errors.",
+  "icon": "CC",
+  "language": "python",
+  "prereqs": [
+    "python-basics",
+    "loops-functions",
+    "oop",
+    "javascript-basics"
+  ],
+  "tags": [
+    "clean-code",
+    "refactoring",
+    "naming",
+    "error-handling",
+    "code-review"
+  ],
+  "lesson": {
+    "estimatedMinutes": 30,
+    "intro": "Most of your time on a team goes into reading code, not writing it: yours from last month and everyone else's. Clean code is code the next person can understand and change safely. This lesson covers the habits reviewers look for, with before-and-after examples from the kind of code you will meet in your first job.",
+    "objectives": [
+      "Rename variables, functions and constants so code explains itself",
+      "Split long functions by responsibility and flatten nesting with guard clauses",
+      "Tell useful DRY from premature abstraction",
+      "Separate pure logic from side effects and handle errors without swallowing them",
+      "Spot common code smells and refactor them safely under tests"
+    ],
+    "sections": [
+      {
+        "title": "Names, constants and comments that explain why",
+        "body": "In your first week you open `report.py` and find the function at the top of the example. It works, but you have to simulate it in your head to learn what it does. Rename a few things and it explains itself. Code is read many more times than it is written, so write for the reader.\n\n**Names that reveal intent:**\n\n- Say what a thing means, not how it is stored: `active_users`, not `user_list2`; `elapsed_seconds`, not `t`.\n- Put units in the name whenever there is doubt: `timeout_ms`, `price_cents`, `distance_km`.\n- Booleans read as yes-or-no questions: `is_active`, `has_paid`, `can_edit`, `should_retry`.\n- Functions are verbs (`send_invoice`, `parse_date`); classes are nouns (`Invoice`, `DateParser`).\n- Be consistent. If the codebase uses `fetch_` for network reads, do not add `get_` and `retrieve_` for the same idea.\n- Match length to scope: `i` is fine in a three-line loop; a module-level value needs a full name.\n- Avoid words that could mean anything: `data`, `info`, `manager`, `handle`, `process`, `temp`.\n\nFollow the language's conventions. Python (PEP 8) uses `snake_case` for functions and variables, `PascalCase` for classes and `UPPER_SNAKE_CASE` for constants. JavaScript uses `camelCase` for functions and variables and `PascalCase` for classes.\n\n**Magic numbers** are unexplained literals such as `2592000`, `0.0825` or `3` scattered through the code. Give each one a name: `SECONDS_PER_30_DAYS`, `SALES_TAX_RATE`, `MAX_LOGIN_ATTEMPTS`. The name explains the meaning, and when the tax rate changes you edit one line instead of hunting for every `0.0825` and hoping none of them meant something else. Obvious values such as 0, 1 or the 100 in a percentage do not need names.\n\n**Comments explain why, not what.** Good names already say what the code does. A comment earns its place when it tells the reader something the code cannot: a reason, a constraint, a warning, a link to the bug or the spec.\n\n- Noise: `i += 1  # increment i`\n- Useful: `# The bank API rejects batches over 500 rows, so we chunk.`\n- Useful: `# Must run before load_plugins(): plugins read this config at import time.`\n\nComments rot. The code changes and the comment beside it often does not, and a wrong comment is worse than none. Commented-out code is the worst kind, since nobody knows whether it still matters. Delete it; git remembers.",
+        "code": "# Before: what does this do?\ndef calc(d, t):\n    r = []\n    for x in d:\n        if x[2] and t - x[1] > 2592000:\n            r.append(x[0])\n    return r\n\n\n# After: names and a constant tell the story\nSECONDS_PER_30_DAYS = 30 * 24 * 60 * 60\n\ndef emails_of_inactive_subscribers(subscribers, now):\n    inactive = []\n    for email, last_login, is_subscribed in subscribers:\n        if is_subscribed and now - last_login > SECONDS_PER_30_DAYS:\n            inactive.append(email)\n    return inactive",
+        "language": "python",
+        "pitfall": "Comments that repeat the code, such as `# loop over users`. They add reading time, and once the code changes they quietly become lies.",
+        "check": {
+          "question": "Which comment adds the most value?",
+          "choices": [
+            "# add 1 to retries",
+            "# loop over the orders",
+            "# Retry at most 3 times: the payment API blocks us for an hour after that",
+            "# TODO: fix"
+          ],
+          "answer": 2,
+          "explanation": "It records a reason the code cannot express on its own, which stops the next person from raising the limit and getting the account blocked. The others restate the code or say nothing useful."
+        }
+      },
+      {
+        "title": "Small functions with a single responsibility",
+        "body": "Your ticket: \"also send a Slack message when an order ships\". You open `process_order()` and find 140 lines that validate the order, compute tax, charge the card, update stock, send an email and write an audit log. Where does Slack go? Wherever you put it, you first have to understand all 140 lines, and the tests for this function need a database, a payment provider and an email server.\n\nThe **single responsibility principle** says a function, class or module should have one job, or more precisely **one reason to change**. Tax rules, payment providers and email templates change for different reasons, at the request of different people, so they belong in different places.\n\nA practical test: can you describe what the function does without saying \"and\"? `validate_order` validates. `process_order` validates and prices and charges and notifies: four jobs.\n\nWhat this looks like day to day:\n\n- **Extract** each chunk you could give a good name. If you feel the urge to write `# compute tax` above a block, that block wants to be `compute_tax()`.\n- Keep each function at **one level of abstraction**. The top-level function reads like a summary (validate, price, charge, notify), and the details live one level down, as in the example.\n- Keep **parameter lists short**. Several values that always travel together want to be one object: an `Address`, not `street, city, postal_code, country`.\n- Avoid **flag arguments**. `render(report, True)` hides two functions in one, and the caller cannot tell what `True` means. Prefer two functions (`render_summary`, `render_full`), or at least a keyword argument: `render(report, full=True)`. In Python, a bare `*` in the signature forces callers to name everything after it.\n\nSmall does not mean tiny. Splitting a clear 15-line function into six 2-line functions that you have to jump between makes code harder to read. Extract when a piece has a meaningful name and a single purpose, not to hit a line count.",
+        "code": "def place_order(order, payment_gateway, mailer):\n    validate(order)\n    total = price_with_tax(order)\n    receipt = payment_gateway.charge(order.customer_id, total)\n    reserve_stock(order.items)\n    mailer.send_confirmation(order.customer_email, receipt)\n    return receipt\n\n\ndef price_with_tax(order):\n    subtotal = sum(item.price * item.quantity for item in order.items)\n    return round(subtotal * (1 + tax_rate_for(order.shipping_address)), 2)\n\n\ndef export(report, *, include_charts=False):   # * makes include_charts keyword-only\n    ...",
+        "language": "python",
+        "pitfall": "Boolean flag parameters such as `save(user, True, False)`. Nobody reading the call can tell what the flags do. Split the function, or require keyword arguments.",
+        "check": {
+          "question": "`export(report, True)` is hard to read because True means \"include charts\". Which call is clearest?",
+          "choices": [
+            "export(report, 1)",
+            "export(report, include_charts=True)",
+            "export(report, flag=True)",
+            "export(report, True)  # charts"
+          ],
+          "answer": 1,
+          "explanation": "A keyword argument names the meaning at the call site, so readers do not need to open the function. A comment beside a positional True drifts out of date, and flag=True says nothing."
+        }
+      },
+      {
+        "title": "Guard clauses and avoiding deep nesting",
+        "body": "Look at the first version of `ship()` in the example. The happy path, actually shipping the order, is buried four levels deep, and to see when each message is returned you have to match every `else` to its `if` by eye. This shape is called the **arrow anti-pattern**, because the indentation forms an arrow pointing right.\n\nA **guard clause** checks for a condition that ends the function and returns (or raises) immediately. Put the guards at the top and the main logic runs unindented at the bottom, as in the second version:\n\n- Each special case is handled and dismissed in one line, right next to its condition.\n- The reader no longer has to hold a stack of open conditions in their head.\n- The happy path reads straight down at the left margin.\n\nThe same idea works inside loops: `if order.cancelled: continue` skips the items that do not qualify, instead of wrapping the whole loop body in an `if`.\n\nOther ways to flatten code:\n\n- Invert a condition so the short branch comes first and returns.\n- Extract a deeply nested block into a well-named function.\n- Replace a long `if`/`elif` chain that maps values to values with a dictionary lookup, such as `LABELS.get(code, \"Unknown\")`.\n\nA common rule of thumb in review: more than two or three levels of nesting means the function is doing too much or needs guards.\n\nOne caution: in a function that must clean up a resource, an early return can skip the cleanup line. Use `with` in Python or `try`/`finally` in either language, so cleanup happens however the function exits.",
+        "code": "# Before: the arrow\ndef ship(order):\n    if order is not None:\n        if order.is_paid:\n            if order.items:\n                if not order.shipped:\n                    order.shipped = True\n                    return \"shipped\"\n                else:\n                    return \"already shipped\"\n            else:\n                return \"empty order\"\n        else:\n            return \"not paid\"\n    else:\n        return \"no order\"\n\n\n# After: guard clauses first, then the happy path\ndef ship(order):\n    if order is None:\n        return \"no order\"\n    if not order.is_paid:\n        return \"not paid\"\n    if not order.items:\n        return \"empty order\"\n    if order.shipped:\n        return \"already shipped\"\n\n    order.shipped = True\n    return \"shipped\"",
+        "language": "python",
+        "pitfall": "Turning nesting into guards and inverting a condition the wrong way, such as `if order.is_paid: return \"not paid\"`. Refactor with tests in place, so a flipped condition fails immediately.",
+        "check": {
+          "question": "Inside a loop over orders, what is the guard-clause way to skip cancelled orders?",
+          "choices": [
+            "`if order.cancelled: continue` at the top of the loop body",
+            "Wrap the rest of the loop body in `if not order.cancelled:`",
+            "`if order.cancelled: break`",
+            "`if order.cancelled: return`"
+          ],
+          "answer": 0,
+          "explanation": "continue skips to the next order and keeps the rest of the body unindented. break and return would stop processing all remaining orders, and wrapping the body adds the nesting you were trying to remove."
+        }
+      },
+      {
+        "title": "DRY versus premature abstraction",
+        "body": "The same six lines that format a customer's address appear in three places. A bug report arrives: addresses without a second line print `None`. You fix it in one place, and the bug survives in the other two. That is the cost of duplication, and **DRY** (Don't Repeat Yourself) is the cure: every piece of **knowledge**, whether a rule, a formula or a format, should have one authoritative home.\n\nDRY is about knowledge, not about text that happens to look alike. Two functions that both compute `round(x * 1.2, 2)` might be one rule written twice (20% VAT) or two unrelated rules that share a number today (VAT and a sales markup). Merge the first kind. Leave the second alone, because the two will change for different reasons.\n\nThe opposite failure is **premature abstraction**: merging code before you know what really varies. It usually goes like this:\n\n- Two similar functions get merged into one shared helper.\n- A third caller is slightly different, so the helper grows a parameter.\n- A fourth needs a special case, so it grows a flag, then an `if` inside the flag.\n- Now the helper takes six parameters, every change risks breaking four callers, and nobody dares to touch it.\n\nThe wrong abstraction costs more than duplication. Duplication is easy to remove later, while a tangled abstraction has to be untangled first. Practical guidance:\n\n- **Rule of three:** tolerate the second copy. By the third, you know enough to extract the common part well.\n- Extract when the duplicated pieces represent the same idea and would always change together.\n- If a shared helper keeps collecting flags for each caller, consider **inlining it back** into the callers and starting over with what is truly shared.\n\nConstants count too: one `MAX_UPLOAD_MB` used everywhere, not `25` typed into four files.",
+        "code": "# Premature abstraction: one helper, many callers, a flag for each\ndef format_name(user, formal=False, include_title=False,\n                last_first=False, for_email=False, uppercase=False):\n    ...\n\n\n# Often clearer: small, honest functions for genuinely different needs\ndef display_name(user):\n    return f\"{user.first} {user.last}\"\n\ndef formal_salutation(user):\n    return f\"Dear {user.title} {user.last}\"\n\ndef directory_entry(user):\n    return f\"{user.last}, {user.first}\"",
+        "language": "python",
+        "pitfall": "Extracting a shared function the moment you see two similar blocks. Wait until you understand what actually varies; the third occurrence usually tells you.",
+        "check": {
+          "question": "Two functions both multiply by 1.2. One applies 20% VAT; the other adds a 20% markup set by the sales team. Should you merge them into one helper?",
+          "choices": [
+            "Yes: DRY means removing every repeated expression",
+            "Yes, but only if they live in the same file",
+            "No, because helper functions slow Python down",
+            "No: they are different rules that coincide today and will change independently"
+          ],
+          "answer": 3,
+          "explanation": "DRY targets duplicated knowledge. Tax law and sales pricing change for different reasons, so a shared helper would couple them, and the next markup change would silently alter tax."
+        }
+      },
+      {
+        "title": "Side effects and pure functions",
+        "body": "A teammate's `add_item(cart, item)` returns the new cart total. You call it to show a price preview, and the item silently appears in the user's cart. The function had a **side effect** you did not expect: it changed something outside itself.\n\nA **pure function** has two properties:\n\n- Its output depends only on its inputs: same arguments, same result, every time.\n- It changes nothing outside itself: no mutating arguments, no globals, no I/O (files, network, database, printing), and no reading the clock or random numbers.\n\nPure functions are the easiest code there is to test (call it, check the result, no setup), to reason about, to reuse and to run in parallel. Side effects are not bad. Saving to the database and sending email are the whole point of most programs. The skill is to **separate** them: keep decisions and calculations in pure functions, and push the side effects to a thin outer layer. People call this \"functional core, imperative shell\".\n\nHidden side effects to watch for:\n\n- **Mutating arguments:** `items.sort()` sorts the caller's list in place, while `sorted(items)` returns a new one. In JavaScript, `arr.sort()` and `arr.push()` mutate, while `[...arr].sort()` and `arr.toSorted()` do not.\n- **Mutable default arguments in Python:** `def add_tag(tag, tags=[])` creates that list once, when the function is defined, so every call that omits `tags` shares it.\n- **Hidden inputs:** calling `datetime.now()` or `random()` inside business logic. Pass the time in as a parameter instead, and tests can control it.\n- **Queries that also command:** a function named `get_user()` that also updates `last_seen`. A name that sounds like a question should not change anything; this is called command-query separation.\n\nWhen a function must have side effects, make them obvious from the name: `save_order`, `send_invoice`, `charge_card`.",
+        "code": "# Impure: mutates the caller's item and list, and reads the clock\ndef add_item(cart, item):\n    item[\"added_at\"] = datetime.now()\n    cart.append(item)\n    return sum(i[\"price\"] for i in cart)\n\n\n# Pure core: same inputs, same output, nothing outside is touched\ndef cart_total(items):\n    return sum(item[\"price\"] for item in items)\n\ndef with_item(items, item, added_at):\n    return [*items, {**item, \"added_at\": added_at}]\n\n\n# Thin shell: the side effects live here, where they are obvious\ndef add_to_cart(cart_repo, user_id, item):\n    items = cart_repo.load(user_id)\n    updated = with_item(items, item, added_at=datetime.now())\n    cart_repo.save(user_id, updated)\n    return cart_total(updated)",
+        "language": "python",
+        "pitfall": "Calling `list.sort()` or `arr.sort()` on a list someone passed you. You just reordered the caller's data. Use `sorted()` in Python, or copy first in JavaScript.",
+        "activity": {
+          "type": "code-runner",
+          "title": "Make it pure",
+          "prompt": "Run it and look at the original line: previewing a discount changed the real cart. Rewrite applyDiscount so it returns new item objects (hint: `items.map` with `{ ...item, price: ... }`) and never touches its input. Notice that the preview line stays the same while the original line goes back to the real prices.",
+          "props": {
+            "language": "javascript",
+            "code": "// applyDiscount should return NEW items with discounted prices\n// and leave the original cart untouched. Right now it mutates its input.\nfunction applyDiscount(items, percent) {\n  for (const item of items) {\n    item.price = Math.round(item.price * (100 - percent)) / 100\n  }\n  return items\n}\n\nconst cart = [\n  { name: 'Mug', price: 12 },\n  { name: 'Shirt', price: 20 }\n]\nconst preview = applyDiscount(cart, 25)\n\nconsole.log('preview:', preview.map((item) => item.price).join(', '))\nconsole.log('original:', cart.map((item) => item.price).join(', '))",
+            "task": "Make the output: preview: 9, 15 then original: 12, 20",
+            "expectOutput": "preview: 9, 15\noriginal: 12, 20"
+          }
+        },
+        "check": {
+          "question": "Which of these functions is pure?",
+          "choices": [
+            "def total(prices): prices.sort(); return sum(prices)",
+            "def total(prices): log.info(prices); return sum(prices)",
+            "def total(prices): return sum(prices)",
+            "def total(prices): return sum(prices) * get_rate_from_api()"
+          ],
+          "answer": 2,
+          "explanation": "sum(prices) depends only on the input and changes nothing. Sorting mutates the caller's list, logging is I/O, and calling an API reads a hidden input that can change between calls."
+        }
+      },
+      {
+        "title": "Error handling: raise, return, never swallow",
+        "body": "A customer says their profile changes \"don't save\". There is nothing in the logs. Eventually you find the first function in the example: the database rejected the update, and the code threw the evidence away and reported success. **Swallowing errors** turns a loud five-minute bug into a silent five-day one, and it is the error-handling mistake reviewers watch for most.\n\n**Exceptions or return values?**\n\n- **Raise an exception** when the function cannot do its job: the file does not exist, the input is invalid, the payment provider is unreachable. The caller cannot accidentally ignore it, and it carries a message and a stack trace.\n- **Return a value** for outcomes that are normal and expected: `find_user()` returning `None` when nobody matches, `dict.get()` returning a default, a validator returning a list of problems. Make it visible in the name or type hint (`find_` rather than `get_`, `-> User | None`).\n- **Do not return error codes** or `False` for real failures. Callers forget to check them and the program carries on in a bad state. Languages like Go and Rust return errors on purpose, but they make you handle them; Python and JavaScript do not.\n\n**Handling them well:**\n\n- **Catch specific exceptions** you can actually handle (`except FileNotFoundError:`). Never use a bare `except:`, which even catches Ctrl+C (`KeyboardInterrupt`) and `SystemExit`.\n- **Catch only where you can do something useful:** retry, fall back, show the user a clear message, or add context. Otherwise let it propagate to a top-level handler that logs it once, with the full traceback.\n- **Add context by wrapping:** `raise ProfileSaveError(...) from err` raises a clearer error and keeps the original attached as its cause.\n- If you recover with a fallback, still **log it** (`logger.exception(...)` inside an `except` block includes the traceback), so the failure stays visible.\n- **Fail fast:** validate input at the boundary and raise immediately, with a message that names the bad value.\n- Keep `try` blocks small, so you know exactly which line you are protecting.\n\nJavaScript follows the same rules with `try`/`catch` and promises. An empty `catch {}` is as bad as `except: pass`, and calling an `async` function without `await` or `.catch()` lets it fail with nobody listening.",
+        "code": "# Swallowed: the failure vanishes and the user is told \"saved\"\ndef save_profile(user_id, changes):\n    try:\n        db.update(\"profiles\", user_id, changes)\n    except Exception:\n        pass\n    return \"saved\"\n\n\n# Handled: fail fast on bad input, catch narrowly, wrap with context\nclass ProfileSaveError(Exception):\n    pass\n\ndef save_profile(user_id, changes):\n    if not changes:\n        raise ValueError(f\"no changes given for profile {user_id}\")\n    try:\n        db.update(\"profiles\", user_id, changes)\n    except db.ConnectionError as err:\n        raise ProfileSaveError(f\"profile {user_id} was not saved\") from err\n    return \"saved\"",
+        "language": "python",
+        "pitfall": "`except Exception: pass`, or an empty `catch {}`, to make an error go away. The error is still happening; you have just stopped hearing about it.",
+        "check": {
+          "question": "`find_user(email)` is often called with an email that matches nobody, and that is normal. What should it do in that case?",
+          "choices": [
+            "Return None, and make that clear in its name and type hint",
+            "Raise a generic Exception with the message \"error\"",
+            "Print a warning and return an empty User object",
+            "Exit the program with sys.exit(1)"
+          ],
+          "answer": 0,
+          "explanation": "A missing match is an expected outcome, so a return value fits. An empty User object hides the miss and causes confusing bugs later, and a generic exception or exiting turns a normal case into a crash."
+        }
+      },
+      {
+        "title": "Code smells and refactoring safely",
+        "body": "A **code smell** is a surface sign that often points to a deeper design problem. Not every smell is a bug, but each one deserves a second look. The ones you will meet most often:\n\n- **Long function** that does several jobs: split it by responsibility.\n- **Long parameter list**, especially with booleans: group values into an object or split the function.\n- **Duplicated knowledge**, the same rule in several places: extract it once you know what varies.\n- **Deep nesting:** guard clauses, or extract a function.\n- **Magic numbers and strings:** named constants or enums.\n- **Primitive obsession:** raw strings, floats and dicts standing in for things like money, email addresses or statuses, so validation and comparisons are scattered everywhere. Use small classes, enums or one normalizing function.\n- **Feature envy:** a function that mostly reads another object's fields. Move it onto that object.\n- **Shotgun surgery:** one small change needs edits in many files. Gather that knowledge into one place.\n- **Dead code** and commented-out code: delete it.\n\n**Refactoring** means changing the structure of code without changing its behavior. The safe way to do it:\n\n- Make sure **tests cover the behavior** you are about to touch. If they do not, first write a few **characterization tests** that pin down what the code does today, even the odd parts.\n- Change in **small steps**: rename, then extract one function, then move it. Run the tests after every step.\n- **Keep refactoring separate from behavior changes.** Do not fix a bug and restructure in the same commit, and ideally not in the same PR. A pure refactor is quick to review because nothing should behave differently.\n- Use your editor's automated refactorings (rename symbol, extract function); they make far fewer mistakes than hand edits.\n- If a test goes red, undo the last small step rather than debugging a big change.\n\nLeave code a little better than you found it, but stay within the scope of your ticket. A drive-by rewrite of a module nobody asked you to touch makes your PR much harder to review.",
+        "code": "# Before: magic number, nested ifs, and the clock read inside\ndef can_refund(o):\n    if o.status == \"shipped\" or o.status == \"delivered\":\n        if (date.today() - o.placed_on).days <= 30:\n            if o.total_cents > 0:\n                return True\n    return False\n\n\n# After: named constants, one guard, today passed in for testability\nREFUND_WINDOW_DAYS = 30\nREFUNDABLE_STATUSES = {\"shipped\", \"delivered\"}\n\ndef can_refund(order, today):\n    if order.status not in REFUNDABLE_STATUSES:\n        return False\n    days_since_order = (today - order.placed_on).days\n    return days_since_order <= REFUND_WINDOW_DAYS and order.total_cents > 0",
+        "language": "python",
+        "pitfall": "Refactoring and changing behavior in the same commit. When a test fails you cannot tell which change caused it, and reviewers cannot verify either one.",
+        "activity": {
+          "type": "code-runner",
+          "title": "Catch a refactor that changed behavior",
+          "prompt": "These characterization tests passed against the original nested version. After the refactor one fails. Read the failing test's name, find the guard clause that no longer matches the old behavior, and fix that single condition. This is exactly why you refactor with tests in place.",
+          "props": {
+            "language": "python",
+            "code": "# A teammate refactored a nested if/else version of this function into\n# guard clauses and named constants. The tests were written against the\n# original before the refactor started. One now fails.\nFREE_SHIPPING_THRESHOLD = 50\nDOMESTIC_RATE = 5\nINTERNATIONAL_RATE = 15\n\n\ndef shipping_cost(order_total, country, is_member):\n    if country != \"US\":\n        return INTERNATIONAL_RATE\n    if is_member:\n        return 0\n    if order_total > FREE_SHIPPING_THRESHOLD:\n        return 0\n    return DOMESTIC_RATE\n\n\ndef test_international_orders_pay_flat_rate():\n    assert shipping_cost(200, \"FR\", True) == 15\n\ndef test_us_members_ship_free():\n    assert shipping_cost(10, \"US\", True) == 0\n\ndef test_us_order_at_threshold_ships_free():\n    assert shipping_cost(50, \"US\", False) == 0\n\ndef test_small_us_order_pays_domestic_rate():\n    assert shipping_cost(49.99, \"US\", False) == 5\n\n\ntests = [test_international_orders_pay_flat_rate, test_us_members_ship_free,\n         test_us_order_at_threshold_ships_free, test_small_us_order_pays_domestic_rate]\npassed = 0\nfor test in tests:\n    try:\n        test()\n        passed += 1\n    except AssertionError:\n        print(\"FAIL\", test.__name__)\nprint(f\"{passed} of {len(tests)} tests passed\")",
+            "task": "Fix the refactor so the output is: 4 of 4 tests passed",
+            "expectOutput": "4 of 4 tests passed"
+          }
+        },
+        "check": {
+          "question": "You need to refactor a messy function that has no tests. What should you do first?",
+          "choices": [
+            "Rewrite it from scratch in one go, since it is messy anyway",
+            "Refactor it, then ask QA to check the whole app afterwards",
+            "Write tests that pin down its current behavior, then refactor in small steps",
+            "Leave a TODO comment and refactor it next quarter"
+          ],
+          "answer": 2,
+          "explanation": "Characterization tests are your safety net: they tell you immediately if a structural change altered behavior. Without them, a big rewrite is a guess, and manual QA finds problems late and incompletely."
+        }
+      }
+    ],
+    "keyTerms": [
+      {
+        "term": "Magic number",
+        "definition": "An unexplained literal such as 0.0825 in the code. Replace it with a named constant."
+      },
+      {
+        "term": "Single responsibility principle",
+        "definition": "A function, class or module should have one job, meaning one reason to change."
+      },
+      {
+        "term": "Flag argument",
+        "definition": "A boolean parameter that switches a function between behaviors, unclear at the call site."
+      },
+      {
+        "term": "Guard clause",
+        "definition": "An early check that returns or raises at the top of a function so the main logic stays unindented."
+      },
+      {
+        "term": "DRY",
+        "definition": "Don't Repeat Yourself: each piece of knowledge, such as a rule or formula, has one authoritative home."
+      },
+      {
+        "term": "Premature abstraction",
+        "definition": "Merging code into a shared helper before you know what varies, which leads to flags and coupling."
+      },
+      {
+        "term": "Pure function",
+        "definition": "A function whose output depends only on its inputs and that changes nothing outside itself."
+      },
+      {
+        "term": "Side effect",
+        "definition": "Any change a function makes outside itself: mutating arguments or globals, I/O, network calls."
+      },
+      {
+        "term": "Swallowing an error",
+        "definition": "Catching an exception and doing nothing with it, which hides the failure."
+      },
+      {
+        "term": "Code smell",
+        "definition": "A surface sign, such as a long function or duplicated rule, that often points to a deeper design problem."
+      },
+      {
+        "term": "Refactoring",
+        "definition": "Changing the structure of code without changing its behavior, in small tested steps."
+      }
+    ],
+    "summary": [
+      "Names carry the what: reveal intent, include units, read booleans as questions, and name magic numbers. Comments carry the why.",
+      "One function, one job: extract named steps, keep one level of abstraction, avoid flag arguments.",
+      "Guard clauses handle special cases first and keep the happy path flat.",
+      "DRY applies to knowledge, not look-alike text; wait for the third copy before abstracting, and inline a helper that keeps growing flags.",
+      "Keep calculations pure and push side effects to a thin outer layer; never mutate what a caller handed you.",
+      "Raise when a function cannot do its job, catch narrowly where you can act, chain with from, and never swallow errors. Refactor in small steps under tests."
+    ],
+    "feynmanPrompt": "Take a messy 60-line function you might find in a real codebase and explain to a new intern, step by step, how you would make it clean without breaking it: what you would rename, extract and flatten, how you would handle its errors, and why tests come first."
+  },
+  "questions": [
+    {
+      "id": "swe-clean-code-q01",
+      "type": "mcq",
+      "difficulty": "easy",
+      "question": "Which is the best name for a boolean that records whether an invoice has been paid?",
+      "choices": [
+        "paid_flag",
+        "invoice_status",
+        "check_paid",
+        "is_paid"
+      ],
+      "answer": 3,
+      "explanation": "is_paid reads as a yes-or-no question in conditions: if invoice.is_paid. check_paid sounds like a function that does something, invoice_status suggests a multi-valued status, and paid_flag describes storage rather than meaning.",
+      "concept": "naming booleans",
+      "section": 0
+    },
+    {
+      "id": "swe-clean-code-q02",
+      "type": "mcq",
+      "difficulty": "easy",
+      "question": "A function takes `timeout`. Callers pass 30 meaning seconds, but the function treats it as milliseconds. Which rename best prevents this bug?",
+      "choices": [
+        "timeout_ms",
+        "t",
+        "timeout_value",
+        "the_timeout"
+      ],
+      "answer": 0,
+      "explanation": "Putting the unit in the name makes the mismatch visible at every call site: timeout_ms=30 looks wrong to anyone who meant 30 seconds. The other names hide the unit just as the original did.",
+      "concept": "units in names",
+      "section": 0
+    },
+    {
+      "id": "swe-clean-code-q03",
+      "type": "debug",
+      "difficulty": "medium",
+      "question": "The sales tax rate changed to 8.25% last month. Customers say the tax line on receipts does not match their totals. What is the root problem?",
+      "code": "def price_with_tax(subtotal):\n    return round(subtotal * 1.0825, 2)\n\ndef tax_amount(subtotal):\n    return round(subtotal * 0.0825, 2)\n\ndef tax_line(subtotal):\n    return f\"Tax (8.5%): ${round(subtotal * 0.085, 2)}\"",
+      "choices": [
+        "round() is unreliable for money and must be replaced",
+        "The rate is a magic number copied into several places and one copy was missed; define SALES_TAX_RATE once",
+        "f-strings cannot format percentages correctly",
+        "tax_amount should call price_with_tax instead of multiplying"
+      ],
+      "answer": 1,
+      "explanation": "The same piece of knowledge, the tax rate, lives in three literals, and tax_line still uses the old 8.5%. A single named constant (used for the label too) means the next change is one edit that cannot be half done.",
+      "concept": "magic numbers",
+      "section": 0
+    },
+    {
+      "id": "swe-clean-code-q04",
+      "type": "match",
+      "difficulty": "easy",
+      "question": "Match each naming style to what it is conventionally used for.",
+      "pairs": [
+        {
+          "left": "snake_case",
+          "right": "Python functions and variables, such as send_invoice"
+        },
+        {
+          "left": "PascalCase",
+          "right": "Classes in Python and JavaScript, such as InvoiceSender"
+        },
+        {
+          "left": "UPPER_SNAKE_CASE",
+          "right": "Python constants, such as MAX_RETRIES"
+        },
+        {
+          "left": "camelCase",
+          "right": "JavaScript functions and variables, such as sendInvoice"
+        }
+      ],
+      "explanation": "PEP 8 sets the Python conventions, and camelCase is the JavaScript norm. Following the language's conventions means readers can tell a class from a constant at a glance.",
+      "concept": "naming conventions",
+      "section": 0
+    },
+    {
+      "id": "swe-clean-code-q05",
+      "type": "recall",
+      "difficulty": "medium",
+      "question": "When does a comment earn its place, and which kinds of comments should you delete?",
+      "answer": "A comment earns its place when it explains why: a reason, constraint, warning or link that the code cannot express. Delete comments that restate what the code does, comments that are out of date, and commented-out code, since git keeps the history.",
+      "explanation": "Good names carry the what. Comments that duplicate them add noise and drift out of date, and a wrong comment misleads more than no comment.",
+      "concept": "comments explain why",
+      "section": 0
+    },
+    {
+      "id": "swe-clean-code-q06",
+      "type": "debug",
+      "difficulty": "easy",
+      "question": "A reviewer flags the last line. What is the problem?",
+      "code": "def export(report, a, b):\n    ...\n\nexport(q3_report, True, False)",
+      "choices": [
+        "Functions cannot take two booleans in a row",
+        "Booleans must be passed as strings",
+        "Readers cannot tell what True and False mean; use separate functions or named keyword arguments",
+        "export is a reserved word in Python"
+      ],
+      "answer": 2,
+      "explanation": "Positional flags hide meaning at the call site, and swapping them is an easy, silent bug. export(q3_report, include_charts=True, landscape=False) or two clearly named functions say what is going on.",
+      "concept": "flag arguments",
+      "section": 1
+    },
+    {
+      "id": "swe-clean-code-q07",
+      "type": "mcq",
+      "difficulty": "medium",
+      "question": "Which function most clearly violates the single responsibility principle?",
+      "choices": [
+        "parse_csv_row(line), which returns a dict of fields",
+        "send_welcome_email(user), which sends one email",
+        "A 180-line handle_signup(form) with inline validation, password hashing, SQL, email HTML and analytics calls",
+        "format_currency(cents), which returns a string such as $4.99"
+      ],
+      "answer": 2,
+      "explanation": "handle_signup has at least five reasons to change: validation rules, hashing policy, schema, email design and analytics. An orchestrating function that calls five focused helpers would be fine; doing all five jobs inline is the problem.",
+      "concept": "single responsibility",
+      "section": 1
+    },
+    {
+      "id": "swe-clean-code-q08",
+      "type": "code-fill",
+      "difficulty": "hard",
+      "question": "Complete the signature so callers must name the flag: `export(report, include_charts=True)` works, but `export(report, True)` raises TypeError.",
+      "code": "def export(report, _____, include_charts=False):\n    ...\n\nexport(report, include_charts=True)   # works\nexport(report, True)                  # TypeError",
+      "choices": [
+        "*",
+        "/",
+        "**kwargs",
+        "flag"
+      ],
+      "answer": 0,
+      "explanation": "A bare * ends the positional parameters, so everything after it is keyword-only. / does the opposite (makes earlier parameters positional-only), **kwargs would swallow unknown keywords, and flag would just be another positional parameter.",
+      "concept": "keyword-only arguments",
+      "section": 1
+    },
+    {
+      "id": "swe-clean-code-q09",
+      "type": "multi",
+      "difficulty": "easy",
+      "question": "Which of these are signs that a function should be split?",
+      "choices": [
+        "You need \"and\" to describe what it does",
+        "Its body has comments like \"# step 3: send email\" above separate blocks",
+        "Testing its tax logic requires a database, a payment stub and an email stub",
+        "It is 12 lines long and does one thing",
+        "It has a single return statement"
+      ],
+      "answers": [
+        0,
+        1,
+        2
+      ],
+      "explanation": "Several jobs, labeled blocks and heavy test setup all show that unrelated responsibilities are tangled together. A short function with one job is the goal, and the number of returns says nothing about responsibility.",
+      "concept": "when to extract",
+      "section": 1
+    },
+    {
+      "id": "swe-clean-code-q10",
+      "type": "code-fill",
+      "difficulty": "easy",
+      "question": "Complete the guard clause so an unknown coupon code is handled before the main logic.",
+      "code": "def apply_coupon(cart, code):\n    coupon = find_coupon(code)\n    if coupon is None:\n        _____\n    cart.discount = coupon.percent\n    return \"applied\"",
+      "choices": [
+        "pass",
+        "return \"unknown coupon\"",
+        "continue",
+        "coupon = None"
+      ],
+      "answer": 1,
+      "explanation": "A guard clause exits immediately. pass and coupon = None fall through to coupon.percent and crash with AttributeError, and continue is a SyntaxError outside a loop.",
+      "concept": "guard clauses",
+      "section": 2
+    },
+    {
+      "id": "swe-clean-code-q11",
+      "type": "debug",
+      "difficulty": "medium",
+      "question": "This refactor to guard clauses changed the function's behavior. Which line is wrong?",
+      "code": "# Before\ndef can_post(user):\n    if user.is_verified:\n        if not user.is_banned:\n            return True\n    return False\n\n# After\ndef can_post(user):\n    if not user.is_verified:\n        return False\n    if not user.is_banned:\n        return False\n    return True",
+      "choices": [
+        "if not user.is_verified: should be if user.is_verified:",
+        "The final return True should be return False",
+        "Guard clauses cannot return booleans",
+        "if not user.is_banned: should be if user.is_banned:"
+      ],
+      "answer": 3,
+      "explanation": "A guard states the condition that stops you. Banned users must be stopped, so the guard is if user.is_banned: return False. As written, every verified user who is not banned is rejected and banned ones are allowed.",
+      "concept": "inverting conditions",
+      "section": 2
+    },
+    {
+      "id": "swe-clean-code-q12",
+      "type": "code-fill",
+      "difficulty": "easy",
+      "question": "Complete the loop so it only adds the weight of shipped orders.",
+      "code": "def total_shipped_weight(orders):\n    total = 0\n    for order in orders:\n        if order.status != \"shipped\":\n            _____\n        total += order.weight_kg\n    return total",
+      "choices": [
+        "break",
+        "return total",
+        "continue",
+        "pass"
+      ],
+      "answer": 2,
+      "explanation": "continue skips this order and moves to the next one. break and return total would stop at the first unshipped order and ignore the rest, and pass would add the weight anyway.",
+      "concept": "continue as a guard",
+      "section": 2
+    },
+    {
+      "id": "swe-clean-code-q13",
+      "type": "debug",
+      "difficulty": "medium",
+      "question": "What does the early return in this function break?",
+      "code": "def read_header(path):\n    f = open(path)\n    line = f.readline()\n    if not line:\n        return None\n    f.close()\n    return line.strip()",
+      "choices": [
+        "readline() raises an error on empty files",
+        "For an empty file the function returns before f.close(), leaking the file handle; use with open(path) as f:",
+        "Early returns are not allowed before calling close()",
+        "Returning None from a function that otherwise returns strings is a SyntaxError"
+      ],
+      "answer": 1,
+      "explanation": "Early returns are fine, but cleanup written as a separate line is skipped. A with block closes the file however the function exits, including through an exception.",
+      "concept": "cleanup with early returns",
+      "section": 2
+    },
+    {
+      "id": "swe-clean-code-q14",
+      "type": "code-fill",
+      "difficulty": "medium",
+      "question": "Replace a long if/elif chain with a lookup. Complete the return so unknown codes give \"Unknown\".",
+      "code": "STATUS_LABELS = {\"P\": \"Pending\", \"S\": \"Shipped\", \"D\": \"Delivered\"}\n\ndef status_label(code):\n    return _____",
+      "choices": [
+        "STATUS_LABELS[code]",
+        "STATUS_LABELS.get(\"Unknown\", code)",
+        "STATUS_LABELS.code or \"Unknown\"",
+        "STATUS_LABELS.get(code, \"Unknown\")"
+      ],
+      "answer": 3,
+      "explanation": "dict.get(key, default) returns the default when the key is missing. Indexing with [code] raises KeyError for unknown codes, the swapped get looks up the wrong key, and dicts have no attribute access for keys.",
+      "concept": "lookup table instead of if chain",
+      "section": 2
+    },
+    {
+      "id": "swe-clean-code-q15",
+      "type": "mcq",
+      "difficulty": "hard",
+      "question": "Seven call sites pass a different mix of flags to this helper, and every change to it breaks one of them. What is usually the best next step?",
+      "code": "def format_price(amount, currency=\"USD\", show_symbol=True,\n                 for_invoice=False, legacy_rounding=False, compact=False):\n    ...",
+      "choices": [
+        "Add another flag for the next caller",
+        "Inline the helper back into its callers, then extract only what is truly shared",
+        "Move it to a utils module so more code can reuse it",
+        "Wrap it in a class that stores the flags as attributes"
+      ],
+      "answer": 1,
+      "explanation": "A helper that keeps collecting flags is the wrong abstraction: it couples callers that need different things. Inlining it shows what each caller really does, and the genuinely shared part (often small) can then be extracted cleanly. Wrapping the flags in a class keeps the same coupling.",
+      "concept": "the wrong abstraction",
+      "section": 3
+    },
+    {
+      "id": "swe-clean-code-q16",
+      "type": "multi",
+      "difficulty": "medium",
+      "question": "Which of these are duplicated knowledge that DRY says to consolidate?",
+      "choices": [
+        "The rule \"passwords need 12 or more characters\" checked separately in the signup form, the API and the admin tool",
+        "The 30-day refund window typed as 30 in four modules",
+        "Two loops that both happen to iterate over a list",
+        "The same SQL query for \"active customers\" pasted into three reports",
+        "Two unrelated functions that each call print()"
+      ],
+      "answers": [
+        0,
+        1,
+        3
+      ],
+      "explanation": "A password rule, a refund window and the definition of an active customer are each one piece of business knowledge; when they change, every copy must change. Two loops or two print calls are just similar-looking code with no shared meaning.",
+      "concept": "DRY is about knowledge",
+      "section": 3
+    },
+    {
+      "id": "swe-clean-code-q17",
+      "type": "mcq",
+      "difficulty": "easy",
+      "question": "What does the rule of three suggest?",
+      "choices": [
+        "Every function should have at most three parameters",
+        "Refactor a function after it has caused three bugs",
+        "Each pull request should touch at most three files",
+        "Tolerate a second copy, and extract a shared version when the third appears"
+      ],
+      "answer": 3,
+      "explanation": "With two examples it is hard to tell what really varies. By the third, the common shape is clearer, so the extracted function is more likely to be the right abstraction.",
+      "concept": "rule of three",
+      "section": 3
+    },
+    {
+      "id": "swe-clean-code-q18",
+      "type": "recall",
+      "difficulty": "hard",
+      "question": "Why can the wrong abstraction cost more than duplication?",
+      "answer": "Duplication is easy to remove once you see what is truly shared. A wrong abstraction couples unrelated callers, collects flags and special cases, and has to be untangled before anyone can change it safely, so every edit risks breaking callers it should not affect.",
+      "explanation": "This is why experienced developers wait for the third occurrence and are willing to inline a bad helper back into its callers.",
+      "concept": "duplication vs abstraction",
+      "section": 3
+    },
+    {
+      "id": "swe-clean-code-q19",
+      "type": "debug",
+      "difficulty": "medium",
+      "question": "The second call prints ['urgent', 'billing']. Why?",
+      "code": "def add_tag(tag, tags=[]):\n    tags.append(tag)\n    return tags\n\nprint(add_tag(\"urgent\"))\nprint(add_tag(\"billing\"))",
+      "choices": [
+        "append() returns the list from the previous call",
+        "Python caches the return values of functions",
+        "Strings are mutable, so \"urgent\" was reused",
+        "The default list is created once, when the function is defined, so every call without tags shares and mutates it"
+      ],
+      "answer": 3,
+      "explanation": "Default values are evaluated once. Every call that omits tags gets the same list object, and append mutates it. Use tags=None and create a new list inside: if tags is None: tags = [].",
+      "concept": "mutable default arguments",
+      "section": 4
+    },
+    {
+      "id": "swe-clean-code-q20",
+      "type": "debug",
+      "difficulty": "medium",
+      "language": "javascript",
+      "question": "Why does `console.log(scores)` print `[ 95, 88, 70, 40 ]` instead of the original order?",
+      "code": "function topScores(scores) {\n  return scores.sort((a, b) => b - a).slice(0, 3)\n}\n\nconst scores = [40, 95, 70, 88]\nconst top = topScores(scores)\nconsole.log(scores)",
+      "choices": [
+        "sort() reorders the array in place, so the caller's array changed; sort a copy such as [...scores]",
+        "slice() sorts the original array before copying it",
+        "console.log prints arrays sorted by default",
+        "Arrow functions passed to sort mutate their arguments"
+      ],
+      "answer": 0,
+      "explanation": "Array.prototype.sort mutates and returns the same array. slice afterwards copies, but the damage is done. Use [...scores].sort(...) or scores.toSorted(...) to keep topScores pure.",
+      "concept": "sort mutates in place",
+      "section": 4
+    },
+    {
+      "id": "swe-clean-code-q21",
+      "type": "code-fill",
+      "difficulty": "medium",
+      "language": "javascript",
+      "question": "Complete withItem so it returns a new array and leaves the original untouched.",
+      "code": "function withItem(cart, item) {\n  return _____\n}\n\nconst before = ['pen']\nconst after = withItem(before, 'ink')\nconsole.log(before, after)   // [ 'pen' ] [ 'pen', 'ink' ]",
+      "choices": [
+        "cart.push(item)",
+        "[...cart, item]",
+        "(cart.push(item), cart)",
+        "cart.concat(item) && cart.push(item)"
+      ],
+      "answer": 1,
+      "explanation": "The spread builds a new array containing the old items plus the new one. push mutates the original and returns the new length, so every option that calls push changes before.",
+      "concept": "non-mutating updates",
+      "section": 4
+    },
+    {
+      "id": "swe-clean-code-q22",
+      "type": "mcq",
+      "difficulty": "easy",
+      "question": "A pricing function calls `datetime.now()` to decide whether the weekend discount applies, and its tests fail every Saturday. Which change makes it pure and testable?",
+      "choices": [
+        "Run the tests only on weekdays",
+        "Store datetime.now() in a global at startup",
+        "Pass the current date in as a parameter",
+        "Wrap the call in try/except"
+      ],
+      "answer": 2,
+      "explanation": "The clock was a hidden input. As a parameter, the caller passes the real time in production and tests pass any date they like, so the same inputs always give the same output.",
+      "concept": "hidden inputs",
+      "section": 4
+    },
+    {
+      "id": "swe-clean-code-q23",
+      "type": "mcq",
+      "difficulty": "hard",
+      "question": "`get_user(id)` also updates the user's `last_seen` time. An admin page calls it for every row it lists, and now every user appears online. Which principle was broken?",
+      "choices": [
+        "DRY: the timestamp is stored in two places",
+        "Command-query separation: a function that answers a question should not change state",
+        "The rule of three",
+        "Fail fast: the function should have raised an error"
+      ],
+      "answer": 1,
+      "explanation": "A name like get_user promises a read. Hiding a write inside it means innocent callers trigger side effects. Split it into get_user and a separate, obviously named record_activity call.",
+      "concept": "command-query separation",
+      "section": 4
+    },
+    {
+      "id": "swe-clean-code-q24",
+      "type": "debug",
+      "difficulty": "medium",
+      "question": "Users say the app ignores their settings file, and nothing is logged. What is the main problem?",
+      "code": "def load_settings(path):\n    try:\n        with open(path) as f:\n            return json.load(f)\n    except:\n        return {}",
+      "choices": [
+        "json.load cannot read from inside a with block",
+        "Returning {} from inside except is a SyntaxError",
+        "open() must be called outside the try block",
+        "The bare except swallows every error, including invalid JSON; catch FileNotFoundError only and let other errors surface"
+      ],
+      "answer": 3,
+      "explanation": "A missing file may reasonably mean \"use defaults\", but a typo in the JSON is a real problem the user needs to hear about. The bare except hides both, and even catches KeyboardInterrupt.",
+      "concept": "swallowed exceptions",
+      "section": 5
+    },
+    {
+      "id": "swe-clean-code-q25",
+      "type": "code-fill",
+      "difficulty": "medium",
+      "question": "Complete the line so the new ConfigError keeps the original exception attached as its cause.",
+      "code": "class ConfigError(Exception):\n    pass\n\ndef read_port(config):\n    try:\n        return int(config[\"port\"])\n    except (KeyError, ValueError) as err:\n        raise ConfigError(\"port must be an integer\") _____",
+      "choices": [
+        "with err",
+        "from err",
+        "as err",
+        "except err"
+      ],
+      "answer": 1,
+      "explanation": "raise NewError(...) from err sets the original as __cause__, and the traceback shows both, joined by \"The above exception was the direct cause of the following exception\". The other options are not valid raise syntax.",
+      "concept": "exception chaining",
+      "section": 5
+    },
+    {
+      "id": "swe-clean-code-q26",
+      "type": "mcq",
+      "difficulty": "medium",
+      "question": "Which of these situations should raise an exception rather than return a value?",
+      "choices": [
+        "find_user(email) when no user has that email",
+        "dict.get(key) when the key is missing",
+        "is_valid_email(text) when the text is not an email",
+        "charge_card() when the payment provider is unreachable"
+      ],
+      "answer": 3,
+      "explanation": "charge_card cannot do its job, and the caller must not carry on as if the charge happened. The other three are normal, expected answers: no match, a default, or False from a yes-or-no question.",
+      "concept": "exceptions vs return values",
+      "section": 5
+    },
+    {
+      "id": "swe-clean-code-q27",
+      "type": "multi",
+      "difficulty": "medium",
+      "question": "Which of these are good error-handling practices?",
+      "choices": [
+        "Catch the specific exception you can handle, such as FileNotFoundError",
+        "Keep the try block around only the lines that can fail",
+        "Use a bare except: so the program never crashes",
+        "Raise a clearer error with the original attached using raise ... from err",
+        "Return -1 from save_order() when the database fails"
+      ],
+      "answers": [
+        0,
+        1,
+        3
+      ],
+      "explanation": "Narrow catches and small try blocks handle exactly what you expect, and chaining preserves the root cause. A bare except hides real bugs, and error codes like -1 are easy for callers to ignore.",
+      "concept": "error handling practices",
+      "section": 5
+    },
+    {
+      "id": "swe-clean-code-q28",
+      "type": "debug",
+      "difficulty": "hard",
+      "language": "javascript",
+      "question": "When the API is down, users still see \"Draft saved\", and the browser logs an unhandled promise rejection. What is wrong?",
+      "code": "async function saveDraft(draft) {\n  await api.put(`/drafts/${draft.id}`, draft)\n}\n\nfunction onBlur(draft) {\n  saveDraft(draft)\n  showToast('Draft saved')\n}",
+      "choices": [
+        "async functions cannot call api.put",
+        "showToast must be declared async",
+        "The promise from saveDraft is never awaited or caught, so the toast shows before the save finishes and failures go unhandled",
+        "Template literals cannot be used inside URLs"
+      ],
+      "answer": 2,
+      "explanation": "Calling an async function starts it and returns a promise immediately. Make onBlur async, await saveDraft inside try/catch, show the success toast only after it resolves, and show an error message in the catch.",
+      "concept": "unhandled promise rejections",
+      "section": 5
+    },
+    {
+      "id": "swe-clean-code-q29",
+      "type": "match",
+      "difficulty": "medium",
+      "question": "Match each code smell to its usual fix.",
+      "pairs": [
+        {
+          "left": "Long function doing several jobs",
+          "right": "Extract functions, one per responsibility"
+        },
+        {
+          "left": "The same magic number in many files",
+          "right": "Introduce one named constant"
+        },
+        {
+          "left": "A function that mostly reads another object's fields",
+          "right": "Move the function onto that object"
+        },
+        {
+          "left": "Deeply nested if statements",
+          "right": "Guard clauses and early returns"
+        },
+        {
+          "left": "Commented-out code",
+          "right": "Delete it; version control keeps the history"
+        }
+      ],
+      "explanation": "Each smell points at a specific structural problem, and each fix is a small, well-known refactoring you can do in steps with tests running.",
+      "concept": "code smells",
+      "section": 6
+    },
+    {
+      "id": "swe-clean-code-q30",
+      "type": "order",
+      "difficulty": "medium",
+      "question": "Put the steps of a safe refactoring in order.",
+      "items": [
+        "Check that tests cover the behavior, adding characterization tests if not",
+        "Make one small structural change, such as extracting a function",
+        "Run the tests",
+        "Commit the green step",
+        "Repeat with the next small change"
+      ],
+      "explanation": "Tests first, then tiny steps that are each verified and committed. If a test goes red you only have one small change to undo.",
+      "concept": "safe refactoring",
+      "section": 6
+    },
+    {
+      "id": "swe-clean-code-q31",
+      "type": "mcq",
+      "difficulty": "medium",
+      "question": "Your ticket is to fix a rounding bug in invoice.py. While there, you want to rename half the module's functions. How should you structure the work?",
+      "choices": [
+        "Keep the renames in a separate refactor commit or PR, and the bug fix with its test in its own",
+        "Do both in one commit so reviewers see everything at once",
+        "Rename and fix together, then run the tests once at the end",
+        "Skip the tests for the renames, since renaming cannot change behavior"
+      ],
+      "answer": 0,
+      "explanation": "A pure rename is easy to review because nothing should behave differently, and the bug fix stays small and clearly tested. Mixed together, a reviewer cannot tell which line changed behavior. Renames can break things too, such as a missed caller or a name used in a string.",
+      "concept": "separate refactor from fix",
+      "section": 6
+    },
+    {
+      "id": "swe-clean-code-q32",
+      "type": "debug",
+      "difficulty": "hard",
+      "question": "A customer whose plan is stored as \"Pro\" gets pro reminders but is charged 0. Which smell is at the root?",
+      "code": "def should_send_pro_reminder(user):\n    return user[\"plan\"] in (\"pro\", \"Pro\", \"PRO\")\n\ndef monthly_price(user):\n    if user[\"plan\"] == \"pro\":\n        return 20\n    return 0",
+      "choices": [
+        "Long parameter list",
+        "Feature envy between the two functions",
+        "Primitive obsession: the plan is a raw string that each function compares its own way; use an enum or normalize it once",
+        "Dead code in monthly_price"
+      ],
+      "answer": 2,
+      "explanation": "Because the plan is a bare string, every function invents its own rules for comparing it, and they disagree. An enum such as Plan.PRO, created by one function that normalizes the input, makes the inconsistent states impossible.",
+      "concept": "primitive obsession",
+      "section": 6
+    }
+  ]
+}

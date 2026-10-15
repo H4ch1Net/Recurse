@@ -123,6 +123,6 @@ describe('quiz', () => {
   })
   it('has no em dashes', () => {
     const text = [...QUIZ.map((q) => q.prompt + q.why), ...Object.values(TERMS).map((t) => t.short)].join(' ')
-    expect(text).not.toMatch(/—/)
+    expect(text).not.toMatch(/\u2014/)
   })
 })

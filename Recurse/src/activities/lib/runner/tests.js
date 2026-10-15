@@ -104,7 +104,8 @@ export function errorHint(message, language) {
       ? [
           [/IndentationError|TabError|unindent/, 'Python uses indentation for blocks. Indent the body of a def, if or loop by 4 spaces, and keep lines in the same block lined up.'],
           [/NameError: name '([^']+)'/, (m) => `Python does not know the name \`${m[1]}\`. Check the spelling, and make sure it is defined (or imported) before this line.`],
-          [/expected ':'|SyntaxError: invalid syntax/, 'Check the end of the line above: def, if, for, while and else lines end with a colon.'],
+          [/expected ':'/, 'Lines that start a block (def, if, elif, else, for, while) end with a colon.'],
+          [/SyntaxError: invalid syntax/, 'Check this line and the one before it for a missing colon, bracket or quote.'],
           [/IndexError/, 'An index went past the end of a list. Check the loop bounds and empty inputs.'],
           [/KeyError/, 'You looked up a key that is not in the dict. Use `key in d` or `d.get(key)` to check first.'],
           [/RecursionError/, 'The function keeps calling itself. Check that the base case is reached.'],

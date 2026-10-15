@@ -196,13 +196,11 @@ export function electStp(topology) {
     changed = false
     for (const s of switches) {
       if (depth[s.id] != null || !rootPort[s.id]) continue
-      const [upstream] = rootPort[s.id].split(':')
       const p = ports.find((x) => x.key === rootPort[s.id])
       if (p && depth[p.other.sw] != null) {
         depth[s.id] = depth[p.other.sw] + 1
         changed = true
       }
-      void upstream
     }
   }
   const claim = ports.map((p) => ({ from: p.sw, to: p.other.sw, linkId: p.linkId, fromPort: p.port }))

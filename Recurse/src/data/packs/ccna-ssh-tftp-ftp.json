@@ -1,0 +1,772 @@
+{
+  "id": "ccna-ssh-tftp-ftp",
+  "name": "SSH, TFTP and FTP",
+  "version": "1.0.0",
+  "author": "Recurse",
+  "subject": "networking",
+  "level": "intermediate",
+  "description": "Configure and verify SSH remote access on IOS, compare TFTP and FTP, and copy configs and IOS images safely.",
+  "icon": "SSH",
+  "language": "cisco",
+  "prereqs": [
+    "ccna-cabling-interfaces",
+    "ccna-osi-tcp-udp"
+  ],
+  "tags": [
+    "ccna",
+    "4.8",
+    "4.9",
+    "ssh",
+    "tftp",
+    "ftp",
+    "ip-services"
+  ],
+  "lesson": {
+    "estimatedMinutes": 24,
+    "intro": "Network engineers rarely stand next to the devices they manage. They log in remotely and they move files: IOS images in, configuration backups out. This lesson covers the secure way to log in, SSH, configured step by step on Cisco IOS, and the two classic file transfer protocols, TFTP and FTP: how they differ, how IOS uses them with the copy command, and why SCP and SFTP are now preferred.",
+    "objectives": [
+      "Explain why SSH replaced Telnet for remote management",
+      "Configure SSH on IOS: hostname, domain name, RSA keys, local users, vty lines and version 2",
+      "Verify and troubleshoot SSH with show ip ssh and show ssh",
+      "Compare TFTP and FTP by transport, authentication and features",
+      "Back up configurations and load IOS images with copy, and explain why SCP and SFTP are preferred"
+    ],
+    "sections": [
+      {
+        "title": "Why SSH, not Telnet",
+        "body": "You are at your desk and need to change a VLAN on a switch in a closet two floors away. You open a terminal and connect to the switch's management IP address over the network. That remote CLI session lands on one of the device's **vty lines** (virtual terminal lines), and the protocol you use to get there matters a great deal.\n\n**Telnet** (TCP port 23) was the original remote CLI protocol. It sends everything in **clear text**: every keystroke, including your username and password, and every line of output. Anyone who can capture traffic on the path, from a compromised switch port or through a man-in-the-middle attack, can read the password straight out of the packets.\n\n**SSH (Secure Shell, TCP port 22)** gives you the same remote CLI but **encrypts** the whole session. It also lets the client verify the server's identity with a public host key, so you can notice when you are talking to an impostor, and it detects tampering with the data in transit. SSH version 2 is the current standard; version 1 has known weaknesses and should be turned off.\n\nSSH on IOS has two requirements that Telnet does not:\n\n- SSH always uses a **username** as well as a password. It cannot work with an old line password alone, so you need local usernames or an AAA server.\n- The device needs an **RSA key pair** to build the encrypted session, and generating that key needs a hostname and a domain name first.\n\nBefore any remote access works, the device also needs IP connectivity. A router needs an address on a reachable interface. A Layer 2 switch needs a management SVI (for example `interface vlan 1` with an address and `no shutdown`) plus `ip default-gateway`, so it can answer administrators on other subnets.",
+        "code": "Telnet capture (TCP 23), readable by anyone on the path:\n  User Access Verification\n  Username: admin\n  Password: Cisco!2025        <- the typed keystrokes cross the wire in clear text\n  R1> enable\n\nSSH capture (TCP 22), the same login:\n  SSH-2.0-Cisco-1.25\n  Encrypted packet (len=52)\n  Encrypted packet (len=148)  <- nothing readable",
+        "language": "plaintext",
+        "tip": "Telnet is TCP 23 and clear text; SSH is TCP 22 and encrypted.",
+        "pitfall": "Assuming a strong password makes Telnet safe. The password itself crosses the network in clear text, so its strength does not matter to someone capturing packets.",
+        "check": {
+          "question": "Why is SSH preferred over Telnet for managing network devices?",
+          "choices": [
+            "SSH encrypts the session, including the login credentials",
+            "SSH uses UDP, which is faster",
+            "SSH does not need any user authentication",
+            "SSH works without an IP address on the device"
+          ],
+          "answer": 0,
+          "explanation": "Telnet sends usernames, passwords and all output in clear text; SSH encrypts everything. SSH runs over TCP 22, always needs a username, and like Telnet it needs IP connectivity to the device."
+        }
+      },
+      {
+        "title": "Preparing the device: hostname, domain name and RSA keys",
+        "body": "SSH needs an RSA key pair, and IOS names that key after the device's **fully qualified domain name (FQDN)**: the hostname plus the domain name. That is why the first three commands come in this order.\n\n1. `hostname R1`. IOS refuses to generate keys while the hostname is still the default Router (or Switch).\n2. `ip domain-name lab.local`. Without a domain name, IOS asks you to define one first.\n3. `crypto key generate rsa modulus 2048`. This creates the key pair named R1.lab.local and enables the SSH server. If you leave off `modulus`, IOS prompts you for the size.\n\n**Key size matters.** SSH version 2 needs a modulus of **at least 768 bits**. Older releases offer sizes from 360 to 2048 bits, newer ones up to 4096; a key below 768 bits leaves you with SSH version 1 only. Use **2048 bits** in practice.\n\nWhen the key is generated, IOS logs that SSH is enabled, and the version it reports is **1.99**, which means the server accepts both version 1 and version 2 clients. Lock it to version 2:\n\n4. `ip ssh version 2`\n\nIf no key of at least 768 bits exists yet, IOS refuses this command and tells you to create one first.\n\nHousekeeping commands worth knowing: running the generate command again replaces the key after you confirm; `crypto key zeroize rsa` deletes the keys, which disables SSH; and `show crypto key mypubkey rsa` displays the public key.\n\nNone of this needs a reload, and the RSA key is stored separately from the running configuration, so you will not see a crypto key line in `show running-config`. Do save the configuration, though, or the hostname and domain name that the key depends on disappear at the next reload.",
+        "code": "Router(config)# crypto key generate rsa\n% Please define a hostname other than Router.\nRouter(config)# hostname R1\nR1(config)# crypto key generate rsa\n% Please define a domain-name first.\nR1(config)# ip domain-name lab.local\nR1(config)# crypto key generate rsa modulus 2048\nThe name for the keys will be: R1.lab.local\n% The key modulus size is 2048 bits\n% Generating 2048 bit RSA keys, keys will be non-exportable...\n[OK] (elapsed time was 3 seconds)\nR1(config)#\n*Mar  1 00:12:41.507: %SSH-5-ENABLED: SSH 1.99 has been enabled\nR1(config)# ip ssh version 2",
+        "language": "cisco",
+        "tip": "Order matters: hostname, then ip domain-name, then crypto key generate rsa, then ip ssh version 2.",
+        "pitfall": "Generating a 512-bit key and then wondering why ip ssh version 2 fails. SSHv2 needs at least 768 bits; use 2048.",
+        "check": {
+          "question": "What is the minimum RSA modulus that allows SSH version 2?",
+          "choices": [
+            "512 bits",
+            "360 bits",
+            "768 bits",
+            "4096 bits"
+          ],
+          "answer": 2,
+          "explanation": "SSHv2 requires a key of at least 768 bits. 512 and 360 are smaller, allowing only SSHv1, and 4096 is simply a large option. In practice use 2048."
+        }
+      },
+      {
+        "title": "Users and vty lines",
+        "body": "The key makes encryption possible. The vty lines decide who may log in, and how.\n\n**Create local users.** `username admin secret Str0ng!Pass` stores the password as a strong hash. The older `username admin password ...` form stores it in clear text or with weak, reversible encryption, so prefer `secret`. Adding `privilege 15` drops that user straight into privileged EXEC mode at login.\n\n**Configure the vty lines.** Routers usually have `line vty 0 4` (five sessions) and switches `line vty 0 15` (sixteen). Configure all of them the same way, or an attacker simply uses the line you forgot.\n\n- `login local` makes the lines check the **local username database**. Plain `login` checks the line's own `password` and has no usernames, which SSH cannot use.\n- `transport input ssh` allows **only SSH** on those lines and rejects Telnet. `transport input telnet ssh` (or `all`) allows both, and `transport input none` allows neither. The default differs between platforms and releases, so always set it explicitly.\n- Common extras: `exec-timeout 10 0` logs idle sessions out after 10 minutes, and `access-class 10 in` limits which source addresses may connect, using a standard ACL.\n\nAlso set an `enable secret`, so remote administrators can reach privileged mode. Without any enable password, a vty user who is not privilege 15 just gets `% No password set` when typing `enable`.\n\nThe SSH server has its own tuning in two global commands: `ip ssh time-out 60` sets the seconds allowed to finish logging in (default 120), and `ip ssh authentication-retries 3` sets the allowed failed attempts (default 3).\n\nThe finished configuration is short, but every line has a job: identity (hostname and domain), encryption (the key and version 2), authentication (username and login local) and access control (transport input, access-class and timeouts).",
+        "code": "R1(config)# username admin secret Str0ng!Pass\nR1(config)# enable secret En4ble!Pass\nR1(config)# line vty 0 4\nR1(config-line)# login local\nR1(config-line)# transport input ssh\nR1(config-line)# exec-timeout 10 0\nR1(config-line)# end\nR1# copy running-config startup-config",
+        "language": "cisco",
+        "pitfall": "Configuring login instead of login local. SSH needs a username, so with only a line password every SSH login fails even though the keys and transport are right.",
+        "activity": {
+          "type": "ios-console",
+          "title": "Lab: secure remote access with SSH",
+          "prompt": "Lock R1 down to SSH only. Set a hostname and an ip domain-name, create local user admin with a secret, generate the RSA key, then on line vty 0 4 configure login local and transport input ssh. Finish with show ip ssh and read which version it reports.",
+          "props": {
+            "lab": "cl-d4-ssh"
+          }
+        },
+        "check": {
+          "question": "Which pair of vty commands allows only SSH and authenticates against local usernames?",
+          "choices": [
+            "login and transport input all",
+            "login local and transport input ssh",
+            "password cisco and transport input ssh",
+            "login local and transport input telnet"
+          ],
+          "answer": 1,
+          "explanation": "login local uses the username database, which SSH needs, and transport input ssh rejects Telnet. Plain login with a line password cannot authenticate SSH users, and transport input all or telnet would still allow clear-text Telnet."
+        }
+      },
+      {
+        "title": "Verifying and troubleshooting SSH",
+        "body": "Two commands show the SSH server's state:\n\n- `show ip ssh`: whether SSH is enabled and which version. **version 2.0** means only SSHv2 is accepted; **version 1.99** means both 1 and 2 are. It also shows the authentication timeout and retries. With no RSA key, it reports SSH as disabled and asks you to create keys.\n- `show ssh`: the SSH sessions currently connected to the device, with version, encryption, HMAC, state and username, one line per direction.\n\nTo test from another Cisco device, use the IOS SSH client: `ssh -l admin 10.0.0.1` (that is a lowercase L, for login name). From a PC, any SSH client works.\n\nWhen SSH fails, walk the chain in order:\n\n- **No IP reachability**: no address, an interface that is down, or on a switch no `ip default-gateway` for administrators on other subnets. Ping first.\n- **No RSA key**: `show ip ssh` says SSH is disabled. Check the hostname and domain name, then generate the key.\n- **Key too small**: version 2 cannot be enabled, and modern clients refuse version 1. Regenerate with `modulus 2048`.\n- **vty lines do not allow SSH**: `transport input telnet` or `none` rejects the connection outright.\n- **Authentication fails**: `login` instead of `login local`, no username configured, or a wrong password.\n- **Filtered**: an `access-class` on the vty lines, or an interface ACL, blocks TCP 22 from the administrator's address.\n- **Version or algorithm mismatch**: an old client that speaks only SSHv1 against a v2-only server, or very old IOS with ciphers a modern client rejects.\n\nThe exhibit shows a healthy result: a router that accepts SSH version 2 only, with one administrator connected, and a switch opening an SSH session to it.",
+        "code": "R1# show ip ssh\nSSH Enabled - version 2.0\nAuthentication timeout: 120 secs; Authentication retries: 3\n\nR1# show ssh\nConnection Version Mode Encryption  Hmac           State            Username\n0          2.0     IN   aes256-ctr  hmac-sha2-256  Session started  admin\n0          2.0     OUT  aes256-ctr  hmac-sha2-256  Session started  admin\n%No SSHv1 server connections running.\n\nSW2# ssh -l admin 10.0.0.1\nPassword:\nR1>",
+        "language": "cisco",
+        "pitfall": "Skipping the ping. Prove IP reachability first; no SSH setting can fix a missing route or a down interface.",
+        "check": {
+          "question": "show ip ssh reports `SSH Enabled - version 1.99`. What does that mean?",
+          "choices": [
+            "SSH is running a beta release",
+            "Only SSH version 1 is accepted",
+            "SSH is disabled until a key is generated",
+            "Both SSH version 1 and version 2 clients are accepted"
+          ],
+          "answer": 3,
+          "explanation": "1.99 is how IOS reports that both versions are allowed. After ip ssh version 2 it shows 2.0. A device with no key reports SSH as disabled instead."
+        }
+      },
+      {
+        "title": "TFTP and FTP compared",
+        "body": "Network engineers move files all the time: new IOS images into flash, configuration backups out to a server, configuration files down to IP phones. Two classic protocols do the job, and the exam wants you to compare them.\n\n**TFTP (Trivial File Transfer Protocol)** is deliberately tiny:\n\n- It uses **UDP port 69**. Because UDP does not recover lost data, TFTP adds its own simple reliability: data travels in numbered blocks, and each block must be acknowledged before the next is sent.\n- It can only **get** (read) and **put** (write) a file. No directory listing, no changing directories, no deleting.\n- It has **no authentication** at all. Anyone who can reach a TFTP server can read or write whatever files it allows.\n- It is small enough to live in boot code, IP phones and a router's minimal ROMMON environment, which is why it shows up everywhere in networking.\n\n**FTP (File Transfer Protocol)** is a full file transfer service:\n\n- It uses **TCP**, with a **control connection** to server port **21** for commands, and separate **data connections** for each file transfer or directory listing.\n- It supports **usernames and passwords**, directory navigation, listing, renaming and deleting.\n- In **active mode**, the server opens each data connection back to the client (traditionally from port 20). Firewalls and NAT in front of the client usually block that. In **passive mode**, the client opens the data connection to a port the server announces, which works far better and is the usual choice today.\n\n**Neither TFTP nor FTP encrypts anything.** FTP's login crosses the network in clear text just like Telnet's, and TFTP has no login to steal because it has no security at all.\n\nA sensible use of TFTP: an engineer turns on a TFTP server on a laptop for ten minutes on an isolated lab or management network to load images, then turns it off again.",
+        "code": "                  TFTP                         FTP\nTransport         UDP 69                       TCP 21 control, plus TCP data connections\nReliability       its own block-by-block acks  TCP\nAuthentication    none                         username and password (clear text)\nOperations        get and put only             list, navigate, get, put, delete, rename\nEncryption        none                         none (FTPS adds TLS)\nTypical use       IOS images, phone configs,   larger transfers, shared file servers\n                  quick lab transfers",
+        "language": "plaintext",
+        "tip": "TFTP: UDP 69, no login, get and put only. FTP: TCP 21 plus data connections, logins, full file management.",
+        "pitfall": "Saying TFTP uses TCP because it is reliable. It runs over UDP 69 and builds its own minimal acknowledgment scheme on top.",
+        "check": {
+          "question": "Which statement correctly compares TFTP and FTP?",
+          "choices": [
+            "TFTP uses TCP and supports logins; FTP uses UDP and does not",
+            "Both encrypt credentials by default",
+            "TFTP uses UDP and has no authentication; FTP uses TCP and supports usernames and passwords",
+            "TFTP supports directory listings and FTP does not"
+          ],
+          "answer": 2,
+          "explanation": "TFTP runs on UDP 69 with no login and only get and put. FTP runs on TCP (control on 21) with logins and full file management. Neither encrypts, which is why SCP and SFTP exist."
+        }
+      },
+      {
+        "title": "Copying files: backups and IOS images",
+        "body": "On Cisco IOS, the `copy` command moves files, and its syntax is always **copy source destination**. Locations are file systems such as `flash:`, `nvram:`, `tftp:`, `ftp:` and `scp:`, plus the shortcuts `running-config` and `startup-config`.\n\n**Backing up a configuration.** `copy running-config tftp:` (or `copy startup-config tftp:`) prompts for the server address and a file name, offering a default such as `r1-confg`. Restoring runs the other way: `copy tftp: running-config` **merges** the file into the running configuration instead of replacing it, which surprises people the first time. Commands in the file are applied on top of what is already there.\n\n**Loading a new IOS image.** The classic upgrade:\n\n1. Check free space with `show flash:` or `dir flash:`.\n2. Copy the image in with `copy tftp: flash:`, answering the prompts for the server, the source file name and the destination file name. Press Enter to accept the default name; typing y would literally name the file y.\n3. Check the file against Cisco's published hash with `verify /md5 flash:filename`.\n4. Point the router at it with `boot system flash:filename`, save the configuration and reload.\n\n**With FTP**, the copy can carry the credentials in a URL: `copy ftp://admin:Pass123@10.0.0.5/c2900-universalk9-mz.SPA.155-3.M.bin flash:`. Or configure them once with `ip ftp username admin` and `ip ftp password Pass123` and use `copy ftp: flash:` with prompts. Either way the password crosses the network in clear text.\n\nIn every case the router is the **client**: it connects to the TFTP or FTP server and pulls or pushes the file. The server can be anything: an app on a laptop, a Linux machine or a central file server.",
+        "code": "R1# copy running-config tftp:\nAddress or name of remote host []? 10.0.0.5\nDestination filename [r1-confg]?\n!!\n1384 bytes copied in 0.512 secs (2703 bytes/sec)\n\nR1# copy tftp: flash:\nAddress or name of remote host []? 10.0.0.5\nSource filename []? c2900-universalk9-mz.SPA.155-3.M.bin\nDestination filename [c2900-universalk9-mz.SPA.155-3.M.bin]?\nAccessing tftp://10.0.0.5/c2900-universalk9-mz.SPA.155-3.M.bin...\nLoading c2900-universalk9-mz.SPA.155-3.M.bin from 10.0.0.5 (via GigabitEthernet0/0): !!!!!!!!\n[OK - 107410736 bytes]\n107410736 bytes copied in 211.302 secs (508330 bytes/sec)",
+        "language": "cisco",
+        "pitfall": "Reading copy backwards. Source comes first: copy running-config tftp: backs up, while copy tftp: running-config restores by merging.",
+        "check": {
+          "question": "Which command backs up the router's current configuration to a TFTP server?",
+          "choices": [
+            "copy running-config tftp:",
+            "copy tftp: running-config",
+            "copy startup-config running-config",
+            "copy flash: tftp: running-config"
+          ],
+          "answer": 0,
+          "explanation": "copy takes the source first and the destination second, so running-config to tftp: is the backup. copy tftp: running-config is the restore, which merges, and copying startup to running loads the saved configuration."
+        }
+      },
+      {
+        "title": "Secure alternatives: SCP and SFTP",
+        "body": "TFTP and FTP move configuration files that contain password hashes, SNMP communities and VPN keys, and IOS images you must be able to trust. Sending those in clear text, with no login (TFTP) or a clear-text login (FTP), is exactly what attackers hope for. The modern answer is to move files over SSH.\n\n- **SCP (Secure Copy Protocol)** copies files over an SSH session on **TCP 22**. IOS uses it as a client with the same copy command: `copy scp://admin@10.0.0.5/r1-backup.cfg flash:`. A router or switch can also be an SCP server (`ip scp server enable`, which also needs AAA authorization configured), so you can push an image to it from your laptop.\n- **SFTP (SSH File Transfer Protocol)** also runs over SSH on TCP 22 and adds FTP-like features such as listing and navigating directories. Despite the name, it is not FTP with security bolted on; it is a separate protocol built on SSH.\n- **FTPS (FTP Secure)** is the one that really is FTP with TLS added, encrypting both the control and data connections.\n\nWhy SCP and SFTP are preferred:\n\n- **Encryption**: credentials and file contents cannot be read in transit.\n- **Authentication**: users log in, and the client verifies the server's host key, so you know which device you are talking to.\n- **Integrity**: tampering in transit is detected.\n\nThey also reuse the SSH setup you already built for remote access: the keys, the usernames and the SSH server. Whatever protocol carries an IOS image, still check its hash with `verify` before booting it, because encryption protects the transfer, not the origin of the file.\n\nTFTP still has a place: some devices only speak TFTP while booting, such as a router in ROMMON recovery or an IP phone fetching its configuration. Keep those TFTP servers on protected management networks and turn them off when you do not need them.",
+        "code": "Method   Full name                       Transport          Encrypted?\nTFTP     Trivial File Transfer Protocol  UDP 69             No\nFTP      File Transfer Protocol          TCP 21 (+ data)    No\nFTPS     FTP over TLS                    TCP 21 or 990      Yes\nSCP      Secure Copy Protocol            TCP 22 (SSH)       Yes\nSFTP     SSH File Transfer Protocol      TCP 22 (SSH)       Yes\n\nR1# copy scp://admin@10.0.0.5/r1-backup.cfg flash:\nDestination filename [r1-backup.cfg]?\nPassword:\n!\n2048 bytes copied in 1.204 secs (1701 bytes/sec)",
+        "language": "plaintext",
+        "pitfall": "Thinking SFTP is FTP plus encryption. SFTP is a different protocol that runs over SSH on TCP 22; FTP over TLS is called FTPS.",
+        "check": {
+          "question": "An engineer must copy a configuration backup across an untrusted network. Which option protects both the login and the file contents?",
+          "choices": [
+            "TFTP",
+            "SCP",
+            "FTP in passive mode",
+            "FTP with ip ftp password configured"
+          ],
+          "answer": 1,
+          "explanation": "SCP runs over SSH, so the login and the file are encrypted. TFTP has no login and no encryption, and FTP sends its password and data in clear text whatever mode it uses or wherever the password is stored."
+        }
+      }
+    ],
+    "keyTerms": [
+      {
+        "term": "vty line",
+        "definition": "A virtual terminal line that receives remote CLI sessions; routers usually have vty 0 4 and switches vty 0 15."
+      },
+      {
+        "term": "Telnet",
+        "definition": "Remote CLI protocol on TCP 23 that sends everything, including passwords, in clear text."
+      },
+      {
+        "term": "SSH",
+        "definition": "Secure Shell: encrypted remote CLI on TCP 22 that needs RSA keys and usernames. Use version 2."
+      },
+      {
+        "term": "RSA key pair",
+        "definition": "Created with crypto key generate rsa and named after the FQDN; at least 768 bits for SSHv2, 2048 recommended."
+      },
+      {
+        "term": "FQDN",
+        "definition": "Fully qualified domain name: hostname plus domain name, such as R1.lab.local."
+      },
+      {
+        "term": "login local",
+        "definition": "vty line command that authenticates users against the local username database."
+      },
+      {
+        "term": "transport input ssh",
+        "definition": "vty line command that allows only SSH and rejects Telnet."
+      },
+      {
+        "term": "show ip ssh",
+        "definition": "Shows whether SSH is enabled and the version: 2.0 for v2 only, 1.99 for both."
+      },
+      {
+        "term": "TFTP",
+        "definition": "Trivial File Transfer Protocol: UDP 69, no authentication, get and put only."
+      },
+      {
+        "term": "FTP",
+        "definition": "File Transfer Protocol: TCP control connection on port 21 plus data connections; usernames and passwords in clear text."
+      },
+      {
+        "term": "SCP",
+        "definition": "Secure Copy Protocol: copies files over SSH on TCP 22, encrypted and authenticated."
+      },
+      {
+        "term": "SFTP",
+        "definition": "SSH File Transfer Protocol: a separate protocol over SSH on TCP 22, not FTP with encryption (that is FTPS)."
+      }
+    ],
+    "summary": [
+      "Telnet (TCP 23) sends everything, passwords included, in clear text; SSH (TCP 22) encrypts the session and always needs a username.",
+      "SSH setup: hostname, ip domain-name, crypto key generate rsa modulus 2048 (at least 768 bits for v2), ip ssh version 2, username ... secret, and on every vty line login local and transport input ssh.",
+      "show ip ssh shows version 2.0 (v2 only) or 1.99 (both); show ssh lists connected sessions. Troubleshoot reachability, keys, transport input, login local and access-class in that order.",
+      "TFTP uses UDP 69 with no authentication and only get and put; FTP uses TCP 21 for control plus data connections and supports logins and file management. Neither encrypts.",
+      "copy source destination: copy running-config tftp: backs up, copy tftp: running-config merges, copy tftp: flash: loads an image; verify /md5 before boot system and reload.",
+      "SCP and SFTP run over SSH on TCP 22 and add encryption, authentication and integrity, so they are preferred for configs and images."
+    ],
+    "feynmanPrompt": "Explain to a new colleague why the team bans Telnet and plain TFTP, walk through everything a Cisco router needs before it accepts an SSH login, and describe how you would back up its configuration safely."
+  },
+  "questions": [
+    {
+      "id": "ccna-ssh-tftp-ftp-q01",
+      "type": "mcq",
+      "difficulty": "easy",
+      "question": "Which transport and port does SSH use?",
+      "choices": [
+        "TCP 23",
+        "TCP 22",
+        "UDP 22",
+        "TCP 21"
+      ],
+      "answer": 1,
+      "explanation": "SSH uses TCP 22. TCP 23 is Telnet and TCP 21 is the FTP control connection.",
+      "concept": "SSH port",
+      "section": 0
+    },
+    {
+      "id": "ccna-ssh-tftp-ftp-q02",
+      "type": "mcq",
+      "difficulty": "easy",
+      "question": "What is the main security problem with Telnet?",
+      "choices": [
+        "It sends everything, including passwords, in clear text",
+        "It cannot authenticate users at all",
+        "It works only on the console line",
+        "It uses UDP, so sessions drop easily"
+      ],
+      "answer": 0,
+      "explanation": "Telnet does support passwords and runs over TCP 23, but nothing is encrypted, so anyone capturing the traffic can read the credentials and the session.",
+      "concept": "Telnet weakness",
+      "section": 0
+    },
+    {
+      "id": "ccna-ssh-tftp-ftp-q03",
+      "type": "multi",
+      "difficulty": "medium",
+      "question": "Which two settings must exist before `crypto key generate rsa` succeeds? (Choose two.)",
+      "choices": [
+        "A hostname other than the default",
+        "An IP domain name",
+        "A local username",
+        "transport input ssh on the vty lines",
+        "An enable secret"
+      ],
+      "answers": [
+        0,
+        1
+      ],
+      "explanation": "The key is named after the FQDN, hostname plus domain name, so both must be set. Usernames and vty settings are needed to log in, but not to generate the key.",
+      "concept": "RSA key prerequisites",
+      "section": 1
+    },
+    {
+      "id": "ccna-ssh-tftp-ftp-q04",
+      "type": "cli",
+      "difficulty": "easy",
+      "question": "Type the global command that generates a 2048-bit RSA key pair for SSH without being prompted for the size.",
+      "answer": "crypto key generate rsa modulus 2048",
+      "accept": [
+        "crypto key generate rsa general-keys modulus 2048"
+      ],
+      "shell": "ios",
+      "explanation": "crypto key generate rsa creates the key pair named after the hostname and domain name. The modulus keyword sets the size; SSHv2 needs at least 768 bits.",
+      "concept": "generate RSA key",
+      "section": 1
+    },
+    {
+      "id": "ccna-ssh-tftp-ftp-q05",
+      "type": "cli",
+      "difficulty": "medium",
+      "question": "Type the global command that restricts the SSH server to version 2.",
+      "answer": "ip ssh version 2",
+      "shell": "ios",
+      "explanation": "By default IOS accepts versions 1 and 2 (shown as 1.99). ip ssh version 2 accepts only SSHv2, which needs an RSA key of at least 768 bits.",
+      "concept": "ip ssh version 2",
+      "section": 1
+    },
+    {
+      "id": "ccna-ssh-tftp-ftp-q06",
+      "type": "cli",
+      "difficulty": "medium",
+      "question": "Type the global command that sets the domain name lab.local, which IOS needs before it will generate RSA keys.",
+      "answer": "ip domain-name lab.local",
+      "accept": [
+        "ip domain name lab.local"
+      ],
+      "shell": "ios",
+      "explanation": "The domain name and hostname form the FQDN used to name the key, for example R1.lab.local. Newer releases also accept the form ip domain name.",
+      "concept": "ip domain-name",
+      "section": 1
+    },
+    {
+      "id": "ccna-ssh-tftp-ftp-q07",
+      "type": "mcq",
+      "difficulty": "easy",
+      "question": "What must the administrator do next?",
+      "code": "Router(config)# crypto key generate rsa\n% Please define a hostname other than Router.",
+      "language": "cisco",
+      "choices": [
+        "Add the modulus keyword to the command",
+        "Configure transport input ssh first",
+        "Configure a hostname other than Router",
+        "Enter the command in privileged EXEC mode"
+      ],
+      "answer": 2,
+      "explanation": "IOS will not generate a key while the hostname is the default, because the key is named after the hostname and domain name. Set a hostname (and a domain name) first.",
+      "concept": "hostname error",
+      "section": 1
+    },
+    {
+      "id": "ccna-ssh-tftp-ftp-q08",
+      "type": "mcq",
+      "difficulty": "hard",
+      "question": "An engineer generated a 512-bit RSA key. What happens when `ip ssh version 2` is entered?",
+      "choices": [
+        "SSHv2 is enabled with weaker encryption",
+        "The key is regenerated automatically at 2048 bits",
+        "SSH is disabled until the device reloads",
+        "IOS refuses, because SSHv2 needs a key of at least 768 bits"
+      ],
+      "answer": 3,
+      "explanation": "SSHv2 requires at least a 768-bit key, so IOS rejects the command and SSH stays at version 1 only. Regenerate the key with modulus 2048 and enter the command again.",
+      "concept": "key too small for SSHv2",
+      "section": 1
+    },
+    {
+      "id": "ccna-ssh-tftp-ftp-q09",
+      "type": "mcq",
+      "difficulty": "medium",
+      "question": "A router has hostname R1 and domain name lab.local. What name does IOS give its RSA key pair?",
+      "choices": [
+        "R1.lab.local",
+        "lab.local.R1",
+        "R1",
+        "rsa-key-1"
+      ],
+      "answer": 0,
+      "explanation": "IOS names the key after the FQDN, hostname then domain name, and prints it as it generates the key: The name for the keys will be: R1.lab.local.",
+      "concept": "RSA key naming",
+      "section": 1
+    },
+    {
+      "id": "ccna-ssh-tftp-ftp-q10",
+      "type": "cli",
+      "difficulty": "easy",
+      "question": "You are in line configuration mode for vty 0 4. Type the command that permits only SSH connections.",
+      "answer": "transport input ssh",
+      "shell": "ios",
+      "explanation": "transport input ssh allows SSH and rejects Telnet on these lines. transport input telnet ssh or all would allow both.",
+      "concept": "transport input ssh",
+      "section": 2
+    },
+    {
+      "id": "ccna-ssh-tftp-ftp-q11",
+      "type": "cli",
+      "difficulty": "medium",
+      "question": "In vty line configuration mode, type the command that makes the lines authenticate against the local username database.",
+      "answer": "login local",
+      "shell": "ios",
+      "explanation": "login local checks usernames and passwords configured with the username command. Plain login uses only the line password, which SSH cannot use.",
+      "concept": "login local",
+      "section": 2
+    },
+    {
+      "id": "ccna-ssh-tftp-ftp-q12",
+      "type": "cli",
+      "difficulty": "medium",
+      "question": "Type the global command that creates user admin with the hashed password Str0ng!Pass.",
+      "answer": "username admin secret Str0ng!Pass",
+      "shell": "ios",
+      "explanation": "username ... secret stores a strong hash of the password. The password keyword stores it in clear text or with weak encryption, so secret is preferred.",
+      "concept": "username secret",
+      "section": 2
+    },
+    {
+      "id": "ccna-ssh-tftp-ftp-q13",
+      "type": "debug",
+      "difficulty": "hard",
+      "question": "Administrators can reach R1 on TCP 22, but every SSH login fails. Based on the exhibit, what is the fix?",
+      "code": "R1# show ip ssh\nSSH Enabled - version 2.0\nAuthentication timeout: 120 secs; Authentication retries: 3\n\nR1# show running-config | section username|line vty\nusername admin secret 5 $1$mERr$hx5rVt7rPNoS4wqbXKX7m0\nline vty 0 4\n password Cisco123\n login\n transport input ssh",
+      "language": "cisco",
+      "choices": [
+        "Add transport input telnet to the vty lines",
+        "Replace login with login local on the vty lines",
+        "Regenerate the RSA key with a 4096-bit modulus",
+        "Change ip ssh version 2 back to version 1"
+      ],
+      "answer": 1,
+      "explanation": "SSH is enabled at version 2 and the lines accept SSH, but plain login checks the line password, which has no username, so SSH authentication fails. login local makes the lines use the admin account that already exists.",
+      "concept": "login versus login local",
+      "section": 3
+    },
+    {
+      "id": "ccna-ssh-tftp-ftp-q14",
+      "type": "mcq",
+      "difficulty": "hard",
+      "question": "A switch has vty 0 4 set to login local and transport input ssh, but vty 5 15 still has a line password, login and transport input telnet. What is the risk?",
+      "choices": [
+        "SSH stops working on every line",
+        "The switch rejects all remote connections",
+        "Telnet logins with clear-text passwords are still possible on lines 5 to 15",
+        "There is no risk, because only lines 0 to 4 are ever used"
+      ],
+      "answer": 2,
+      "explanation": "When lines 0 to 4 are busy, or an attacker opens several sessions, new connections land on lines 5 to 15, which accept Telnet with a shared clear-text password. Configure every vty line the same way.",
+      "concept": "unconfigured vty lines",
+      "section": 2
+    },
+    {
+      "id": "ccna-ssh-tftp-ftp-q15",
+      "type": "mcq",
+      "difficulty": "medium",
+      "question": "show ip ssh reports that SSH is disabled. The vty lines already have login local and transport input ssh. What is the most likely cause?",
+      "choices": [
+        "The username lacks privilege 15",
+        "The exec-timeout is too short",
+        "ip ssh version 2 is configured",
+        "No RSA key pair has been generated"
+      ],
+      "answer": 3,
+      "explanation": "The SSH server only runs once an RSA key exists. Generate it (after setting the hostname and domain name). Privilege levels and timeouts affect sessions, not whether the server runs.",
+      "concept": "SSH disabled",
+      "section": 3
+    },
+    {
+      "id": "ccna-ssh-tftp-ftp-q16",
+      "type": "mcq",
+      "difficulty": "medium",
+      "question": "Which command lists the SSH sessions currently connected to a router, with their encryption and usernames?",
+      "choices": [
+        "show ssh",
+        "show ip ssh",
+        "show crypto key mypubkey rsa",
+        "show line ssh"
+      ],
+      "answer": 0,
+      "explanation": "show ssh lists active SSH connections. show ip ssh shows the server's version and settings, and show crypto key mypubkey rsa displays the public key.",
+      "concept": "show ssh",
+      "section": 3
+    },
+    {
+      "id": "ccna-ssh-tftp-ftp-q17",
+      "type": "cli",
+      "difficulty": "easy",
+      "question": "From another Cisco device, type the command that opens an SSH session to 10.0.0.1 as user admin.",
+      "answer": "ssh -l admin 10.0.0.1",
+      "shell": "ios",
+      "explanation": "The IOS SSH client uses -l (a lowercase L) for the login name, followed by the destination address or name.",
+      "concept": "IOS SSH client",
+      "section": 3
+    },
+    {
+      "id": "ccna-ssh-tftp-ftp-q18",
+      "type": "mcq",
+      "difficulty": "hard",
+      "question": "An administrator at 10.5.5.20 cannot SSH to R1, but one at 10.1.1.20 can. R1's vty lines have `access-class 10 in`, and the only ACL entry is `access-list 10 permit 10.1.1.0 0.0.0.255`. Why?",
+      "choices": [
+        "access-class applies only to Telnet",
+        "ACL 10 permits only 10.1.1.0/24, and its implicit deny blocks 10.5.5.20",
+        "The RSA key only allows one subnet",
+        "SSH requires both administrators to be on the same subnet"
+      ],
+      "answer": 1,
+      "explanation": "access-class filters which source addresses may open vty sessions, for SSH and Telnet alike. Every ACL ends with an implicit deny, so 10.5.5.20 is refused. Add a permit for the second administrator's address or subnet.",
+      "concept": "vty access-class",
+      "section": 3
+    },
+    {
+      "id": "ccna-ssh-tftp-ftp-q19",
+      "type": "order",
+      "difficulty": "medium",
+      "question": "Put the events in order, from an administrator starting an SSH connection to getting a prompt.",
+      "items": [
+        "TCP three-way handshake to port 22",
+        "Client and server agree on the SSH version and algorithms",
+        "Key exchange builds the encrypted channel and the client checks the server's host key",
+        "The username and password are checked, here against the local database",
+        "The administrator gets an EXEC prompt on a vty line"
+      ],
+      "explanation": "SSH runs over TCP, so the TCP connection comes first. The encrypted channel is built before any credentials are sent, which is exactly why the password is safe, and only then is the user authenticated.",
+      "concept": "SSH session setup",
+      "section": 0
+    },
+    {
+      "id": "ccna-ssh-tftp-ftp-q20",
+      "type": "mcq",
+      "difficulty": "easy",
+      "question": "Which transport and port does TFTP use?",
+      "choices": [
+        "TCP 69",
+        "TCP 21",
+        "UDP 69",
+        "UDP 20"
+      ],
+      "answer": 2,
+      "explanation": "TFTP runs on UDP 69 and adds its own block-by-block acknowledgments. TCP 21 is the FTP control connection.",
+      "concept": "TFTP port",
+      "section": 4
+    },
+    {
+      "id": "ccna-ssh-tftp-ftp-q21",
+      "type": "match",
+      "difficulty": "medium",
+      "question": "Match each protocol to its transport and port.",
+      "pairs": [
+        {
+          "left": "TFTP",
+          "right": "UDP 69"
+        },
+        {
+          "left": "FTP control connection",
+          "right": "TCP 21"
+        },
+        {
+          "left": "SCP",
+          "right": "TCP 22, over SSH"
+        },
+        {
+          "left": "Telnet",
+          "right": "TCP 23"
+        },
+        {
+          "left": "FTPS implicit mode",
+          "right": "TCP 990"
+        }
+      ],
+      "explanation": "Only SCP (and SFTP) on TCP 22 and FTPS on 990 or 21 encrypt anything. TFTP, FTP and Telnet are all clear text.",
+      "concept": "file transfer ports",
+      "section": 4
+    },
+    {
+      "id": "ccna-ssh-tftp-ftp-q22",
+      "type": "multi",
+      "difficulty": "medium",
+      "question": "Which three statements about TFTP are true? (Choose three.)",
+      "choices": [
+        "It uses UDP port 69",
+        "It has no user authentication",
+        "It can only get and put files, with no directory listing",
+        "It encrypts file contents",
+        "It uses a separate control connection on TCP 21"
+      ],
+      "answers": [
+        0,
+        1,
+        2
+      ],
+      "explanation": "TFTP is UDP 69, with no login and only get and put. It encrypts nothing, and the control connection on TCP 21 belongs to FTP.",
+      "concept": "TFTP characteristics",
+      "section": 4
+    },
+    {
+      "id": "ccna-ssh-tftp-ftp-q23",
+      "type": "mcq",
+      "difficulty": "medium",
+      "question": "Why does FTP active mode often fail when the client sits behind a firewall or NAT?",
+      "choices": [
+        "Active mode uses UDP, which firewalls drop",
+        "Active mode requires TFTP on port 69",
+        "The control connection cannot cross NAT",
+        "The server opens the data connection back to the client, and the firewall blocks it"
+      ],
+      "answer": 3,
+      "explanation": "In active mode the server initiates each data connection toward the client, an unsolicited inbound connection that firewalls and NAT normally block. Passive mode has the client open the data connection instead.",
+      "concept": "FTP active mode and firewalls",
+      "section": 4
+    },
+    {
+      "id": "ccna-ssh-tftp-ftp-q24",
+      "type": "mcq",
+      "difficulty": "medium",
+      "question": "Which FTP connection carries commands such as the login and directory changes?",
+      "choices": [
+        "The data connection, from TCP port 20",
+        "The control connection, to TCP port 21",
+        "A UDP exchange on port 69",
+        "An SSH channel on TCP 22"
+      ],
+      "answer": 1,
+      "explanation": "FTP uses a control connection to port 21 for commands and replies, and separate data connections for file contents and listings.",
+      "concept": "FTP control connection",
+      "section": 4
+    },
+    {
+      "id": "ccna-ssh-tftp-ftp-q25",
+      "type": "mcq",
+      "difficulty": "hard",
+      "question": "What does `copy tftp: running-config` do?",
+      "choices": [
+        "Merges the commands in the file into the running configuration",
+        "Replaces the running configuration exactly with the file",
+        "Backs up the running configuration to the TFTP server",
+        "Saves the file to NVRAM as the startup configuration"
+      ],
+      "answer": 0,
+      "explanation": "Copying into the running configuration applies the file's commands on top of what is already there, so settings missing from the file stay in place. The source comes first, so this is a restore, not a backup.",
+      "concept": "restoring merges",
+      "section": 5
+    },
+    {
+      "id": "ccna-ssh-tftp-ftp-q26",
+      "type": "cli",
+      "difficulty": "easy",
+      "question": "Type the command that copies the running configuration to a TFTP server. IOS will prompt for the server and file name.",
+      "answer": "copy running-config tftp:",
+      "accept": [
+        "copy running-config tftp"
+      ],
+      "shell": "ios",
+      "explanation": "copy always takes the source first and the destination second. IOS then prompts for the server address and offers a default file name such as r1-confg.",
+      "concept": "back up to TFTP",
+      "section": 5
+    },
+    {
+      "id": "ccna-ssh-tftp-ftp-q27",
+      "type": "cli",
+      "difficulty": "medium",
+      "question": "Type the command that copies an IOS image from a TFTP server into flash. IOS will prompt for the details.",
+      "answer": "copy tftp: flash:",
+      "accept": [
+        "copy tftp flash",
+        "copy tftp: flash",
+        "copy tftp flash:"
+      ],
+      "shell": "ios",
+      "explanation": "The source is the TFTP server and the destination is flash. IOS prompts for the server, the source file name and the destination name.",
+      "concept": "load an image from TFTP",
+      "section": 5
+    },
+    {
+      "id": "ccna-ssh-tftp-ftp-q28",
+      "type": "mcq",
+      "difficulty": "hard",
+      "question": "Which statement about the command in the exhibit is true?",
+      "code": "R1# copy ftp://admin:Pa55@10.0.0.5/c2900-universalk9-mz.SPA.155-3.M.bin flash:",
+      "language": "cisco",
+      "choices": [
+        "R1 acts as an FTP server for 10.0.0.5",
+        "The transfer is encrypted because the credentials are in the URL",
+        "R1 acts as an FTP client, and the credentials cross the network unencrypted",
+        "The file is copied from R1's flash to the server"
+      ],
+      "answer": 2,
+      "explanation": "The router is the FTP client pulling the image from 10.0.0.5 into flash (source first, destination second). FTP sends the username and password in clear text no matter how they are supplied.",
+      "concept": "FTP copy with credentials",
+      "section": 5
+    },
+    {
+      "id": "ccna-ssh-tftp-ftp-q29",
+      "type": "mcq",
+      "difficulty": "medium",
+      "question": "After copying a new IOS image into flash, which command checks it against Cisco's published hash?",
+      "choices": [
+        "show flash: hash",
+        "boot system flash:filename",
+        "copy flash: verify",
+        "verify /md5 flash:filename"
+      ],
+      "answer": 3,
+      "explanation": "verify /md5 calculates the file's MD5 hash so you can compare it with the value Cisco publishes. boot system only tells the router which image to load next time.",
+      "concept": "verify image hash",
+      "section": 5
+    },
+    {
+      "id": "ccna-ssh-tftp-ftp-q30",
+      "type": "order",
+      "difficulty": "medium",
+      "question": "Put the steps of an IOS upgrade from a TFTP server in order.",
+      "items": [
+        "Check free space with show flash:",
+        "Copy the image in with copy tftp: flash:",
+        "Check the image with verify /md5",
+        "Configure boot system flash:filename and save the configuration",
+        "Reload the router"
+      ],
+      "explanation": "Make room first, copy the image, prove it is intact and genuine, point the boot process at it and save, then reload into the new image.",
+      "concept": "IOS upgrade steps",
+      "section": 5
+    },
+    {
+      "id": "ccna-ssh-tftp-ftp-q31",
+      "type": "mcq",
+      "difficulty": "easy",
+      "question": "Which file transfer method encrypts the transfer by running over SSH?",
+      "choices": [
+        "TFTP",
+        "SCP",
+        "FTP",
+        "FTP in active mode"
+      ],
+      "answer": 1,
+      "explanation": "SCP uses an SSH session on TCP 22, so the login and the file are encrypted. TFTP and FTP send everything in clear text.",
+      "concept": "SCP encryption",
+      "section": 6
+    },
+    {
+      "id": "ccna-ssh-tftp-ftp-q32",
+      "type": "mcq",
+      "difficulty": "medium",
+      "question": "What is SFTP?",
+      "choices": [
+        "A file transfer protocol that runs over SSH on TCP 22",
+        "FTP with TLS encryption added",
+        "A secure version of TFTP on UDP 69",
+        "FTP limited to one file per session"
+      ],
+      "answer": 0,
+      "explanation": "SFTP is the SSH File Transfer Protocol, a separate protocol carried inside SSH. FTP with TLS is called FTPS, and there is no secure TFTP on UDP 69.",
+      "concept": "what SFTP is",
+      "section": 6
+    },
+    {
+      "id": "ccna-ssh-tftp-ftp-q33",
+      "type": "mcq",
+      "difficulty": "hard",
+      "question": "A company bans clear-text management protocols. Which pair should replace Telnet and TFTP?",
+      "choices": [
+        "SNMPv2c and FTP",
+        "HTTPS and FTP",
+        "SSH and FTP in passive mode",
+        "SSH and SCP"
+      ],
+      "answer": 3,
+      "explanation": "SSH replaces Telnet for the CLI, and SCP (or SFTP) replaces TFTP for files, both encrypted over TCP 22. FTP in any mode and SNMPv2c are still clear text.",
+      "concept": "replacing clear-text protocols",
+      "section": 6
+    },
+    {
+      "id": "ccna-ssh-tftp-ftp-q34",
+      "type": "recall",
+      "difficulty": "medium",
+      "question": "Compare TFTP and FTP.",
+      "answer": "TFTP uses UDP 69, has no authentication and can only get and put files; it is tiny and common for IOS images and boot files. FTP uses TCP (control on port 21 plus data connections), supports usernames and passwords and full file management. Neither encrypts.",
+      "explanation": "For anything sensitive, use SCP or SFTP over SSH instead.",
+      "concept": "TFTP versus FTP",
+      "section": 4
+    }
+  ]
+}

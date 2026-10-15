@@ -1,24 +1,25 @@
 import { useMemo, useState } from 'react'
 import { Link, Navigate, useNavigate, useParams } from 'react-router-dom'
-import { Award, BookOpen, Check, ChevronLeft, Download, Eye, EyeOff, MessageSquareText, Pencil, Play, RotateCcw, Search, Shuffle, Trash2, TriangleAlert } from 'lucide-react'
+import { Award, BookOpen, Check, ChevronLeft, Code, Download, Eye, EyeOff, FileCheck2, FlaskConical, FolderGit2, MessageSquareText, MousePointerClick, Pencil, Play, RotateCcw, Search, Shuffle, Terminal, Trash2, TriangleAlert } from 'lucide-react'
 import { useApp } from '../state/context'
 import { useDocumentTitle } from '../hooks/useDocumentTitle'
 import { LEVEL_LABELS, QUESTION_TYPE_LABELS, subjectLabel } from '../lib/subjects'
 import { MEMORY_TONE_LABELS, memoryTone, LEECH_LAPSES, topicOf } from '../lib/progress'
 import { retrievability, stateLabel } from '../lib/memory'
 import { formatRelative, formatDate } from '../lib/dates'
-import { isChoiceType } from '../lib/packSchema'
+import { answerText } from '../lib/answers'
 import { missingPrereqs } from '../lib/recommend'
 import { downloadCertificate, downloadJSON } from '../lib/share'
 import Tile from '../components/Tile'
 import MemoryRing from '../components/MemoryRing'
 import { ConfirmDialog } from '../components/Modal'
 import EmptyState from '../components/EmptyState'
+import PathIcon from '../components/PathIcon'
+import { collectionsForPack } from '../lib/collections'
+import { challengesForTopic, labsForTopic, projectsForTopic } from '../lib/practice'
+import { modeOf } from '../lib/approaches'
+import { ACTIVITY_MAP } from '../activities/catalog'
 
-function answerText(question) {
-  if (isChoiceType(question.type)) return question.choices[question.answer]
-  return question.answer
-}
 
 function CardBrowser({ pack, topic, now }) {
   const [query, setQuery] = useState('')
@@ -94,7 +95,7 @@ function CardBrowser({ pack, topic, now }) {
 
 export default function Topic() {
   const { topicId } = useParams()
-  const { packMap, callNos, progress, summaries, user, now, resetTopic, removePack, toast } = useApp()
+  const { packMap, callNos, progress, summaries, user, now, resetTopic, removePack, toast, practice, settings } = useApp()
   const navigate = useNavigate()
   const pack = packMap.get(topicId)
   const [tab, setTab] = useState('overview')
@@ -113,6 +114,15 @@ export default function Topic() {
       ? summary.studied ? `Learn ${Math.min(summary.newCount, 12)} new` : 'Start studying'
       : 'Review ahead'
 
+  const paths = collectionsForPack(pack.id)
+  const labs = labsForTopic(pack.id)
+  const challenges = challengesForTopic(pack.id)
+  const projects = projectsForTopic(pack.id)
+  const activities = (lesson?.sections || []).map((section, i) => ({ section, i })).filter(({ section }) => section.activity)
+  const mode = modeOf(settings)
+  const handsOnFirst = mode.id === 'builder' && (labs[0] || challenges[0])
+  const hasHandsOn = labs.length + challenges.length + projects.length + activities.length > 0
+
   return (
     <div className="page">
       <Link to="/library" className="back-link small"><ChevronLeft size={16} /> Library</Link>
@@ -123,6 +133,15 @@ export default function Topic() {
           <div className="eyebrow"><span className="callno" style={{ color: 'var(--ink)' }}>{callNos.get(pack.id)}</span> · {subjectLabel(pack.subject)} · {LEVEL_LABELS[pack.level] || pack.level}{pack.community ? ' · Your pack' : ''}</div>
           <h1 className="page-title">{pack.name}</h1>
           {pack.description && <p className="page-sub">{pack.description}</p>}
+          {paths.length > 0 && (
+            <div className="row wrap topic-paths">
+              {paths.map((c) => (
+                <Link key={c.id} to={`/path/${c.id}`} className="path-badge" style={{ '--hue': c.hue }}>
+                  <PathIcon collection={c} size="sm" /> {c.name}
+                </Link>
+              ))}
+            </div>
+          )}
           {missing.length > 0 && (
             <p className="small subtle" style={{ marginTop: 8 }}>
               Builds on {missing.map((p, i) => <span key={p.id}>{i > 0 && ', '}<Link to={`/topic/${p.id}`}>{p.name}</Link></span>)}. Starting here is fine too.
@@ -132,13 +151,19 @@ export default function Topic() {
       </header>
 
       <div className="topic-actions">
-        <Link to={`/study/topic/${pack.id}`} className="btn btn-primary btn-lg"><Play size={18} /> {studyLabel}</Link>
+        {handsOnFirst && (
+          <Link to={labs[0] ? `/practice/lab/${labs[0].id}` : `/practice/challenge/${challenges[0].id}`} className="btn btn-primary btn-lg">
+            {labs[0] ? <Terminal size={18} /> : <Code size={18} />} {labs[0] ? 'Try the lab' : 'Try a challenge'}
+          </Link>
+        )}
+        <Link to={`/study/topic/${pack.id}`} className={`btn btn-lg${handsOnFirst ? '' : ' btn-primary'}`}><Play size={18} /> {studyLabel}</Link>
         {lesson && (
           <Link to={`/topic/${pack.id}/lesson`} className="btn btn-lg"><BookOpen size={18} /> {summary.lessonRead ? 'Reread lesson' : 'Read lesson'}</Link>
         )}
         {lesson && (
           <Link to={`/topic/${pack.id}/explain`} className="btn btn-lg"><MessageSquareText size={18} /> Explain it</Link>
         )}
+        <Link to={`/quiz/run?topic=${pack.id}&mode=quiz&n=${Math.min(15, pack.questions.length)}`} className="btn btn-lg btn-ghost" title="A short quiz with feedback after each question"><FileCheck2 size={18} /> Quiz</Link>
         <Link to={`/study/practice/${pack.id}`} className="btn btn-lg btn-ghost" title="Shuffled practice across every card"><Shuffle size={18} /> Practice all</Link>
       </div>
 
@@ -213,6 +238,7 @@ export default function Topic() {
                       <Link to={`/topic/${pack.id}/lesson#section-${i + 1}`}>
                         <span className={`outline-dot${topic.checks?.[i] ? ' done' : ''}`} aria-hidden="true">{topic.checks?.[i] ? <Check size={13} /> : String(i + 1).padStart(2, '0')}</span>
                         <span>{section.title}</span>
+                        {section.activity && <FlaskConical size={12} className={`toc-activity${topic.activities?.[i] ? ' done' : ''}`} aria-label="Interactive activity" />}
                         {topic.checks?.[i] && <span className="sr-only">(check passed)</span>}
                       </Link>
                     </li>
@@ -242,6 +268,53 @@ export default function Topic() {
             )}
           </section>
         </div>
+      )}
+
+      {tab === 'overview' && hasHandsOn && (
+        <section className="card hands-on" style={{ marginTop: 'var(--s-5)' }} aria-labelledby="hands-on-title">
+          <div className="catalog-head" style={{ marginBottom: 'var(--s-3)' }}>
+            <h2 className="section-title" id="hands-on-title">Hands-on</h2>
+            <span className="callno">Do it, don't just read it</span>
+          </div>
+          <div className="hands-on-grid">
+            {activities.length > 0 && (
+              <div className="stage-chip-group">
+                <span className="eyebrow"><MousePointerClick size={12} /> In the lesson · {activities.filter(({ i }) => topic.activities?.[i]).length}/{activities.length}</span>
+                <div className="row wrap" style={{ gap: 6 }}>
+                  {activities.map(({ section, i }) => (
+                    <Link key={i} to={`/topic/${pack.id}/lesson#section-${i + 1}`} className={`lab-chip${topic.activities?.[i] ? ' done' : ''}`}>
+                      {topic.activities?.[i] ? <Check size={12} /> : <MousePointerClick size={12} />} {section.activity.title || ACTIVITY_MAP[section.activity.type]?.title}
+                    </Link>
+                  ))}
+                </div>
+              </div>
+            )}
+            {labs.length > 0 && (
+              <div className="stage-chip-group">
+                <span className="eyebrow"><Terminal size={12} /> Console labs</span>
+                <div className="row wrap" style={{ gap: 6 }}>
+                  {labs.map((lab) => <Link key={lab.id} to={`/practice/lab/${lab.id}`} className={`lab-chip${practice.labs?.[lab.id] ? ' done' : ''}`}>{practice.labs?.[lab.id] ? <Check size={12} /> : <FlaskConical size={12} />} {lab.title}</Link>)}
+                </div>
+              </div>
+            )}
+            {challenges.length > 0 && (
+              <div className="stage-chip-group">
+                <span className="eyebrow"><Code size={12} /> Coding challenges</span>
+                <div className="row wrap" style={{ gap: 6 }}>
+                  {challenges.map((c) => <Link key={c.id} to={`/practice/challenge/${c.id}`} className={`lab-chip${practice.challenges?.[c.id] ? ' done' : ''}`}>{practice.challenges?.[c.id] ? <Check size={12} /> : <Code size={12} />} {c.title}</Link>)}
+                </div>
+              </div>
+            )}
+            {projects.length > 0 && (
+              <div className="stage-chip-group">
+                <span className="eyebrow"><FolderGit2 size={12} /> Projects that use this</span>
+                <div className="row wrap" style={{ gap: 6 }}>
+                  {projects.map((p) => <Link key={p.id} to={`/project/${p.id}`} className={`lab-chip${practice.projects?.[p.id]?.status === 'done' ? ' done' : ''}`}>{p.title}</Link>)}
+                </div>
+              </div>
+            )}
+          </div>
+        </section>
       )}
 
       {tab === 'cards' && <CardBrowser pack={pack} topic={topic} now={now} />}

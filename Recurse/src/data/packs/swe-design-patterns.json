@@ -1,0 +1,774 @@
+{
+  "id": "swe-design-patterns",
+  "name": "Design Patterns and SOLID",
+  "version": "1.0.0",
+  "author": "Recurse",
+  "subject": "swe",
+  "level": "intermediate",
+  "description": "SOLID, composition over inheritance and the patterns interns meet: strategy, factory, observer, adapter, decorator, DI and MVC.",
+  "icon": "DP",
+  "language": "python",
+  "prereqs": [
+    "oop",
+    "typescript-basics",
+    "swe-clean-code"
+  ],
+  "tags": [
+    "design-patterns",
+    "solid",
+    "architecture",
+    "oop",
+    "typescript"
+  ],
+  "lesson": {
+    "estimatedMinutes": 30,
+    "intro": "Design patterns are named, reusable answers to problems that keep coming up: how to swap an algorithm, react to events, wrap a vendor SDK or keep dependencies testable. You will see them in every real codebase and hear their names in code review and interviews. This lesson covers the principles behind them and the handful of patterns interns actually meet, in Python and TypeScript.",
+    "objectives": [
+      "Explain each SOLID principle with a concrete example of the problem it prevents",
+      "Choose composition over inheritance and recognize when inheritance still fits",
+      "Match a problem to strategy, factory, observer, adapter or decorator",
+      "Replace singletons with dependency injection to make code testable",
+      "Keep business rules out of controllers in an MVC app"
+    ],
+    "sections": [
+      {
+        "title": "SOLID in five small examples",
+        "body": "Five principles, gathered by Robert C. Martin and given the acronym SOLID by Michael Feathers, describe code that stays easy to change. You will hear them in code reviews and in interviews (\"how would you make this extensible?\"). Each one is easiest to understand through the problem it prevents.\n\n- **S, single responsibility:** a class should have one reason to change. A `Report` class that computes totals, renders HTML and emails itself changes whenever finance, design or the email provider changes. Split it into a calculator, a renderer and a mailer.\n- **O, open/closed:** open for extension, closed for modification. You should be able to add behavior by adding code, not by editing code that works. If adding a shape means editing an `if shape.kind == ...` chain in five functions, the design is closed to extension. If each shape has its own `area()` method, adding `Hexagon` touches nothing else.\n- **L, Liskov substitution:** a subclass must work anywhere its parent is expected, with no surprises. If `ReadOnlyFile(File)` raises on `write()`, every function that accepts a `File` and writes to it breaks. The classic example is `Square(Rectangle)`, which breaks code that sets width and height independently.\n- **I, interface segregation:** do not force clients to depend on methods they do not use. A `Machine` interface with `print`, `scan` and `fax` forces a simple printer to implement fax and raise. Small interfaces such as `Printer` and `Scanner` fit better.\n- **D, dependency inversion:** high-level policy should depend on abstractions, not on concrete details. `SignupService` should depend on \"something that can send email\", not on `SmtpClient` directly. Then you can swap in another provider, or a fake in tests, without touching signup logic.\n\nIn Python, the \"interface\" is often implicit (duck typing) or written down as a `typing.Protocol` or an abstract base class. In TypeScript it is an `interface`. Either way, the point is that code depends on what an object can do, not on which class it is.\n\nSOLID is a set of forces to weigh, not commandments. Applied mechanically, it turns a 50-line script into a dozen one-method classes. Apply it where change actually happens.",
+        "code": "import math\nfrom dataclasses import dataclass\nfrom typing import Protocol\n\n\n# Open/closed: add a shape by adding a class, never by editing total_area\n@dataclass\nclass Circle:\n    r: float\n    def area(self) -> float:\n        return math.pi * self.r ** 2\n\n@dataclass\nclass Rect:\n    w: float\n    h: float\n    def area(self) -> float:\n        return self.w * self.h\n\ndef total_area(shapes) -> float:\n    return sum(shape.area() for shape in shapes)\n\n\n# Dependency inversion: depend on \"something that can send\", not on SMTP\nclass EmailSender(Protocol):\n    def send(self, to: str, subject: str, body: str) -> None: ...\n\nclass SignupService:\n    def __init__(self, sender: EmailSender):\n        self.sender = sender\n\n    def register(self, email: str) -> None:\n        ...  # create the account\n        self.sender.send(email, \"Welcome!\", \"Thanks for signing up.\")",
+        "language": "python",
+        "pitfall": "Applying SOLID mechanically: an interface, a factory and three classes for logic that has one implementation and never changes. Add the abstraction when a second implementation, or a test that needs a fake, actually shows up.",
+        "check": {
+          "question": "`ReadOnlyFile` subclasses `File` and raises an error in `write()`. Code that accepts any `File` and writes to it now crashes. Which principle is broken?",
+          "choices": [
+            "Single responsibility",
+            "Liskov substitution",
+            "Interface segregation",
+            "Open/closed"
+          ],
+          "answer": 1,
+          "explanation": "Callers were promised that any File can be written to. A subclass that refuses cannot stand in for its parent. Often the fix is a different hierarchy, such as separate Readable and Writable interfaces."
+        }
+      },
+      {
+        "title": "Composition over inheritance",
+        "body": "A notifications module starts with `Notifier`, then `EmailNotifier(Notifier)` and `SmsNotifier(Notifier)`. Product wants emails that are also logged, so someone adds `LoggedEmailNotifier(EmailNotifier)`. Then SMS with retries: `RetryingSmsNotifier`. Then logged SMS with retries. Every combination needs another subclass, and a change to `Notifier` ripples through all of them. This **class explosion** is what deep inheritance tends to produce.\n\n**Inheritance** models an \"is-a\" relationship and shares code by extending a parent. **Composition** models a \"has-a\" relationship: an object holds other objects and delegates work to them. \"Favor object composition over class inheritance\" is advice from the 1994 Gang of Four book *Design Patterns*, and you will hear it in nearly every review of a growing class hierarchy.\n\nWhy composition usually ages better:\n\n- **Mix and match.** A `Notifier` that holds a list of channels and an optional logger covers every combination with no new classes.\n- **Looser coupling.** A subclass depends on its parent's internals, so a harmless-looking change in the parent can break it (the fragile base class problem). A composed object depends only on its collaborators' public methods.\n- **Easier testing.** Pass a fake channel into the constructor.\n- **Clearer construction.** `Notifier(channels=[email, sms])` says exactly what you get.\n\nInheritance is still right when the relationship really is is-a and the subclass honors the parent's contract: `InsufficientFundsError(Exception)`, a Django model extending `models.Model`, a test case extending `unittest.TestCase`. Frameworks often ask you to subclass their base classes, and that is fine. Keep your own hierarchies shallow, one or two levels, and reach for composition when you catch yourself naming a class with two \"ands\" in it.",
+        "code": "# Inheritance: one subclass per combination\nclass EmailNotifier(Notifier): ...\nclass LoggedEmailNotifier(EmailNotifier): ...\nclass RetryingSmsNotifier(SmsNotifier): ...\nclass LoggedRetryingSmsNotifier(RetryingSmsNotifier): ...   # and so on\n\n\n# Composition: small parts, combined freely\nclass EmailChannel:\n    def send(self, user, message):\n        print(f\"email to {user}: {message}\")\n\nclass SmsChannel:\n    def send(self, user, message):\n        print(f\"sms to {user}: {message}\")\n\nclass Notifier:\n    def __init__(self, channels, logger=None):\n        self.channels = channels\n        self.logger = logger\n\n    def notify(self, user, message):\n        for channel in self.channels:\n            channel.send(user, message)\n        if self.logger:\n            self.logger.info(\"notified %s\", user)\n\nalerts = Notifier(channels=[EmailChannel(), SmsChannel()])\nalerts.notify(\"ana\", \"Your order shipped\")",
+        "language": "python",
+        "pitfall": "Inheriting just to reuse a few helper methods, as in `class OrderService(DatabaseHelper)`. If the child is not truly a kind of the parent, hold the helper as an attribute instead.",
+        "check": {
+          "question": "`class Stack(list)` subclasses Python's list to reuse append and pop. What is the main problem?",
+          "choices": [
+            "Built-in types cannot be subclassed in Python",
+            "It makes push and pop slower than a plain list",
+            "It violates DRY",
+            "Callers inherit every list method, so they can insert in the middle or sort it; holding a list privately exposes only stack operations"
+          ],
+          "answer": 3,
+          "explanation": "A stack is not a list: it promises last-in, first-out access. Inheriting exposes insert, sort, slicing and more, all of which break that promise. Composition (a private list inside) exposes exactly push, pop and peek."
+        }
+      },
+      {
+        "title": "Strategy and factory",
+        "body": "Checkout needs a shipping cost: standard, express, and as of this sprint, free shipping for members. The first version is an `if` chain inside `checkout()`. Every new option means editing checkout, and testing one rule means running all of checkout.\n\nThe **strategy pattern** puts each interchangeable algorithm behind the same interface and lets the caller choose one. Checkout simply asks the strategy, `shipping.cost(cart_total)`. A new rule is a new strategy, and checkout does not change: the open/closed principle in action.\n\nIn Python, functions are objects, so a strategy is often just a function you pass in, exactly like the `key` you give to `sorted()`. A class makes sense when the strategy has configuration or several methods. In TypeScript you declare the contract and implement it:\n\n- `interface ShippingStrategy { cost(cartTotal: number): number }`\n- `class ExpressShipping implements ShippingStrategy { cost() { return 15 } }`\n\nThe **factory pattern** answers the next question: who decides which object to create? A factory centralizes that decision, so the mapping from a name like `\"express\"` to a class lives in one place instead of in every caller:\n\n- `make_shipping(\"express\")` returns the right strategy object.\n- A dictionary from names to classes keeps it a single lookup, and an unknown name becomes one clear error.\n- Callers depend only on the interface, never on the concrete classes.\n\nYou meet factories constantly, often without the name: `logging.getLogger(name)`, alternative constructors such as `datetime.fromisoformat(text)` (in Python, usually written as a `@classmethod`), and `document.createElement('div')` in the browser.\n\nThe signal to watch for in code review is the same `if`/`elif` on a type or kind string repeated in several functions. That is usually a strategy waiting to be extracted, plus a factory to pick it.",
+        "code": "class StandardShipping:\n    def cost(self, cart_total):\n        return 0 if cart_total >= 50 else 5\n\nclass ExpressShipping:\n    def cost(self, cart_total):\n        return 15\n\n\n# Factory: the one place that maps a name to a strategy\nSHIPPING_OPTIONS = {\"standard\": StandardShipping, \"express\": ExpressShipping}\n\ndef make_shipping(option):\n    if option not in SHIPPING_OPTIONS:\n        raise ValueError(f\"unknown shipping option: {option}\")\n    return SHIPPING_OPTIONS[option]()\n\n\n# The caller depends only on \"has a cost() method\"\ndef checkout_total(cart_total, shipping):\n    return cart_total + shipping.cost(cart_total)\n\nprint(checkout_total(40, make_shipping(\"standard\")))   # 45\n\n\n# In Python a one-method strategy is often just a function\ncheapest_first = sorted(products, key=lambda p: p[\"price\"])",
+        "language": "python",
+        "pitfall": "Building a strategy hierarchy for a choice that has one implementation and no sign of a second. A plain function is enough until a second variant really appears.",
+        "activity": {
+          "type": "code-runner",
+          "title": "Add a strategy without touching checkout",
+          "prompt": "Run it: the factory rejects \"member\". Add a MemberShipping class with a cost() method that returns 0, and register it in SHIPPING_OPTIONS. Notice that checkout_total never changes: adding behavior meant adding code, not editing working code.",
+          "props": {
+            "language": "python",
+            "code": "class StandardShipping:\n    def cost(self, cart_total):\n        return 0 if cart_total >= 50 else 5\n\n\nclass ExpressShipping:\n    def cost(self, cart_total):\n        return 15\n\n\n# TODO: add a MemberShipping strategy here (members always ship free),\n# then register it in SHIPPING_OPTIONS below.\n\n\nSHIPPING_OPTIONS = {\n    \"standard\": StandardShipping,\n    \"express\": ExpressShipping,\n}\n\n\ndef make_shipping(option):\n    if option not in SHIPPING_OPTIONS:\n        raise ValueError(f\"unknown shipping option: {option}\")\n    return SHIPPING_OPTIONS[option]()\n\n\ndef checkout_total(cart_total, shipping):\n    # Never edit this function: new options are new strategies.\n    return cart_total + shipping.cost(cart_total)\n\n\nfor option in [\"standard\", \"express\", \"member\"]:\n    print(f\"{option}: {checkout_total(40, make_shipping(option))}\")",
+            "task": "Make the output: standard: 45, express: 55, member: 40 (one per line)",
+            "expectOutput": "standard: 45\nexpress: 55\nmember: 40"
+          }
+        },
+        "check": {
+          "question": "The same `if payment_type == \"card\" ... elif payment_type == \"paypal\"` chain appears in four functions. What does it most suggest?",
+          "choices": [
+            "Convert each chain into a nested ternary expression",
+            "Move all four functions into one long function",
+            "One strategy per payment type behind a shared interface, chosen by a factory",
+            "Make payment_type a global variable"
+          ],
+          "answer": 2,
+          "explanation": "Repeated type checks mean the knowledge about each payment type is scattered. Strategies gather it into one class per type, and a factory makes the choice once. Adding a new type then means adding a class, not editing four functions."
+        }
+      },
+      {
+        "title": "Observer and pub/sub",
+        "body": "When an order ships, the system should email the customer, update analytics and refresh the warehouse dashboard. If `ship_order()` calls all three directly, shipping code now depends on email, analytics and the dashboard, and every new reaction means editing it.\n\nThe **observer pattern** flips that dependency. The **subject** (the thing that changes) keeps a list of **observers**, also called listeners, and notifies each one when something happens. Observers subscribe themselves; the subject only knows \"call every listener with the event\". You already use it:\n\n- The browser DOM: `button.addEventListener('click', handler)`.\n- Node.js `EventEmitter`: `emitter.on('shipped', fn)` and `emitter.emit('shipped', order)`.\n- UI frameworks and state libraries that re-render the components subscribed to a piece of state.\n\n**Publish/subscribe** (pub/sub) decouples one step further by putting a **broker** or channel in the middle. Publishers send messages to a named topic without knowing who is listening, or whether anyone is; subscribers listen to topics without knowing who publishes. Inside one process this can be a simple event bus. Between services it is infrastructure such as Redis pub/sub, Google Cloud Pub/Sub, RabbitMQ or Kafka. In the classic observer pattern the subject holds direct references to its observers; with pub/sub, neither side knows the other.\n\nCosts to keep in mind:\n\n- **Hidden control flow.** Reading `publish('shipped')` does not tell you what runs. Keep event names explicit and listeners easy to find.\n- **Leaks.** A listener that is never removed keeps firing and keeps its objects alive. Pair every subscribe with an unsubscribe; in React, return a cleanup function from `useEffect`.\n- **Error isolation.** In a naive loop, one listener that throws stops the rest from running. Decide whether to catch per listener.\n- **Ordering.** Do not let listeners depend on running in a particular order.",
+        "code": "type Listener<T> = (event: T) => void\n\nclass EventBus<T> {\n  private listeners = new Set<Listener<T>>()\n\n  subscribe(listener: Listener<T>): () => void {\n    this.listeners.add(listener)\n    return () => this.listeners.delete(listener)   // call it to unsubscribe\n  }\n\n  publish(event: T): void {\n    for (const listener of this.listeners) listener(event)\n  }\n}\n\ninterface OrderShipped {\n  orderId: number\n  email: string\n}\n\nconst shipped = new EventBus<OrderShipped>()\nshipped.subscribe((e) => sendEmail(e.email, `Order ${e.orderId} is on its way`))\nconst stopAnalytics = shipped.subscribe((e) => track('order_shipped', e.orderId))\n\nshipped.publish({ orderId: 42, email: 'ana@example.com' })\nstopAnalytics()   // analytics stops listening; email keeps going",
+        "language": "typescript",
+        "pitfall": "Subscribing from an object or component that is later thrown away, and never unsubscribing. The listener keeps firing and keeps the object in memory. Keep the unsubscribe function and call it during cleanup.",
+        "activity": {
+          "type": "code-runner",
+          "title": "Add a listener, remove a listener",
+          "prompt": "Replace TODO 1 with a subscription that logs warehouse: pack order and the id, and replace TODO 2 with a call that stops analytics. Notice that shipOrder never changes: the subject does not know who is listening.",
+          "props": {
+            "language": "javascript",
+            "code": "// A tiny event bus: the subject keeps a set of listeners.\nfunction createEventBus() {\n  const listeners = new Set()\n  return {\n    subscribe(listener) {\n      listeners.add(listener)\n      return () => listeners.delete(listener)   // call this to unsubscribe\n    },\n    publish(event) {\n      for (const listener of listeners) listener(event)\n    }\n  }\n}\n\nconst orderShipped = createEventBus()\n\n// shipOrder knows nothing about email, analytics or the warehouse.\nfunction shipOrder(id) {\n  orderShipped.publish({ id })\n}\n\norderShipped.subscribe((e) => console.log(`email: order ${e.id} shipped`))\nconst stopAnalytics = orderShipped.subscribe((e) => console.log(`analytics: order ${e.id}`))\n\nshipOrder(1)\n\n// TODO 1: subscribe a listener that logs \"warehouse: pack order <id>\"\n// TODO 2: stop the analytics listener\n\nshipOrder(2)",
+            "task": "Make order 2 notify email and the warehouse, but not analytics.",
+            "expectOutput": "email: order 1 shipped\nanalytics: order 1\nemail: order 2 shipped\nwarehouse: pack order 2"
+          }
+        },
+        "check": {
+          "question": "What is the key difference between the classic observer pattern and pub/sub through a broker?",
+          "choices": [
+            "Observers can only be used in browsers",
+            "Pub/sub requires listeners to run in a fixed order",
+            "The observer pattern cannot pass data with an event",
+            "With pub/sub, publishers and subscribers know only a topic, not each other"
+          ],
+          "answer": 3,
+          "explanation": "An observer's subject holds references to its listeners. A broker removes even that: publishers send to a topic and subscribers read from it, so either side can be added, removed or scaled without the other noticing."
+        }
+      },
+      {
+        "title": "Adapter and decorator",
+        "body": "Your app takes payments through its own small interface: `charge(amountCents, customerId)`. Then the company switches to a provider whose SDK wants `createPayment({ amount: { value: '12.50', currency: 'USD' }, payer })`. Rather than rewriting every call site, you write an **adapter**: a class that implements *your* interface and translates each call into the provider's. The rest of the app never learns the provider changed, and the next switch is one new adapter.\n\nAdapters appear wherever two interfaces meet: wrapping a third-party SDK, a legacy module, or an API response whose field names do not match your models (`user_name` versus `username`). Keeping the vendor-specific code inside one adapter also gives you a single, small seam to fake in tests.\n\nA **decorator** (the design pattern) also wraps an object, but it keeps the **same interface** and **adds behavior**: logging, caching, timing, retries, permission checks. Because the wrapper looks exactly like what it wraps, you can stack them, for example `new LoggingGateway(new AcmePayAdapter(client), log)`. Each layer does one job, and you choose the combination when you build the objects. That is composition again.\n\nA quick way to tell them apart:\n\n- **Adapter:** a different interface comes out than goes in. It translates.\n- **Decorator:** the same interface comes out as goes in. It adds behavior.\n\nPython has a language feature with the same name. A **Python decorator**, the `@something` line above a function, is a function that takes a function and returns a wrapped one. `@functools.lru_cache` adds caching, FastAPI's `@app.get(\"/users\")` registers a route, and you can write your own `@timed` or `@retry`. It is the decorator idea applied to functions and built into the syntax. Inside your own decorators, use `@functools.wraps(func)` so the wrapped function keeps its name and docstring, and remember to return the wrapped function's result.",
+        "code": "// Your app's own interface\ninterface PaymentGateway {\n  charge(amountCents: number, customerId: string): Promise<string>   // payment id\n}\n\n// Adapter: makes the vendor SDK look like PaymentGateway\nclass AcmePayAdapter implements PaymentGateway {\n  constructor(private client: AcmePayClient) {}\n\n  async charge(amountCents: number, customerId: string): Promise<string> {\n    const result = await this.client.createPayment({\n      amount: { value: (amountCents / 100).toFixed(2), currency: 'USD' },\n      payer: customerId,\n    })\n    return result.paymentId\n  }\n}\n\n// Decorator: same interface, adds logging around every call\nclass LoggingGateway implements PaymentGateway {\n  constructor(private inner: PaymentGateway, private log: Logger) {}\n\n  async charge(amountCents: number, customerId: string): Promise<string> {\n    this.log.info(`charging ${customerId} ${amountCents} cents`)\n    const id = await this.inner.charge(amountCents, customerId)\n    this.log.info(`charged, payment ${id}`)\n    return id\n  }\n}\n\nconst gateway: PaymentGateway = new LoggingGateway(new AcmePayAdapter(acmeClient), logger)",
+        "language": "typescript",
+        "pitfall": "Letting the vendor's types leak past the adapter, for example passing the SDK's response objects around the app. Switching providers then means editing every file again. Translate at the boundary and return your own types.",
+        "check": {
+          "question": "You wrap a cache client so every `get` and `set` call is timed and logged, keeping exactly the same methods. Which pattern is that?",
+          "choices": [
+            "Adapter",
+            "Decorator",
+            "Factory",
+            "Singleton"
+          ],
+          "answer": 1,
+          "explanation": "Same interface in and out, with behavior added around each call, is a decorator. An adapter would change the interface to fit what the caller expects."
+        }
+      },
+      {
+        "title": "Singleton and dependency injection",
+        "body": "A **singleton** guarantees that a class has only one instance and gives global access to it: `Config.instance()`, or in Python simply a module-level object that everyone imports. It sounds tidy: one config, one database pool, one logger. On real teams it is one of the most criticized patterns, and many reviewers treat a hand-rolled singleton as a smell:\n\n- **It is global state in disguise.** Any code anywhere can read and change it, so a bug in one corner shows up in another.\n- **It hides dependencies.** A function that calls `Database.instance()` inside does not say in its signature that it needs a database. You find out when it runs.\n- **It makes tests hard.** You cannot easily give one test a fake while another uses something else, and state leaks between tests, so results depend on test order.\n- **It couples code** to one concrete class.\n\nWanting a single instance is fine. The usual fix is to **create that one instance at startup and pass it to whoever needs it**. That is **dependency injection** (DI): an object receives its dependencies from outside, usually through its constructor, instead of creating or looking them up itself.\n\n- Dependencies are visible in the constructor signature.\n- Tests pass in fakes, with no patching.\n- Swapping an implementation (SQLite for Postgres, one email provider for another) is a change in one place.\n\nThe place where you build the real objects and wire them together is the **composition root**: usually `main()`, an app factory, or the framework's startup code. DI does not need a framework, since it is just passing arguments. Frameworks automate the wiring: FastAPI's `Depends`, providers in NestJS and Angular, Spring in Java.\n\nA Python detail: a module is executed only once per process and then cached, so module-level objects already behave like singletons. Logging relies on this: `logging.getLogger(\"payments\")` returns the same logger object every time. That is acceptable for genuinely global plumbing like logging. For anything holding business state or talking to the outside world, prefer injection.",
+        "code": "# Singleton style: the dependency is hidden inside the method\nclass Database:\n    _instance = None\n\n    @classmethod\n    def instance(cls):\n        if cls._instance is None:\n            cls._instance = cls(\"postgres://prod-db/app\")\n        return cls._instance\n\nclass ReportService:\n    def monthly_total(self):\n        return Database.instance().query(\"SELECT SUM(total) FROM orders\")\n\n\n# Dependency injection: the dependency is a visible parameter\nclass ReportService:\n    def __init__(self, db):\n        self.db = db\n\n    def monthly_total(self):\n        return self.db.query(\"SELECT SUM(total) FROM orders\")\n\n\n# Composition root: build the real objects once, at startup\ndef main():\n    db = Database(\"postgres://prod-db/app\")\n    reports = ReportService(db)\n    ...\n\n\n# In a test: no patching and no shared global\ndef test_monthly_total_returns_query_result():\n    fake_db = FakeDatabase(result=1250)\n    assert ReportService(fake_db).monthly_total() == 1250",
+        "language": "python",
+        "pitfall": "Replacing a singleton with a module-level instance that every function imports. It is the same hidden global state under another name. Pass the instance in instead.",
+        "check": {
+          "question": "Why is `ReportService(db)` easier to test than a ReportService that calls `Database.instance()` inside its methods?",
+          "choices": [
+            "Constructors run faster than class methods",
+            "Singletons cannot be called from inside methods",
+            "A test can pass in a fake database directly, and the dependency is visible in the constructor",
+            "Dependency injection removes the need for a database"
+          ],
+          "answer": 2,
+          "explanation": "With injection the test controls the dependency: it builds a fake and hands it over. With the singleton, the test has to patch a global and remember to reset it, or state leaks into other tests."
+        }
+      },
+      {
+        "title": "MVC, and using patterns wisely",
+        "body": "Many web frameworks organize an app as **MVC: model, view, controller**.\n\n- **Model:** the data and the business rules. An `Order` with its fields, how its total is computed, the rule that a shipped order cannot be cancelled. Often stored in a database through an ORM.\n- **View:** presentation. An HTML template, a JSON serializer, a React component. It shows data and contains no business rules.\n- **Controller:** handles input. It receives the request, asks the model to do the work, and chooses a view to render the result.\n\nA request flows from the router to a controller action, which calls the model and then hands the result to a view. Ruby on Rails, Laravel, ASP.NET MVC and Spring MVC use these names directly. Django calls its version MTV (model, template, view), and the confusing part is that a Django **view** plays the controller's role while the **template** is the view. In Express, your route handlers are the controllers.\n\nThe rule that matters more than the names: **keep business rules in the model layer (or a service layer), not in controllers or templates**. A controller should be thin: parse the input, call one or two model or service methods, return a response. When the rule that shipped orders cannot be cancelled lives in a controller, the mobile API, the admin tool and the nightly job each reimplement it, and the copies drift apart.\n\n**Using patterns wisely.** Patterns are a shared vocabulary (\"let's put an adapter around the old billing API\" communicates a whole design in one sentence) and a catalog of proven answers to recurring problems. They are not goals. Start with the simplest code that works. When a real force appears, such as a second implementation, a third repeated `if` chain or a test that cannot reach a dependency, refactor toward the pattern that resolves it. In interviews and code reviews, name the problem first and the pattern second.",
+        "code": "// Request -> router -> controller -> model -> controller -> view -> response\n\n// Model: data and business rules\nclass Order {\n  constructor(public id: number, public status: 'paid' | 'shipped' | 'cancelled') {}\n\n  cancel(): void {\n    if (this.status === 'shipped') throw new Error('Shipped orders cannot be cancelled')\n    this.status = 'cancelled'\n  }\n}\n\n// View: presentation only\nfunction orderView(order: Order) {\n  return { id: order.id, status: order.status }\n}\n\n// Controller: thin. Parse input, call the model, choose the view.\napp.post('/orders/:id/cancel', async (req, res) => {\n  const order = await orders.findById(Number(req.params.id))\n  if (!order) return res.status(404).json({ error: 'Order not found' })\n\n  try {\n    order.cancel()\n  } catch (err) {\n    return res.status(409).json({ error: (err as Error).message })\n  }\n  await orders.save(order)\n  res.json(orderView(order))\n})",
+        "language": "typescript",
+        "pitfall": "Fat controllers: business rules written inside route handlers. Other entry points cannot reuse them and they are hard to unit test. Move the rule into the model or a service and keep the controller thin.",
+        "check": {
+          "question": "In Django's MTV naming, which piece plays the role that a controller plays in MVC?",
+          "choices": [
+            "The model",
+            "The template",
+            "The view",
+            "The settings file"
+          ],
+          "answer": 2,
+          "explanation": "A Django view function or class receives the request, calls the models and picks a template to render, which is the controller's job. The template is what MVC calls the view."
+        }
+      }
+    ],
+    "keyTerms": [
+      {
+        "term": "SOLID",
+        "definition": "Single responsibility, open/closed, Liskov substitution, interface segregation, dependency inversion."
+      },
+      {
+        "term": "Liskov substitution",
+        "definition": "A subclass must work anywhere its parent is expected without breaking callers' assumptions."
+      },
+      {
+        "term": "Composition",
+        "definition": "Building behavior by holding other objects and delegating to them, a has-a relationship."
+      },
+      {
+        "term": "Strategy",
+        "definition": "Interchangeable algorithms behind one interface, chosen by the caller."
+      },
+      {
+        "term": "Factory",
+        "definition": "A function or method that centralizes the decision of which object to create."
+      },
+      {
+        "term": "Observer",
+        "definition": "A subject notifies subscribed listeners when something happens, without knowing what they do."
+      },
+      {
+        "term": "Pub/sub",
+        "definition": "Publishers send to topics through a broker; subscribers read topics. Neither side knows the other."
+      },
+      {
+        "term": "Adapter",
+        "definition": "A wrapper that translates one interface into the interface the client expects."
+      },
+      {
+        "term": "Decorator pattern",
+        "definition": "A wrapper with the same interface as the wrapped object that adds behavior such as logging or caching."
+      },
+      {
+        "term": "Singleton",
+        "definition": "A class with exactly one globally accessible instance; often a smell because it hides global state."
+      },
+      {
+        "term": "Dependency injection",
+        "definition": "Passing an object its collaborators from outside, usually through the constructor."
+      },
+      {
+        "term": "MVC",
+        "definition": "Model (data and rules), view (presentation), controller (handles input and coordinates)."
+      }
+    ],
+    "summary": [
+      "SOLID describes code that is easy to change: one job, extend without editing, honest subclasses, small interfaces, depend on abstractions.",
+      "Favor composition over inheritance; keep inheritance for true is-a relationships that honor the parent's contract.",
+      "Strategy swaps algorithms behind one interface, and a factory decides which one to build in a single place.",
+      "Observer and pub/sub decouple whoever triggers an event from whoever reacts; always unsubscribe.",
+      "Adapters translate interfaces at boundaries; decorators keep the interface and add behavior. Python's @decorator applies the idea to functions.",
+      "Prefer dependency injection to singletons, keep controllers thin, and add a pattern only when a real problem calls for it."
+    ],
+    "feynmanPrompt": "Explain to a fellow intern how you would design a notification feature that sends email, SMS and push messages, using composition, a strategy or two, a factory and dependency injection, and why you would avoid a singleton and a deep class hierarchy."
+  },
+  "questions": [
+    {
+      "id": "swe-design-patterns-q01",
+      "type": "match",
+      "difficulty": "hard",
+      "question": "Match each SOLID principle to the code that violates it.",
+      "pairs": [
+        {
+          "left": "Single responsibility",
+          "right": "An Invoice class that calculates totals, renders PDFs and emails customers"
+        },
+        {
+          "left": "Open/closed",
+          "right": "Adding a payment method means editing the same if chain in five functions"
+        },
+        {
+          "left": "Liskov substitution",
+          "right": "A subclass's save() raises NotImplementedError where callers expect it to work"
+        },
+        {
+          "left": "Interface segregation",
+          "right": "A basic printer class is forced to implement scan() and fax()"
+        },
+        {
+          "left": "Dependency inversion",
+          "right": "SignupService constructs its own SmtpClient inside __init__"
+        }
+      ],
+      "explanation": "Each principle names a specific way code becomes hard to change: too many jobs, edits instead of extensions, subclasses that break promises, bloated interfaces, and high-level code welded to low-level details.",
+      "concept": "SOLID principles",
+      "section": 0
+    },
+    {
+      "id": "swe-design-patterns-q02",
+      "type": "mcq",
+      "difficulty": "easy",
+      "question": "What does the open/closed principle ask for?",
+      "choices": [
+        "Classes should be closed to subclassing",
+        "Add new behavior by adding code, without editing code that already works",
+        "Every attribute should be private",
+        "Files and connections should always be closed after use"
+      ],
+      "answer": 1,
+      "explanation": "Open for extension, closed for modification: a new shape, payment type or export format should arrive as new code that plugs in, while tested code stays untouched.",
+      "concept": "open/closed principle",
+      "section": 0
+    },
+    {
+      "id": "swe-design-patterns-q03",
+      "type": "debug",
+      "difficulty": "hard",
+      "question": "stretch() was written for rectangles and assumes set_width leaves the height alone. With a Square it returns 100 instead of 50. Which principle does Square break?",
+      "code": "class Rectangle:\n    def __init__(self, w, h):\n        self.w, self.h = w, h\n    def set_width(self, w):\n        self.w = w\n    def area(self):\n        return self.w * self.h\n\nclass Square(Rectangle):\n    def __init__(self, side):\n        super().__init__(side, side)\n    def set_width(self, w):\n        self.w = self.h = w\n\ndef stretch(rect):\n    rect.set_width(10)\n    return rect.area()\n\nprint(stretch(Rectangle(5, 5)))   # 50\nprint(stretch(Square(5)))         # 100",
+      "choices": [
+        "Interface segregation: Square has too many methods",
+        "Single responsibility: Square does two jobs",
+        "Dependency inversion: stretch depends on a concrete class",
+        "Liskov substitution: Square cannot replace Rectangle without changing behavior callers rely on"
+      ],
+      "answer": 3,
+      "explanation": "Mathematically a square is a rectangle, but behaviorally this Square breaks Rectangle's promise that width and height change independently. Code written for the parent silently gets wrong answers. Model them as separate shapes that share a Shape interface instead.",
+      "concept": "Liskov substitution",
+      "section": 0
+    },
+    {
+      "id": "swe-design-patterns-q04",
+      "type": "code-fill",
+      "difficulty": "easy",
+      "question": "Complete total_area so that adding a new shape class never requires editing it.",
+      "code": "class Circle:\n    def __init__(self, r):\n        self.r = r\n    def area(self):\n        return 3.14159 * self.r ** 2\n\nclass Square:\n    def __init__(self, s):\n        self.s = s\n    def area(self):\n        return self.s ** 2\n\ndef total_area(shapes):\n    return sum(_____ for shape in shapes)",
+      "choices": [
+        "area(shape)",
+        "shape.area",
+        "shape.area()",
+        "Circle.area(shape)"
+      ],
+      "answer": 2,
+      "explanation": "Calling shape.area() lets each shape compute its own area, so a new Hexagon class just works. shape.area without parentheses is the method itself, not a number, and Circle.area(shape) only works for circles.",
+      "concept": "polymorphism for extension",
+      "section": 0
+    },
+    {
+      "id": "swe-design-patterns-q05",
+      "type": "mcq",
+      "difficulty": "medium",
+      "question": "A codebase has EmailNotifier, LoggedEmailNotifier, RetryingEmailNotifier and LoggedRetryingEmailNotifier, plus the same four for SMS. What is a better design?",
+      "choices": [
+        "Add a third level of inheritance for push notifications",
+        "Merge all eight into one class with boolean flags",
+        "A Notifier that holds a list of channels plus optional logging and retry objects",
+        "Make every notifier a singleton"
+      ],
+      "answer": 2,
+      "explanation": "Composition covers every combination by assembling small parts, so a new channel or behavior is one new class instead of a new row of subclasses. Boolean flags just move the explosion into if statements.",
+      "concept": "class explosion",
+      "section": 1
+    },
+    {
+      "id": "swe-design-patterns-q06",
+      "type": "mcq",
+      "difficulty": "easy",
+      "question": "Which of these is a good use of inheritance?",
+      "choices": [
+        "OrderService extends DatabaseHelper to reuse its query method",
+        "InsufficientFundsError extends Exception",
+        "Car extends Engine because every car has an engine",
+        "Stack extends list to reuse append and pop"
+      ],
+      "answer": 1,
+      "explanation": "An InsufficientFundsError really is an Exception and works everywhere one is expected. The others are has-a or code-reuse relationships: a car has an engine, a service uses a database helper, a stack uses a list internally.",
+      "concept": "is-a vs has-a",
+      "section": 1
+    },
+    {
+      "id": "swe-design-patterns-q07",
+      "type": "recall",
+      "difficulty": "medium",
+      "question": "Give two reasons composition usually ages better than deep inheritance.",
+      "answer": "You can combine behaviors freely instead of writing a subclass for every combination, and objects depend only on their collaborators' public methods rather than a parent's internals, so changes ripple less and tests can pass in fakes.",
+      "explanation": "Inheritance is the tightest coupling a language offers. Composition keeps parts small and replaceable, which is what most future changes need.",
+      "concept": "why composition",
+      "section": 1
+    },
+    {
+      "id": "swe-design-patterns-q08",
+      "type": "debug",
+      "difficulty": "hard",
+      "question": "The subclass counts appends, but this prints 1 instead of 3. Why?",
+      "code": "class CountingList(list):\n    def __init__(self):\n        super().__init__()\n        self.added = 0\n\n    def append(self, item):\n        self.added += 1\n        super().append(item)\n\nc = CountingList()\nc.append(\"a\")\nc.extend([\"b\", \"c\"])\nprint(c.added)",
+      "choices": [
+        "super().append runs before self.added is updated",
+        "list.extend does not call append, so the override is bypassed; the subclass silently depends on how the parent works inside",
+        "Instance attributes cannot be added to subclasses of list",
+        "extend builds a new list instead of changing c"
+      ],
+      "answer": 1,
+      "explanation": "This is the fragile base class problem: the subclass's correctness depends on the parent's private implementation. A class that holds a list and exposes its own add and add_many methods controls every path and cannot be bypassed.",
+      "concept": "fragile base class",
+      "section": 1
+    },
+    {
+      "id": "swe-design-patterns-q09",
+      "type": "match",
+      "difficulty": "medium",
+      "question": "Match each pattern to the problem it solves.",
+      "pairs": [
+        {
+          "left": "Strategy",
+          "right": "Swap the pricing algorithm per customer type without touching checkout"
+        },
+        {
+          "left": "Factory",
+          "right": "Decide in one place which notifier class to build from a config string"
+        },
+        {
+          "left": "Observer",
+          "right": "Let email, analytics and the dashboard react when an order ships"
+        },
+        {
+          "left": "Adapter",
+          "right": "Make a vendor SDK fit your app's PaymentGateway interface"
+        },
+        {
+          "left": "Decorator",
+          "right": "Add caching around a repository without changing its interface"
+        },
+        {
+          "left": "Dependency injection",
+          "right": "Hand a service a fake clock in tests"
+        }
+      ],
+      "explanation": "Strategy varies an algorithm, factory centralizes creation, observer broadcasts events, adapter translates interfaces, decorator adds behavior behind the same interface, and dependency injection supplies collaborators from outside.",
+      "concept": "pattern to problem",
+      "section": 2
+    },
+    {
+      "id": "swe-design-patterns-q10",
+      "type": "code-fill",
+      "difficulty": "medium",
+      "question": "sort_products receives a strategy function. Complete the call so the caller's strategy decides the order.",
+      "code": "def by_price(product):\n    return product[\"price\"]\n\ndef by_rating(product):\n    return -product[\"rating\"]\n\ndef sort_products(products, strategy):\n    return sorted(products, key=_____)\n\nsort_products(catalog, by_rating)",
+      "choices": [
+        "strategy()",
+        "\"strategy\"",
+        "by_price",
+        "strategy"
+      ],
+      "answer": 3,
+      "explanation": "key expects a function to call on each item, so you pass the function object itself. strategy() calls it with no arguments and crashes, and hard-coding by_price ignores the caller's choice.",
+      "concept": "functions as strategies",
+      "section": 2
+    },
+    {
+      "id": "swe-design-patterns-q11",
+      "type": "debug",
+      "difficulty": "medium",
+      "question": "Customers who pick \"Express\" (capital E) quietly get standard shipping, and complaints pile up. What is the design problem?",
+      "code": "SHIPPING = {\"standard\": StandardShipping, \"express\": ExpressShipping}\n\ndef make_shipping(option):\n    return SHIPPING.get(option, StandardShipping)()",
+      "choices": [
+        "Factories cannot use dictionaries",
+        "Classes cannot be stored as dictionary values",
+        "get() creates two instances of the class",
+        "The factory silently falls back for unknown names; normalize the input and raise a clear error for names it does not know"
+      ],
+      "answer": 3,
+      "explanation": "A silent default hides a real mismatch between what the caller asked for and what exists. The factory is the one place that knows every valid option, so it should normalize (lowercase) and fail loudly otherwise.",
+      "concept": "factories fail loudly",
+      "section": 2
+    },
+    {
+      "id": "swe-design-patterns-q12",
+      "type": "mcq",
+      "difficulty": "medium",
+      "question": "When is a plain function a better strategy than a strategy class in Python?",
+      "choices": [
+        "When the strategy is one operation with no configuration or state",
+        "Never, because the pattern requires classes",
+        "Only when the strategy has more than three methods",
+        "When you need many instances with different settings and shared helpers"
+      ],
+      "answer": 0,
+      "explanation": "Python functions are first-class objects, so a one-operation strategy is just a function, like the key passed to sorted(). Classes earn their keep when a strategy carries settings or several related methods.",
+      "concept": "lightweight strategies",
+      "section": 2
+    },
+    {
+      "id": "swe-design-patterns-q13",
+      "type": "mcq",
+      "difficulty": "easy",
+      "question": "In the browser, `button.addEventListener('click', onClick)` is an example of which pattern?",
+      "choices": [
+        "Singleton",
+        "Adapter",
+        "Observer",
+        "Factory"
+      ],
+      "answer": 2,
+      "explanation": "The button is the subject and onClick is an observer that subscribed to its click events. The button does not know what the handler does, it just calls every listener.",
+      "concept": "observer in the DOM",
+      "section": 3
+    },
+    {
+      "id": "swe-design-patterns-q14",
+      "type": "debug",
+      "difficulty": "medium",
+      "language": "javascript",
+      "question": "After the user opens the chat panel five times, every new message triggers render five times. What is wrong?",
+      "code": "function openChatPanel(bus) {\n  const panel = { unread: 0 }\n  bus.subscribe('message', () => {\n    panel.unread += 1\n    render(panel)\n  })\n  return panel\n}\n\n// Called every time the user opens the panel.",
+      "choices": [
+        "Each call adds a new listener and none is ever removed; keep the unsubscribe function and call it when the panel closes",
+        "subscribe must be called before the panel object is created",
+        "Arrow functions cannot be used as listeners",
+        "The bus publishes each message once per subscriber name"
+      ],
+      "answer": 0,
+      "explanation": "Old panels are gone from the screen, but their listeners still run and keep the panels in memory. Store what subscribe returns and call it on close, or subscribe once and reuse the panel.",
+      "concept": "listener leaks",
+      "section": 3
+    },
+    {
+      "id": "swe-design-patterns-q15",
+      "type": "multi",
+      "difficulty": "medium",
+      "question": "Which of these are real costs of the observer pattern?",
+      "choices": [
+        "Reading the code that publishes an event does not show what will run",
+        "Listeners that are never removed keep firing and leak memory",
+        "In a naive loop, one listener that throws stops the listeners after it",
+        "The subject must know every observer's concrete class",
+        "Adding a new reaction requires editing the subject"
+      ],
+      "answers": [
+        0,
+        1,
+        2
+      ],
+      "explanation": "Decoupling has a price in traceability, cleanup and error handling. The last two are exactly what the pattern removes: the subject only knows the listener interface, and new reactions are new subscriptions.",
+      "concept": "observer trade-offs",
+      "section": 3
+    },
+    {
+      "id": "swe-design-patterns-q16",
+      "type": "mcq",
+      "difficulty": "easy",
+      "question": "The order service publishes `order.shipped` to a Kafka topic, and the email and analytics services consume it. What does the order service know about those consumers?",
+      "choices": [
+        "Each consumer's URL",
+        "Which consumer classes to instantiate",
+        "How many consumers handled the message before publish returns",
+        "Nothing beyond the topic it publishes to"
+      ],
+      "answer": 3,
+      "explanation": "With a broker, the publisher only knows the topic. Consumers can be added, removed or restarted without any change to the order service, which is the point of pub/sub between services.",
+      "concept": "pub/sub decoupling",
+      "section": 3
+    },
+    {
+      "id": "swe-design-patterns-q17",
+      "type": "mcq",
+      "difficulty": "easy",
+      "question": "Your code expects `get_user(id)` to return `{'username': ...}`. A legacy service offers `fetchUserRecord(id)` returning `{'user_name': ...}`. Which pattern fits?",
+      "choices": [
+        "Adapter",
+        "Observer",
+        "Singleton",
+        "Strategy"
+      ],
+      "answer": 0,
+      "explanation": "An adapter implements the interface your code expects (get_user returning username) and translates calls and field names to the legacy service, so neither side has to change.",
+      "concept": "adapter",
+      "section": 4
+    },
+    {
+      "id": "swe-design-patterns-q18",
+      "type": "code-fill",
+      "difficulty": "medium",
+      "question": "Complete the decorator so the wrapped function still runs and returns its result.",
+      "code": "import functools\nimport time\n\ndef timed(func):\n    @functools.wraps(func)\n    def wrapper(*args, **kwargs):\n        start = time.perf_counter()\n        result = _____\n        print(f\"{func.__name__} took {time.perf_counter() - start:.3f}s\")\n        return result\n    return wrapper\n\n@timed\ndef build_report(month):\n    ...",
+      "choices": [
+        "wrapper(*args, **kwargs)",
+        "func(*args, **kwargs)",
+        "func",
+        "timed(func)"
+      ],
+      "answer": 1,
+      "explanation": "The wrapper must call the original function with whatever arguments it received. Calling wrapper would recurse forever, plain func is the function object rather than its result, and timed(func) just builds another wrapper.",
+      "concept": "writing a Python decorator",
+      "section": 4
+    },
+    {
+      "id": "swe-design-patterns-q19",
+      "type": "debug",
+      "difficulty": "hard",
+      "question": "This prints \"calling add\" and then None. Why?",
+      "code": "def logged(func):\n    def wrapper(*args, **kwargs):\n        print(f\"calling {func.__name__}\")\n        func(*args, **kwargs)\n    return wrapper\n\n@logged\ndef add(a, b):\n    return a + b\n\nprint(add(2, 3))",
+      "choices": [
+        "Decorators cannot wrap functions that take arguments",
+        "The print inside wrapper replaces the return value",
+        "wrapper calls func but never returns its result",
+        "@logged runs add before it is defined"
+      ],
+      "answer": 2,
+      "explanation": "add(2, 3) now calls wrapper, which computes 5 and throws it away, so it returns None. A decorator must return func(*args, **kwargs) to keep the original contract. That is the same promise the decorator pattern makes: same interface, extra behavior.",
+      "concept": "decorators must return",
+      "section": 4
+    },
+    {
+      "id": "swe-design-patterns-q20",
+      "type": "mcq",
+      "difficulty": "medium",
+      "question": "What is the key difference between an adapter and a decorator?",
+      "choices": [
+        "An adapter adds behavior; a decorator converts one interface into another",
+        "Adapters only wrap classes; decorators only wrap functions",
+        "They are two names for the same pattern",
+        "An adapter changes the interface to the one the client expects; a decorator keeps the interface and adds behavior"
+      ],
+      "answer": 3,
+      "explanation": "Both wrap another object. The adapter's job is translation between mismatched interfaces; the decorator's job is extra behavior such as logging or caching behind an unchanged interface, which is why decorators can be stacked.",
+      "concept": "adapter vs decorator",
+      "section": 4
+    },
+    {
+      "id": "swe-design-patterns-q21",
+      "type": "recall",
+      "difficulty": "medium",
+      "question": "Why should a vendor SDK be wrapped in an adapter instead of being called directly throughout the app?",
+      "answer": "So the vendor's types and calls live in one place behind your own interface. Switching providers or absorbing an SDK change means editing one adapter, and tests can fake your small interface instead of the vendor's.",
+      "explanation": "Direct calls spread the vendor's shape into every file, so each change to the vendor becomes a change to your whole app.",
+      "concept": "adapters at boundaries",
+      "section": 4
+    },
+    {
+      "id": "swe-design-patterns-q22",
+      "type": "multi",
+      "difficulty": "medium",
+      "question": "Which of these are common criticisms of the singleton pattern?",
+      "choices": [
+        "It is global state that any code can read and change",
+        "Code that uses it hides the dependency instead of declaring it in a signature",
+        "Its state can leak between tests, making results depend on test order",
+        "It makes every object creation slower",
+        "It cannot be implemented in Python"
+      ],
+      "answers": [
+        0,
+        1,
+        2
+      ],
+      "explanation": "The problems are global mutable state, hidden coupling and test isolation. Performance is not the issue, and Python can express singletons easily, including through module-level objects.",
+      "concept": "singleton drawbacks",
+      "section": 5
+    },
+    {
+      "id": "swe-design-patterns-q23",
+      "type": "code-fill",
+      "difficulty": "easy",
+      "question": "Complete the constructor so InvoiceService receives its collaborators through dependency injection.",
+      "code": "class InvoiceService:\n    def __init__(self, _____):\n        self.clock = clock\n        self.mailer = mailer\n\n    def send_overdue(self, invoices):\n        today = self.clock.today()\n        ...\n\nservice = InvoiceService(clock=FakeClock(\"2026-03-31\"), mailer=FakeMailer())",
+      "choices": [
+        "self",
+        "clock, mailer",
+        "Database.instance()",
+        "*args"
+      ],
+      "answer": 1,
+      "explanation": "Declaring clock and mailer as parameters makes the dependencies explicit, and the test passes fakes for both. *args would leave clock and mailer undefined, and a method call is not valid parameter syntax.",
+      "concept": "constructor injection",
+      "section": 5
+    },
+    {
+      "id": "swe-design-patterns-q24",
+      "type": "mcq",
+      "difficulty": "hard",
+      "question": "What is the composition root?",
+      "choices": [
+        "The place, usually at startup, where the real objects are created and wired together",
+        "The base class every service inherits from",
+        "The first commit in the repository",
+        "A global registry that any code can ask for any dependency"
+      ],
+      "answer": 0,
+      "explanation": "Wiring happens once, near main() or the app factory, and everything below it simply receives what it needs. A global registry that code queries from anywhere (a service locator) brings back the hidden dependencies DI was meant to remove.",
+      "concept": "composition root",
+      "section": 5
+    },
+    {
+      "id": "swe-design-patterns-q25",
+      "type": "debug",
+      "difficulty": "hard",
+      "question": "test_default_checkout passes alone but fails when run after test_new_checkout_enabled. Why?",
+      "code": "class FeatureFlags:\n    _instance = None\n\n    @classmethod\n    def get(cls):\n        if cls._instance is None:\n            cls._instance = cls()\n        return cls._instance\n\n    def __init__(self):\n        self.enabled = set()\n\ndef test_new_checkout_enabled():\n    FeatureFlags.get().enabled.add(\"new_checkout\")\n    assert checkout_version() == 2\n\ndef test_default_checkout():\n    assert checkout_version() == 1",
+      "choices": [
+        "pytest runs tests in parallel by default",
+        "Class attributes are reset after each test, so _instance is lost",
+        "The singleton keeps its state between tests, so the flag enabled in the first test is still on",
+        "assert cannot compare integers returned by functions"
+      ],
+      "answer": 2,
+      "explanation": "_instance lives on the class for the whole test run, so the set is shared. Inject a FeatureFlags object into checkout_version instead, and each test builds its own.",
+      "concept": "singletons leak test state",
+      "section": 5
+    },
+    {
+      "id": "swe-design-patterns-q26",
+      "type": "typed",
+      "difficulty": "medium",
+      "question": "Which Python standard-library function returns the same logger object every time you call it with the same name? Type its dotted name, without parentheses.",
+      "answer": "logging.getLogger",
+      "accept": [
+        "getLogger"
+      ],
+      "explanation": "logging keeps one logger per name for the whole process, which is why modules can each call logging.getLogger(__name__) and share configuration. It is a singleton-like registry that is acceptable for global plumbing like logging.",
+      "concept": "module-level singletons",
+      "section": 5
+    },
+    {
+      "id": "swe-design-patterns-q27",
+      "type": "match",
+      "difficulty": "easy",
+      "question": "Match each part of MVC to its job.",
+      "pairs": [
+        {
+          "left": "Model",
+          "right": "Holds data and business rules, such as \"shipped orders cannot be cancelled\""
+        },
+        {
+          "left": "View",
+          "right": "Presents data as HTML, JSON or a UI component"
+        },
+        {
+          "left": "Controller",
+          "right": "Receives the request, calls the model and chooses the view"
+        }
+      ],
+      "explanation": "Keeping the three apart means rules live in one place, presentation can change freely, and request handling stays thin.",
+      "concept": "MVC roles",
+      "section": 6
+    },
+    {
+      "id": "swe-design-patterns-q28",
+      "type": "debug",
+      "difficulty": "medium",
+      "language": "typescript",
+      "question": "The admin tool and the mobile API implement refunds too, and their rules have drifted from this one. What is the design problem?",
+      "code": "app.post('/orders/:id/refund', async (req, res) => {\n  const order = await orders.findById(Number(req.params.id))\n  const days = (Date.now() - order.placedAt.getTime()) / 86_400_000\n  if (order.status !== 'delivered' || days > 30) {\n    return res.status(400).json({ error: 'Not refundable' })\n  }\n  order.status = 'refunded'\n  await orders.save(order)\n  res.json({ id: order.id, status: order.status })\n})",
+      "choices": [
+        "The refund rule lives in a controller; move it into the Order model or a service so every entry point shares it",
+        "Express route handlers cannot be async",
+        "The response should be rendered with an HTML template",
+        "86_400_000 is not a valid number in TypeScript"
+      ],
+      "answer": 0,
+      "explanation": "Business rules in a controller can only be reached through that one route, so every other entry point copies them. An order.refund(now) method that enforces the rule gives one source of truth and is easy to unit test.",
+      "concept": "thin controllers",
+      "section": 6
+    },
+    {
+      "id": "swe-design-patterns-q29",
+      "type": "mcq",
+      "difficulty": "easy",
+      "question": "A teammate proposes an interface, an abstract factory and three classes for a CSV export that has one format and no plans for another. What is the best response?",
+      "choices": [
+        "Approve it, since more patterns make code more maintainable",
+        "Ask for a singleton too, so there is only ever one exporter",
+        "Suggest a simple function now, and introducing the pattern when a second format actually appears",
+        "Ask for an observer as well, so other code can react to exports"
+      ],
+      "answer": 2,
+      "explanation": "Patterns solve problems that exist. With one format there is nothing to vary, so the abstraction only adds indirection. When a second format arrives, refactoring a small function into a strategy is quick.",
+      "concept": "patterns are not goals",
+      "section": 6
+    },
+    {
+      "id": "swe-design-patterns-q30",
+      "type": "order",
+      "difficulty": "medium",
+      "question": "Put the steps of a request through a typical MVC web app in order.",
+      "items": [
+        "The router matches the URL to a controller action",
+        "The controller parses the request input",
+        "The model applies business rules and loads or saves data",
+        "The controller picks a view and passes it the data",
+        "The view renders HTML or JSON for the response"
+      ],
+      "explanation": "Routing finds the controller, the controller translates input into calls on the model, and the result is handed to a view for presentation. Each layer has one kind of job.",
+      "concept": "MVC request flow",
+      "section": 6
+    }
+  ]
+}

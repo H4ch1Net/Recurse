@@ -1,0 +1,742 @@
+{
+  "id": "swe-heaps",
+  "name": "Heaps and Priority Queues",
+  "version": "1.0.0",
+  "author": "Recurse",
+  "subject": "swe",
+  "level": "intermediate",
+  "description": "Binary heap layout, sift up and down, heapq and a JavaScript MinHeap, and the top-k and k-way merge patterns.",
+  "icon": "Hp",
+  "language": "python",
+  "prereqs": [
+    "data-structures",
+    "big-o",
+    "swe-trees"
+  ],
+  "tags": [
+    "interviews",
+    "heaps",
+    "priority queue",
+    "top-k",
+    "python",
+    "javascript"
+  ],
+  "lesson": {
+    "estimatedMinutes": 30,
+    "intro": "Whenever a problem keeps asking \"what is the smallest (or largest) thing right now?\" while items keep arriving, a heap is the tool. It gives you the minimum in O(1) and adds or removes items in O(log n), which turns many O(n log n) or O(n^2) solutions into O(n log k). This pack shows how a heap works inside, how to use Python's heapq and a hand-written JavaScript heap, and the interview patterns built on them.",
+    "objectives": [
+      "Explain the heap property and navigate the array layout with index arithmetic",
+      "Trace sift up and sift down for push and pop, and state their O(log n) cost",
+      "Use Python's heapq correctly, including max-heaps by negation and tuples with tie-breakers",
+      "Write a small comparator-based MinHeap class in JavaScript",
+      "Recognize top-k and k-way merge problems and solve them in O(n log k)"
+    ],
+    "sections": [
+      {
+        "title": "The problem a heap solves",
+        "body": "An emergency room does not treat patients in arrival order. Each patient gets a priority, and whenever a doctor is free, the most urgent patient goes next, while new patients keep arriving. You need two fast operations, over and over: add an item, and remove the most urgent item. That combination is called a **priority queue**.\n\nConsider the obvious ways to build one:\n\n- Unsorted list: adding is O(1), but finding the most urgent means scanning everything, O(n).\n- Sorted list: the most urgent sits at one end, O(1) to take, but inserting in the right place shifts elements, O(n).\n- Sorting again after every insert: O(n log n) each time.\n- **Binary heap**: add in O(log n), remove the top in O(log n), peek at the top in O(1).\n\nA **min-heap** is a binary tree with one rule, the **heap property**: every parent is less than or equal to its children. So the smallest value is always at the root. A **max-heap** flips the rule, and the largest value sits at the root.\n\nNotice what the rule does not say. It says nothing about left versus right, and nothing about cousins in different branches. A heap is only partially ordered: the root is the minimum, but the second smallest value could be either child of the root, and the array that stores a heap is usually not sorted. That loose rule is exactly why a heap is cheaper to maintain than a sorted list.\n\nHeaps show up wherever you repeatedly need \"the next smallest\" or \"the next largest\": scheduling jobs and timers, Dijkstra's shortest path algorithm, merging sorted files, keeping the top 10 scores, and tracking a running median.",
+        "code": "A min-heap (every parent <= its children):\n\n            1\n          /   \\\n         3     2\n        / \\   /\n       7   4 5\n\nThe root is the minimum. 3 and 2 are siblings and the heap does not care\nthat 3 > 2: siblings and cousins are unordered.\n\nCost of the core operations:\n\n                         push       pop min     peek min\nunsorted list            O(1)       O(n)        O(n)\nsorted list              O(n)       O(1)        O(1)\nbinary heap              O(log n)   O(log n)    O(1)",
+        "language": "plaintext",
+        "pitfall": "Thinking a heap keeps everything sorted. It only guarantees the root. If you need all values in order, popping them one by one costs O(n log n), the same as sorting.",
+        "check": {
+          "question": "Which statement is true of every min-heap?",
+          "choices": [
+            "The array holding the heap is sorted",
+            "Every left child is smaller than its right sibling",
+            "Each parent is less than or equal to its children",
+            "The largest value is always in the bottom level"
+          ],
+          "answer": 2,
+          "explanation": "The heap property only relates parents and children. Siblings are unordered, the array is usually not sorted, and the largest value is a leaf but not necessarily on the bottom level: a leaf can sit one level higher in a heap whose last level is not full."
+        }
+      },
+      {
+        "title": "The array layout: a tree without pointers",
+        "body": "A heap is drawn as a tree but stored as a plain array. The trick is that a heap is always a **complete binary tree**: every level is full except possibly the last, which fills from the left with no gaps. Because there are no gaps, you can write the tree level by level into an array and compute where each node's relatives live, instead of storing pointers.\n\nWith 0-based indexes, for the node at index `i`:\n\n- left child: `2 * i + 1`\n- right child: `2 * i + 2`\n- parent: `(i - 1) // 2`\n\nWalk through the example in the code block. The root 1 is at index 0, and its children are at indexes 1 and 2. The value 3 at index 1 has its children at indexes 3 and 4 (values 7 and 4). The parent of index 5 (value 5) is `(5 - 1) // 2 = 2`, which holds the value 2. A child index past the end of the array means that child does not exist.\n\nThis layout is a big reason heaps are fast in practice: no node objects, no pointers, and good memory locality. It also means the last element of the array is always the last leaf, which the push and pop operations rely on. The height of a complete tree with n nodes is `floor(log2 n)`, so any walk from the root to a leaf takes O(log n) steps.\n\nTextbooks sometimes use 1-based indexes, where the children of `i` are `2i` and `2i + 1` and the parent is `i // 2`, because the formulas are tidier. Python's `heapq` and most code you will write are 0-based. Pick one convention and never mix them.",
+        "code": "heap = [1, 3, 2, 7, 4, 5]\n# index:  0  1  2  3  4  5\n#\n#             1(0)\n#           /      \\\n#         3(1)     2(2)\n#         /  \\     /\n#      7(3) 4(4) 5(5)\n\ndef left(i):   return 2 * i + 1\ndef right(i):  return 2 * i + 2\ndef parent(i): return (i - 1) // 2\n\nprint(heap[left(1)], heap[right(1)])               # 7 4\nprint(heap[parent(5)])                             # 2\nprint(left(2) < len(heap), right(2) < len(heap))   # True False",
+        "pitfall": "Assuming `heap[1]` is the second smallest value. In `[1, 3, 2, 7, 4, 5]` the second smallest is 2, at index 2. Only `heap[0]` is guaranteed.",
+        "check": {
+          "question": "In a 0-based heap array, where is the parent of the node at index 8?",
+          "choices": [
+            "Index 4",
+            "Index 3",
+            "Index 2",
+            "Index 7"
+          ],
+          "answer": 1,
+          "explanation": "(8 - 1) // 2 = 3. Index 4 is what the 1-based formula i // 2 would give, which is the classic mix-up. Check: the children of 3 are 7 and 8."
+        }
+      },
+      {
+        "title": "Sift up and sift down",
+        "body": "Two repair moves keep the heap property true after every change.\n\n**Push** (insert): append the new value at the end of the array, the only position that keeps the tree complete. It might be smaller than its parent, so **sift up**: while it is smaller than its parent, swap the two. It stops when its parent is no larger, or when it reaches the root.\n\n**Pop** (remove the minimum): the minimum is at index 0, but deleting it would leave a hole at the top. Instead, move the last element into the root, shrink the array by one, then **sift down**: while the moved value is larger than its smaller child, swap it with that smaller child. Choosing the smaller child matters, because it is the only choice that leaves the new parent no larger than both of its children.\n\nEach move walks at most one root-to-leaf path, so push and pop are O(log n). Peeking at the minimum is O(1).\n\nBuilding a heap from n unsorted values by pushing them one at a time costs O(n log n). **Heapify** does better: sift down every non-leaf node, starting with the last one and moving back to the root. Most nodes sit near the bottom, where sifting down can only move a step or two, and the total work adds up to O(n). Python's `heapq.heapify` does exactly this.\n\nThe code block pushes 0 into the example heap and then pops the minimum, with every swap written out. Trace it on paper with the tree drawing beside you: sifting is a favorite whiteboard exercise.",
+        "code": "def push(heap, val):\n    heap.append(val)\n    i = len(heap) - 1\n    while i > 0 and heap[i] < heap[(i - 1) // 2]:   # smaller than parent\n        p = (i - 1) // 2\n        heap[i], heap[p] = heap[p], heap[i]\n        i = p\n\ndef pop(heap):\n    top = heap[0]\n    last = heap.pop()              # remove the last leaf\n    if heap:\n        heap[0] = last             # move it to the root\n        i = 0\n        while True:\n            l, r = 2 * i + 1, 2 * i + 2\n            smallest = i\n            if l < len(heap) and heap[l] < heap[smallest]:\n                smallest = l\n            if r < len(heap) and heap[r] < heap[smallest]:\n                smallest = r\n            if smallest == i:\n                break\n            heap[i], heap[smallest] = heap[smallest], heap[i]\n            i = smallest\n    return top\n\nh = [1, 3, 2, 7, 4, 5]\npush(h, 0)\n# append 0 at index 6:          [1, 3, 2, 7, 4, 5, 0]\n# 0 < parent 2 (index 2), swap: [1, 3, 0, 7, 4, 5, 2]\n# 0 < parent 1 (index 0), swap: [0, 3, 1, 7, 4, 5, 2]\nprint(h)        # [0, 3, 1, 7, 4, 5, 2]\nprint(pop(h))   # 0\n# the last value, 2, moves to the root:    [2, 3, 1, 7, 4, 5]\n# its smaller child is 1 (index 2), swap:  [1, 3, 2, 7, 4, 5]\nprint(h)        # [1, 3, 2, 7, 4, 5]",
+        "pitfall": "Swapping with the left child by default during sift down. Always swap with the smaller child; otherwise the larger child becomes the parent of the smaller one and the heap property breaks.",
+        "check": {
+          "question": "You pop from the min-heap `[2, 5, 3, 8, 6, 4]`. The last value, 4, moves to the root. What is the array after sift down?",
+          "choices": [
+            "[4, 5, 3, 8, 6]",
+            "[3, 4, 5, 8, 6]",
+            "[3, 5, 4, 8, 6]",
+            "[5, 4, 3, 8, 6]"
+          ],
+          "answer": 2,
+          "explanation": "After removing the last element and placing 4 at the root you have [4, 5, 3, 8, 6]. The children of the root are 5 and 3; the smaller is 3, and 4 > 3, so they swap: [3, 5, 4, 8, 6]. Index 2 has no children (5 and 6 are past the end), so sifting stops."
+        }
+      },
+      {
+        "title": "Python's heapq: a min-heap on a plain list",
+        "body": "Python has no heap class. The `heapq` module provides functions that treat an ordinary list as a min-heap:\n\n- `heapq.heappush(h, x)` and `heapq.heappop(h)`: O(log n).\n- `h[0]`: peek at the smallest value in O(1). Do not use `min(h)`, which is O(n).\n- `heapq.heapify(lst)`: turn an existing list into a heap in place, in O(n).\n- `heapq.heappushpop(h, x)` (push, then pop) and `heapq.heapreplace(h, x)` (pop, then push): one combined O(log n) step, handy for heaps that must stay a fixed size.\n- `heapq.nlargest(k, items)` and `heapq.nsmallest(k, items)`: quick top-k for one-off use.\n\nThere is no max-heap in `heapq`. The standard trick is to **negate**: push `-x`, and negate again when you pop. The largest value becomes the most negative one, so it sits at the root.\n\nTo order items by priority while carrying data, push tuples such as `(priority, item)`. Tuples compare element by element, so the priority decides first. But when two priorities tie, Python compares the next element, and that raises `TypeError` if the items are dicts or objects that do not support `<`. The fix is a tie-breaker in the middle, `(priority, count, item)`, where the count increases on every push. As a bonus, equal priorities then come out in insertion order.\n\nOne more rule: every `heapq` function assumes the list already satisfies the heap property. If you build a list by hand and call `heappop` without calling `heapify` first, you get wrong answers, not an error.",
+        "code": "import heapq\nfrom itertools import count\n\nnums = [5, 1, 8, 3, 9, 2]\nheapq.heapify(nums)               # O(n), in place\nprint(nums[0])                    # 1  (peek)\nheapq.heappush(nums, 0)\nprint(heapq.heappop(nums))        # 0\nprint(heapq.heappop(nums))        # 1\n\n# Max-heap by negation\nmax_heap = []\nfor x in [5, 1, 8, 3]:\n    heapq.heappush(max_heap, -x)\nprint(-heapq.heappop(max_heap))   # 8\n\n# Priorities with a tie-breaker, so the dicts are never compared\ntie = count()\ntasks = []\nheapq.heappush(tasks, (2, next(tie), {\"name\": \"write tests\"}))\nheapq.heappush(tasks, (1, next(tie), {\"name\": \"fix outage\"}))\nheapq.heappush(tasks, (2, next(tie), {\"name\": \"review PR\"}))\nwhile tasks:\n    priority, _, task = heapq.heappop(tasks)\n    print(priority, task[\"name\"])\n# 1 fix outage\n# 2 write tests\n# 2 review PR\n\nprint(heapq.nlargest(3, [4, 10, 7, 1, 9]))   # [10, 9, 7]",
+        "pitfall": "Pushing `-x` but forgetting to negate on the way out returns negative numbers. Write the sign convention in a comment right next to the heap, or wrap pushes and pops in two tiny helpers.",
+        "activity": {
+          "type": "code-runner",
+          "title": "Pop the three smallest",
+          "prompt": "Turn `data` into a heap with `heapq.heapify`, then pop three times, appending each value to `smallest`. The program should print `1 2 3`. Then change it to print the three largest using negation.",
+          "props": {
+            "language": "python",
+            "code": "import heapq\n\ndata = [9, 4, 7, 1, 8, 2, 6, 3]\n\n# Turn data into a heap, then pop three times into smallest.\nsmallest = []\n# your code here\n\nprint(*smallest)",
+            "task": "Use heapify and heappop so the program prints 1 2 3.",
+            "expectOutput": "1 2 3"
+          }
+        },
+        "check": {
+          "question": "You need a max-heap of integers in Python. What do you push for the value 7?",
+          "choices": [
+            "7, then call heapq.reverse(h)",
+            "(7, True), so heapq sorts in reverse",
+            "7, and read the maximum from h[-1]",
+            "-7, and negate again when you pop"
+          ],
+          "answer": 3,
+          "explanation": "heapq only builds min-heaps. Negating turns the largest value into the smallest, so it rises to the root, and negating again on the way out restores it. There is no heapq.reverse, and h[-1] is just the last leaf, not the maximum."
+        }
+      },
+      {
+        "title": "JavaScript has no heap: write a tiny one",
+        "body": "JavaScript has no built-in priority queue. In an interview you have three options, and saying them out loud is part of a good answer:\n\n- Sort the array once, when all the data is known up front: O(n log n), and often good enough.\n- Re-sort after every insert: O(n log n) per operation. Avoid it inside loops.\n- Write a small binary heap: about 40 lines, O(log n) per operation. Practice until you can write it in a few minutes.\n\nThe class in the code block stores items in an array and takes a comparison function, so the same class works as a min-heap `(a, b) => a - b`, a max-heap `(a, b) => b - a`, or a heap of pairs keyed on their first element `(a, b) => a[0] - b[0]`. It is exactly the sift up and sift down you just traced, written once. The only unusual detail is `(i - 1) >> 1`, a bit shift that computes `Math.floor((i - 1) / 2)` for the parent index.\n\nWhile you are here, watch out for a classic JavaScript trap: `[10, 9, 1].sort()` returns `[1, 10, 9]`, because the default sort compares values as strings. Always pass a comparator for numbers: `arr.sort((a, b) => a - b)`.\n\nSome practice sites preload a priority queue library for JavaScript, but you cannot count on that in an interview. Many interviewers will let you say \"assume a MinHeap class with push, pop and peek\" and move on. Ask first, and be ready to write it if they say no. The JavaScript starters for the heap challenges in this pack include this class so you can focus on the pattern.",
+        "code": "class MinHeap {\n  constructor(compare = (a, b) => a - b) {\n    this.items = []\n    this.compare = compare\n  }\n  get size() { return this.items.length }\n  peek() { return this.items[0] }\n  push(value) {\n    const a = this.items\n    a.push(value)\n    let i = a.length - 1\n    while (i > 0) {\n      const p = (i - 1) >> 1                     // parent index\n      if (this.compare(a[i], a[p]) >= 0) break   // parent is not bigger: done\n      ;[a[i], a[p]] = [a[p], a[i]]\n      i = p\n    }\n  }\n  pop() {\n    const a = this.items\n    const top = a[0]\n    const last = a.pop()\n    if (a.length > 0) {\n      a[0] = last\n      let i = 0\n      while (true) {\n        const l = 2 * i + 1\n        const r = l + 1\n        let best = i\n        if (l < a.length && this.compare(a[l], a[best]) < 0) best = l\n        if (r < a.length && this.compare(a[r], a[best]) < 0) best = r\n        if (best === i) break\n        ;[a[i], a[best]] = [a[best], a[i]]\n        i = best\n      }\n    }\n    return top\n  }\n}\n\nconst h = new MinHeap()\nfor (const x of [5, 1, 8, 3]) h.push(x)\nconsole.log(h.pop(), h.pop(), h.size)   // 1 3 2\n\nconst maxHeap = new MinHeap((a, b) => b - a)\nfor (const x of [5, 1, 8, 3]) maxHeap.push(x)\nconsole.log(maxHeap.peek())             // 8",
+        "language": "javascript",
+        "pitfall": "Writing the comparator as `(a, b) => a > b`. It returns true or false instead of a negative, zero or positive number, so both this heap and `Array.prototype.sort` misbehave. Return `a - b`, or -1, 0 and 1.",
+        "activity": {
+          "type": "code-runner",
+          "title": "Top three with a max-heap",
+          "prompt": "Create a max-heap by passing a comparator, push every value from `data`, then pop three times into `top3`. The program should print `9 8 7`.",
+          "props": {
+            "language": "javascript",
+            "code": "class MinHeap {\n  constructor(compare = (a, b) => a - b) {\n    this.items = []\n    this.compare = compare\n  }\n  get size() { return this.items.length }\n  peek() { return this.items[0] }\n  push(value) {\n    const a = this.items\n    a.push(value)\n    let i = a.length - 1\n    while (i > 0) {\n      const p = (i - 1) >> 1                     // parent index\n      if (this.compare(a[i], a[p]) >= 0) break   // parent is not bigger: done\n      ;[a[i], a[p]] = [a[p], a[i]]\n      i = p\n    }\n  }\n  pop() {\n    const a = this.items\n    const top = a[0]\n    const last = a.pop()\n    if (a.length > 0) {\n      a[0] = last\n      let i = 0\n      while (true) {\n        const l = 2 * i + 1\n        const r = l + 1\n        let best = i\n        if (l < a.length && this.compare(a[l], a[best]) < 0) best = l\n        if (r < a.length && this.compare(a[r], a[best]) < 0) best = r\n        if (best === i) break\n        ;[a[i], a[best]] = [a[best], a[i]]\n        i = best\n      }\n    }\n    return top\n  }\n}\n\nconst data = [4, 9, 2, 7, 8, 1]\n// Build a max-heap with a comparator, push every value, then pop three.\nconst top3 = []\n// your code here\n\nconsole.log(top3.join(' '))",
+            "task": "Use the MinHeap class as a max-heap so the program prints 9 8 7.",
+            "expectOutput": "9 8 7"
+          }
+        },
+        "check": {
+          "question": "What does `[10, 9, 1, 100].sort()` return in JavaScript?",
+          "choices": [
+            "[1, 9, 10, 100]",
+            "[100, 10, 9, 1]",
+            "[1, 10, 100, 9]",
+            "[10, 9, 1, 100]"
+          ],
+          "answer": 2,
+          "explanation": "Without a comparator, sort converts values to strings and compares them character by character: \"1\" < \"10\" < \"100\" < \"9\". Pass (a, b) => a - b to sort numbers numerically."
+        }
+      },
+      {
+        "title": "Top-k and k-way merge",
+        "body": "You have a stream of a million scores and need the 10 highest. Sorting everything costs O(n log n) and needs all the data in memory at once. A heap does better with a move that feels backward at first: to keep the k **largest** values, use a **min-heap** of size k.\n\nThe min-heap holds the best k values seen so far, and its root is the weakest of them, the current kth largest. For each new value:\n\n- If the heap holds fewer than k items, push it.\n- Otherwise, if the value beats the root, replace the root (`heapreplace`). If it does not, ignore it.\n\nAt the end the heap holds the k largest values and its root is the kth largest. Each step costs O(log k), so the total is O(n log k) time and O(k) space. When k is small and n is huge, that is nearly linear, and it works on a stream you only see once.\n\nThe same idea solves a family of problems:\n\n- **k closest points to the origin**: keep a max-heap of size k by distance (negate the distance in Python) and evict the farthest. Compare squared distances, `x*x + y*y`; there is no need for a square root.\n- **k most frequent elements**: count with a dict, then keep a min-heap of size k keyed by count.\n- **Merge k sorted lists or arrays**: push the first element of each one as `(value, list_index, element_index)`. Pop the smallest, append it to the output, and push the next element from the same list. The heap never holds more than k entries, so merging N values in total costs O(N log k).\n- **Running median**: a max-heap for the lower half and a min-heap for the upper half, kept within one element of each other in size.\n\nKnow the alternatives so you can discuss trade-offs. Sorting is O(n log n) and the simplest to write. Quickselect finds the kth largest in O(n) average time, but O(n^2) in the worst case, and it rearranges the input.",
+        "code": "import heapq\n\ndef kth_largest(nums, k):\n    heap = []                          # min-heap of the k largest so far\n    for x in nums:\n        if len(heap) < k:\n            heapq.heappush(heap, x)\n        elif x > heap[0]:\n            heapq.heapreplace(heap, x)   # pop the root, push x\n    return heap[0]\n\n# Trace: nums = [3, 2, 1, 5, 6, 4], k = 2\n# 3 -> [3]         2 -> [2, 3]\n# 1 -> 1 < 2, ignore\n# 5 -> beats 2:    [3, 5]\n# 6 -> beats 3:    [5, 6]\n# 4 -> 4 < 5, ignore\n# answer: heap[0] = 5\nprint(kth_largest([3, 2, 1, 5, 6, 4], 2))   # 5\n\ndef merge_k_sorted(arrays):\n    heap = [(arr[0], i, 0) for i, arr in enumerate(arrays) if arr]\n    heapq.heapify(heap)\n    out = []\n    while heap:\n        val, i, j = heapq.heappop(heap)\n        out.append(val)\n        if j + 1 < len(arrays[i]):\n            heapq.heappush(heap, (arrays[i][j + 1], i, j + 1))\n    return out\n\nprint(merge_k_sorted([[1, 4, 7], [2, 5], [0, 6, 9]]))\n# [0, 1, 2, 4, 5, 6, 7, 9]",
+        "pitfall": "Heapifying all n values and popping k times also works, but it costs O(n + k log n) time and O(n) space and needs all the data at once. Fine for small inputs; say why the size-k heap is better for huge inputs and streams.",
+        "activity": {
+          "type": "challenge",
+          "title": "Kth largest element",
+          "prompt": "Solve it with a min-heap that never holds more than k values (the JavaScript starter includes a MinHeap class). Then ask yourself what changes when k is close to n.",
+          "props": {
+            "id": "kth-largest-element"
+          }
+        },
+        "check": {
+          "question": "To find the 10 largest values in a stream of a billion numbers, what do you keep while reading it?",
+          "choices": [
+            "A max-heap holding every value",
+            "A min-heap holding at most 10 values",
+            "A sorted array of every value",
+            "A min-heap holding every value"
+          ],
+          "answer": 1,
+          "explanation": "A min-heap of size 10 keeps the best 10 so far, with the weakest at the root ready to be evicted. Anything that stores every value needs memory for a billion numbers and O(n log n) work."
+        }
+      },
+      {
+        "title": "Practice: when to reach for a heap",
+        "body": "Heap problems hide behind a few phrases. Train yourself to hear them:\n\n- \"k largest\", \"k smallest\", \"kth largest\", \"top k\", \"k closest\", \"k most frequent\": a heap of size k, O(n log k).\n- \"Repeatedly take the two largest (or smallest) and combine them\": a heap of everything, popping and pushing in a loop. For example, smash the two heaviest stones together until at most one is left.\n- \"Merge k sorted lists, arrays or files\": a heap holding one entry per source.\n- \"Schedule\", \"next available\", \"earliest finishing\", \"process in order of priority\": a heap keyed by time or priority.\n- \"Median of a stream\": two heaps.\n- Shortest paths in a weighted graph (Dijkstra's algorithm): a heap keyed by distance.\n\nJust as important is knowing when not to use one:\n\n- If you need the minimum only once, `min()` is O(n) and simpler.\n- If all the data is known and you need all of it in order, just sort.\n- If you need to search for or delete arbitrary values, a heap is slow at both, because finding a value is O(n). Use a hash map or a balanced tree.\n\nWhen you write a heap solution in an interview, say three things out loud: whether it is a min-heap or a max-heap (and whether you negated values to get it), what each entry holds, and the complexity in terms of both n and k.",
+        "activity": {
+          "type": "challenge",
+          "title": "Merge k sorted arrays",
+          "prompt": "Push one entry per array holding the value plus where it came from, then pop and refill. Watch out for empty arrays in the input.",
+          "props": {
+            "id": "merge-k-sorted-arrays"
+          }
+        },
+        "check": {
+          "question": "Which task is the weakest fit for a heap?",
+          "choices": [
+            "Always processing the job with the earliest deadline next",
+            "Merging 50 sorted log files into one sorted file",
+            "Keeping the 5 highest scores seen so far in a game",
+            "Checking whether a value appears anywhere in a large collection"
+          ],
+          "answer": 3,
+          "explanation": "A heap only knows where its root is; finding an arbitrary value means scanning the whole array, O(n). A hash set answers membership in O(1) on average. The other three are classic heap problems."
+        }
+      }
+    ],
+    "keyTerms": [
+      {
+        "term": "priority queue",
+        "definition": "An abstract data type where you add items and always remove the one with the highest priority."
+      },
+      {
+        "term": "binary heap",
+        "definition": "A complete binary tree stored in an array that satisfies the heap property; the usual way to implement a priority queue."
+      },
+      {
+        "term": "heap property",
+        "definition": "In a min-heap every parent is less than or equal to its children (greater than or equal in a max-heap), so the root is the minimum (or maximum)."
+      },
+      {
+        "term": "complete binary tree",
+        "definition": "A tree whose levels are all full except possibly the last, which fills from the left, so it fits in an array with no gaps."
+      },
+      {
+        "term": "sift up",
+        "definition": "Swap a newly appended value with its parent while it is smaller, restoring the heap property after a push."
+      },
+      {
+        "term": "sift down",
+        "definition": "Swap a value at the top with its smaller child while it is larger, restoring the heap property after a pop."
+      },
+      {
+        "term": "heapify",
+        "definition": "Turn an unsorted array into a heap in O(n) by sifting down every non-leaf node from the last one back to the root."
+      },
+      {
+        "term": "heapq",
+        "definition": "Python's module of functions that treat a plain list as a min-heap: heappush, heappop, heapify, nlargest and more."
+      },
+      {
+        "term": "top-k pattern",
+        "definition": "Keep a heap of size k (a min-heap for the k largest) so n items cost O(n log k) time and O(k) space."
+      },
+      {
+        "term": "k-way merge",
+        "definition": "Merge k sorted sources by keeping one entry per source in a heap, popping the smallest and refilling from the same source."
+      }
+    ],
+    "summary": [
+      "A heap keeps the minimum (or maximum) at the root: peek in O(1), push and pop in O(log n).",
+      "It is a complete binary tree stored in an array: the children of i are 2i + 1 and 2i + 2, and the parent is (i - 1) // 2.",
+      "Push appends and sifts up; pop moves the last leaf to the root and sifts down, always swapping with the smaller child.",
+      "Python's heapq is a min-heap on a list: negate values for a max-heap and add a counter to tuples to break ties.",
+      "JavaScript has no heap, so learn a short comparator-based MinHeap, and always pass a comparator to sort.",
+      "For top k, keep a min-heap of size k (O(n log k)); for a k-way merge, keep one entry per source."
+    ],
+    "feynmanPrompt": "Explain to a friend why a min-heap of size k, not a max-heap, is the right tool for finding the k largest numbers in a huge stream, and what the root of that heap tells you at every moment."
+  },
+  "questions": [
+    {
+      "id": "swe-heaps-q01",
+      "type": "multi",
+      "difficulty": "medium",
+      "question": "Select every operation a binary min-heap performs in O(log n) time or better.",
+      "choices": [
+        "Insert a value",
+        "Remove the minimum",
+        "Peek at the minimum",
+        "Find whether an arbitrary value is present",
+        "Return all values in sorted order"
+      ],
+      "answers": [
+        0,
+        1,
+        2
+      ],
+      "explanation": "Insert and remove-min each walk one root-to-leaf path, O(log n), and peeking at the root is O(1). Finding an arbitrary value requires scanning, O(n), and producing everything in sorted order means n pops, O(n log n).",
+      "concept": "heap operation costs",
+      "section": 0
+    },
+    {
+      "id": "swe-heaps-q02",
+      "type": "mcq",
+      "difficulty": "medium",
+      "question": "Which array is NOT a valid min-heap?",
+      "choices": [
+        "[1, 2, 3, 4, 5]",
+        "[1, 3, 2, 7, 4]",
+        "[2, 4, 3, 5, 1]",
+        "[0, 0, 0]"
+      ],
+      "answer": 2,
+      "explanation": "In [2, 4, 3, 5, 1], the value 1 at index 4 has its parent at index (4 - 1) // 2 = 1, which holds 4. A child smaller than its parent breaks the heap property. A sorted array is always a valid min-heap, and [1, 3, 2, 7, 4] is valid because siblings are unordered.",
+      "concept": "checking the heap property",
+      "section": 0
+    },
+    {
+      "id": "swe-heaps-q03",
+      "type": "recall",
+      "difficulty": "easy",
+      "question": "What is a priority queue, and how is it related to a heap?",
+      "answer": "A priority queue is the abstract idea: add items and always remove the one with the highest priority. A binary heap is the usual data structure that implements it, with O(log n) push and pop and O(1) peek.",
+      "explanation": "Keep the abstract idea (what operations you need) separate from the data structure that implements it.",
+      "concept": "priority queue vs heap",
+      "section": 0
+    },
+    {
+      "id": "swe-heaps-q04",
+      "type": "typed",
+      "difficulty": "easy",
+      "question": "In a 0-based heap array, what index holds the left child of the node at index 4?",
+      "answer": "9",
+      "explanation": "The left child of i is 2 * i + 1 = 9, and the right child is 10.",
+      "concept": "child index",
+      "section": 1
+    },
+    {
+      "id": "swe-heaps-q05",
+      "type": "mcq",
+      "difficulty": "easy",
+      "question": "The min-heap array is `[2, 6, 3, 9, 7, 4]`. What are the children of the value 6?",
+      "choices": [
+        "3 and 9",
+        "9 and 7",
+        "7 and 4",
+        "4 only"
+      ],
+      "answer": 1,
+      "explanation": "6 is at index 1, so its children are at indexes 3 and 4, which hold 9 and 7. The value 3 is 6's sibling, and 4 is the child of 3 (index 5).",
+      "concept": "reading the array layout",
+      "section": 1
+    },
+    {
+      "id": "swe-heaps-q06",
+      "type": "mcq",
+      "difficulty": "medium",
+      "question": "Why can a heap be stored in an array with no gaps, while an arbitrary binary tree cannot?",
+      "choices": [
+        "Heap values are sorted, so positions are predictable",
+        "Each heap node has exactly two children",
+        "Heaps never hold more than a few thousand nodes",
+        "A heap is a complete binary tree, filled level by level from the left"
+      ],
+      "answer": 3,
+      "explanation": "Completeness means positions 0 to n - 1 are all filled, level by level, so the index formulas always land on real nodes. Heap values are not sorted, and nodes near the bottom may have one or zero children.",
+      "concept": "why arrays work",
+      "section": 1
+    },
+    {
+      "id": "swe-heaps-q07",
+      "type": "typed",
+      "difficulty": "medium",
+      "question": "A min-heap holds 100 elements. How many levels does its tree have?",
+      "answer": "7",
+      "explanation": "Full levels hold 1, 2, 4, 8, 16 and 32 nodes, 63 in total across 6 levels. The remaining 37 go on a 7th level. That matches floor(log2 100) = 6 edges of height.",
+      "concept": "heap height",
+      "section": 1
+    },
+    {
+      "id": "swe-heaps-q08",
+      "type": "order",
+      "difficulty": "medium",
+      "question": "Put the steps of popping the minimum from a binary min-heap in order.",
+      "items": [
+        "Save the root value to return later",
+        "Remove the last element of the array",
+        "Put that last element at the root",
+        "Swap it with its smaller child while it is larger than that child",
+        "Return the saved root value"
+      ],
+      "explanation": "Save the root first, then fill the hole at the top with the last leaf so the tree stays complete, and sift it down to restore the heap property.",
+      "concept": "pop steps",
+      "section": 2
+    },
+    {
+      "id": "swe-heaps-q09",
+      "type": "typed",
+      "difficulty": "hard",
+      "question": "You push 1 into the min-heap `[3, 5, 4, 8, 6]`. Write the array after sift up.",
+      "answer": "[1, 5, 3, 8, 6, 4]",
+      "accept": [
+        "[1,5,3,8,6,4]",
+        "1, 5, 3, 8, 6, 4",
+        "1 5 3 8 6 4",
+        "1,5,3,8,6,4"
+      ],
+      "explanation": "1 is appended at index 5, whose parent is index 2 (value 4): swap to get [3, 5, 1, 8, 6, 4]. Now 1 is at index 2, whose parent is index 0 (value 3): swap again to get [1, 5, 3, 8, 6, 4].",
+      "concept": "tracing sift up",
+      "section": 2
+    },
+    {
+      "id": "swe-heaps-q10",
+      "type": "debug",
+      "difficulty": "medium",
+      "question": "This `sift_down` sometimes leaves an invalid min-heap. Why?",
+      "code": "def sift_down(heap, i):\n    n = len(heap)\n    while 2 * i + 1 < n:\n        child = 2 * i + 1\n        if heap[child] < heap[i]:\n            heap[i], heap[child] = heap[child], heap[i]\n            i = child\n        else:\n            break",
+      "choices": [
+        "The loop should start at the last index",
+        "It only looks at the left child, so a smaller right child can stay below a larger parent",
+        "It should test heap[child] > heap[i]",
+        "2 * i + 1 is the parent index, not a child index"
+      ],
+      "answer": 1,
+      "explanation": "It only ever looks at the left child. If the right child is smaller than the parent (or smaller than the left child), the parent stays above a smaller value. Sift down must compare both children and swap with the smaller one.",
+      "concept": "sift down child choice",
+      "section": 2
+    },
+    {
+      "id": "swe-heaps-q11",
+      "type": "mcq",
+      "difficulty": "hard",
+      "question": "Why does heapify (sift down every non-leaf node, from the last one back to the root) run in O(n) rather than O(n log n)?",
+      "choices": [
+        "It skips the leaves, and halving O(n log n) work gives O(n)",
+        "Sift down is O(1) when the values are random",
+        "Most nodes are near the bottom and can only sift down a few levels, so the total is O(n)",
+        "It sorts the array first with counting sort"
+      ],
+      "answer": 2,
+      "explanation": "Half the nodes are leaves and do no work, a quarter can move at most one level, an eighth at most two, and so on. That series sums to O(n). Skipping the leaves alone would still leave O(n log n) if every other node could travel the full height.",
+      "concept": "heapify is linear",
+      "section": 2
+    },
+    {
+      "id": "swe-heaps-q12",
+      "type": "mcq",
+      "difficulty": "medium",
+      "question": "What is the worst-case time to build a heap by calling push n times on an empty heap?",
+      "choices": [
+        "O(n)",
+        "O(log n)",
+        "O(n^2)",
+        "O(n log n)"
+      ],
+      "answer": 3,
+      "explanation": "Each push can sift a new value all the way up, O(log n), so n pushes cost O(n log n) in the worst case (for example, inserting values in decreasing order into a min-heap). Heapify on the whole array is O(n).",
+      "concept": "repeated push cost",
+      "section": 2
+    },
+    {
+      "id": "swe-heaps-q13",
+      "type": "code-fill",
+      "difficulty": "easy",
+      "question": "Fill the blank to read the smallest value in O(1) without removing it.",
+      "code": "import heapq\n\nnums = [7, 2, 9, 4]\nheapq.heapify(nums)\nsmallest = _____",
+      "choices": [
+        "min(nums)",
+        "nums[-1]",
+        "nums[0]",
+        "heapq.heappop(nums)"
+      ],
+      "answer": 2,
+      "explanation": "After heapify, the minimum is always at index 0. min(nums) gives the same value but scans the whole list, O(n), and heappop removes it. nums[-1] is just the last leaf.",
+      "concept": "peeking with heapq",
+      "section": 3
+    },
+    {
+      "id": "swe-heaps-q14",
+      "type": "typed",
+      "difficulty": "medium",
+      "question": "What does this code print?",
+      "code": "import heapq\n\nh = []\nfor x in [4, 1, 7, 3]:\n    heapq.heappush(h, -x)\nprint(-heapq.heappop(h), -h[0])",
+      "answer": "7 4",
+      "accept": [
+        "7, 4"
+      ],
+      "explanation": "The heap holds -4, -1, -7 and -3, so the root is -7. Popping and negating gives 7. The new root is -4, so -h[0] is 4. The output is 7 4.",
+      "concept": "negation trick",
+      "section": 3
+    },
+    {
+      "id": "swe-heaps-q15",
+      "type": "debug",
+      "difficulty": "hard",
+      "question": "The second push raises TypeError. Why, and what is the usual fix?",
+      "code": "import heapq\n\njobs = []\nheapq.heappush(jobs, (2, {\"name\": \"email\"}))\nheapq.heappush(jobs, (2, {\"name\": \"backup\"}))",
+      "choices": [
+        "heappush cannot store tuples; push the dict alone",
+        "Priorities tie, so Python compares the dicts; add a counter: (priority, count, job)",
+        "The list must be heapified before the first push",
+        "Dicts are mutable, so they cannot be stored in a list"
+      ],
+      "answer": 1,
+      "explanation": "Both tuples have priority 2, so Python moves on to compare the dicts, and dicts do not support <. Adding a counter as the second element, (priority, count, job), means ties are settled by the counter and the dicts are never compared.",
+      "concept": "tuple tie-breakers",
+      "section": 3
+    },
+    {
+      "id": "swe-heaps-q16",
+      "type": "mcq",
+      "difficulty": "hard",
+      "question": "What does this print?",
+      "code": "import heapq\n\nh = [5, 1, 4]        # built by hand, never heapified\nprint(heapq.heappop(h))",
+      "choices": [
+        "1",
+        "4",
+        "It raises an error because the list is not a heap",
+        "5"
+      ],
+      "answer": 3,
+      "explanation": "heappop assumes the list is already a heap. It removes the last element (4), returns h[0] (5), and puts 4 at the root. You get 5, not the minimum 1, and no error. Call heapq.heapify(h) first.",
+      "concept": "heapq needs a heap",
+      "section": 3
+    },
+    {
+      "id": "swe-heaps-q17",
+      "type": "mcq",
+      "difficulty": "easy",
+      "question": "Which comparator turns the JavaScript MinHeap class into a max-heap of numbers?",
+      "language": "javascript",
+      "choices": [
+        "(a, b) => b - a",
+        "(a, b) => a - b",
+        "(a, b) => a > b",
+        "(a, b) => Math.max(a, b)"
+      ],
+      "answer": 0,
+      "explanation": "The class puts whatever compares as \"smaller\" (a negative result) at the root. (a, b) => b - a reports larger numbers as smaller, so the maximum rises to the top. a > b returns a boolean, which breaks the comparison.",
+      "concept": "max-heap comparator",
+      "section": 4
+    },
+    {
+      "id": "swe-heaps-q18",
+      "type": "code-fill",
+      "difficulty": "medium",
+      "question": "Complete the parent index in the JavaScript `push` method.",
+      "code": "push(value) {\n  const a = this.items\n  a.push(value)\n  let i = a.length - 1\n  while (i > 0) {\n    const p = _____\n    if (this.compare(a[i], a[p]) >= 0) break\n    ;[a[i], a[p]] = [a[p], a[i]]\n    i = p\n  }\n}",
+      "language": "javascript",
+      "choices": [
+        "i >> 1",
+        "2 * i + 1",
+        "(i - 1) >> 1",
+        "(i + 1) >> 1"
+      ],
+      "answer": 2,
+      "explanation": "(i - 1) >> 1 equals Math.floor((i - 1) / 2), the 0-based parent. i >> 1 is the 1-based formula and picks the wrong parent for even indexes (for i = 2 it gives 1 instead of 0).",
+      "concept": "parent index in JavaScript",
+      "section": 4
+    },
+    {
+      "id": "swe-heaps-q19",
+      "type": "mcq",
+      "difficulty": "medium",
+      "question": "An interviewer asks for the k smallest values in JavaScript, and no heap library is available. Which response is strongest?",
+      "language": "javascript",
+      "choices": [
+        "Offer sorting first, then a small comparator-based heap for O(n log k)",
+        "Call Math.min k times, removing the result each time",
+        "Use arr.sort() without a comparator, then take the first k",
+        "Use a Set, because Sets keep their values in sorted order"
+      ],
+      "answer": 0,
+      "explanation": "Mentioning the simple O(n log n) sort shows judgment, and a small comparator-based heap gets O(n log k). Calling Math.min k times is O(nk), sort without a comparator compares strings, and Sets do not keep values sorted.",
+      "concept": "heaps in JavaScript interviews",
+      "section": 4
+    },
+    {
+      "id": "swe-heaps-q20",
+      "type": "typed",
+      "difficulty": "medium",
+      "question": "What does `[5, 25, 100, 3].sort()` return in JavaScript? Type the array.",
+      "language": "javascript",
+      "answer": "[100, 25, 3, 5]",
+      "accept": [
+        "[100,25,3,5]",
+        "100, 25, 3, 5",
+        "100 25 3 5",
+        "100,25,3,5"
+      ],
+      "explanation": "The default sort compares strings: \"100\" < \"25\" < \"3\" < \"5\", because \"1\" comes before \"2\", \"3\" and \"5\". Use (a, b) => a - b for numbers.",
+      "concept": "default sort trap",
+      "section": 4
+    },
+    {
+      "id": "swe-heaps-q21",
+      "type": "mcq",
+      "difficulty": "medium",
+      "question": "To keep the k largest values from a stream, which heap do you use, and why?",
+      "choices": [
+        "A max-heap of size k, because its root is the largest value",
+        "A min-heap of all values, popping k at the end",
+        "A max-heap of size k, evicting its smallest leaf",
+        "A min-heap of size k, because its root is the weakest kept value and the one to evict"
+      ],
+      "answer": 3,
+      "explanation": "The kept values form the top k, and the one to throw out when a better value arrives is the smallest of them, which a min-heap keeps at the root. A max-heap of size k would have the best value at the root and no fast way to evict the worst.",
+      "concept": "min-heap for k largest",
+      "section": 5
+    },
+    {
+      "id": "swe-heaps-q22",
+      "type": "typed",
+      "difficulty": "easy",
+      "question": "What does `kth_largest([7, 10, 4, 3, 20, 15], 3)` return?",
+      "answer": "10",
+      "explanation": "The three largest values are 20, 15 and 10. The size-3 min-heap ends up holding exactly those, and its root, 10, is the 3rd largest.",
+      "concept": "kth largest result",
+      "section": 5
+    },
+    {
+      "id": "swe-heaps-q23",
+      "type": "mcq",
+      "difficulty": "easy",
+      "question": "What is the time complexity of the size-k min-heap method for the kth largest of n numbers?",
+      "choices": [
+        "O(n log n)",
+        "O(n log k)",
+        "O(k log n)",
+        "O(n + k)"
+      ],
+      "answer": 1,
+      "explanation": "Each of the n values costs at most one O(log k) heap operation, because the heap never holds more than k items. O(n log n) is the cost of sorting everything.",
+      "concept": "top-k complexity",
+      "section": 5
+    },
+    {
+      "id": "swe-heaps-q24",
+      "type": "mcq",
+      "difficulty": "hard",
+      "question": "In `merge_k_sorted`, why does each heap entry store `(value, list_index, element_index)` instead of just the value?",
+      "choices": [
+        "After popping a value you need to know which array it came from and where its next element is",
+        "Tuples sort faster than integers in heapq",
+        "The indexes only exist to keep equal values in a stable order",
+        "heapq cannot store plain integers"
+      ],
+      "answer": 0,
+      "explanation": "After popping the smallest value you must refill the heap from the same array, which requires knowing which array it came from and where its next element is. The indexes also settle ties between equal values, but that is not their main job.",
+      "concept": "what merge entries hold",
+      "section": 5
+    },
+    {
+      "id": "swe-heaps-q25",
+      "type": "mcq",
+      "difficulty": "hard",
+      "question": "You merge k sorted arrays holding N values in total with a heap. What are the time and the extra space, not counting the output?",
+      "choices": [
+        "O(N log N) time, O(N) space",
+        "O(N k) time, O(1) space",
+        "O(N log k) time, O(k) space",
+        "O(k log N) time, O(k) space"
+      ],
+      "answer": 2,
+      "explanation": "The heap never holds more than k entries, so each of the N pops and pushes costs O(log k), and the heap itself uses O(k) space. Concatenating and sorting would be O(N log N).",
+      "concept": "k-way merge complexity",
+      "section": 5
+    },
+    {
+      "id": "swe-heaps-q26",
+      "type": "debug",
+      "difficulty": "medium",
+      "question": "This `kth_largest` gives wrong answers. What is the bug?",
+      "code": "import heapq\n\ndef kth_largest(nums, k):\n    heap = []\n    for x in nums:\n        heapq.heappush(heap, x)\n        if len(heap) > k:\n            heapq.heappop(heap)\n    return heap[-1]",
+      "choices": [
+        "It returns heap[-1]; the kth largest is the root, heap[0]",
+        "It should pop before pushing, not after",
+        "The heap should hold k + 1 values",
+        "heappop removes the largest value, so it evicts the wrong one"
+      ],
+      "answer": 0,
+      "explanation": "The min-heap correctly ends up holding the k largest values, but heap[-1] is just the last leaf, not the kth largest. The kth largest is the smallest of the k, at the root: heap[0]. For [3, 2, 1, 5, 6, 4] with k = 2, it returns 6 instead of 5.",
+      "concept": "reading the answer from the heap",
+      "section": 5
+    },
+    {
+      "id": "swe-heaps-q27",
+      "type": "mcq",
+      "difficulty": "medium",
+      "question": "In the k closest points problem, why compare `x*x + y*y` instead of the true distance `sqrt(x*x + y*y)`?",
+      "choices": [
+        "Squaring keeps the same order for nonnegative distances, so the square root is wasted work",
+        "sqrt is not available in Python without extra packages",
+        "Squared distances turn the heap into a max-heap automatically",
+        "The true distance gives the wrong order for negative coordinates"
+      ],
+      "answer": 0,
+      "explanation": "For nonnegative numbers, a < b exactly when a squared < b squared, so squared distances give the same order. Skipping the square root saves work and avoids floating point rounding.",
+      "concept": "squared distances",
+      "section": 5
+    },
+    {
+      "id": "swe-heaps-q28",
+      "type": "match",
+      "difficulty": "medium",
+      "question": "Match each problem with the heap setup that fits it.",
+      "pairs": [
+        {
+          "left": "Find the 5 most frequent words",
+          "right": "Count, then a min-heap of size 5 keyed by count"
+        },
+        {
+          "left": "Merge 20 sorted files",
+          "right": "A heap with one entry per file"
+        },
+        {
+          "left": "Median of a growing stream",
+          "right": "A max-heap and a min-heap, balanced in size"
+        },
+        {
+          "left": "Repeatedly smash the two heaviest stones",
+          "right": "A max-heap of every stone"
+        }
+      ],
+      "explanation": "Frequency top-k counts first, k-way merge keeps one entry per source, a running median balances two heaps, and the stone game repeatedly needs the two largest of everything.",
+      "concept": "heap setups",
+      "section": 6
+    },
+    {
+      "id": "swe-heaps-q29",
+      "type": "multi",
+      "difficulty": "medium",
+      "question": "Which tasks are a good fit for a heap? Select all that apply.",
+      "choices": [
+        "Return the 3 closest restaurants out of 50,000",
+        "Check whether a username is already taken",
+        "Always run the job with the earliest deadline next",
+        "Reverse a string",
+        "Emit events in timestamp order when they arrive slightly out of order"
+      ],
+      "answers": [
+        0,
+        2,
+        4
+      ],
+      "explanation": "Top-k closest, earliest deadline first and reordering events by timestamp all need \"the smallest next\" repeatedly. Checking whether a username exists is a hash set job, and reversing a string needs no ordering at all.",
+      "concept": "recognizing heap problems",
+      "section": 6
+    },
+    {
+      "id": "swe-heaps-q30",
+      "type": "typed",
+      "difficulty": "medium",
+      "question": "Stones weigh `[2, 7, 4, 1, 8, 1]`. Repeatedly smash the two heaviest: equal stones both vanish, otherwise the difference remains. What weight is left at the end?",
+      "answer": "1",
+      "explanation": "8 and 7 leave 1: [2, 4, 1, 1, 1]. 4 and 2 leave 2: [2, 1, 1, 1]. 2 and 1 leave 1: [1, 1, 1]. 1 and 1 vanish: [1]. One stone of weight 1 remains.",
+      "concept": "last stone trace",
+      "section": 6
+    },
+    {
+      "id": "swe-heaps-q31",
+      "type": "mcq",
+      "difficulty": "medium",
+      "question": "You need to repeatedly delete arbitrary values (not just the minimum) and also find the minimum. Why is a plain binary heap a poor choice?",
+      "choices": [
+        "Heaps cannot store duplicate values",
+        "Deleting the minimum is O(n) in a heap",
+        "Finding an arbitrary value takes O(n), because a heap is only partially ordered",
+        "Heaps only work with integers"
+      ],
+      "answer": 2,
+      "explanation": "A heap is only partially ordered, so locating an arbitrary value means scanning the array, O(n). A balanced BST (or a heap plus a hash map of positions, or lazy deletion) handles this better. Deleting the minimum itself is O(log n), and heaps handle duplicates and any comparable values.",
+      "concept": "when not to use a heap",
+      "section": 6
+    }
+  ]
+}

@@ -162,7 +162,7 @@ export async function downloadProgressCard({ name, level, streak, reviews, accur
     ['Level', String(level)],
     ['Reviews', reviews.toLocaleString()],
     ['Accuracy', `${accuracy}%`],
-    ['Memory', memory === null ? '—' : `${Math.round(memory * 100)}%`]
+    ['Memory', memory === null ? 'n/a' : `${Math.round(memory * 100)}%`]
   ]
   metrics.forEach(([label, value], i) => {
     const mx = x + 36 + i * 170

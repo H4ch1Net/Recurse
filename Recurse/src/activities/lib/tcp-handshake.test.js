@@ -63,7 +63,7 @@ describe('TCP script', () => {
   })
 
   it('writes captions without em dashes', () => {
-    for (const e of events) expect(e.caption).not.toMatch(/—/)
+    for (const e of events) expect(e.caption).not.toMatch(/\u2014/)
   })
 })
 

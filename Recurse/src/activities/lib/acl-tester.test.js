@@ -239,6 +239,6 @@ describe('policy challenges', () => {
     expect(g.hints.join(' ')).toMatch(/never ran/)
   })
   it('policy text has no em dashes', () => {
-    for (const p of POLICIES) expect(`${p.text} ${p.draftNote} ${p.bestText}`).not.toMatch(/—/)
+    for (const p of POLICIES) expect(`${p.text} ${p.draftNote} ${p.bestText}`).not.toMatch(/\u2014/)
   })
 })

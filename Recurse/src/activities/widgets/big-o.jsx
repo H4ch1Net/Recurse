@@ -55,7 +55,8 @@ export default function BigO({ props, onComplete, standalone }) {
   const [attempts, setAttempts] = useState(0)
   const [message, setMessage] = useState({ text: '', tone: '' })
   const anim = useRef({ id: 0 })
-  const clipId = `bigo-clip-${useId().replace(/[^a-zA-Z0-9_-]/g, '')}`
+  const uid = useId().replace(/[^a-zA-Z0-9_-]/g, '')
+  const clipId = `bigo-clip-${uid}`
   const rankRef = useRef(null)
 
   useEffect(() => {
@@ -297,8 +298,8 @@ export default function BigO({ props, onComplete, standalone }) {
         </div>
       )}
 
-      <section className="bigo-rank" ref={rankRef} aria-labelledby="bigo-rank-title">
-        <h4 id="bigo-rank-title" className="bigo-rank-title">Rank them: slowest growing first</h4>
+      <section className="bigo-rank" ref={rankRef} aria-labelledby={`bigo-rank-${uid}`}>
+        <h4 id={`bigo-rank-${uid}`} className="bigo-rank-title">Rank them: slowest growing first</h4>
         <p className="xsmall subtle">Tap each class in order, from the one that grows slowest to the one that grows fastest. Use the arrows to fix the order.</p>
         {pool.length > 0 && (
           <div className="row wrap bigo-pool" role="group" aria-label="Classes to place">

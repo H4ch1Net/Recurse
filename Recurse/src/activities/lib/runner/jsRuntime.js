@@ -151,7 +151,7 @@ export function jsRuntime(scope, formatValue, config) {
   function define(name, value) {
     try {
       Object.defineProperty(scope, name, { value: value, configurable: true, writable: true, enumerable: false })
-    } catch (e) {
+    } catch {
       // Not definable here; leave it.
     }
   }
@@ -250,6 +250,23 @@ export function jsRuntime(scope, formatValue, config) {
     return out
   }
 
+  function ctorName(v) {
+    try {
+      var proto = Object.getPrototypeOf(v)
+      return proto && proto.constructor && proto.constructor.name ? proto.constructor.name : ''
+    } catch {
+      return ''
+    }
+  }
+
+  function stackOf(err) {
+    try {
+      return err && typeof err === 'object' && typeof err.stack === 'string' ? err.stack : ''
+    } catch {
+      return ''
+    }
+  }
+
   /** Make a value safe to post (structured clone) while keeping it comparable. */
   function toPlain(v, depth, seen) {
     if (v === null || v === undefined) return v
@@ -258,13 +275,7 @@ export function jsRuntime(scope, formatValue, config) {
     if (t === 'function' || t === 'symbol') return formatValue(v)
     if (seen.indexOf(v) >= 0) return '[Circular]'
     if (depth > 64) return '[Too deep]'
-    var name = ''
-    try {
-      var proto = Object.getPrototypeOf(v)
-      name = proto && proto.constructor && proto.constructor.name ? proto.constructor.name : ''
-    } catch (e) {
-      name = ''
-    }
+    var name = ctorName(v)
     if ((name === 'ListNode' && 'next' in v) || (name === 'TreeNode' && 'left' in v)) return formatValue(v)
     seen.push(v)
     try {
@@ -317,12 +328,7 @@ export function jsRuntime(scope, formatValue, config) {
   // ---- Errors -----------------------------------------------------------------------------
 
   function frames(err) {
-    var stack = ''
-    try {
-      stack = err && typeof err === 'object' && typeof err.stack === 'string' ? err.stack : ''
-    } catch (e) {
-      stack = ''
-    }
+    var stack = stackOf(err)
     var out = []
     if (!href || !stack) return out
     var lines = stack.split('\n')
@@ -358,7 +364,7 @@ export function jsRuntime(scope, formatValue, config) {
   function safePost(message) {
     try {
       post(message)
-    } catch (e) {
+    } catch {
       // The value could not be cloned; send its text instead.
       if ('actual' in message) message.actual = formatValue(message.actual)
       try {
@@ -576,7 +582,7 @@ export function jsRuntime(scope, formatValue, config) {
       var fn
       try {
         fn = getFunction()
-      } catch (e) {
+      } catch {
         fn = undefined
       }
       if (typeof fn !== 'function') {

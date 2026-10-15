@@ -193,7 +193,7 @@ describe('magic number method', () => {
     expect(m.broadcastOctet).toBe(127)
     expect(m.multiples).toEqual([0, 64, 128, 192])
     expect(m.steps.join(' ')).toContain('256 - 192 = 64')
-    expect(m.steps.join(' ')).not.toMatch(/—/)
+    expect(m.steps.join(' ')).not.toMatch(/\u2014/)
   })
 
   it('works the method in the third octet and at the end of an octet', () => {

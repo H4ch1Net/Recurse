@@ -175,7 +175,7 @@ export default function RecursionTree({ props, onComplete, standalone }) {
                 <span className="rtree-line">{'}'}</span>
               </code>
             </pre>
-            <svg className="rtree-svg" viewBox={`0 0 ${vbW} ${vbH}`} role="img" aria-label={`Call tree for ${callName(fn, n)}: ${view.calls} of ${trace.calls} calls made so far`}>
+            <svg className="rtree-svg" viewBox={`0 0 ${vbW} ${vbH}`} style={{ maxWidth: `${Math.round(vbW * 1.4)}px` }} role="img" aria-label={`Call tree for ${callName(fn, n)}: ${view.calls} of ${trace.calls} calls made so far`}>
               <g className="rtree-edges">
                 {trace.nodes.map((node) => {
                   if (node.parent === null || view.status[node.id] === 'hidden') return null

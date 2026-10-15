@@ -1,0 +1,830 @@
+{
+  "id": "ccna-wireless-architectures",
+  "name": "Wireless Architectures",
+  "version": "1.0.0",
+  "author": "Recurse",
+  "subject": "networking",
+  "level": "intermediate",
+  "description": "Compare AP architectures, CAPWAP and WLC deployments, pick AP modes, wire APs and WLCs, and read the WLC WLAN GUI.",
+  "icon": "WLC",
+  "language": "plaintext",
+  "prereqs": [
+    "ccna-wireless-principles",
+    "ccna-trunking"
+  ],
+  "tags": [
+    "ccna",
+    "2.6",
+    "2.7",
+    "2.9",
+    "wireless",
+    "wlc",
+    "capwap"
+  ],
+  "lesson": {
+    "estimatedMinutes": 34,
+    "intro": "Wireless clients need more than radios; they need a design behind the radios. This lesson covers how Cisco builds WLANs: standalone autonomous APs, cloud-managed APs, and lightweight APs that split their work with a wireless LAN controller over CAPWAP tunnels. You will also learn how APs and controllers plug into the switched network, what each AP mode is for, and how to read the WLC GUI pages the exam shows when it asks you to create a WLAN.",
+    "objectives": [
+      "Compare autonomous, cloud-based and lightweight (split-MAC) AP architectures",
+      "Describe CAPWAP control and data tunnels and the WLC deployment models",
+      "Choose the right AP mode for a task, from local and FlexConnect to monitor, sniffer and SE-Connect",
+      "Describe how APs and WLCs connect to switches, including access and trunk ports, LAG and PoE",
+      "Interpret WLC GUI settings for WLAN creation, security, QoS profiles and advanced options"
+    ],
+    "sections": [
+      {
+        "title": "Autonomous, cloud-based and lightweight APs",
+        "body": "An access point bridges wireless clients onto the wired network. The architecture question is where the AP's brain lives.\n\nAn **autonomous AP** is fully self-contained. It holds its own configuration: the SSIDs, the VLAN each SSID maps to, security settings, channel and power. You manage each one separately (console, Telnet or SSH, or its HTTP or HTTPS page) using a management IP address, usually in a dedicated management VLAN. Because the AP itself maps each SSID to a wired VLAN, its switch port must be a **trunk** carrying the management VLAN and every client VLAN. That works for a small office and hurts at 500 APs: every client VLAN must stretch across the access layer to every AP, roaming is limited to where those VLANs reach, and every change is made 500 times (unless you add a management platform).\n\nA **cloud-based AP** architecture (Cisco Meraki is the example) still uses APs that forward traffic like autonomous APs, but their management lives in the vendor's cloud. Each AP contacts the cloud when it boots, pulls its configuration and reports statistics. You configure every site from one web dashboard, push firmware from it, and let the cloud choose channels and power and collect information about interference and rogue devices. Note the split: management traffic goes to the cloud, but client data does not; it goes straight from the AP onto the local wired network.\n\nA **lightweight AP** hands most of its work to a **wireless LAN controller (WLC)** and cannot normally operate without one. That is the dominant enterprise design, and the next section explains how the work is divided.",
+        "code": "                    Autonomous         Cloud-based (Meraki)   Lightweight + WLC\nConfigured where    Each AP            Cloud dashboard        WLC\nClient data path    AP -> local VLAN   AP -> local VLAN       AP -> CAPWAP -> WLC\nTypical switch port Trunk              Trunk if SSIDs map     Access\n                                       to several VLANs\nNeeds a WLC         No                 No                     Yes\nScales to 1000s     Painful            Yes                    Yes",
+        "pitfall": "Thinking cloud-managed means client traffic travels through the cloud. Only management and monitoring go to the cloud; user data stays local.",
+        "check": {
+          "question": "Which AP architecture is configured one AP at a time and needs a trunk to each AP because the AP itself maps SSIDs to VLANs?",
+          "choices": [
+            "Lightweight APs with a WLC",
+            "Autonomous APs",
+            "Cloud-based APs managed from a dashboard",
+            "Mobility Express"
+          ],
+          "answer": 1,
+          "explanation": "Autonomous APs carry their own configuration, so each is managed separately, and they put client traffic directly onto VLANs, which requires a trunk. Lightweight APs tunnel traffic to a WLC, and cloud-based APs are configured centrally."
+        }
+      },
+      {
+        "title": "Split MAC and CAPWAP",
+        "body": "A lightweight AP keeps only the jobs that must happen in real time, close to the radio, and moves the rest to the WLC. Cisco calls this the **split-MAC architecture**, because the 802.11 MAC layer's duties are split between two boxes.\n\n- **On the AP (real-time functions)**: transmitting and receiving 802.11 frames, beacons and probe responses, MAC management such as acknowledgments, and encrypting each frame.\n- **On the WLC (management functions)**: RF management (channels and power), association and roaming management, client authentication, security management and QoS.\n\nThe two talk through **CAPWAP** (Control and Provisioning of Wireless Access Points), an IETF standard (RFC 5415 and related RFCs) based on Cisco's older LWAPP. CAPWAP builds two tunnels between the AP's IP address and the WLC's management interface:\n\n- **Control tunnel, UDP 5246**: configures and manages the AP. Control messages are authenticated and encrypted (DTLS).\n- **Data tunnel, UDP 5247**: carries client traffic to and from the WLC. Not encrypted by default; DTLS data encryption can be enabled.\n\nBecause CAPWAP is ordinary IP, the AP and WLC can sit in different subnets, even different buildings; the tunnels are simply routed. Client VLANs exist at the WLC and, logically, in the air, but not on the switches in between, so the AP needs only one IP address and an access port. AP and WLC also authenticate each other with X.509 certificates installed at manufacture, so an unauthorized AP cannot join.\n\nA new lightweight AP comes online like this: it gets an IP address (usually by DHCP), discovers WLC addresses (DHCP option 43, a DNS lookup of CISCO-CAPWAP-CONTROLLER, a subnet broadcast, or a controller it joined before), joins a WLC, downloads software and configuration if needed, and starts serving SSIDs. Once APs join, the WLC tunes the network centrally: dynamic channel assignment, transmit power optimization, self-healing coverage when an AP dies, fast roaming, client load balancing, RF monitoring and wireless intrusion protection.",
+        "code": "Client )))  Lightweight AP  ==== CAPWAP control  UDP 5246 (DTLS) ====  WLC --- VLAN 100\n            10.10.10.10     ==== CAPWAP data     UDP 5247         ====  10.1.1.5 --- VLAN 200\n                 |\n            access port           routed campus network in between",
+        "pitfall": "Mixing up the ports. Control is 5246 and data is 5247: control comes first.",
+        "check": {
+          "question": "Which statement about CAPWAP is true?",
+          "choices": [
+            "It uses TCP 5246 for data and TCP 5247 for control",
+            "It requires the AP and WLC to be in the same VLAN",
+            "It uses UDP 5246 for control and UDP 5247 for data between a lightweight AP and its WLC",
+            "It carries only management traffic; client data is always switched at the AP"
+          ],
+          "answer": 2,
+          "explanation": "CAPWAP runs over UDP: 5246 for the control tunnel and 5247 for the data tunnel. Because the tunnels are routed IP packets, the AP and WLC can be in different subnets, and in local mode client data rides the data tunnel."
+        }
+      },
+      {
+        "title": "Where the controller lives",
+        "body": "Split MAC works wherever the WLC sits, so Cisco describes several deployment models. The AP counts below are the typical maximums given in the official cert guide; real numbers vary by model, but the relative sizes are what matter.\n\n- **Unified (centralized)**: a hardware WLC in a central location such as the core or data center. Up to about 6000 APs. Large enterprises.\n- **Cloud-based WLC**: the controller runs as a virtual machine in a data center or private cloud. Up to about 3000 APs.\n- **Embedded**: the controller runs inside an access-layer switch stack. Up to about 200 APs. Small campuses.\n- **Mobility Express**: the controller function runs on one of the APs at the site. Up to about 100 APs. Branches. (Cisco's newer equivalent is the Embedded Wireless Controller running on Catalyst APs.)\n\nDo not confuse a **cloud-based WLC** (a controller VM in your own data center, still running CAPWAP to its APs) with a **cloud-based AP architecture** such as Meraki (no WLC at all, managed from the vendor's cloud). The exam likes that trap.\n\nBranches add a twist. If a store's APs tunnel every packet to a WLC at headquarters, local traffic (say, to a printer in the same store) crosses the WAN twice, and a WAN outage stops the store's Wi-Fi. An AP mode called FlexConnect, coming up next, solves both problems.",
+        "code": "Model              WLC location            Typical max APs   Typical use\nUnified            Central (core or DC)    6000              Large enterprise\nCloud-based WLC    VM in a data center     3000              Private cloud\nEmbedded           Access switch stack     200               Small campus\nMobility Express   On an AP                100               Branch\nAutonomous         None (no WLC)           n/a               n/a",
+        "pitfall": "Confusing 'cloud-based WLC' with 'cloud-based APs'. The first is still a controller with CAPWAP tunnels, just virtualized; the second has no controller at all.",
+        "check": {
+          "question": "A small campus wants the controller function to run inside its access-layer switch stack. Which deployment model is that?",
+          "choices": [
+            "Unified",
+            "Mobility Express",
+            "Embedded",
+            "Cloud-based"
+          ],
+          "answer": 2,
+          "explanation": "An embedded WLC runs within the switching hardware at the access layer. Unified is a central appliance, cloud-based is a virtual machine in a data center, and Mobility Express runs on an AP."
+        }
+      },
+      {
+        "title": "AP modes",
+        "body": "From the WLC you can tell a lightweight AP to do a specific job. Know each mode and the one-line reason you would choose it.\n\n- **Local** (the default): serves clients on its channel and tunnels their traffic to the WLC. In idle moments it briefly scans other channels to measure noise and interference, discover rogue devices and match intrusion detection (IDS) events.\n- **FlexConnect**: for branches across a WAN. The AP can switch client traffic locally onto a VLAN instead of tunneling it to the WLC, and it can keep serving clients if its CAPWAP connection to the WLC goes down.\n- **Monitor**: never transmits. A dedicated receiver that checks for IDS events, detects rogue APs and helps determine where stations are (location services).\n- **Sniffer**: captures 802.11 frames and forwards them to a PC running an analyzer such as Wireshark.\n- **Rogue detector**: dedicates itself to finding rogues by correlating MAC addresses seen on the wired network with those heard over the air. A rogue that shows up on both is plugged into your network.\n- **SE-Connect** (Spectrum Expert connect): dedicates its radios to spectrum analysis on all channels, so a remote PC running a tool like Cisco Spectrum Expert or MetaGeek Chanalyzer can find non-Wi-Fi interference such as microwave ovens or wireless cameras.\n- **Bridge**: turns the AP into a point-to-point or point-to-multipoint bridge between locations, or part of an indoor or outdoor mesh. **Flex+Bridge** combines FlexConnect with mesh.\n\nThe tool modes (monitor, sniffer, rogue detector, SE-Connect) stop the AP from serving clients. If a question says the AP must keep serving users, the answer is local or FlexConnect.",
+        "code": "Need                                               Mode\nNormal client service on a campus                  Local\nBranch AP: switch traffic locally, survive WAN     FlexConnect\nDedicated rogue and IDS sensor, never transmits    Monitor\nCapture frames for Wireshark                       Sniffer\nFind rogues connected to the wired network         Rogue detector\nFind non-802.11 interference (spectrum analysis)   SE-Connect\nLink two buildings or build a mesh                 Bridge",
+        "pitfall": "Choosing monitor mode for an AP that must also serve users. Monitor never transmits, so no client can associate to it.",
+        "check": {
+          "question": "A retail branch connects to headquarters over a WAN. Its APs must keep serving clients if the WAN link to the central WLC fails. Which AP mode fits?",
+          "choices": [
+            "Local",
+            "Monitor",
+            "SE-Connect",
+            "FlexConnect"
+          ],
+          "answer": 3,
+          "explanation": "FlexConnect APs can switch traffic locally and continue serving clients without the WLC. A local-mode AP depends on its CAPWAP tunnel, and monitor and SE-Connect do not serve clients at all."
+        }
+      },
+      {
+        "title": "Wiring APs and controllers",
+        "body": "Wireless only replaces the last few meters; everything behind the AP is wired. Blueprint item 2.7 asks how each piece plugs in.\n\n**APs.** A lightweight AP in local mode needs an **access port** in the VLAN where it gets its IP address, because every client WLAN rides inside CAPWAP. An autonomous AP, or a FlexConnect AP that switches several WLANs locally, needs a **trunk**, because it places client traffic directly onto several VLANs. Most APs take power from the switch through **Power over Ethernet (PoE)**: the switch is the power sourcing equipment (PSE) and the AP the powered device (PD). Plan the power budget: 802.3af PoE supplies up to about 15 W per port, 802.3at PoE+ about 30 W, and 802.3bt (UPOE) 60 W and more. An AP that gets less power than it wants may boot with radios or features disabled.\n\n**WLC ports** are the physical connections:\n\n- **Service port**: out-of-band management, initial setup and system recovery. It supports one VLAN, so it connects to a switch **access port**.\n- **Distribution system ports**: all normal traffic, including CAPWAP tunnels from the APs, client data entering wired VLANs and in-band management. They carry many VLANs, so they connect to **802.1Q trunks**.\n- **Console port**: serial CLI access, 9600 baud, 8 data bits, 1 stop bit by default.\n- **Redundancy port**: connects to a peer WLC for high availability.\n\nDistribution system ports can be bundled into a **LAG** (link aggregation group): one logical link for bandwidth and resilience, just like an EtherChannel. The catch: AireOS controllers do not negotiate with LACP or PAgP, so the switch side must use `channel-group N mode on`.\n\n**WLC interfaces** are logical and different from ports. The **management interface** handles management traffic (SSH, HTTPS, SNMP, RADIUS and so on) and terminates CAPWAP; the **virtual interface** is a non-routed address used toward clients for DHCP relay, web authentication and mobility (a documentation address such as 192.0.2.1 is a good choice); the **service port interface** is bound to the service port; the **redundancy management** interface belongs to an HA pair; and each **dynamic interface** maps a WLAN to a VLAN, with its own IP address and DHCP servers.",
+        "code": "! Switch port for a lightweight AP in local mode\ninterface GigabitEthernet1/0/10\n description LAP-Floor2\n switchport mode access\n switchport access vlan 50\n spanning-tree portfast\n!\n! Switch ports for a WLC's distribution system ports in a LAG\ninterface range GigabitEthernet1/0/47 - 48\n description WLC1 distribution system ports\n switchport mode trunk\n switchport trunk allowed vlan 50,100,200\n channel-group 5 mode on",
+        "language": "cisco",
+        "pitfall": "Configuring LACP active toward an AireOS WLC's LAG. The controller never answers, so no channel forms. Use mode on.",
+        "check": {
+          "question": "How should the switch port connected to a lightweight AP in local mode normally be configured?",
+          "choices": [
+            "As an access port in the AP's VLAN",
+            "As a trunk carrying every client VLAN",
+            "As a routed port with no switchport",
+            "As an EtherChannel member using LACP"
+          ],
+          "answer": 0,
+          "explanation": "In local mode all WLAN traffic rides the CAPWAP tunnel from the AP's single IP address, so an access port is enough. The WLC's distribution ports, not the AP, connect to the client VLANs."
+        }
+      },
+      {
+        "title": "Creating a WLAN in the WLC GUI",
+        "body": "The exam shows screens from the WLC web GUI (the classic AireOS style) and asks what a setting does. Since this lesson has no screenshots, here is each page described in text. The example creates an Engineering WLAN for wired VLAN 100 with WPA2-Personal.\n\nBrowse with HTTPS to the WLC's management address and log in. The first screen is a monitoring dashboard; click **Advanced** for the full GUI, which has tabs across the top: Monitor, WLANs, Controller, Wireless, Security, Management, Commands and Help. The menu on the left changes with the tab.\n\n**Step 1, only for Enterprise security: add a RADIUS server.** Security > AAA > RADIUS > Authentication > New: the server's IP address, shared secret and port (1812), Server Status Enabled, and tick Network User (to authenticate wireless clients) and/or Management (to authenticate administrators).\n\n**Step 2: create a dynamic interface.** Controller > Interfaces > New: an interface name and VLAN ID, then the interface's IP address, netmask, gateway and primary and secondary DHCP servers. This is the WLAN's door into VLAN 100.\n\n**Step 3: create the WLAN.** WLANs > Create New > Go: type WLAN, a Profile Name, the SSID and an ID (an index on this controller). Apply opens the edit page, which has four tabs: General, Security, QoS and Advanced.\n\nOn the **General** tab:\n\n- **Status**: tick Enabled, or the WLAN is never advertised.\n- **Security Policies**: a read-only summary of what the Security tab sets (by default WPA2 with 802.1X).\n- **Radio Policy**: All by default, or limit the WLAN to particular radios, such as 802.11a only for 5 GHz or 802.11b/g only for 2.4 GHz.\n- **Interface/Interface Group(G)**: the dynamic interface, which decides the VLAN the clients' traffic lands in. The default is the management interface, a common mistake.\n- **Broadcast SSID**: include the SSID in beacons. Hiding it gives no real security; it just stops devices from listing the network.\n\nKeep the number of WLANs small. A controller supports up to 512 WLANs, but an AP can advertise at most 16, and every SSID adds beacons that consume airtime; the guide suggests no more than three to five.",
+        "code": "WLANs > Edit 'Engineering'      [General] [Security] [QoS] [Advanced]\n\nGeneral tab\n  Profile Name               Engineering\n  Type                       WLAN\n  SSID                       Engineering\n  Status                     [x] Enabled\n  Security Policies          [WPA2][Auth(PSK)]  (set on the Security tab)\n  Radio Policy               All\n  Interface/Interface Group  engineering        (dynamic interface, VLAN 100)\n  Broadcast SSID             [x] Enabled",
+        "pitfall": "Leaving Interface/Interface Group on management. Clients then land in the management VLAN and get addresses from the wrong subnet, or none at all.",
+        "check": {
+          "question": "On a WLAN's General tab, which setting determines the VLAN that wireless clients' traffic is placed in on the wired network?",
+          "choices": [
+            "Radio Policy",
+            "Broadcast SSID",
+            "Profile Name",
+            "Interface/Interface Group"
+          ],
+          "answer": 3,
+          "explanation": "The WLAN is bound to a dynamic interface, and that interface is tied to a VLAN. Radio Policy chooses bands, Broadcast SSID controls beacons, and the profile name is just a label."
+        }
+      },
+      {
+        "title": "Security, QoS and Advanced tabs",
+        "body": "**Security tab.** It has sub-tabs Layer 2, Layer 3 and AAA Servers.\n\n- **Layer 2 Security** drop-down: None (open authentication), WPA+WPA2, 802.1X (with dynamic WEP), Static WEP and a few legacy combinations. Choose WPA+WPA2 (or WPA2 and WPA3 on newer releases) and avoid anything with WEP.\n- **WPA+WPA2 Parameters**: tick WPA2 Policy with **AES** encryption; leave WPA and TKIP unticked, as they are legacy.\n- **Authentication Key Management**: **PSK** gives WPA2-Personal; set the PSK format (ASCII) and a passphrase of 8 to 63 characters. **802.1X** gives WPA2-Enterprise: each user authenticates with EAP against the RADIUS servers chosen on the **AAA Servers** sub-tab (up to six, tried in order). On WPA3-capable releases, SAE provides WPA3-Personal.\n- **Layer 3**: web authentication or web passthrough (a captive portal page), typical for guest WLANs.\n\n**QoS tab.** The Quality of Service drop-down sets the WLAN's **QoS profile**:\n\n- **Platinum**: voice\n- **Gold**: video\n- **Silver**: best effort (the default)\n- **Bronze**: background\n\nThe same tab holds the WMM (Wi-Fi Multimedia) policy: Disabled, Allowed or Required. A voice WLAN gets Platinum; a guest WLAN often gets Bronze.\n\n**Advanced tab.** Many options; know these:\n\n- **Session Timeout**: enabled by default at 1800 seconds; after it, clients must reauthenticate.\n- **Client Exclusion**: enabled by default for 60 seconds; clients that repeatedly fail association or authentication are blocked for that long.\n- **AAA Override**: lets the RADIUS server assign a VLAN or QoS per user.\n- **DHCP Addr. Assignment Required**: clients must use DHCP, so a static address will not work.\n- **P2P Blocking**: stops clients on the WLAN from talking directly to each other (useful for guests).\n- Others such as coverage hole detection, FlexConnect local switching and a maximum client count.\n\nClick Apply to save. Two more defaults: the controller does not allow management sessions from wireless clients (Management > Mgmt Via Wireless enables it), and on newer Catalyst 9800 controllers the same settings are split between a WLAN profile (SSID and security), a policy profile (VLAN and QoS) and a policy tag that applies them to APs.\n\nWhen a client cannot connect, walk the tabs: Is the WLAN enabled? Is it on the right interface and VLAN? Does that VLAN have working DHCP? Do the PSK or the RADIUS server match what clients use? Does the radio policy offer the client's band?",
+        "code": "Security tab > Layer 2\n  Layer 2 Security       WPA+WPA2\n  WPA+WPA2 Parameters    [ ] WPA Policy   [x] WPA2 Policy   [x] AES   [ ] TKIP\n  Auth Key Mgmt          [ ] 802.1X       [x] PSK\n  PSK Format             ASCII   ********   (8 to 63 characters)\n\nQoS tab\n  Quality of Service     Silver (best effort)   <- default\n                         Platinum (voice) | Gold (video) | Bronze (background)\n  WMM Policy             Allowed\n\nAdvanced tab (selected defaults)\n  Enable Session Timeout [x] 1800 seconds\n  Client Exclusion       [x] 60 seconds\n  AAA Override           [ ] Enabled\n  P2P Blocking Action    Disabled",
+        "pitfall": "Choosing 802.1X under Authentication Key Management when you meant a shared passphrase. The WLAN becomes WPA2-Enterprise, and without a working RADIUS server every client fails to authenticate. For a passphrase, choose PSK.",
+        "check": {
+          "question": "A WLAN will carry IP phone calls. Which QoS profile should it use?",
+          "choices": [
+            "Gold",
+            "Silver",
+            "Bronze",
+            "Platinum"
+          ],
+          "answer": 3,
+          "explanation": "Platinum is the voice profile. Gold is for video, Silver is the best-effort default and Bronze is background."
+        }
+      }
+    ],
+    "keyTerms": [
+      {
+        "term": "Autonomous AP",
+        "definition": "A self-contained AP configured individually; it maps SSIDs to VLANs itself and usually connects to a trunk."
+      },
+      {
+        "term": "Cloud-based AP",
+        "definition": "An AP managed from a vendor cloud dashboard (Cisco Meraki); management goes to the cloud, client data stays local."
+      },
+      {
+        "term": "Lightweight AP",
+        "definition": "An AP that performs only real-time 802.11 functions and depends on a WLC for management."
+      },
+      {
+        "term": "WLC",
+        "definition": "Wireless LAN controller: centrally manages lightweight APs, RF, security, roaming and WLAN configuration."
+      },
+      {
+        "term": "Split-MAC architecture",
+        "definition": "Dividing 802.11 MAC duties between the AP (real time) and the WLC (management)."
+      },
+      {
+        "term": "CAPWAP",
+        "definition": "Tunneling protocol between lightweight APs and a WLC: control on UDP 5246 (encrypted), data on UDP 5247."
+      },
+      {
+        "term": "FlexConnect",
+        "definition": "AP mode for branches that can switch client traffic locally and keep working if the WLC is unreachable."
+      },
+      {
+        "term": "Dynamic interface",
+        "definition": "A WLC logical interface that maps a WLAN to a wired VLAN, with its own IP address and DHCP settings."
+      },
+      {
+        "term": "LAG",
+        "definition": "Link aggregation group: WLC distribution system ports bundled as one link; the switch side uses EtherChannel mode on."
+      },
+      {
+        "term": "PoE",
+        "definition": "Power over Ethernet: the switch powers the AP over the data cable (802.3af about 15 W, 802.3at about 30 W)."
+      },
+      {
+        "term": "QoS profile",
+        "definition": "A WLAN's priority level on the WLC: Platinum voice, Gold video, Silver best effort (default), Bronze background."
+      }
+    ],
+    "summary": [
+      "Autonomous APs are standalone and trunked; cloud-based APs are managed from the cloud with local data; lightweight APs depend on a WLC.",
+      "Split MAC keeps real-time 802.11 work on the AP and management on the WLC, joined by CAPWAP (control UDP 5246, data UDP 5247).",
+      "WLC deployment models: unified, cloud-based VM, embedded in a switch stack, and Mobility Express on an AP.",
+      "Local mode serves clients; FlexConnect suits branches; monitor, sniffer, rogue detector and SE-Connect are dedicated tools; bridge links sites.",
+      "Lightweight APs use access ports and PoE; WLC distribution ports use trunks, often in a LAG with mode on; the service port uses an access port.",
+      "WLAN GUI: General (status, radio policy, interface, broadcast SSID), Security (WPA2 AES with PSK or 802.1X), QoS (Platinum to Bronze), Advanced (1800 s session timeout)."
+    ],
+    "feynmanPrompt": "Explain to a colleague how a lightweight AP and a WLC share the work of a wireless network, what travels inside the CAPWAP tunnels, how the AP and WLC plug into switches, and which WLC GUI settings decide a client's VLAN, security and QoS."
+  },
+  "questions": [
+    {
+      "id": "ccna-wireless-architectures-q01",
+      "type": "mcq",
+      "difficulty": "easy",
+      "question": "Which device does a lightweight AP depend on for its configuration and most management functions?",
+      "choices": [
+        "A wireless LAN controller (WLC)",
+        "The default gateway router",
+        "A RADIUS server",
+        "The root bridge"
+      ],
+      "answer": 0,
+      "explanation": "Lightweight APs handle only real-time 802.11 work and rely on a WLC, reached over CAPWAP, for configuration, RF management, authentication and policy.",
+      "concept": "lightweight AP",
+      "section": 0
+    },
+    {
+      "id": "ccna-wireless-architectures-q02",
+      "type": "mcq",
+      "difficulty": "medium",
+      "question": "In a Cisco Meraki cloud-managed wireless network, where does client data traffic go?",
+      "choices": [
+        "Through a tunnel to the Meraki cloud, then back to the LAN",
+        "Through CAPWAP to a WLC in the data center",
+        "Directly from the AP onto the local wired network; only management goes to the cloud",
+        "Through the nearest autonomous AP acting as a gateway"
+      ],
+      "answer": 2,
+      "explanation": "Cloud-based APs are managed and monitored from the cloud, but they forward user data locally like autonomous APs. Only control and management traffic reaches the dashboard.",
+      "concept": "cloud-based data path",
+      "section": 0
+    },
+    {
+      "id": "ccna-wireless-architectures-q03",
+      "type": "multi",
+      "difficulty": "medium",
+      "question": "Which two statements describe autonomous APs? (Choose two.)",
+      "choices": [
+        "Each AP is configured and managed individually",
+        "They tunnel client traffic to a WLC with CAPWAP",
+        "Their switch port is usually a trunk carrying the SSIDs' VLANs",
+        "They cannot serve clients without a WLC",
+        "They cannot be managed with a web browser"
+      ],
+      "answers": [
+        0,
+        2
+      ],
+      "explanation": "Autonomous APs hold their own configuration and put client traffic onto VLANs themselves, so they need trunks. They work without a WLC and support CLI, HTTP and HTTPS management.",
+      "concept": "autonomous APs",
+      "section": 0
+    },
+    {
+      "id": "ccna-wireless-architectures-q04",
+      "type": "typed",
+      "difficulty": "medium",
+      "question": "Which UDP port carries the CAPWAP control tunnel?",
+      "answer": "5246",
+      "accept": [
+        "udp 5246"
+      ],
+      "explanation": "CAPWAP control uses UDP 5246 and is always protected with DTLS. Client data uses UDP 5247.",
+      "concept": "CAPWAP control port",
+      "section": 1
+    },
+    {
+      "id": "ccna-wireless-architectures-q05",
+      "type": "typed",
+      "difficulty": "medium",
+      "question": "Which UDP port carries the CAPWAP data tunnel?",
+      "answer": "5247",
+      "accept": [
+        "udp 5247"
+      ],
+      "explanation": "The data tunnel uses UDP 5247. Unlike the control tunnel, it is not encrypted unless DTLS data encryption is enabled.",
+      "concept": "CAPWAP data port",
+      "section": 1
+    },
+    {
+      "id": "ccna-wireless-architectures-q06",
+      "type": "match",
+      "difficulty": "medium",
+      "question": "Match each term to its description.",
+      "pairs": [
+        {
+          "left": "CAPWAP",
+          "right": "Tunneling protocol between lightweight APs and a WLC"
+        },
+        {
+          "left": "Split MAC",
+          "right": "AP does real-time 802.11 work, WLC does management"
+        },
+        {
+          "left": "DTLS",
+          "right": "Encryption protecting the CAPWAP control tunnel"
+        },
+        {
+          "left": "LWAPP",
+          "right": "Older Cisco protocol that CAPWAP is based on"
+        },
+        {
+          "left": "DHCP option 43",
+          "right": "Hands APs the IP addresses of WLCs"
+        }
+      ],
+      "explanation": "These are the building blocks of a controller-based WLAN: the architecture (split MAC), the tunnel (CAPWAP, from LWAPP), its protection (DTLS) and one way APs find controllers (option 43).",
+      "concept": "split-MAC vocabulary",
+      "section": 1
+    },
+    {
+      "id": "ccna-wireless-architectures-q07",
+      "type": "multi",
+      "difficulty": "hard",
+      "question": "In a split-MAC architecture, which three functions does the WLC perform? (Choose three.)",
+      "choices": [
+        "RF management, such as choosing channels and transmit power",
+        "Sending beacons and probe responses",
+        "Client authentication",
+        "Association and roaming management",
+        "Encrypting each 802.11 frame over the air"
+      ],
+      "answers": [
+        0,
+        2,
+        3
+      ],
+      "explanation": "Management functions (RF, authentication, roaming, security policy, QoS) move to the WLC. Beacons, probe responses and per-frame encryption are real-time tasks that stay on the AP.",
+      "concept": "WLC functions",
+      "section": 1
+    },
+    {
+      "id": "ccna-wireless-architectures-q08",
+      "type": "mcq",
+      "difficulty": "medium",
+      "question": "A lightweight AP at 10.10.10.10 and its WLC at 10.1.1.5 are in different subnets in different buildings. What is true?",
+      "choices": [
+        "The AP must be moved into the WLC's subnet",
+        "A trunk must extend the WLC's VLAN to the AP",
+        "The AP must be converted to autonomous mode",
+        "The AP can join, because CAPWAP tunnels are IP packets that are simply routed"
+      ],
+      "answer": 3,
+      "explanation": "CAPWAP encapsulates everything in IP between the AP and the WLC, so Layer 3 routing carries it. That independence from Layer 2 is a major advantage of the design.",
+      "concept": "CAPWAP is routed",
+      "section": 1
+    },
+    {
+      "id": "ccna-wireless-architectures-q09",
+      "type": "order",
+      "difficulty": "hard",
+      "question": "Put the steps in order for a new lightweight AP coming online.",
+      "items": [
+        "The AP boots and gets an IP address, usually by DHCP",
+        "The AP discovers WLC addresses (DHCP option 43, DNS, broadcast or a stored address)",
+        "The AP joins a WLC over CAPWAP",
+        "The WLC provides software and configuration to the AP",
+        "The AP starts advertising its SSIDs to clients"
+      ],
+      "explanation": "An AP needs an address before it can find a controller, must join before it receives its configuration, and serves clients only once configured.",
+      "concept": "AP join process",
+      "section": 1
+    },
+    {
+      "id": "ccna-wireless-architectures-q10",
+      "type": "mcq",
+      "difficulty": "easy",
+      "question": "Which WLC deployment model runs the controller as a virtual machine in a data center?",
+      "choices": [
+        "Embedded",
+        "Cloud-based",
+        "Mobility Express",
+        "Unified"
+      ],
+      "answer": 1,
+      "explanation": "A cloud-based WLC is a virtual controller in a data center or private cloud. Unified uses a central hardware appliance, embedded runs in a switch stack and Mobility Express runs on an AP.",
+      "concept": "cloud-based WLC",
+      "section": 2
+    },
+    {
+      "id": "ccna-wireless-architectures-q11",
+      "type": "match",
+      "difficulty": "medium",
+      "question": "Match each WLC deployment model to its location and typical scale.",
+      "pairs": [
+        {
+          "left": "Unified",
+          "right": "Central hardware controller, about 6000 APs"
+        },
+        {
+          "left": "Cloud-based",
+          "right": "Virtual machine in a data center, about 3000 APs"
+        },
+        {
+          "left": "Embedded",
+          "right": "Inside an access switch stack, about 200 APs"
+        },
+        {
+          "left": "Mobility Express",
+          "right": "Running on an AP at a branch, about 100 APs"
+        }
+      ],
+      "explanation": "The models trade scale for location: the further the controller sits from the core, the fewer APs it typically supports.",
+      "concept": "WLC deployment models",
+      "section": 2
+    },
+    {
+      "id": "ccna-wireless-architectures-q12",
+      "type": "mcq",
+      "difficulty": "hard",
+      "question": "Which statement correctly distinguishes a cloud-based WLC deployment from a cloud-based AP architecture?",
+      "choices": [
+        "They are two names for the same design",
+        "A cloud-based WLC is a virtual controller still using CAPWAP; cloud-based APs have no WLC and are managed from the vendor's cloud",
+        "Cloud-based APs tunnel all client data to the cloud, while a cloud-based WLC does not",
+        "A cloud-based WLC manages only autonomous APs"
+      ],
+      "answer": 1,
+      "explanation": "A cloud-based WLC is a controller VM in your own data center with CAPWAP tunnels to lightweight APs. Meraki-style cloud APs need no WLC; the vendor's cloud manages them, and their data stays local.",
+      "concept": "cloud terminology trap",
+      "section": 2
+    },
+    {
+      "id": "ccna-wireless-architectures-q13",
+      "type": "mcq",
+      "difficulty": "easy",
+      "question": "What is the default mode of a Cisco lightweight AP?",
+      "choices": [
+        "Monitor",
+        "FlexConnect",
+        "Bridge",
+        "Local"
+      ],
+      "answer": 3,
+      "explanation": "Local mode is the default: the AP serves clients, tunnels their traffic to the WLC and scans other channels in its spare time.",
+      "concept": "local mode",
+      "section": 3
+    },
+    {
+      "id": "ccna-wireless-architectures-q14",
+      "type": "match",
+      "difficulty": "medium",
+      "question": "Match each AP mode to its purpose.",
+      "pairs": [
+        {
+          "left": "Monitor",
+          "right": "Never transmits; dedicated rogue and IDS sensor"
+        },
+        {
+          "left": "Sniffer",
+          "right": "Sends captured 802.11 frames to an analyzer"
+        },
+        {
+          "left": "SE-Connect",
+          "right": "Spectrum analysis to find non-Wi-Fi interference"
+        },
+        {
+          "left": "Rogue detector",
+          "right": "Correlates wired MACs with rogues heard over the air"
+        },
+        {
+          "left": "Bridge",
+          "right": "Links buildings or forms a mesh"
+        },
+        {
+          "left": "FlexConnect",
+          "right": "Switches traffic locally at a branch"
+        }
+      ],
+      "explanation": "Each special mode dedicates the AP to one job. Only FlexConnect (and local) keep serving clients; bridge mode links networks.",
+      "concept": "AP modes",
+      "section": 3
+    },
+    {
+      "id": "ccna-wireless-architectures-q15",
+      "type": "mcq",
+      "difficulty": "medium",
+      "question": "Users near a break room lose Wi-Fi performance at lunchtime, and you suspect a microwave oven. Which AP mode helps you find non-802.11 interference?",
+      "choices": [
+        "Sniffer",
+        "SE-Connect",
+        "Rogue detector",
+        "Local"
+      ],
+      "answer": 1,
+      "explanation": "SE-Connect dedicates the radios to spectrum analysis, which reveals non-Wi-Fi energy such as microwave ovens. A sniffer captures only 802.11 frames, so it cannot see the oven.",
+      "concept": "SE-Connect",
+      "section": 3
+    },
+    {
+      "id": "ccna-wireless-architectures-q16",
+      "type": "mcq",
+      "difficulty": "medium",
+      "question": "An engineer needs an AP to capture wireless frames on one channel and send them to a laptop running Wireshark. Which AP mode should be used?",
+      "choices": [
+        "Monitor",
+        "Sniffer",
+        "SE-Connect",
+        "FlexConnect"
+      ],
+      "answer": 1,
+      "explanation": "Sniffer mode forwards captured 802.11 frames to a PC running an analyzer. Monitor mode feeds the WLC's rogue and IDS functions instead of a packet capture tool.",
+      "concept": "sniffer mode",
+      "section": 3
+    },
+    {
+      "id": "ccna-wireless-architectures-q17",
+      "type": "multi",
+      "difficulty": "medium",
+      "question": "Which two AP modes let an AP continue serving wireless clients? (Choose two.)",
+      "choices": [
+        "Local",
+        "Monitor",
+        "FlexConnect",
+        "Sniffer",
+        "SE-Connect"
+      ],
+      "answers": [
+        0,
+        2
+      ],
+      "explanation": "Local and FlexConnect both provide BSSs for clients. Monitor, sniffer and SE-Connect dedicate the radios to a tool function and stop serving clients.",
+      "concept": "client-serving modes",
+      "section": 3
+    },
+    {
+      "id": "ccna-wireless-architectures-q18",
+      "type": "mcq",
+      "difficulty": "medium",
+      "question": "Which WLC port connects to a switch trunk and carries CAPWAP tunnels and client traffic?",
+      "choices": [
+        "Service port",
+        "Distribution system port",
+        "Redundancy port",
+        "Console port"
+      ],
+      "answer": 1,
+      "explanation": "Distribution system ports carry all normal traffic in many VLANs, so they connect to 802.1Q trunks. The service port is for out-of-band management on one VLAN.",
+      "concept": "distribution system ports",
+      "section": 4
+    },
+    {
+      "id": "ccna-wireless-architectures-q19",
+      "type": "mcq",
+      "difficulty": "medium",
+      "question": "Which WLC port is used for out-of-band management and system recovery and connects to a switch access port?",
+      "choices": [
+        "Distribution system port",
+        "Redundancy port",
+        "Service port",
+        "Virtual port"
+      ],
+      "answer": 2,
+      "explanation": "The service port supports a single VLAN for out-of-band management and recovery, so its switch port is in access mode. 'Virtual' is a logical interface, not a port.",
+      "concept": "service port",
+      "section": 4
+    },
+    {
+      "id": "ccna-wireless-architectures-q20",
+      "type": "debug",
+      "difficulty": "hard",
+      "question": "These switch ports connect to an AireOS WLC whose distribution system ports are configured as a LAG. The bundle never forms. What is wrong?",
+      "code": "interface range GigabitEthernet1/0/47 - 48\n switchport mode trunk\n switchport trunk allowed vlan 50,100,200\n channel-group 5 mode active",
+      "language": "cisco",
+      "choices": [
+        "A WLC LAG requires PAgP desirable on the switch",
+        "WLC distribution system ports must connect to access ports",
+        "The AireOS WLC does not negotiate LACP, so the switch ports need channel-group 5 mode on",
+        "The allowed VLAN list must include VLAN 1"
+      ],
+      "answer": 2,
+      "explanation": "AireOS controllers support only static link aggregation. The switch must use mode on; LACP active waits forever for a partner that never answers.",
+      "concept": "WLC LAG",
+      "section": 4
+    },
+    {
+      "id": "ccna-wireless-architectures-q21",
+      "type": "mcq",
+      "difficulty": "hard",
+      "question": "Why does a lightweight AP in local mode need only an access port, even when its WLANs map to several different VLANs?",
+      "choices": [
+        "All WLAN traffic travels inside the CAPWAP tunnel to the WLC, which connects to those VLANs",
+        "The AP converts every WLAN into the native VLAN",
+        "Wireless frames carry no VLAN information",
+        "The access port automatically becomes a trunk when PoE is used"
+      ],
+      "answer": 0,
+      "explanation": "The AP needs only its own IP address to build CAPWAP tunnels. The WLC, connected to the VLANs through trunked distribution ports, places each WLAN's traffic in its VLAN.",
+      "concept": "AP access port",
+      "section": 4
+    },
+    {
+      "id": "ccna-wireless-architectures-q22",
+      "type": "match",
+      "difficulty": "medium",
+      "question": "Match each WLC logical interface to its role.",
+      "pairs": [
+        {
+          "left": "Management interface",
+          "right": "Terminates CAPWAP and handles management traffic"
+        },
+        {
+          "left": "Virtual interface",
+          "right": "Non-routed address for client DHCP relay and web auth"
+        },
+        {
+          "left": "Dynamic interface",
+          "right": "Maps a WLAN to a wired VLAN"
+        },
+        {
+          "left": "Service port interface",
+          "right": "Out-of-band management through the service port"
+        }
+      ],
+      "explanation": "Interfaces are logical Layer 3 terminations inside the WLC, distinct from the physical ports that connect it to switches.",
+      "concept": "WLC interfaces",
+      "section": 4
+    },
+    {
+      "id": "ccna-wireless-architectures-q23",
+      "type": "typed",
+      "difficulty": "medium",
+      "question": "About how many watts per port does 802.3at (PoE+) supply at the switch? (Number only.)",
+      "answer": "30",
+      "accept": [
+        "30 w",
+        "30 watts"
+      ],
+      "explanation": "PoE+ (802.3at) supplies up to about 30 W at the switch port, double the roughly 15 W of 802.3af PoE. Newer 802.3bt (UPOE) supplies 60 W or more.",
+      "concept": "PoE budget",
+      "section": 4
+    },
+    {
+      "id": "ccna-wireless-architectures-q24",
+      "type": "mcq",
+      "difficulty": "easy",
+      "question": "In the AireOS WLC GUI, where do you start creating a new WLAN?",
+      "choices": [
+        "Controller > Interfaces > New",
+        "Security > AAA > RADIUS > Authentication",
+        "WLANs > Create New > Go",
+        "Wireless > Access Points > All APs"
+      ],
+      "answer": 2,
+      "explanation": "The WLANs tab lists WLANs and offers Create New. Controller > Interfaces is where dynamic interfaces are created, and Security > AAA is where RADIUS servers are defined.",
+      "concept": "WLAN creation path",
+      "section": 5
+    },
+    {
+      "id": "ccna-wireless-architectures-q25",
+      "type": "mcq",
+      "difficulty": "medium",
+      "question": "Before creating a WLAN that should place clients in VLAN 100, what should you create under Controller > Interfaces?",
+      "choices": [
+        "A dynamic interface with VLAN ID 100, an IP address and DHCP server addresses",
+        "A RADIUS server entry for VLAN 100",
+        "A second management interface",
+        "A QoS profile named VLAN100"
+      ],
+      "answer": 0,
+      "explanation": "A dynamic interface connects the WLC to a wired VLAN. The WLAN's General tab then binds the WLAN to that interface.",
+      "concept": "dynamic interface",
+      "section": 5
+    },
+    {
+      "id": "ccna-wireless-architectures-q26",
+      "type": "mcq",
+      "difficulty": "easy",
+      "question": "A WLAN is fully configured, but the Status check box on its General tab is not ticked. What happens?",
+      "choices": [
+        "Clients can join but get no IP address",
+        "The WLAN exists but is not advertised or usable",
+        "The SSID is hidden but clients can still join",
+        "The WLAN is offered only on 2.4 GHz radios"
+      ],
+      "answer": 1,
+      "explanation": "Status enables or disables the WLAN. A disabled WLAN is kept in the configuration but not pushed to the APs' radios. Hiding the SSID is the separate Broadcast SSID setting.",
+      "concept": "WLAN status",
+      "section": 5
+    },
+    {
+      "id": "ccna-wireless-architectures-q27",
+      "type": "mcq",
+      "difficulty": "hard",
+      "question": "A WLAN uses Layer 2 Security WPA+WPA2 with WPA2 Policy and AES, and Authentication Key Management is set to 802.1X. No RADIUS server is defined. Users who type the correct shared passphrase cannot join. What is the fix?",
+      "choices": [
+        "Change Authentication Key Management to PSK and set the passphrase",
+        "Enable TKIP alongside AES",
+        "Untick Broadcast SSID",
+        "Change the QoS profile to Platinum"
+      ],
+      "answer": 0,
+      "explanation": "802.1X makes the WLAN WPA2-Enterprise, which authenticates each user against RADIUS, so a shared passphrase is never used. PSK makes it WPA2-Personal. (Alternatively, keep 802.1X and add working RADIUS servers and user accounts.)",
+      "concept": "PSK versus 802.1X",
+      "section": 6
+    },
+    {
+      "id": "ccna-wireless-architectures-q28",
+      "type": "match",
+      "difficulty": "easy",
+      "question": "Match each WLC QoS profile to the traffic it is meant for.",
+      "pairs": [
+        {
+          "left": "Platinum",
+          "right": "Voice"
+        },
+        {
+          "left": "Gold",
+          "right": "Video"
+        },
+        {
+          "left": "Silver",
+          "right": "Best effort (the default)"
+        },
+        {
+          "left": "Bronze",
+          "right": "Background"
+        }
+      ],
+      "explanation": "The metals rank priority from Platinum (voice) down to Bronze (background). New WLANs default to Silver.",
+      "concept": "QoS profiles",
+      "section": 6
+    },
+    {
+      "id": "ccna-wireless-architectures-q29",
+      "type": "typed",
+      "difficulty": "medium",
+      "question": "What is the default WLAN session timeout on an AireOS WLC, in seconds?",
+      "answer": "1800",
+      "accept": [
+        "1800 seconds"
+      ],
+      "explanation": "Client sessions are limited to 1800 seconds (30 minutes) by default, after which clients must reauthenticate. It is set on the Advanced tab.",
+      "concept": "session timeout",
+      "section": 6
+    },
+    {
+      "id": "ccna-wireless-architectures-q30",
+      "type": "multi",
+      "difficulty": "medium",
+      "question": "Which two Layer 2 security options should be avoided on a new WLAN because they are weak or deprecated? (Choose two.)",
+      "choices": [
+        "Static WEP",
+        "WPA2 with AES",
+        "WPA with TKIP",
+        "WPA3 with SAE"
+      ],
+      "answers": [
+        0,
+        2
+      ],
+      "explanation": "WEP is broken and WPA with TKIP is deprecated. WPA2 with AES is the baseline, and WPA3 with SAE is the stronger current option.",
+      "concept": "WLAN security choices",
+      "section": 6
+    },
+    {
+      "id": "ccna-wireless-architectures-q31",
+      "type": "mcq",
+      "difficulty": "medium",
+      "question": "A guest WLAN must stop guests from reaching each other's laptops over Wi-Fi. Which Advanced tab setting helps most?",
+      "choices": [
+        "AAA Override",
+        "Session Timeout",
+        "Coverage Hole Detection",
+        "P2P Blocking"
+      ],
+      "answer": 3,
+      "explanation": "P2P (peer-to-peer) blocking prevents clients on the same WLAN from communicating directly. AAA Override lets RADIUS assign per-user settings, and the other two do not control client-to-client traffic.",
+      "concept": "P2P blocking",
+      "section": 6
+    },
+    {
+      "id": "ccna-wireless-architectures-q32",
+      "type": "recall",
+      "difficulty": "easy",
+      "question": "Explain the split-MAC architecture in two or three sentences.",
+      "answer": "The 802.11 MAC functions are divided between the lightweight AP and the WLC. The AP keeps the real-time work (sending and receiving frames, beacons, probe responses, encryption), while the WLC does management (RF tuning, authentication, roaming, security and QoS). The two communicate through CAPWAP tunnels.",
+      "explanation": "Putting management on the controller is what lets one WLC configure and tune hundreds of APs at once.",
+      "concept": "split MAC",
+      "section": 1
+    },
+    {
+      "id": "ccna-wireless-architectures-q33",
+      "type": "mcq",
+      "difficulty": "hard",
+      "question": "Newer laptops join the Engineering WLAN without trouble, but an older laptop with only a 2.4 GHz radio never even sees the SSID. Based on the WLAN's General tab, what is the cause?",
+      "code": "WLANs > Edit 'Engineering'      [General] [Security] [QoS] [Advanced]\n\n  Profile Name               Engineering\n  SSID                       Engineering\n  Status                     [x] Enabled\n  Security Policies          [WPA2][Auth(PSK)]\n  Radio Policy               802.11a only\n  Interface/Interface Group  engineering\n  Broadcast SSID             [x] Enabled",
+      "language": "plaintext",
+      "choices": [
+        "Broadcast SSID is disabled",
+        "The Radio Policy offers the WLAN only on 5 GHz (802.11a) radios",
+        "The WLAN is bound to the wrong dynamic interface",
+        "WPA2 PSK is not supported on 2.4 GHz"
+      ],
+      "answer": 1,
+      "explanation": "802.11a only advertises the WLAN on the 5 GHz radios, so a 2.4 GHz-only client never hears its beacons. Setting Radio Policy to All (or including 802.11b/g) fixes it. Broadcast SSID is enabled, and the interface affects VLAN placement, not visibility.",
+      "concept": "radio policy",
+      "section": 5
+    },
+    {
+      "id": "ccna-wireless-architectures-q34",
+      "type": "mcq",
+      "difficulty": "hard",
+      "question": "Clients on the Engineering WLAN connect and authenticate, but they receive addresses from 10.10.10.0/24, the WLC management subnet, instead of the engineering VLAN 100 subnet. Based on the settings, what should be changed?",
+      "code": "Controller > Interfaces\n  Interface Name   VLAN Identifier   IP Address       Interface Type\n  engineering      100               192.168.100.10   Dynamic\n  management       10                10.10.10.5       Static\n  virtual          N/A               192.0.2.1        Static\n\nWLANs > Edit 'Engineering' > General\n  Interface/Interface Group  management\n  Status                     [x] Enabled",
+      "language": "plaintext",
+      "choices": [
+        "Change the WLAN's Interface/Interface Group to engineering",
+        "Change the virtual interface address to 192.168.100.1",
+        "Set the QoS profile to Gold",
+        "Enable AAA Override on the Advanced tab"
+      ],
+      "answer": 0,
+      "explanation": "The WLAN is still bound to the default management interface, so client traffic lands in VLAN 10. Binding it to the engineering dynamic interface puts clients in VLAN 100, where its DHCP settings apply. The virtual interface is only for client-facing services such as DHCP relay.",
+      "concept": "WLAN interface binding",
+      "section": 5
+    }
+  ]
+}

@@ -181,7 +181,7 @@ describe('explanations', () => {
     expect(explain(tableFor({ noDefault: true }), ip('8.8.8.8')).join(' ')).toMatch(/drops the packet/)
   })
   it('never uses em dashes', () => {
-    for (const q of QUESTIONS) expect(explain(tableFor(q), ip(q.ip)).join(' ')).not.toMatch(/—/)
+    for (const q of QUESTIONS) expect(explain(tableFor(q), ip(q.ip)).join(' ')).not.toMatch(/\u2014/)
   })
 })
 

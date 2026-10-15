@@ -20,7 +20,8 @@ export const POP_RATES = { off: 0, sometimes: 1 / 6, often: 1 / 3 }
 
 export const MAX_RETRIES = 2
 
-function makeItem(pack, question, card, random, isNew) {
+/** A queue item for a question, with its choices or steps shuffled. */
+export function makeItem(pack, question, card, random = Math.random, isNew = false) {
   const item = {
     key: `${pack.id}:${question.id}`,
     packId: pack.id,

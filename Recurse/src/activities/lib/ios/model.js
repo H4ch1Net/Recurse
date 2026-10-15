@@ -24,8 +24,8 @@ import {
   shortIf,
   wildMatch,
   wildcardSpecificity
-} from './addr'
-import { aclEval, allowedList, ifMac, sortedIfNames } from './device'
+} from './addr.js'
+import { aclEval, allowedList, ifMac, sortedIfNames } from './device.js'
 
 // ---------- environment ----------
 
@@ -495,7 +495,7 @@ export function routingTable(sim) {
   for (const r of dev.routes) {
     const len = maskToPrefix(r.mask)
     let ok
-    if (r.iface) ok = isUp(sim, r.iface) && (!r.nextHop || true)
+    if (r.iface) ok = isUp(sim, r.iface)
     else ok = Boolean(resolvable(r.nextHop))
     if (!ok) continue
     cands.push({ code: r.prefix === '0.0.0.0' && len === 0 ? 'S*' : 'S', prefix: r.prefix, len, ad: r.ad, metric: 0, paths: [{ nh: r.nextHop, iface: r.iface }] })
@@ -597,7 +597,7 @@ export function ipv6RoutingTable(sim) {
   for (const r of dev.ipv6Routes) {
     const p = parseIPv6Prefix(r.prefix)
     if (!p) continue
-    let ok = false
+    let ok
     if (r.iface) ok = isUp(sim, r.iface)
     else {
       const nh = parseIPv6(r.nextHop)
@@ -705,7 +705,8 @@ export function pingV6Result(sim, text) {
       continue
     }
     const nh = path.nh ? ipv6ToStr(parseIPv6(path.nh)) : null
-    const nb = (sim.env.neighbors || []).find((n) => n.ipv6 && ipv6ToStr(parseIPv6(n.ipv6)) === nh)
+    const norm6 = (x) => (x ? ipv6ToStr(parseIPv6(x)) : null)
+    const nb = (sim.env.neighbors || []).find((n) => (!path.iface || n.port === parentIf(path.iface)) && (nh ? [norm6(n.ipv6), norm6(n.ipv6LinkLocal)].includes(nh) : Boolean(n.ipv6)))
     if (!nb) continue
     if ((nb.behind6 || []).some((b) => {
       const p = parseIPv6Prefix(b)
@@ -772,7 +773,7 @@ export function natTranslations(sim) {
     const out_if = egress && dev.interfaces[egress]
     if (!out_if || out_if.natRole !== 'outside') continue
     const st = dev.nat.statics.find((s) => s.inside === f.src)
-    let global = null
+    let global
     let overload = false
     if (st) global = st.outside
     else {

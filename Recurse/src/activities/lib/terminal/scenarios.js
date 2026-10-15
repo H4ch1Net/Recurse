@@ -125,3 +125,20 @@ export const SCENARIO_IDS = Object.keys(SCENARIOS)
 export function scenarioFor(id) {
   return SCENARIOS[id] ? id : 'navigation'
 }
+
+/** A one-line teaching note for common shell errors, or null. */
+export function explainOutput(lines) {
+  const text = lines.filter((l) => l.tone === 'err').map((l) => l.text).join('\n')
+  if (!text) return null
+  if (/command not found/.test(text)) return 'The shell does not know that command. Check the spelling, or type help for the list.'
+  if (/Permission denied/.test(text)) return 'Permission denied: the file\'s mode bits do not allow that. ls -l shows them, chmod changes them on files you own.'
+  if (/Operation not permitted/.test(text)) return 'Only the owner (or root) can change permissions. ls -l shows who owns a file.'
+  if (/No such file or directory|cannot stat|cannot access/.test(text)) return 'That path does not exist from here. pwd shows where you are, ls shows what is around, Tab completes names.'
+  if (/Is a directory/.test(text)) return 'That is a folder, not a file. Use ls to look inside, or -r for commands that work on whole folders.'
+  if (/Not a directory/.test(text)) return 'Part of that path is a file, not a folder.'
+  if (/File exists/.test(text)) return 'Something with that name is already there. Pick another name, or use mkdir -p to skip the error.'
+  if (/missing (file )?operand|Usage:/.test(text)) return 'This command needs more arguments. man <command> shows how to use it.'
+  if (/invalid option|unknown predicate/.test(text)) return 'One of the options is not valid for this command. man <command> lists the ones that are.'
+  if (/syntax error|unexpected EOF/.test(text)) return 'The shell could not parse that line. Check quotes and pipes.'
+  return null
+}

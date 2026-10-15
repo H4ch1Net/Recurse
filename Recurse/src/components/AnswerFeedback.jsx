@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { BookOpen } from 'lucide-react'
 import { codeLanguage } from '../lib/packs'
+import { useLesson } from '../hooks/useLesson'
 import CodeBlock from './CodeBlock'
 import RichText, { Inline } from './RichText'
 
@@ -11,6 +12,8 @@ import RichText, { Inline } from './RichText'
 export default function AnswerFeedback({ pack, question, outcome, lessonKey = true, showLessonDefault = false }) {
   const [showLesson, setShowLesson] = useState(showLessonDefault)
   const section = question.section != null ? pack?.lesson?.sections?.[question.section] : null
+  const { lesson: full } = useLesson(pack, Boolean(section) && showLesson)
+  const fullSection = full?.sections?.[question.section]
   const textual = ['typed', 'cli', 'recall'].includes(question.type)
 
   return (
@@ -42,8 +45,14 @@ export default function AnswerFeedback({ pack, question, outcome, lessonKey = tr
           </button>
           {showLesson && (
             <div className="lesson-peek-body rise">
-              <RichText text={section.body} className="prose small-prose" />
-              {section.code && <CodeBlock code={section.code} language={codeLanguage(pack, section)} />}
+              {fullSection ? (
+                <>
+                  <RichText text={fullSection.body} className="prose small-prose" />
+                  {fullSection.code && <CodeBlock code={fullSection.code} language={codeLanguage(pack, fullSection)} />}
+                </>
+              ) : (
+                <div className="skeleton line" aria-busy="true" />
+              )}
             </div>
           )}
         </div>

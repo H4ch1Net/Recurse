@@ -1,5 +1,6 @@
 import { subjectFor } from './packSchema'
 import { SUBJECTS } from './subjects'
+import PACK_INDEX from 'virtual:pack-index'
 
 const SUBJECT_ORDER = SUBJECTS.map((s) => s.id)
 const LEVEL_ORDER = ['beginner', 'intermediate', 'advanced']
@@ -40,10 +41,48 @@ export function sortPacks(packs) {
   )
 }
 
-const modules = import.meta.glob('../data/packs/*.json', { eager: true, import: 'default' })
-
-export const BUILT_IN_PACKS = sortPacks(Object.values(modules).map((pack) => normalizePack(pack)))
+// Built-in packs come from a build-time index with slim lessons (titles, terms, summary);
+// the full lesson text of each pack is its own chunk, fetched when a lesson is opened.
+export const BUILT_IN_PACKS = sortPacks(PACK_INDEX.map((pack) => normalizePack(pack)))
 export const BUILT_IN_IDS = new Set(BUILT_IN_PACKS.map((p) => p.id))
+
+const fullPacks = import.meta.glob('../data/packs/*.json', { import: 'default' })
+const lessonCache = new Map()
+
+/** The full lesson for a pack: immediately for user packs, after a fetch for built-ins. */
+export function loadLesson(pack) {
+  if (!pack?.lesson) return Promise.resolve(null)
+  if (!pack.lesson.partial) return Promise.resolve(pack.lesson)
+  if (lessonCache.has(pack.id)) return lessonCache.get(pack.id)
+  const loader = fullPacks[`../data/packs/${pack.id}.json`]
+  const promise = loader
+    ? loader().then((full) => full.lesson)
+    : Promise.resolve(pack.lesson)
+  promise.catch(() => lessonCache.delete(pack.id))
+  lessonCache.set(pack.id, promise)
+  return promise
+}
+
+const resolved = new Map()
+
+/** Synchronous access when the lesson has already arrived (or is not partial). */
+export function cachedLesson(pack) {
+  if (!pack?.lesson?.partial) return pack?.lesson || null
+  return resolved.get(pack.id) || null
+}
+
+export function rememberLesson(id, lesson) {
+  if (lesson) resolved.set(id, lesson)
+}
+
+/** Fetch lessons in the background so they work offline later. */
+export function prefetchLessons(packs) {
+  for (const pack of packs) {
+    if (pack.lesson?.partial && !lessonCache.has(pack.id)) {
+      loadLesson(pack).then((lesson) => rememberLesson(pack.id, lesson)).catch(() => {})
+    }
+  }
+}
 
 /** Code language for a question or lesson section, falling back to the pack default. */
 export function codeLanguage(pack, item) {

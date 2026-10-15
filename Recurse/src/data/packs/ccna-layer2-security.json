@@ -1,0 +1,545 @@
+{
+  "id": "ccna-layer2-security",
+  "name": "Layer 2 Security",
+  "version": "1.0.0",
+  "author": "Recurse",
+  "subject": "networking",
+  "level": "intermediate",
+  "description": "Configure and verify port security, DHCP snooping and Dynamic ARP Inspection to stop rogue devices and spoofing at the switch.",
+  "icon": "L2S",
+  "language": "cisco",
+  "prereqs": ["ccna-switching", "ccna-vlans", "ccna-dhcp-dns", "ccna-security-concepts"],
+  "tags": ["ccna", "5.7", "port-security", "dhcp-snooping", "dai", "switching"],
+  "lesson": {
+    "estimatedMinutes": 36,
+    "intro": "Most attacks on a LAN start with someone plugging into a wall jack. On a switch with default settings, that device can flood the MAC table, hand out fake DHCP leases or poison ARP caches to put itself in the middle of everyone's traffic. This lesson covers the three access-edge defenses on the CCNA blueprint: port security, DHCP snooping and Dynamic ARP Inspection. You will configure each, read their show output and recover ports they shut down.",
+    "objectives": [
+      "Match MAC flooding, rogue DHCP, DHCP starvation and ARP poisoning to the switch feature that stops each",
+      "Configure port security with a maximum, sticky learning and a violation mode, and verify it",
+      "Compare the protect, restrict and shutdown violation modes and recover an err-disabled port",
+      "Configure DHCP snooping with trusted ports, and explain the binding table, option 82 and rate limits",
+      "Configure Dynamic ARP Inspection on top of DHCP snooping and verify it"
+    ],
+    "sections": [
+      {
+        "title": "Attacks at the access edge",
+        "body": "A visitor plugs a laptop into a conference room jack. With default settings, the switch puts it in the room's VLAN and starts forwarding its frames like any other host. From there, a few classic attacks are possible:\n\n- **MAC flooding**: a tool sends thousands of frames per second, each with a different fake source MAC. The switch learns them all until its MAC address table is full. New legitimate addresses can no longer be learned, so frames to them are flooded out every port, and the attacker can capture traffic it should never see.\n- **Rogue DHCP server**: the laptop answers DHCP Discovers faster than the real server and hands out leases with its own IP as the default gateway (a man in the middle) or with bogus settings (a denial of service).\n- **DHCP starvation**: the attacker sends Discovers with thousands of made-up client hardware addresses until the real server's pool is empty, so real clients get nothing. It is often the first step before starting a rogue server.\n- **ARP poisoning**: forged or gratuitous ARP replies claim the gateway's IP for the attacker's MAC, so hosts send their traffic to the attacker.\n\nVLANs do not stop any of these; they all happen inside one VLAN. The defenses live on the access switch, and they share one idea, the **trust boundary**: ports facing users are untrusted and checked, while ports facing infrastructure (uplinks, routers, the real DHCP server) are trusted.",
+        "code": "Attack                         Switch feature that stops it\nMAC flooding                   Port security (caps MACs per port)\nUnknown device on a desk port  Port security (only known or sticky MACs)\nRogue DHCP server              DHCP snooping (server messages dropped on untrusted ports)\nDHCP starvation                DHCP snooping (MAC check) plus rate limiting\nARP poisoning / spoofing       Dynamic ARP Inspection (uses the snooping binding table)",
+        "language": "plaintext",
+        "activity": {
+          "type": "mac-learning",
+          "title": "What port security limits",
+          "prompt": "Send frames between hosts and watch the switch learn each source MAC on the port it arrived on. Notice that the switch learns any source address it sees, with no limit and no questions asked. A MAC flooding tool abuses exactly that by inventing thousands of source MACs; port security puts a cap on how many addresses each port may teach the switch."
+        },
+        "pitfall": "Assuming VLAN segmentation stops these attacks. Rogue DHCP, ARP poisoning and MAC flooding all work inside a single VLAN, which is where the attacker already is.",
+        "check": {
+          "question": "What does an attacker gain from a successful MAC flooding attack?",
+          "choices": ["The switch's administrator password", "Control of the spanning tree root bridge", "Frames for unlearned destinations are flooded out every port, including the attacker's", "A DHCP lease with the attacker as the default gateway"],
+          "answer": 2,
+          "explanation": "Once the MAC table is full, the switch cannot learn real hosts' addresses and floods frames meant for them, so the attacker can capture traffic that would normally be switched only to the right port."
+        }
+      },
+      {
+        "title": "Port security concepts",
+        "body": "**Port security** limits which source MAC addresses, and how many, may send frames into a switch port. Each port gets a **maximum** number of secure MAC addresses (default **1**). When a frame arrives from a new source MAC that would push the port over its maximum, or from a MAC that is not allowed, that is a **violation**, and the switch reacts according to the violation mode.\n\nSecure addresses come from three places:\n\n- **Static**: you type them with `switchport port-security mac-address H.H.H`. Precise, but you must know every device's MAC.\n- **Dynamic**: the switch learns them from traffic, up to the maximum. They are lost when the switch reloads.\n- **Sticky**: learned like dynamic addresses but written into the running configuration as `switchport port-security mac-address sticky H.H.H`. Save the configuration and they survive a reload. Sticky gives you static-like control without collecting MAC addresses by hand.\n\nPort security has one firm requirement: the port must be **statically** an access port or a trunk. On a port left in a dynamic mode (dynamic auto or desirable), IOS rejects `switchport port-security` with \"Command rejected: ... is a dynamic port.\"\n\nTwo practical notes. A port with an IP phone and a PC behind it needs a maximum of at least **2**. And once a port uses port security, its learned addresses are no longer listed as dynamic in the MAC table; use `show mac address-table secure` (they show with type STATIC).",
+        "code": "interface GigabitEthernet0/1        ! static: only this one MAC may use the port\n switchport mode access\n switchport port-security\n switchport port-security mac-address 0200.1111.1111\n!\ninterface GigabitEthernet0/2        ! sticky: learn the first MAC and keep it\n switchport mode access\n switchport port-security\n switchport port-security mac-address sticky\n!\ninterface GigabitEthernet0/3        ! IP phone plus a PC behind it\n switchport mode access\n switchport access vlan 10\n switchport voice vlan 110\n switchport port-security\n switchport port-security maximum 2",
+        "pitfall": "Configuring the maximum, violation mode and sticky learning but forgetting the plain switchport port-security command. IOS keeps the settings, but port security stays disabled until that command is entered.",
+        "check": {
+          "question": "Port security is enabled on an access port with no other port-security options. How many MAC addresses may use the port?",
+          "choices": ["One", "Two", "Unlimited until a violation mode is set", "As many as the VLAN allows"],
+          "answer": 0,
+          "explanation": "The default maximum is 1 secure MAC address. A second source MAC causes a violation, and the default action is to err-disable the port."
+        }
+      },
+      {
+        "title": "Configuring and verifying port security",
+        "body": "The configuration follows the same checklist every time:\n\n1. Make the port a static access (or trunk) port: `switchport mode access`, plus `switchport access vlan` as needed.\n2. Enable the feature: `switchport port-security`.\n3. Optionally change the maximum: `switchport port-security maximum n`.\n4. Optionally change the violation mode: `switchport port-security violation {protect | restrict | shutdown}` (shutdown is the default).\n5. Optionally define addresses: `switchport port-security mac-address H.H.H` for static, or `switchport port-security mac-address sticky` to learn and keep them.\n\nThe most useful verification command is `show port-security interface`, shown below. Read these fields:\n\n- **Port Status**: `Secure-up` means port security is on and the port is forwarding. `Secure-shutdown` means a violation err-disabled it.\n- **Violation Mode**: protect, restrict or shutdown.\n- **Maximum, Total, Configured and Sticky MAC Addresses**: the limit and what has been learned or configured.\n- **Last Source Address:Vlan**: the most recent source MAC seen, often the violator after a violation.\n- **Security Violation Count**: how many violations were counted.\n\n`show port-security` gives a one-line-per-port summary, and `show port-security address` lists every secure MAC. Sticky addresses appear in `show running-config` immediately, but they only survive a reload after `copy running-config startup-config`.",
+        "code": "SW1# show port-security interface GigabitEthernet0/1\nPort Security              : Enabled\nPort Status                : Secure-up\nViolation Mode             : Shutdown\nAging Time                 : 0 mins\nAging Type                 : Absolute\nSecureStatic Address Aging : Disabled\nMaximum MAC Addresses      : 1\nTotal MAC Addresses        : 1\nConfigured MAC Addresses   : 0\nSticky MAC Addresses       : 1\nLast Source Address:Vlan   : 0200.2222.2222:10\nSecurity Violation Count   : 0",
+        "activity": {
+          "type": "ios-console",
+          "title": "Lock a port with port security",
+          "prompt": "Make G0/1 an access port in VLAN 10, then enable port security with a maximum of 1, sticky learning and the shutdown violation mode. Watch the order: what happens if you try to enable port security before the port is a static access port? Finish with show port-security and show running-config, and find where the sticky settings appear.",
+          "props": { "lab": "cl-d5-portsec" }
+        },
+        "pitfall": "Forgetting that sticky MACs live in the running configuration. After a reload without copy running-config startup-config, the port learns from scratch, possibly from the wrong device.",
+        "check": {
+          "question": "show port-security interface reports Port Status: Secure-up and Security Violation Count: 0. What does that mean?",
+          "choices": ["The port is err-disabled and waiting for recovery", "Port security is enabled and the port is forwarding with no violations counted", "Port security is configured but not enabled", "The port is a trunk and port security does not apply"],
+          "answer": 1,
+          "explanation": "Secure-up means port security is active and the port is up. A violation in shutdown mode would change the status to Secure-shutdown and increment the counter."
+        }
+      },
+      {
+        "title": "Violation modes and err-disabled recovery",
+        "body": "What the switch does on a violation depends on the mode, and all three modes discard the offending frames. The differences are in what else happens:\n\n- **shutdown** (the default): the port is put in the **err-disabled** state. All traffic stops, the legitimate device included. `show interfaces status` shows `err-disabled`, `show port-security interface` shows `Secure-shutdown`, a syslog message is generated, and the violation counter goes up by one (it counts shutdowns, not frames).\n- **restrict**: the port stays up and keeps forwarding for allowed MACs. Frames from violating MACs are dropped, a syslog message (and SNMP trap) is generated, and the violation counter increments for each violating frame.\n- **protect**: the port stays up, violating frames are dropped silently. No log message, no counter. Secure, but miserable to troubleshoot: a user's device simply does not work and nothing says why.\n\nAn err-disabled port stays down until someone acts. First remove or fix whatever caused the violation, otherwise the port will shut again immediately. Then recover it manually with `shutdown` followed by `no shutdown` on the interface. Or let the switch recover automatically: `errdisable recovery cause psecure-violation` enables auto-recovery for port-security violations, and `errdisable recovery interval seconds` sets the wait (300 seconds by default).",
+        "code": "Mode       Discards bad frames  Log + SNMP  Counter increments   Port state\nprotect    Yes                  No          No                   Stays up (Secure-up)\nrestrict   Yes                  Yes         Yes, per frame       Stays up (Secure-up)\nshutdown   Yes                  Yes         Yes, once per event  err-disabled (Secure-shutdown)\n\n%PORT_SECURITY-2-PSECURE_VIOLATION: Security violation occurred, caused by\nMAC address 0200.3333.3333 on port GigabitEthernet0/1.\n\nSW1(config)# errdisable recovery cause psecure-violation\nSW1(config)# errdisable recovery interval 120",
+        "language": "cisco",
+        "tip": "If a user says their port is dead and show interfaces status says err-disabled, port security in shutdown mode is the first suspect.",
+        "pitfall": "Bouncing an err-disabled port with shutdown and no shutdown while the unauthorized device is still plugged in. The next frame from it triggers another violation and the port goes straight back to err-disabled.",
+        "check": {
+          "question": "Which violation mode keeps the port up for the allowed device, drops frames from extra MACs, and also logs the violation and increments the counter?",
+          "choices": ["protect", "shutdown", "restrict", "disable"],
+          "answer": 2,
+          "explanation": "restrict drops the violating frames while keeping the port up, and it records the event with syslog, SNMP and the counter. protect does the same dropping silently, and shutdown err-disables the whole port."
+        }
+      },
+      {
+        "title": "DHCP snooping",
+        "body": "**DHCP snooping** stops rogue DHCP servers and limits DHCP starvation by watching DHCP messages as they cross the switch. It divides ports into two kinds:\n\n- **Trusted** ports face the real DHCP server or the path to it: uplinks, the router acting as a DHCP relay, the server's own port. Every DHCP message is allowed.\n- **Untrusted** ports, the default for every port, face clients. Here the switch applies rules.\n\nOn untrusted ports, messages that only a server should send (**DHCPOFFER, DHCPACK, DHCPNAK**) are always dropped, which is what kills a rogue server. Messages clients send are checked: for DISCOVER and REQUEST, the source MAC in the Ethernet header must match the client hardware address (chaddr) inside the DHCP message, which defeats starvation tools that invent chaddr values; and RELEASE or DECLINE messages must come from the interface listed in the binding table, so an attacker cannot release someone else's lease.\n\nFor every lease that completes, the switch records a **DHCP snooping binding**: client MAC, leased IP, lease time, VLAN and interface. Dynamic ARP Inspection (next section) and IP Source Guard rely on this table.\n\nTwo configuration details trip people up. First, by default the switch inserts **DHCP option 82** (relay agent information) into client requests. On a plain Layer 2 access switch that is not itself a relay agent, many servers and relays then discard the requests, so `no ip dhcp snooping information option` is usually needed. Second, because snooping uses the switch CPU, you can protect it with **rate limits**: `ip dhcp snooping limit rate 10` on an interface err-disables the port if more than 10 DHCP messages arrive per second (there is no limit by default). `errdisable recovery cause dhcp-rate-limit` makes that self-healing.",
+        "code": "SW1(config)# ip dhcp snooping\nSW1(config)# ip dhcp snooping vlan 10\nSW1(config)# no ip dhcp snooping information option\nSW1(config)# interface GigabitEthernet0/24\nSW1(config-if)# ip dhcp snooping trust\nSW1(config-if)# interface range GigabitEthernet0/1 - 23\nSW1(config-if-range)# ip dhcp snooping limit rate 10\n\nSW1# show ip dhcp snooping binding\nMacAddress          IpAddress        Lease(sec)  Type           VLAN  Interface\n------------------  ---------------  ----------  -------------  ----  --------------------\n02:00:11:11:11:11   10.1.10.101      86110       dhcp-snooping   10   GigabitEthernet0/3\n02:00:22:22:22:22   10.1.10.102      86399       dhcp-snooping   10   GigabitEthernet0/4\nTotal number of bindings: 2",
+        "pitfall": "Enabling DHCP snooping and forgetting to trust the uplink toward the real server. Every legitimate OFFER and ACK then arrives on an untrusted port and is dropped, and no client gets an address.",
+        "check": {
+          "question": "With DHCP snooping enabled, a DHCPOFFER arrives on an untrusted access port. What does the switch do?",
+          "choices": ["Forwards it, because offers are needed for DHCP to work", "Forwards it only if the MAC addresses match", "Adds it to the binding table and forwards it", "Drops it, because servers should never be on untrusted ports"],
+          "answer": 3,
+          "explanation": "OFFER, ACK and NAK are server messages. On an untrusted port they can only come from a rogue server, so the switch always discards them."
+        }
+      },
+      {
+        "title": "Dynamic ARP Inspection",
+        "body": "DHCP snooping stops the rogue server, but an attacker with a valid lease can still send forged ARP replies saying \"10.1.10.1 is at my MAC\" and pull the gateway's traffic through itself. **Dynamic ARP Inspection (DAI)** closes that hole.\n\nWith DAI enabled on a VLAN, the switch intercepts every ARP message (requests and replies) that arrives on an **untrusted** port and compares the sender's MAC and IP addresses with the **DHCP snooping binding table**. If the pair matches a binding learned on that port, the ARP is forwarded. If not, it is dropped and logged. ARP messages on **trusted** ports, such as uplinks and router ports, are not checked.\n\nThat dependency gives DAI its configuration order: run DHCP snooping first so the binding table exists, then enable DAI with `ip arp inspection vlan 10` and mark the same uplinks trusted with `ip arp inspection trust`. If you enable DAI without DHCP snooping, every ARP on untrusted ports in that VLAN is dropped. Hosts with **static IP addresses** never appear in the snooping table either, so they need an ARP ACL (`arp access-list` applied with `ip arp inspection filter`) or they lose connectivity.\n\nDAI is also CPU work, so it rate-limits by default: **15 ARP packets per second** on untrusted ports, after which the port is err-disabled. Adjust with `ip arp inspection limit rate n [burst interval seconds]` and auto-recover with `errdisable recovery cause arp-inspection`. Optional extra checks, `ip arp inspection validate src-mac dst-mac ip`, also compare the addresses in the ARP body with the Ethernet header.\n\nVerify with `show ip arp inspection` (per-VLAN forwarded and dropped counters), `show ip arp inspection interfaces` (trust state and rate limits) and the snooping binding table.",
+        "code": "SW1(config)# ip arp inspection vlan 10\nSW1(config)# interface GigabitEthernet0/24\nSW1(config-if)# ip arp inspection trust\n\nSW1# show ip arp inspection interfaces\n Interface        Trust State     Rate (pps)    Burst Interval\n ---------------  -----------     ----------    --------------\n Gi0/1            Untrusted               15                 1\n Gi0/2            Untrusted               15                 1\n Gi0/24           Trusted               None               N/A\n\n%SW_DAI-4-DHCP_SNOOPING_DENY: 1 Invalid ARPs (Res) on Gi0/2, vlan 10.\n([0200.6666.6666/10.1.10.1/0200.1111.1111/10.1.10.101/...])",
+        "activity": {
+          "type": "ios-console",
+          "title": "DHCP snooping and DAI",
+          "prompt": "Protect VLAN 10: enable DHCP snooping globally and for the VLAN, trust the uplink G0/24, then enable Dynamic ARP Inspection for VLAN 10 and trust G0/24 for ARP as well. Before you start, predict what would break if you trusted nothing. When done, compare show ip dhcp snooping with show ip arp inspection.",
+          "props": { "lab": "cl-d5-dhcpsnoop" }
+        },
+        "pitfall": "Turning on DAI in a VLAN that contains statically addressed servers or printers without an ARP ACL. They have no snooping bindings, so every ARP they send is dropped and they vanish from the network.",
+        "check": {
+          "question": "Dynamic ARP Inspection decides whether an ARP message on an untrusted port is legitimate by checking it against what?",
+          "choices": ["The switch's MAC address table", "The DHCP snooping binding table", "The router's routing table", "The port security sticky addresses"],
+          "answer": 1,
+          "explanation": "DAI compares the sender MAC and IP in the ARP message with the bindings DHCP snooping learned (or an ARP ACL for static hosts). That is why DHCP snooping is configured first."
+        }
+      }
+    ],
+    "keyTerms": [
+      { "term": "MAC flooding", "definition": "An attack that fills a switch's MAC table with fake source addresses so frames are flooded out every port." },
+      { "term": "Port security", "definition": "A switch port feature that limits how many and which source MAC addresses may use the port." },
+      { "term": "Sticky MAC address", "definition": "A dynamically learned secure MAC that port security writes into the running configuration." },
+      { "term": "Violation mode", "definition": "What port security does on a violation: protect (drop silently), restrict (drop, log, count) or shutdown (err-disable the port)." },
+      { "term": "err-disabled", "definition": "A state in which the switch has disabled a port because of an error or security violation; recover with shutdown and no shutdown or errdisable recovery." },
+      { "term": "DHCP snooping", "definition": "A switch feature that drops DHCP server messages on untrusted ports, checks client messages and builds a binding table." },
+      { "term": "Trusted port", "definition": "A port facing infrastructure (uplink, router, real DHCP server) where DHCP snooping and DAI do not filter messages." },
+      { "term": "DHCP snooping binding table", "definition": "The switch's record of each client's MAC, leased IP, lease time, VLAN and interface." },
+      { "term": "Option 82", "definition": "DHCP relay agent information that a snooping switch inserts by default; usually disabled on Layer 2 switches that are not relay agents." },
+      { "term": "Dynamic ARP Inspection", "definition": "A switch feature that drops ARP messages on untrusted ports whose MAC and IP do not match the DHCP snooping bindings." }
+    ],
+    "summary": [
+      "Access-edge attacks (MAC flooding, rogue DHCP, starvation, ARP poisoning) happen inside one VLAN, so the defenses live on the access switch.",
+      "Port security needs a static access or trunk port; the default is a maximum of 1 MAC and the shutdown violation mode.",
+      "Sticky MACs are learned and written to the running config; save the config to keep them.",
+      "protect drops silently, restrict drops and logs and counts, shutdown err-disables; recover with shutdown and no shutdown or errdisable recovery.",
+      "DHCP snooping trusts uplinks, drops OFFER, ACK and NAK on untrusted ports, checks client MACs and builds the binding table.",
+      "DAI checks ARP on untrusted ports against the snooping bindings, so configure DHCP snooping first and handle static hosts with ARP ACLs."
+    ],
+    "feynmanPrompt": "Explain to a junior technician how an attacker on a conference room jack could become a man in the middle using a rogue DHCP server or ARP poisoning, and how DHCP snooping, Dynamic ARP Inspection and port security together stop each step."
+  },
+  "questions": [
+    {
+      "id": "ccna-layer2-security-q01",
+      "type": "mcq",
+      "difficulty": "easy",
+      "question": "An attack tool sends thousands of frames per second, each with a different made-up source MAC address. What is this attack, and which feature limits it?",
+      "choices": ["ARP poisoning, stopped by DHCP snooping", "MAC flooding, limited by port security", "DHCP starvation, stopped by DAI", "VLAN hopping, stopped by BPDU guard"],
+      "answer": 1,
+      "explanation": "Inventing source MACs to fill the MAC table is MAC flooding. Port security caps how many MACs each port may introduce.",
+      "concept": "MAC flooding",
+      "section": 0
+    },
+    {
+      "id": "ccna-layer2-security-q02",
+      "type": "match",
+      "difficulty": "medium",
+      "question": "Match each attack to the switch feature designed to stop it.",
+      "pairs": [
+        { "left": "Unauthorized laptop on a desk port", "right": "Port security" },
+        { "left": "Rogue DHCP server handing out a fake gateway", "right": "DHCP snooping" },
+        { "left": "Forged ARP replies claiming the gateway's IP", "right": "Dynamic ARP Inspection" },
+        { "left": "Thousands of fake source MACs filling the MAC table", "right": "Port security maximum" }
+      ],
+      "explanation": "Port security controls MACs per port, DHCP snooping filters DHCP server messages on untrusted ports, and DAI validates ARP against the snooping bindings.",
+      "concept": "L2 attack mitigation",
+      "section": 0
+    },
+    {
+      "id": "ccna-layer2-security-q03",
+      "type": "mcq",
+      "difficulty": "medium",
+      "question": "An attacker sends DHCP Discover messages, each with a different invented client hardware address, until the server's pool runs out. What is this attack called?",
+      "choices": ["DHCP starvation", "DHCP spoofing", "MAC flooding", "ARP poisoning"],
+      "answer": 0,
+      "explanation": "Exhausting the server's address pool with fake requests is DHCP starvation. It is often followed by a rogue DHCP server that answers clients the real server can no longer serve.",
+      "concept": "DHCP starvation",
+      "section": 0
+    },
+    {
+      "id": "ccna-layer2-security-q04",
+      "type": "mcq",
+      "difficulty": "easy",
+      "question": "What is the default violation mode for port security?",
+      "choices": ["protect", "restrict", "log", "shutdown"],
+      "answer": 3,
+      "explanation": "By default a violation err-disables the port (shutdown mode). protect and restrict must be configured explicitly.",
+      "concept": "default violation mode",
+      "section": 1
+    },
+    {
+      "id": "ccna-layer2-security-q05",
+      "type": "mcq",
+      "difficulty": "medium",
+      "question": "An engineer sees the message below. What must be done before port security can be enabled on Gi0/5?",
+      "code": "SW1(config)# interface GigabitEthernet0/5\nSW1(config-if)# switchport port-security\nCommand rejected: GigabitEthernet0/5 is a dynamic port.",
+      "choices": ["Set the port statically to access (or trunk) mode, for example with switchport mode access", "Enable port security globally first", "Shut the port down first", "Configure a sticky MAC address first"],
+      "answer": 0,
+      "explanation": "Port security requires a port that is statically an access or trunk port. A port left in dynamic auto or desirable mode is rejected.",
+      "concept": "port security requirements",
+      "section": 1
+    },
+    {
+      "id": "ccna-layer2-security-q06",
+      "type": "match",
+      "difficulty": "easy",
+      "question": "Match each kind of secure MAC address to how it behaves.",
+      "pairs": [
+        { "left": "Static", "right": "Typed by the administrator with the MAC address" },
+        { "left": "Dynamic", "right": "Learned from traffic and lost when the switch reloads" },
+        { "left": "Sticky", "right": "Learned from traffic and written into the running configuration" }
+      ],
+      "explanation": "Sticky combines the convenience of learning with the persistence of configuration, provided the running configuration is saved.",
+      "concept": "secure MAC types",
+      "section": 1
+    },
+    {
+      "id": "ccna-layer2-security-q07",
+      "type": "mcq",
+      "difficulty": "medium",
+      "question": "An access port connects an IP phone with a PC plugged into the phone. Port security is enabled with default settings, and the port keeps going err-disabled. What change is appropriate?",
+      "choices": ["Change the violation mode to protect", "Disable sticky learning", "Raise the maximum to 2 so both the phone and the PC are allowed", "Convert the port to a trunk"],
+      "answer": 2,
+      "explanation": "The default maximum of 1 allows only one MAC, but the phone and the PC each have their own. Allowing two keeps security while letting both work. protect would just make the PC fail silently.",
+      "concept": "voice ports",
+      "section": 1
+    },
+    {
+      "id": "ccna-layer2-security-q08",
+      "type": "multi",
+      "difficulty": "hard",
+      "question": "Which two statements about sticky secure MAC addresses are true? (Choose two.)",
+      "choices": ["They are learned dynamically and added to the running configuration", "They survive a reload only if the running configuration is saved to startup", "They are written to the startup configuration automatically", "They must be typed manually by the administrator", "They age out of the table after five minutes by default"],
+      "answers": [0, 1],
+      "explanation": "Sticky addresses are learned, then written into the running configuration. Like any running-config change, they are lost on reload unless saved with copy running-config startup-config.",
+      "concept": "sticky MAC",
+      "section": 1
+    },
+    {
+      "id": "ccna-layer2-security-q09",
+      "type": "mcq",
+      "difficulty": "hard",
+      "question": "Port Gi0/7 has the configuration below, yet a second laptop plugged into a hub on that port works without any violation. Why?",
+      "code": "interface GigabitEthernet0/7\n switchport mode access\n switchport access vlan 20\n switchport port-security maximum 1\n switchport port-security violation shutdown\n switchport port-security mac-address sticky\n!\nSW1# show port-security interface Gi0/7 | include Port Security\nPort Security              : Disabled",
+      "choices": ["The violation mode must be restrict for hubs", "Sticky learning overrides the maximum", "VLAN 20 is exempt from port security", "The switchport port-security command that actually enables the feature is missing"],
+      "answer": 3,
+      "explanation": "IOS stores the maximum, violation and sticky settings, but port security stays disabled until the plain switchport port-security command is entered on the interface.",
+      "concept": "enabling port security",
+      "section": 2
+    },
+    {
+      "id": "ccna-layer2-security-q10",
+      "type": "cli",
+      "shell": "ios",
+      "difficulty": "easy",
+      "question": "You are in interface configuration mode on a static access port. Type the command that enables port security on it.",
+      "answer": "switchport port-security",
+      "explanation": "switchport port-security turns the feature on with its defaults: a maximum of 1 MAC and the shutdown violation mode.",
+      "concept": "enable port security",
+      "section": 2
+    },
+    {
+      "id": "ccna-layer2-security-q11",
+      "type": "cli",
+      "shell": "ios",
+      "difficulty": "easy",
+      "question": "Type the interface command that makes port security learn the connected device's MAC address and save it in the running configuration.",
+      "answer": "switchport port-security mac-address sticky",
+      "explanation": "Sticky learning writes each learned secure MAC into the running configuration, so it can be saved and survive a reload.",
+      "concept": "sticky learning",
+      "section": 2
+    },
+    {
+      "id": "ccna-layer2-security-q12",
+      "type": "cli",
+      "shell": "ios",
+      "difficulty": "easy",
+      "question": "Type the interface command that allows up to 3 secure MAC addresses on a port.",
+      "answer": "switchport port-security maximum 3",
+      "explanation": "maximum overrides the default of 1. A fourth source MAC would then be a violation.",
+      "concept": "maximum",
+      "section": 2
+    },
+    {
+      "id": "ccna-layer2-security-q13",
+      "type": "mcq",
+      "difficulty": "medium",
+      "question": "Based on the output below, which statement is true?",
+      "code": "SW1# show port-security interface GigabitEthernet0/2\nPort Security              : Enabled\nPort Status                : Secure-up\nViolation Mode             : Shutdown\nMaximum MAC Addresses      : 1\nTotal MAC Addresses        : 1\nConfigured MAC Addresses   : 0\nSticky MAC Addresses       : 1\nLast Source Address:Vlan   : 0200.2222.2222:10\nSecurity Violation Count   : 0",
+      "choices": ["The port is err-disabled after a violation", "The port learned 0200.2222.2222 as a sticky address and is forwarding normally", "The MAC address was typed statically by the administrator", "Port security is configured but not active"],
+      "answer": 1,
+      "explanation": "Secure-up with zero violations means the port is working, and Sticky MAC Addresses: 1 with Configured: 0 shows the address was learned with sticky, not typed in.",
+      "concept": "show port-security",
+      "section": 2
+    },
+    {
+      "id": "ccna-layer2-security-q14",
+      "type": "mcq",
+      "difficulty": "medium",
+      "question": "A port uses sticky learning. The switch reloads before anyone saves the configuration. What happens?",
+      "choices": ["The sticky MAC is restored from the MAC address table", "The port refuses all devices until a MAC is configured", "The sticky MAC is lost, and the port learns the first MAC it sees after the reload", "The port is err-disabled at boot"],
+      "answer": 2,
+      "explanation": "Sticky addresses are in the running configuration only. Without copy running-config startup-config, the reload discards them and learning starts over.",
+      "concept": "saving sticky MACs",
+      "section": 2
+    },
+    {
+      "id": "ccna-layer2-security-q15",
+      "type": "match",
+      "difficulty": "medium",
+      "question": "Match each port security violation mode to its behavior.",
+      "pairs": [
+        { "left": "protect", "right": "Drops violating frames silently; no log, no counter" },
+        { "left": "restrict", "right": "Drops violating frames, logs them and increments the counter; port stays up" },
+        { "left": "shutdown", "right": "Puts the port in the err-disabled state" }
+      ],
+      "explanation": "All three discard offending traffic. restrict adds visibility, and shutdown stops the whole port.",
+      "concept": "violation modes",
+      "section": 3
+    },
+    {
+      "id": "ccna-layer2-security-q16",
+      "type": "mcq",
+      "difficulty": "medium",
+      "question": "A user reports the network is dead at their desk. What do these outputs show?",
+      "code": "SW1# show interfaces Gi0/13 status\nPort      Name    Status        Vlan   Duplex  Speed  Type\nGi0/13            err-disabled  10     auto    auto   10/100/1000BaseTX\n\nSW1# show port-security interface Gi0/13\nPort Security              : Enabled\nPort Status                : Secure-shutdown\nViolation Mode             : Shutdown\nMaximum MAC Addresses      : 1\nTotal MAC Addresses        : 1\nLast Source Address:Vlan   : 0200.3333.3333:10\nSecurity Violation Count   : 1",
+      "language": "cisco",
+      "choices": ["A port security violation from MAC 0200.3333.3333 err-disabled the port", "The cable is faulty, so the port is down/down", "The port was shut down by an administrator", "DHCP snooping rate limiting disabled the port"],
+      "answer": 0,
+      "explanation": "err-disabled plus Secure-shutdown and a violation count of 1 point to a port security violation in shutdown mode. The last source address shows the device that caused it.",
+      "concept": "err-disabled diagnosis",
+      "section": 3
+    },
+    {
+      "id": "ccna-layer2-security-q17",
+      "type": "mcq",
+      "difficulty": "hard",
+      "question": "Port Gi0/13 shows the output below and stays up, yet one device behind it cannot communicate. What is happening?",
+      "code": "SW1# show port-security interface Gi0/13\nPort Security              : Enabled\nPort Status                : Secure-up\nViolation Mode             : Restrict\nMaximum MAC Addresses      : 1\nTotal MAC Addresses        : 1\nConfigured MAC Addresses   : 1\nLast Source Address:Vlan   : 0200.3333.3333:10\nSecurity Violation Count   : 97",
+      "language": "cisco",
+      "choices": ["The port is err-disabled but the status has not refreshed", "Port security is in protect mode and is counting silently", "The allowed device is sending too many frames", "Frames from 0200.3333.3333 exceed the one allowed MAC and are being dropped and counted, while the configured MAC still works"],
+      "answer": 3,
+      "explanation": "In restrict mode the port stays Secure-up for the allowed MAC and drops frames from extra MACs, counting each one. 97 dropped frames from 0200.3333.3333 explain the failing device.",
+      "concept": "restrict mode",
+      "section": 3
+    },
+    {
+      "id": "ccna-layer2-security-q18",
+      "type": "order",
+      "difficulty": "medium",
+      "question": "A port was err-disabled by a port security violation. Put the manual recovery steps in order.",
+      "items": [
+        "Identify the violating device from the log or show port-security interface",
+        "Remove the unauthorized device or fix the configuration",
+        "Enter shutdown on the interface",
+        "Enter no shutdown on the interface",
+        "Confirm the port shows Secure-up and the user is connected"
+      ],
+      "explanation": "Removing the cause comes before bouncing the port; otherwise the next frame from the device err-disables the port again.",
+      "concept": "err-disabled recovery",
+      "section": 3
+    },
+    {
+      "id": "ccna-layer2-security-q19",
+      "type": "cli",
+      "shell": "ios",
+      "difficulty": "hard",
+      "question": "Type the global command that lets the switch automatically recover ports that were err-disabled by port security violations.",
+      "answer": "errdisable recovery cause psecure-violation",
+      "explanation": "errdisable recovery cause psecure-violation enables auto-recovery for this cause; errdisable recovery interval sets how long the switch waits (300 seconds by default).",
+      "concept": "errdisable recovery",
+      "section": 3
+    },
+    {
+      "id": "ccna-layer2-security-q20",
+      "type": "mcq",
+      "difficulty": "medium",
+      "question": "A port shows Secure-up and a violation count of 0, but a second PC on a small hub behind the port cannot reach anything. No syslog messages appear. Which violation mode is most likely configured?",
+      "choices": ["shutdown", "restrict", "protect", "sticky"],
+      "answer": 2,
+      "explanation": "protect drops violating frames without logging or counting, so the port looks healthy. restrict would show a rising counter, and shutdown would err-disable the port. Sticky is a learning method, not a mode.",
+      "concept": "protect mode",
+      "section": 3
+    },
+    {
+      "id": "ccna-layer2-security-q21",
+      "type": "mcq",
+      "difficulty": "easy",
+      "question": "With DHCP snooping, which switch port should be configured as trusted?",
+      "choices": ["Every access port that has a PC", "The uplink toward the legitimate DHCP server or relay", "Ports connected to wireless guests", "Unused ports"],
+      "answer": 1,
+      "explanation": "Only ports facing the real DHCP server (or the router relaying to it) should be trusted. Client-facing ports stay untrusted, the default.",
+      "concept": "trusted ports",
+      "section": 4
+    },
+    {
+      "id": "ccna-layer2-security-q22",
+      "type": "multi",
+      "difficulty": "medium",
+      "question": "Which two DHCP messages are always dropped when they arrive on a DHCP snooping untrusted port? (Choose two.)",
+      "choices": ["DHCPOFFER", "DHCPACK", "DHCPDISCOVER", "DHCPREQUEST", "DHCPRELEASE from the interface in the binding table"],
+      "answers": [0, 1],
+      "explanation": "OFFER and ACK (and NAK) are server messages, which should never come from a client port. DISCOVER and REQUEST are client messages that are checked, not automatically dropped.",
+      "concept": "untrusted port rules",
+      "section": 4
+    },
+    {
+      "id": "ccna-layer2-security-q23",
+      "type": "multi",
+      "difficulty": "medium",
+      "question": "Which two global commands are both required to turn on DHCP snooping for VLAN 10? (Choose two.)",
+      "choices": ["ip dhcp snooping", "ip dhcp snooping vlan 10", "ip dhcp snooping trust", "no ip dhcp snooping information option", "ip arp inspection vlan 10"],
+      "answers": [0, 1],
+      "explanation": "Snooping must be enabled globally and for each VLAN. trust is an interface command, the option 82 command is optional, and ip arp inspection is a separate feature.",
+      "concept": "DHCP snooping configuration",
+      "section": 4
+    },
+    {
+      "id": "ccna-layer2-security-q24",
+      "type": "cli",
+      "shell": "ios",
+      "difficulty": "easy",
+      "question": "You are in interface configuration mode on the uplink to the DHCP server. Type the command that makes it a DHCP snooping trusted port.",
+      "answer": "ip dhcp snooping trust",
+      "explanation": "Ports are untrusted by default. ip dhcp snooping trust allows server messages such as OFFER and ACK through this port.",
+      "concept": "trusting a port",
+      "section": 4
+    },
+    {
+      "id": "ccna-layer2-security-q25",
+      "type": "mcq",
+      "difficulty": "hard",
+      "question": "On a Layer 2 access switch (not a DHCP relay), DHCP snooping is enabled for VLAN 10 and the uplink is trusted. Clients still get no addresses, and the DHCP server logs show it is discarding their requests. What is the most likely fix?",
+      "code": "ip dhcp snooping\nip dhcp snooping vlan 10\n!\ninterface GigabitEthernet0/24\n ip dhcp snooping trust",
+      "choices": ["Trust all access ports as well", "Remove the trust from the uplink", "Add no ip dhcp snooping information option, so the switch stops inserting option 82", "Add ip dhcp snooping limit rate 1 on the uplink"],
+      "answer": 2,
+      "explanation": "By default the snooping switch inserts option 82 into client requests, and many servers and relays discard requests carrying it from a switch that is not a relay agent. Disabling the insertion fixes it.",
+      "concept": "option 82",
+      "section": 4
+    },
+    {
+      "id": "ccna-layer2-security-q26",
+      "type": "mcq",
+      "difficulty": "medium",
+      "question": "How does DHCP snooping defeat a starvation tool that sends many Discovers from one laptop, each with a different invented client hardware address?",
+      "choices": ["It checks that the Ethernet source MAC matches the chaddr inside each DHCP message", "It drops every DISCOVER on untrusted ports", "It forwards Discovers only to the rogue server", "It converts the port to a trunk"],
+      "answer": 0,
+      "explanation": "On untrusted ports, DISCOVER and REQUEST messages must have a chaddr equal to the frame's source MAC. The tool's frames all carry the laptop's real MAC, so the mismatched requests are dropped.",
+      "concept": "chaddr check",
+      "section": 4
+    },
+    {
+      "id": "ccna-layer2-security-q27",
+      "type": "mcq",
+      "difficulty": "medium",
+      "question": "What information does the DHCP snooping binding table hold for each client?",
+      "code": "SW1# show ip dhcp snooping binding\nMacAddress          IpAddress        Lease(sec)  Type           VLAN  Interface\n02:00:11:11:11:11   10.1.10.101      86110       dhcp-snooping   10   GigabitEthernet0/3",
+      "choices": ["The client's hostname, gateway and DNS server", "Only the client's MAC address and port", "The DHCP server's address and pool name", "The client's MAC, leased IP, lease time, VLAN and switch interface"],
+      "answer": 3,
+      "explanation": "Each binding ties a MAC and IP to a VLAN and interface, with the remaining lease time. DAI and IP Source Guard check traffic against these bindings.",
+      "concept": "binding table",
+      "section": 4
+    },
+    {
+      "id": "ccna-layer2-security-q28",
+      "type": "mcq",
+      "difficulty": "medium",
+      "question": "An access port has ip dhcp snooping limit rate 10. A misbehaving host sends 50 DHCP messages in one second. What happens?",
+      "choices": ["The extra 40 messages are dropped and the port stays up", "The port is err-disabled", "The port becomes trusted automatically", "Nothing, because rate limits apply only to trusted ports"],
+      "answer": 1,
+      "explanation": "Exceeding the DHCP snooping rate limit err-disables the port. errdisable recovery cause dhcp-rate-limit can bring it back automatically.",
+      "concept": "DHCP rate limiting",
+      "section": 4
+    },
+    {
+      "id": "ccna-layer2-security-q29",
+      "type": "mcq",
+      "difficulty": "easy",
+      "question": "Which attack does Dynamic ARP Inspection prevent?",
+      "choices": ["MAC flooding", "DHCP starvation", "ARP spoofing (ARP poisoning)", "VLAN hopping"],
+      "answer": 2,
+      "explanation": "DAI drops ARP messages whose sender MAC and IP do not match the switch's DHCP snooping bindings, which stops forged ARP replies.",
+      "concept": "DAI purpose",
+      "section": 5
+    },
+    {
+      "id": "ccna-layer2-security-q30",
+      "type": "cli",
+      "shell": "ios",
+      "difficulty": "easy",
+      "question": "Type the global command that enables Dynamic ARP Inspection for VLAN 10.",
+      "answer": "ip arp inspection vlan 10",
+      "explanation": "DAI is enabled per VLAN. Uplinks are then marked trusted with the interface command ip arp inspection trust.",
+      "concept": "DAI configuration",
+      "section": 5
+    },
+    {
+      "id": "ccna-layer2-security-q31",
+      "type": "mcq",
+      "difficulty": "hard",
+      "question": "After DHCP snooping and DAI are enabled on VLAN 10, every DHCP client works, but a network printer with a manually configured static IP can no longer be reached. Why, and what fixes it?",
+      "choices": ["The printer has no DHCP snooping binding, so DAI drops its ARPs; add an ARP ACL for it with ip arp inspection filter", "Static IPs are not allowed in VLANs with DAI; move the printer to DHCP is the only option", "The printer's port must be configured with port security", "DAI only checks ARP requests, so the printer's replies are lost"],
+      "answer": 0,
+      "explanation": "DAI validates against the snooping bindings, and a static host never creates one. An ARP ACL listing the printer's IP and MAC (applied with ip arp inspection filter) lets DAI accept its ARPs. Using DHCP reservations is another option, but not the only one.",
+      "concept": "DAI and static hosts",
+      "section": 5
+    },
+    {
+      "id": "ccna-layer2-security-q32",
+      "type": "order",
+      "difficulty": "medium",
+      "question": "Put these steps in a sensible order to protect VLAN 10 with both DHCP snooping and DAI.",
+      "items": [
+        "Enable DHCP snooping globally with ip dhcp snooping",
+        "Enable DHCP snooping for the VLAN with ip dhcp snooping vlan 10",
+        "Trust the uplink for DHCP with ip dhcp snooping trust",
+        "Enable DAI for the VLAN with ip arp inspection vlan 10",
+        "Trust the uplink for ARP with ip arp inspection trust"
+      ],
+      "explanation": "DAI depends on the binding table that DHCP snooping builds, so snooping comes first. Each feature has its own trust command on the uplink.",
+      "concept": "configuration order",
+      "section": 5
+    },
+    {
+      "id": "ccna-layer2-security-q33",
+      "type": "mcq",
+      "difficulty": "medium",
+      "question": "Based on the output below, what happens if a host on Gi0/1 sends 40 ARP packets in one second?",
+      "code": "SW1# show ip arp inspection interfaces\n Interface        Trust State     Rate (pps)    Burst Interval\n ---------------  -----------     ----------    --------------\n Gi0/1            Untrusted               15                 1\n Gi0/24           Trusted               None               N/A",
+      "language": "cisco",
+      "choices": ["The extra ARPs are queued until the next second", "Nothing, because ARP is never rate-limited", "Gi0/1 is err-disabled for exceeding the DAI rate limit", "Gi0/1 becomes a trusted port"],
+      "answer": 2,
+      "explanation": "Untrusted ports are limited to 15 ARP packets per second by default. Exceeding it err-disables the port; errdisable recovery cause arp-inspection can recover it automatically.",
+      "concept": "DAI rate limit",
+      "section": 5
+    },
+    {
+      "id": "ccna-layer2-security-q34",
+      "type": "recall",
+      "difficulty": "medium",
+      "question": "Why must DHCP snooping be configured before (or along with) Dynamic ARP Inspection?",
+      "answer": "DAI decides whether an ARP message is legitimate by comparing its sender MAC and IP with the DHCP snooping binding table. Without snooping there are no bindings, so DAI would drop every ARP on untrusted ports in the VLAN (except hosts covered by an ARP ACL).",
+      "explanation": "The two features work as a pair: snooping learns who legitimately owns each address, and DAI enforces it for ARP.",
+      "concept": "DAI dependency",
+      "section": 5
+    }
+  ]
+}

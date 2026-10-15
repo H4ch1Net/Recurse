@@ -1,11 +1,12 @@
 import { useEffect, useRef, useState } from 'react'
 import { CircleAlert, Eraser, Loader2, Play, RotateCcw, Square, Check } from 'lucide-react'
-import CodeEditor, { modKey } from '../../components/CodeEditor'
+import CodeEditor from '../../components/CodeEditor'
 import { Inline } from '../../components/RichText'
 import { feedbackCorrect } from '../../lib/juice'
 import { sfx } from '../../lib/sfx'
 import { loadPython, retryPython, runProgram, DEFAULT_TIME_LIMIT, TIMEOUT_MESSAGE, LANGUAGE_LABELS } from '../lib/runner'
 import { errorHint } from '../lib/runner/tests'
+import { modKey } from '../lib/runner/editing'
 import { usePythonStatus, pythonStatusText } from '../lib/runner/usePython'
 import './code-runner.css'
 
@@ -15,7 +16,7 @@ const DEFAULT_CODE = {
 }
 
 /** Trailing spaces and line endings never decide whether output matches. */
-export const normalizeOutput = (text) =>
+const normalizeOutput = (text) =>
   String(text ?? '')
     .replace(/\r\n?/g, '\n')
     .split('\n')
@@ -127,7 +128,8 @@ export default function CodeRunner({ props, onComplete }) {
     const problem = result.status === 'timeout' ? { message: TIMEOUT_MESSAGE, line: null, trace: [] } : result.fatal || result.error
     if (problem) {
       const where = problem.line ? `Line ${problem.line}: ` : ''
-      const hint = result.status === 'timeout' ? `Stopped after ${DEFAULT_TIME_LIMIT / 1000} seconds. Look for a loop whose condition never becomes false.` : errorHint(problem.message, language)
+      // The console shows plain text, so drop the inline-code backticks hints use elsewhere.
+      const hint = result.status === 'timeout' ? `Stopped after ${DEFAULT_TIME_LIMIT / 1000} seconds. Look for a loop whose condition never becomes false.` : errorHint(problem.message, language).replace(/`/g, '')
       const extra = problem.trace?.length > 1 ? `\n${problem.trace.map((t) => `  at ${t}`).join('\n')}` : ''
       setLines((list) => appendChunks(list, [['err', `${list.length && !list[list.length - 1].text.endsWith('\n') ? '\n' : ''}${where}${problem.message}${extra}\n`], ...(hint ? [['info', `${hint}\n`]] : [])]))
       setErrorLine(problem.line || null)
@@ -224,7 +226,7 @@ export default function CodeRunner({ props, onComplete }) {
           </button>
         ) : (
           <button type="button" className="btn btn-primary" onClick={run}>
-            <Play size={15} /> Run <span className="kbd" aria-hidden="true">{mod} Enter</span>
+            <Play size={15} /> Run <span className="kbd code-runner-kbd" aria-hidden="true">{mod} Enter</span>
           </button>
         )}
         <button type="button" className="btn btn-ghost" onClick={() => setLines([])} disabled={!lines.length || running}>

@@ -14,7 +14,7 @@ import {
   parentIf,
   parseVlanList,
   wildMatch
-} from './addr'
+} from './addr.js'
 
 /** @typedef {'router'|'switch'} DeviceKind */
 

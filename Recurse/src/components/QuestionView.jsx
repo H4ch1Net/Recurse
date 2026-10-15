@@ -182,7 +182,7 @@ function OrderAnswer({ question, order, answered, outcome, onSubmit, keys }) {
   )
 }
 
-const PAIR_HUES = [222, 152, 22, 292, 192, 40]
+const PAIR_HUES = [250, 145, 25, 310, 80, 190]
 
 function MatchAnswer({ question, order, answered, outcome, onSubmit, keys }) {
   const [pairing, setPairing] = useState({})

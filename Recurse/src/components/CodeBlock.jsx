@@ -11,6 +11,9 @@ import css from 'highlight.js/lib/languages/css'
 import json from 'highlight.js/lib/languages/json'
 import dockerfile from 'highlight.js/lib/languages/dockerfile'
 import yaml from 'highlight.js/lib/languages/yaml'
+import java from 'highlight.js/lib/languages/java'
+import cpp from 'highlight.js/lib/languages/cpp'
+import go from 'highlight.js/lib/languages/go'
 import { BLANK } from '../lib/packSchema'
 
 hljs.registerLanguage('python', python)
@@ -23,6 +26,9 @@ hljs.registerLanguage('css', css)
 hljs.registerLanguage('json', json)
 hljs.registerLanguage('dockerfile', dockerfile)
 hljs.registerLanguage('yaml', yaml)
+hljs.registerLanguage('java', java)
+hljs.registerLanguage('cpp', cpp)
+hljs.registerLanguage('go', go)
 
 const escape = (text) => text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
 

@@ -223,7 +223,7 @@ export function gradeTasks(tasks, state, done, { ordered = true } = {}) {
   const fresh = []
   for (const task of tasks) {
     if (done.has(task.id)) continue
-    let ok = false
+    let ok
     try {
       ok = Boolean(task.check(state))
     } catch {

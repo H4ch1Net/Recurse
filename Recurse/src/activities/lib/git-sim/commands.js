@@ -158,7 +158,7 @@ export function runGit(prev, raw) {
   const repo = structuredClone(prev)
   const ctx = createCtx(repo)
   const text = String(raw ?? '').trim()
-  if (!text) return { repo, out: [], failed: false, clear: false }
+  if (!text) return { repo, out: [], failed: false, clear: false, event: null }
   const { words: argv, error } = words(text, { HOME: '/home/learner', USER: 'learner', PWD: R.PROJECT_DIR })
   if (error) {
     err(ctx, `bash: ${error}`)
@@ -176,11 +176,14 @@ export function runGit(prev, raw) {
 
 function finish(ctx, text) {
   const { repo } = ctx
+  let event = null
   if (ctx.event) {
-    repo.events.push({ ...ctx.event, line: text, ok: !ctx.failed, at: repo.events.length })
+    repo.eventSeq = (repo.eventSeq ?? 0) + 1
+    event = { ...ctx.event, line: text, ok: !ctx.failed, at: repo.eventSeq }
+    repo.events.push(event)
     if (repo.events.length > 80) repo.events.shift()
   }
-  return { repo, out: ctx.out, failed: ctx.failed, clear: ctx.clear }
+  return { repo, out: ctx.out, failed: ctx.failed, clear: ctx.clear, event }
 }
 
 // ---- Shell commands around the repo -------------------------------------------------------------
@@ -317,21 +320,25 @@ function statusLines(repo) {
     if (s.conflicts.length) lines.push(L('You have unmerged paths.'), L('  (fix conflicts and run "git commit")'), L('  (use "git merge --abort" to abort the merge)'))
     else lines.push(L('All conflicts fixed but you are still merging.'), L('  (use "git commit" to conclude merge)'))
   }
+  const section = (...ls) => {
+    if (lines.length > 1 && lines[lines.length - 1].text !== '') lines.push(L(''))
+    lines.push(...ls)
+  }
   const item = (label, path, tone) => P({ text: '\t', tone: 'out' }, { text: `${`${label}:`.padEnd(12)}${path}`, tone })
   if (s.staged.length) {
-    lines.push(L(''), L('Changes to be committed:'), L(head ? '  (use "git restore --staged <file>..." to unstage)' : '  (use "git rm --cached <file>..." to unstage)'))
+    section(L('Changes to be committed:'), L(head ? '  (use "git restore --staged <file>..." to unstage)' : '  (use "git rm --cached <file>..." to unstage)'))
     for (const x of s.staged) lines.push(item(x.kind, x.path, 'ok'))
   }
   if (s.conflicts.length) {
-    lines.push(L(''), L('Unmerged paths:'), L('  (use "git add <file>..." to mark resolution)'))
+    section(L('Unmerged paths:'), L('  (use "git add <file>..." to mark resolution)'))
     for (const p of s.conflicts) lines.push(P({ text: '\t', tone: 'out' }, { text: `both modified:   ${p}`, tone: 'err' }))
   }
   if (s.unstaged.length) {
-    lines.push(L(''), L('Changes not staged for commit:'), L('  (use "git add <file>..." to update what will be committed)'), L('  (use "git restore <file>..." to discard changes in working directory)'))
+    section(L('Changes not staged for commit:'), L('  (use "git add <file>..." to update what will be committed)'), L('  (use "git restore <file>..." to discard changes in working directory)'))
     for (const x of s.unstaged) lines.push(item(x.kind, x.path, 'err'))
   }
   if (s.untracked.length) {
-    lines.push(L(''), L('Untracked files:'), L('  (use "git add <file>..." to include in what will be committed)'))
+    section(L('Untracked files:'), L('  (use "git add <file>..." to include in what will be committed)'))
     for (const p of s.untracked) lines.push(P({ text: '\t', tone: 'out' }, { text: p, tone: 'err' }))
   }
   lines.push(L(''))
@@ -1086,7 +1093,8 @@ function diff(ctx, args) {
     const ops = R.diffLines(a ?? '', b ?? '')
     const aCount = ops.filter((o) => o.type !== '+').length
     const bCount = ops.filter((o) => o.type !== '-').length
-    out(ctx, L(`@@ -${aCount ? 1 : 0},${aCount} +${bCount ? 1 : 0},${bCount} @@`, 'ref'))
+    const range = (n) => (n === 1 ? '1' : `${n ? 1 : 0},${n}`)
+    out(ctx, L(`@@ -${range(aCount)} +${range(bCount)} @@`, 'ref'))
     for (const op of ops) {
       if (op.type === '=') out(ctx, L(` ${op.line}`))
       else out(ctx, L(`${op.type}${op.line}`, op.type === '+' ? 'ok' : 'err'))

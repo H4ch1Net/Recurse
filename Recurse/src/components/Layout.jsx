@@ -1,5 +1,5 @@
 import { NavLink, Link, Outlet, useNavigate } from 'react-router-dom'
-import { BookOpen, ChartColumn, Flame, House, Keyboard, Settings } from 'lucide-react'
+import { BookOpen, ChartColumn, Dumbbell, Flame, House, Keyboard, Route, Settings } from 'lucide-react'
 import BrandMark from './BrandMark'
 import Toasts from './Toasts'
 import ShortcutsDialog from './ShortcutsDialog'
@@ -7,7 +7,10 @@ import { useApp } from '../state/context'
 import { useHotkeys } from '../hooks/useHotkeys'
 import { currentStreak, todayLog } from '../lib/gamification'
 import { dueSummary } from '../lib/session'
-import { Suspense, useMemo } from 'react'
+import { duePractice } from '../lib/practice'
+import { Suspense, useEffect, useMemo } from 'react'
+import { prefetchLessons } from '../lib/packs'
+import { COLLECTIONS, nextTopic } from '../lib/collections'
 
 export function HeaderStatus() {
   const { stats, settings, now } = useApp()
@@ -43,23 +46,42 @@ function PageLoading() {
 }
 
 export default function Layout() {
-  const { packs, progress, settings, stats, now, setShortcutsOpen, shortcutsOpen } = useApp()
+  const { packs, progress, settings, stats, now, practice, setShortcutsOpen, shortcutsOpen } = useApp()
   const navigate = useNavigate()
   const due = useMemo(() => dueSummary(packs, progress, settings, stats, now).due, [packs, progress, settings, stats, now])
+  const practiceDue = useMemo(() => duePractice(practice, now).length, [practice, now])
+  const { summaries, user, packMap } = useApp()
+
+  // Once the app is idle, fetch the lessons you are likely to open next (started topics
+  // and the next topic in each of your paths) so they are cached for offline use.
+  useEffect(() => {
+    const run = () => {
+      const goals = new Set(user.goals || [])
+      const next = COLLECTIONS.filter((c) => goals.has(c.id)).map((c) => nextTopic(c, packMap, summaries)?.pack).filter(Boolean)
+      prefetchLessons([...packs.filter((p) => summaries.get(p.id)?.started), ...next])
+    }
+    const id = 'requestIdleCallback' in window ? window.requestIdleCallback(run, { timeout: 8000 }) : setTimeout(run, 4000)
+    return () => ('cancelIdleCallback' in window ? window.cancelIdleCallback(id) : clearTimeout(id))
+    // Once per load is enough; the browser caches what it fetched.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   useHotkeys({
     '?': () => setShortcutsOpen(true),
     t: () => navigate('/'),
     l: () => navigate('/library'),
+    p: () => navigate('/paths'),
+    x: () => navigate('/practice'),
     s: () => navigate('/stats'),
     ',': () => navigate('/settings')
   })
 
   const nav = [
     { to: '/', label: 'Today', icon: House, end: true, badge: due },
+    { to: '/paths', label: 'Paths', icon: Route },
+    { to: '/practice', label: 'Practice', icon: Dumbbell, badge: practiceDue },
     { to: '/library', label: 'Library', icon: BookOpen },
-    { to: '/stats', label: 'Progress', icon: ChartColumn },
-    { to: '/settings', label: 'Settings', icon: Settings }
+    { to: '/stats', label: 'Progress', icon: ChartColumn }
   ]
 
   return (
@@ -72,7 +94,7 @@ export default function Layout() {
             <span className="wordmark">Recurse</span>
           </Link>
           <nav className="primary-nav" aria-label="Primary">
-            {nav.slice(0, 3).map(({ to, label, icon: Icon, end, badge }) => (
+            {nav.map(({ to, label, icon: Icon, end, badge }) => (
               <NavLink key={to} to={to} end={end} className={({ isActive }) => `nav-link${isActive ? ' active' : ''}`}>
                 <Icon size={16} />
                 {label}
@@ -84,7 +106,7 @@ export default function Layout() {
           <button type="button" className="icon-btn hide-mobile" onClick={() => setShortcutsOpen(true)} aria-label="Keyboard shortcuts" title="Keyboard shortcuts (?)">
             <Keyboard size={18} />
           </button>
-          <NavLink to="/settings" className={({ isActive }) => `icon-btn hide-mobile${isActive ? ' active' : ''}`} aria-label="Settings" title="Settings (,)">
+          <NavLink to="/settings" className={({ isActive }) => `icon-btn${isActive ? ' active' : ''}`} aria-label="Settings" title="Settings (,)">
             <Settings size={18} />
           </NavLink>
         </div>

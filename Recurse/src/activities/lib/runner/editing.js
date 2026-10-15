@@ -48,9 +48,7 @@ export function indentEdit(value, start, end, language, outdent = false) {
   const out = lines.map((line) => {
     if (outdent) {
       const ws = leading(line)
-      let remove = 0
-      if (ws.startsWith('\t')) remove = 1
-      else remove = Math.min(unit.length, ws.length)
+      const remove = ws.startsWith('\t') ? 1 : Math.min(unit.length, ws.length)
       changes.push(-remove)
       return line.slice(remove)
     }
@@ -97,7 +95,8 @@ export function toggleCommentEdit(value, start, end, language) {
     return next
   })
   const text = out.join('\n')
-  const selStart = Math.max(from, start + firstDelta)
+  // A selection that starts at the line start keeps covering the whole line.
+  const selStart = start === from && start !== end ? from : Math.max(from, start + firstDelta)
   const selEnd = start === end ? selStart : Math.max(selStart, end + delta)
   return { from, to, text, selStart, selEnd }
 }
@@ -117,7 +116,7 @@ export function newlineEdit(value, start, end, language) {
   if (last && PAIRS[last]) inner = indent + unit
   else if (language === 'python' && last === ':' && !trimmed.trimStart().startsWith('#')) inner = indent + unit
   else if (language === 'python' && DEDENT_AFTER.test(before) && indent.length >= unit.length) inner = indent.slice(unit.length)
-  if (last && PAIRS[last] === next) {
+  if (last && PAIRS[last] && PAIRS[last] === next) {
     // {|} becomes three lines with the cursor on the indented middle one.
     const text = `\n${inner}\n${indent}`
     const caret = start + 1 + inner.length
@@ -191,6 +190,12 @@ export function lineRange(value, n) {
     start = next + 1
   }
   return { start, end: lineEndAt(value, start) }
+}
+
+/** "Ctrl" or "⌘" for shortcut hints. */
+export function modKey() {
+  if (typeof navigator === 'undefined') return 'Ctrl'
+  return /Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent || '') ? '⌘' : 'Ctrl'
 }
 
 /** Apply an edit to a string (used by tests and as the editor's fallback path). */

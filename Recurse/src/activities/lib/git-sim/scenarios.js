@@ -114,3 +114,76 @@ export const SCENARIOS = {
 
 export const SCENARIO_IDS = Object.keys(SCENARIOS)
 export const scenarioFor = (id) => (SCENARIOS[id] ? id : 'basics')
+
+const shortHash = (h) => (h ? h.slice(0, 7) : '')
+const list = (items) => (items.length <= 2 ? items.join(' and ') : `${items.slice(0, -1).join(', ')} and ${items[items.length - 1]}`)
+
+/**
+ * A short caption explaining what the last command did, for the "aha" moments.
+ * result: the { failed, out } from runGit. Returns text or null.
+ */
+export function explainEvent(event, repo, result) {
+  const conflictNote = 'Both branches changed the same lines. Git marked the spot in the file with <<<<<<<, ======= and >>>>>>>. Fix the file, then git add it.'
+  if (event?.cmd === 'merge' && event.mode === 'conflict') return conflictNote
+  if (result?.failed) {
+    const text = result.out.map((l) => (l.parts ? l.parts.map((p) => p.text).join('') : l.text)).join('\n')
+    if (/not a git repository/.test(text)) return 'There is no repository here yet. Run git init first.'
+    if (/would be overwritten/.test(text)) return 'Git refuses to throw away uncommitted edits. Commit them first, or undo them with git restore <file>.'
+    if (/not fully merged/.test(text)) return 'Git protects commits that are not merged anywhere. Merge the branch first, or use -D if you really want it gone.'
+    if (/unmerged files|resolve your current index/.test(text)) return 'A merge is still in progress. Fix the conflicted file, git add it, then git commit.'
+    if (/empty commit message/.test(text)) return 'Every commit needs a message. Add one with -m "..." in quotes.'
+    if (/nothing to commit|no changes added|nothing added/.test(text)) return 'Nothing is staged, so there is nothing to commit. Stage changes with git add first.'
+    if (/pathspec .* did not match/.test(text)) return 'Git cannot find that file or branch. ls lists files, git branch lists branches.'
+    if (/is not a git command/.test(text)) return 'Typo? Git suggests the closest real command.'
+    if (/invalid reference|not something we can merge|invalid upstream/.test(text)) return 'There is no branch or commit by that name. git branch lists the branches.'
+    if (/could not apply/.test(text)) return 'Both branches changed the same lines, so replaying the commit conflicts. A merge handles this more gently.'
+    return null
+  }
+  if (!event) return null
+  const head = repo.head.branch ?? 'HEAD'
+  switch (event.cmd) {
+    case 'init':
+      return 'Git created a hidden .git folder. That folder is the repository: every commit you make is stored inside it.'
+    case 'status':
+      return event.conflicts.length ? 'Unmerged paths are files git could not combine on its own. They need you.' : 'Status compares three places: your files, the staging area and the last commit.'
+    case 'add':
+      return event.paths.length ? `Staged ${list(event.paths)}. The staging area holds exactly what your next commit will contain.` : null
+    case 'commit':
+      if (event.amend) return 'Amend made a brand new commit (new hash) to replace the last one. The faded original is no longer on any branch.'
+      if (event.merge) return 'This merge commit has two parents, which joins the two lines of history back together.'
+      return `New commit ${shortHash(event.hash)}: a snapshot of the staging area. ${event.branch ? `${event.branch} now points to it.` : 'No branch points to it: HEAD is detached.'}`
+    case 'log':
+      return event.graph ? 'Each * is a commit and the lines connect commits to their parents. Newest is at the top.' : 'Newest first. Each commit stores a pointer to its parent, which is what makes this a history.'
+    case 'branch':
+      if (event.action === 'create') return `Branch ${event.name} is just a name pointing at a commit. Nothing was copied. You are still on ${head}.`
+      if (event.action === 'delete') return 'Deleting a branch removes the name. The commits stay as long as another branch can reach them.'
+      return event.action === 'list' ? 'The * marks the branch HEAD is on.' : null
+    case 'switch':
+      if (event.detached) return 'HEAD now points at a commit instead of a branch: "detached HEAD". Commits made here belong to no branch unless you create one.'
+      return event.created ? `Created ${event.branch} and moved HEAD onto it in one step.` : `HEAD now points at ${event.branch}, and your files changed to match its latest commit.`
+    case 'merge':
+      if (event.mode === 'fast-forward') return `Fast-forward: ${event.into ?? 'HEAD'} had no commits of its own, so git just slid the label forward. No merge commit needed.`
+      if (event.mode === 'merge') return 'Both branches had new commits, so git made a merge commit with two parents.'
+      if (event.mode === 'abort') return 'Merge aborted. Everything is back the way it was before git merge.'
+      return 'Nothing to do: that branch is already part of this history.'
+    case 'rebase':
+      if (event.mode === 'replay') return `Rebase copied your ${event.replayed === 1 ? 'commit' : `${event.replayed} commits`} onto the new base: same changes, new parents, so new hashes. The faded originals are no longer on any branch.`
+      if (event.mode === 'fast-forward') return 'Your branch had no commits of its own, so rebase just moved it forward.'
+      return null
+    case 'reset':
+      if (event.mode === 'paths') return `Unstaged ${list(event.paths)}. Your edits are still in the file.`
+      if (event.mode === 'soft') return `${head} moved back to ${shortHash(event.to)}. --soft kept the undone changes staged, ready to commit again.`
+      if (event.mode === 'mixed') return `${head} moved back to ${shortHash(event.to)}. The undone changes are still in your files, just not staged.`
+      return `${head} moved back to ${shortHash(event.to)} and --hard reset your files too. Uncommitted work is gone; the faded commit is no longer on a branch.`
+    case 'restore':
+      return event.staged ? 'Unstaged: the staging area is back to the last commit. Your edits are still in the file.' : 'Discarded your edits: the file matches the staging area again.'
+    case 'diff':
+      return event.staged ? '--staged compares the staging area with the last commit: what the next commit will change.' : 'git diff compares your files with the staging area. + lines are new, - lines are gone.'
+    case 'edit':
+      return event.resolved ? 'Conflict markers removed. Now run git add to tell git the conflict is resolved.' : `You changed ${event.file} in the working tree. Git sees it as modified until you stage it.`
+    case 'checkout-side':
+      return `Took the ${event.side === '--ours' ? 'current branch' : 'incoming branch'} version of ${list(event.paths)}. Next: git add to mark it resolved.`
+    default:
+      return null
+  }
+}

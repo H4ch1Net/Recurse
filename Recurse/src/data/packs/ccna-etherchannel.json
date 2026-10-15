@@ -1,0 +1,684 @@
+{
+  "id": "ccna-etherchannel",
+  "name": "EtherChannel",
+  "version": "1.0.0",
+  "author": "Recurse",
+  "subject": "networking",
+  "level": "intermediate",
+  "description": "Bundle links with LACP, predict which modes form a channel, build Layer 2 and Layer 3 port-channels and read the flags.",
+  "icon": "EC",
+  "language": "cisco",
+  "prereqs": [
+    "ccna-trunking"
+  ],
+  "tags": [
+    "ccna",
+    "2.4",
+    "etherchannel",
+    "lacp",
+    "port-channel"
+  ],
+  "lesson": {
+    "estimatedMinutes": 28,
+    "intro": "EtherChannel bundles several parallel Ethernet links into one logical link, so you get their combined bandwidth and lose nothing to spanning tree. It is the standard way to connect access switches to distribution switches, distribution to core, and WLCs to the wired network. The exam tests three things hard: which mode combinations form a channel, what must match on the member ports, and how to read show etherchannel summary.",
+    "objectives": [
+      "Explain why EtherChannel lets parallel links forward instead of being blocked by STP",
+      "Predict which LACP, PAgP and on mode combinations form a channel",
+      "Configure Layer 2 and Layer 3 EtherChannels with LACP",
+      "List the settings that must match for a port to join a bundle",
+      "Interpret show etherchannel summary flags to find a failed member"
+    ],
+    "sections": [
+      {
+        "title": "Why bundle links?",
+        "body": "An access switch has two 1 Gbps uplinks to the same distribution switch, because one cable felt risky. Spanning tree sees two parallel paths between the same pair of switches, which is a loop, and blocks one of them. You bought two links and use one. Upgrade to four links and STP still forwards on just one of them.\n\n**EtherChannel** fixes this by grouping the physical links into one logical interface called a **port-channel** (shown as Po1, Po2 and so on). STP, MAC learning and the switch's forwarding logic all work on Po1 as a single interface, so there is no loop to block and every member link carries traffic. Other vendors and some Cisco products call the same idea link aggregation or a LAG, and the standard behind it is IEEE 802.3ad (now 802.1AX).\n\nYou gain three things:\n\n- **Bandwidth**: up to 8 active links working together.\n- **Redundancy**: if a member fails, its traffic moves to the remaining members almost immediately. Po1 stays up, so STP does not reconverge at all.\n- **Simplicity**: one logical interface to configure as an access port, a trunk or a routed port.\n\nThe members must connect the same pair of switches (or a stack or virtual switch pair that acts as one) and be configured identically.",
+        "code": "Without EtherChannel                 With EtherChannel\n      ASW1                                ASW1\n  Gi0/1    Gi0/2                      Gi0/1    Gi0/2\n    |        |                          |        |\n    |        X  STP blocks one          +--Po1---+  one logical link\n    |        |                          |        |\n  Gi1/0/1  Gi1/0/2                    Gi1/0/1  Gi1/0/2\n      DSW1                                DSW1\n  1 Gbps forwarding                   2 Gbps forwarding, nothing blocked",
+        "language": "plaintext",
+        "pitfall": "Expecting one big transfer to use the bundle's full bandwidth. Each flow is hashed onto a single member, so one file copy still tops out at one link's speed; the gain comes from many flows.",
+        "check": {
+          "question": "Two switches are joined by four 1 Gbps links with no EtherChannel. How many of those links forward traffic for a given VLAN?",
+          "choices": [
+            "All four, load balanced",
+            "Two, one in each direction",
+            "One; STP blocks the other three",
+            "None until a root bridge is configured"
+          ],
+          "answer": 2,
+          "explanation": "Parallel links between the same switches form loops, so STP leaves only one forwarding per VLAN. Bundling them into a port-channel turns the four into one logical link that STP does not block."
+        }
+      },
+      {
+        "title": "LACP, PAgP and static on",
+        "body": "Before two switches bundle links, they should confirm that the links really connect the same two devices and are configured compatibly. Two protocols negotiate that, and a third option skips negotiation entirely:\n\n- **LACP** (Link Aggregation Control Protocol, IEEE 802.3ad): the open standard, so it works with other vendors' switches, servers and firewalls. Modes: **active** (sends LACP messages and starts negotiation) and **passive** (only answers). LACP allows up to 16 ports in a group: 8 active and up to 8 in **hot-standby**, ready to replace a failed member.\n- **PAgP** (Port Aggregation Protocol): Cisco proprietary. Modes: **desirable** (starts negotiation) and **auto** (only answers). Up to 8 ports.\n- **on**: no protocol at all. The port is forced into the channel and the switch simply assumes the other side did the same.\n\nThe negotiating protocols are the safer choice. If a cable is moved to the wrong switch or a member is misconfigured, LACP or PAgP notices and keeps that port out of the bundle. With on there is no such check, and a mistake on one side can black-hole traffic or create a loop. The blueprint names LACP explicitly, so expect most configuration questions to use active and passive.",
+        "code": "Protocol   Standard           Start negotiation   Only respond   Max ports\nLACP       IEEE 802.3ad       active              passive        16 (8 active + 8 standby)\nPAgP       Cisco proprietary  desirable           auto           8\nStatic     none               on (no negotiation at all)         8",
+        "language": "plaintext",
+        "pitfall": "Mixing up the keywords. active and passive are LACP; desirable and auto are PAgP. A memory hook: PAgP uses the same words as DTP (desirable and auto), and both are Cisco proprietary.",
+        "check": {
+          "question": "Which pair of keywords enables LACP on channel-group member ports?",
+          "choices": [
+            "desirable and auto",
+            "active and passive",
+            "on and off",
+            "trunk and access"
+          ],
+          "answer": 1,
+          "explanation": "channel-group N mode active or mode passive selects LACP. desirable and auto select PAgP, and on uses no protocol."
+        }
+      },
+      {
+        "title": "Which combinations form a channel?",
+        "body": "The rule is short: **at least one side must start the negotiation, and both sides must use the same method.**\n\n- LACP: active with active, and active with passive, form a channel. passive with passive never does, because both sides wait for the other.\n- PAgP: desirable with desirable, and desirable with auto, form a channel. auto with auto never does.\n- on works only with on.\n- Mixing protocols (LACP on one side, PAgP on the other) never works, and neither does on facing any negotiating mode.\n\nWhat do you see when a combination fails? The member ports do not join a bundle. Depending on the platform they run as individual links (shown with an I flag, and STP then blocks all but one of them, just as if there were no EtherChannel) or they are suspended. 'It works, but only at 1 Gbps' is a classic symptom of a mode mismatch.\n\nThe matrix is worth drawing from memory before the exam.",
+        "code": "               on       active   passive  desirable  auto\non             YES      no       no       no         no\nactive         no       YES      YES      no         no\npassive        no       YES      no       no         no\ndesirable      no       no       no       YES        YES\nauto           no       no       no       YES        no\n\nYES = an EtherChannel forms",
+        "language": "plaintext",
+        "pitfall": "Choosing passive on both ends because 'they will figure it out'. passive only answers, so two passive ends never send a single LACP message.",
+        "check": {
+          "question": "SW1 uses channel-group 1 mode passive and SW2 uses channel-group 1 mode active. What happens?",
+          "choices": [
+            "No channel forms because the modes differ",
+            "A PAgP channel forms",
+            "No channel forms until both sides use passive",
+            "An LACP EtherChannel forms"
+          ],
+          "answer": 3,
+          "explanation": "active starts LACP negotiation and passive answers, so the channel forms. The modes do not need to be identical; at least one side must be active."
+        }
+      },
+      {
+        "title": "Configuring a Layer 2 EtherChannel",
+        "body": "Configuration is mostly one command on each member: `channel-group number mode mode`. Select all the members together with interface range so they get identical settings, then add the channel-group command. IOS creates the logical interface port-channel number automatically.\n\nTwo facts show up in questions:\n\n- The channel-group number is **locally significant**. SW1 can use channel-group 1 while SW2 uses channel-group 2 for the same bundle; only the members on one switch must share a number.\n- After the bundle exists, configure Layer 2 settings (an access VLAN, or trunk mode, native VLAN and allowed VLANs) on the **port-channel interface**. IOS applies them to the members, which keeps everything consistent.\n\nThe example builds an LACP trunk bundle on two ports and checks it. In the summary, Po1(SU) means a Layer 2 channel in use, the Protocol column says LACP, and (P) next to each member means bundled. On the other switch, the same configuration with active or passive completes the pair.\n\nAfter bundling, other show commands change too: show spanning-tree and show interfaces trunk list Po1 instead of the physical ports, because STP and trunking now operate on the port-channel.",
+        "code": "SW1(config)# interface range gigabitethernet0/1 - 2\nSW1(config-if-range)# channel-group 1 mode active\nCreating a port-channel interface Port-channel 1\nSW1(config-if-range)# exit\nSW1(config)# interface port-channel 1\nSW1(config-if)# switchport mode trunk\nSW1(config-if)# switchport trunk allowed vlan 10,20\nSW1(config-if)# end\n\nSW1# show etherchannel summary\nFlags:  D - down        P - bundled in port-channel\n        I - stand-alone s - suspended\n        H - Hot-standby (LACP only)\n        R - Layer3      S - Layer2\n        U - in use      f - failed to allocate aggregator\n! remaining flags omitted\n\nNumber of channel-groups in use: 1\nNumber of aggregators:           1\n\nGroup  Port-channel  Protocol    Ports\n------+-------------+-----------+-----------------------------------------------\n1      Po1(SU)         LACP      Gi0/1(P)    Gi0/2(P)",
+        "pitfall": "Configuring trunk settings on just one member after bundling. That member then differs from the others and gets suspended. Put Layer 2 settings on the port-channel interface.",
+        "activity": {
+          "type": "ios-console",
+          "title": "Bundle G0/1 and G0/2 with LACP",
+          "prompt": "Select both ports with interface range and put them in channel-group 1 using LACP active. Then run show etherchannel summary. Before you read it, predict the letters you would expect beside Po1 and beside each member once SW2 is configured to match.",
+          "props": {
+            "lab": "cl-d2-etherchannel"
+          }
+        },
+        "check": {
+          "question": "SW1 bundles its links in channel-group 1 and SW2 uses channel-group 5 for the same links, both with LACP active. What happens?",
+          "choices": [
+            "The channel forms; channel-group numbers are locally significant",
+            "No channel forms until the numbers match",
+            "Only one link joins the channel",
+            "The links fall back to PAgP"
+          ],
+          "answer": 0,
+          "explanation": "Each switch uses its own channel-group number. What must agree is the protocol and a compatible mode pair, plus the member settings."
+        }
+      },
+      {
+        "title": "What must match",
+        "body": "Configure the channel-group perfectly and a port can still be refused, because a switch compares every new member with the rest of the bundle. A port that differs is not used: it shows as suspended, stand-alone or down, and for some mismatches the switch err-disables the members and the port-channel. Before using a port in the channel, the switch checks:\n\n- Speed and duplex\n- Operational mode: all access or all trunk\n- If access: the same access VLAN\n- If trunk: the same allowed VLAN list and the same native VLAN\n- Spanning tree interface settings, such as port cost\n\nThe neighbor's settings are checked as well, through LACP or PAgP (or CDP when using mode on), and they must match too, with one exception: STP settings only need to match among the members on the same switch.\n\nThe official guide shows the err-disable case: one member had a different STP cost, and the switch err-disabled both members and Po1 with a channel-misconfig message. The fix was to make the settings identical and then enter shutdown and no shutdown on the port-channel interface, which bounces its members too.\n\nThe practical habit: configure members with interface range, and put all Layer 2 settings on the port-channel interface so the members inherit the same values.",
+        "code": "%PM-4-ERR_DISABLE: channel-misconfig (STP) error detected on Po1, putting Gi0/1 in err-disable state\n%PM-4-ERR_DISABLE: channel-misconfig (STP) error detected on Po1, putting Gi0/2 in err-disable state\n%PM-4-ERR_DISABLE: channel-misconfig (STP) error detected on Po1, putting Po1 in err-disable state\n\nSW1# show etherchannel summary\n! flags legend omitted\nGroup  Port-channel  Protocol    Ports\n------+-------------+-----------+-----------------------------------------------\n1      Po1(SD)          -        Gi0/1(D)    Gi0/2(D)\n\n! After fixing the cost on Gi0/2:\nSW1(config)# interface port-channel 1\nSW1(config-if)# shutdown\nSW1(config-if)# no shutdown",
+        "pitfall": "Changing the speed or allowed VLANs on one member to 'test something'. That port drops out of the bundle, or takes the bundle down. Make changes on the port-channel interface.",
+        "check": {
+          "question": "According to the official cert guide, which setting must match among members on the same switch but does NOT have to match the neighboring switch?",
+          "choices": [
+            "Speed",
+            "Duplex",
+            "Native VLAN on trunk members",
+            "Spanning tree port cost"
+          ],
+          "answer": 3,
+          "explanation": "Speed, duplex and VLAN or trunk settings must match locally and with the neighbor. STP interface settings are compared only among the local members, which is why the cost mismatch in the example err-disabled the bundle on SW1."
+        }
+      },
+      {
+        "title": "Reading show etherchannel summary",
+        "body": "This one command answers most EtherChannel questions. The legend at the top explains the single-letter flags; learn the important ones.\n\nOn the **port-channel**:\n\n- **S** Layer 2 or **R** Layer 3\n- **U** in use (working) or **D** down\n\nSo Po1(SU) is a healthy Layer 2 bundle, Po1(RU) a healthy Layer 3 bundle and Po1(SD) a Layer 2 bundle that is down.\n\nOn each **member**:\n\n- **P**: bundled in the port-channel (good)\n- **I**: stand-alone, up but not bundled (often a mode mismatch or no negotiating partner)\n- **s**: suspended (usually a settings mismatch)\n- **D**: down\n- **H**: hot-standby, an extra LACP link waiting to replace a failed member\n\nThe Protocol column shows LACP, PAgP or a dash for mode on. Related commands: show etherchannel port-channel for per-bundle detail, show interfaces port-channel 1 for status and counters, and show etherchannel load-balance for the hashing method.\n\nRead the exhibit: Po2 is a working Layer 2 LACP bundle, but only two of its three members carry traffic. Gi0/5 is suspended, so something on Gi0/5 (speed, duplex, VLANs or trunk settings) does not match the others.",
+        "code": "SW1# show etherchannel summary\n! flags legend omitted\nNumber of channel-groups in use: 2\nNumber of aggregators:           2\n\nGroup  Port-channel  Protocol    Ports\n------+-------------+-----------+-----------------------------------------------\n1      Po1(SU)         LACP      Gi0/1(P)    Gi0/2(P)\n2      Po2(SU)         LACP      Gi0/3(P)    Gi0/4(P)    Gi0/5(s)",
+        "pitfall": "Seeing Po1(SU) and assuming every link is in use. A port-channel stays up with a single bundled member; always check each member's flag.",
+        "check": {
+          "question": "In show etherchannel summary, a member port shows (I). What does that mean?",
+          "choices": [
+            "It is bundled and forwarding",
+            "It is stand-alone: up, but not bundled into the channel",
+            "It is a Layer 3 member",
+            "It is hot-standby, waiting for a failure"
+          ],
+          "answer": 1,
+          "explanation": "I means individual or stand-alone: the port works as a normal port outside the bundle, typically because negotiation with the neighbor failed. P means bundled and H means hot-standby."
+        }
+      },
+      {
+        "title": "Layer 3 EtherChannels and load balancing",
+        "body": "Between two Layer 3 switches (say distribution and core), you often want a routed link rather than a trunk. Without EtherChannel, two parallel routed links mean two subnets, two routing protocol neighbors and two routes for every destination. A **Layer 3 EtherChannel** bundles the links into one routed port-channel instead: one subnet, one neighbor, one route. Configure it like this:\n\n- On each member: `no switchport` (making it a routed port) and the usual `channel-group` command.\n- On the port-channel interface: `no switchport` and the IP address. The address goes **only** on the port-channel, never on the members.\n\nshow etherchannel summary then shows Po12(RU), with R for Layer 3, and show ip route lists the connected subnet on Port-channel12.\n\n**Load balancing.** A switch does not spray frames round robin across the members, because that could deliver packets of one flow out of order. It hashes header fields (MAC addresses, IP addresses or TCP/UDP ports) and picks one member per flow, so every packet of a conversation uses the same link. The global command `port-channel load-balance` chooses the fields, for example src-mac, dst-ip or src-dst-ip, and show etherchannel load-balance displays the current method. The default depends on the platform (many access switches use src-mac). Pick fields that vary: if almost all traffic goes to one router MAC address, a dst-mac method sends nearly everything over one member, while src-dst-ip usually spreads it far better.",
+        "code": "interface GigabitEthernet1/0/13\n no switchport\n no ip address\n channel-group 12 mode active\n!\ninterface GigabitEthernet1/0/14\n no switchport\n no ip address\n channel-group 12 mode active\n!\ninterface Port-channel12\n no switchport\n ip address 10.1.12.1 255.255.255.0\n!\nport-channel load-balance src-dst-ip\n\nSW1# show etherchannel 12 summary\n! flags legend omitted\nGroup  Port-channel  Protocol    Ports\n------+-------------+-----------+-----------------------------------------------\n12     Po12(RU)        LACP      Gi1/0/13(P)  Gi1/0/14(P)",
+        "pitfall": "Putting IP addresses on the member interfaces. A Layer 3 EtherChannel has exactly one address, on the port-channel; the members have no switchport and no IP address.",
+        "check": {
+          "question": "Where is the IP address configured in a Layer 3 EtherChannel?",
+          "choices": [
+            "On every member interface",
+            "On the first member interface only",
+            "On an SVI for the channel's VLAN",
+            "On the port-channel interface only"
+          ],
+          "answer": 3,
+          "explanation": "The port-channel is the routed interface, so it holds the address. Members are configured with no switchport and the channel-group command only. An SVI would be used for a Layer 2 channel, not a routed one."
+        }
+      }
+    ],
+    "keyTerms": [
+      {
+        "term": "EtherChannel",
+        "definition": "A bundle of parallel Ethernet links between two switches treated as one logical link by STP and forwarding."
+      },
+      {
+        "term": "Port-channel",
+        "definition": "The logical interface (Po1, Po2) that represents an EtherChannel in the configuration and show commands."
+      },
+      {
+        "term": "LACP",
+        "definition": "Link Aggregation Control Protocol, IEEE 802.3ad: open-standard negotiation with modes active and passive."
+      },
+      {
+        "term": "PAgP",
+        "definition": "Port Aggregation Protocol: Cisco-proprietary negotiation with modes desirable and auto."
+      },
+      {
+        "term": "Mode on",
+        "definition": "Static EtherChannel with no negotiation; it works only with on at the other end."
+      },
+      {
+        "term": "channel-group",
+        "definition": "Interface command that adds a port to a bundle and selects its mode; the number is locally significant."
+      },
+      {
+        "term": "Hot-standby",
+        "definition": "LACP members beyond the 8 active links, waiting to replace a failed member (flag H)."
+      },
+      {
+        "term": "Layer 3 EtherChannel",
+        "definition": "A routed port-channel: members and port-channel use no switchport, and the IP address sits on the port-channel."
+      },
+      {
+        "term": "Load balancing",
+        "definition": "Per-flow hashing of header fields (MAC, IP or port) to choose a member link, set with port-channel load-balance."
+      }
+    ],
+    "summary": [
+      "EtherChannel makes parallel links one logical port-channel, so STP blocks none of them and a member failure causes no STP change.",
+      "LACP uses active and passive, PAgP uses desirable and auto, and on uses no protocol; at least one side must start, and methods must match.",
+      "Configure members with interface range and channel-group N mode active; put VLAN and trunk settings on the port-channel interface.",
+      "Members must match speed, duplex, access or trunk mode, VLANs and STP settings, or they are suspended or err-disabled.",
+      "In show etherchannel summary, SU and RU are healthy bundles, P is bundled, I is stand-alone, s is suspended, H is hot-standby.",
+      "Layer 3 EtherChannels need no switchport and an IP address on the port-channel only; traffic is hashed per flow, never per packet."
+    ],
+    "feynmanPrompt": "Explain to a colleague why four parallel links between two switches give only one link's bandwidth without EtherChannel, how LACP decides whether to bundle them, and which mode combinations fail and why."
+  },
+  "questions": [
+    {
+      "id": "ccna-etherchannel-q01",
+      "type": "mcq",
+      "difficulty": "easy",
+      "question": "What is the main benefit of an EtherChannel compared with leaving parallel links unbundled?",
+      "choices": [
+        "STP treats the bundle as one link, so all members forward traffic",
+        "Each member link can use a different speed",
+        "It removes the need for VLANs on the uplinks",
+        "It lets the two switches use different native VLANs"
+      ],
+      "answer": 0,
+      "explanation": "STP runs on the port-channel, not the members, so there is no loop to block and all links carry traffic. Members must share the same speed and VLAN settings.",
+      "concept": "EtherChannel purpose",
+      "section": 0
+    },
+    {
+      "id": "ccna-etherchannel-q02",
+      "type": "mcq",
+      "difficulty": "easy",
+      "question": "Which EtherChannel negotiation protocol is an open IEEE standard?",
+      "choices": [
+        "PAgP",
+        "DTP",
+        "LACP",
+        "CDP"
+      ],
+      "answer": 2,
+      "explanation": "LACP is defined in IEEE 802.3ad, so it works between vendors. PAgP is Cisco proprietary, and DTP and CDP are unrelated protocols.",
+      "concept": "LACP standard",
+      "section": 1
+    },
+    {
+      "id": "ccna-etherchannel-q03",
+      "type": "match",
+      "difficulty": "medium",
+      "question": "Match each channel-group mode to its protocol and behavior.",
+      "pairs": [
+        {
+          "left": "active",
+          "right": "LACP, starts negotiation"
+        },
+        {
+          "left": "passive",
+          "right": "LACP, only responds"
+        },
+        {
+          "left": "desirable",
+          "right": "PAgP, starts negotiation"
+        },
+        {
+          "left": "auto",
+          "right": "PAgP, only responds"
+        },
+        {
+          "left": "on",
+          "right": "No protocol, forced into the channel"
+        }
+      ],
+      "explanation": "Each negotiating protocol has an initiating mode and a responding mode. on skips negotiation altogether.",
+      "concept": "channel-group modes",
+      "section": 1
+    },
+    {
+      "id": "ccna-etherchannel-q04",
+      "type": "multi",
+      "difficulty": "medium",
+      "question": "Which two mode combinations form an EtherChannel? (Choose two.)",
+      "choices": [
+        "passive and passive",
+        "active and passive",
+        "auto and auto",
+        "desirable and auto",
+        "on and active"
+      ],
+      "answers": [
+        1,
+        3
+      ],
+      "explanation": "A negotiated channel needs at least one initiating side using the same protocol: active with passive (LACP) or desirable with auto (PAgP). Two responders never start, and on never pairs with a negotiating mode.",
+      "concept": "valid mode pairs",
+      "section": 2
+    },
+    {
+      "id": "ccna-etherchannel-q05",
+      "type": "mcq",
+      "difficulty": "medium",
+      "question": "SW1 has channel-group 1 mode on and SW2 has channel-group 1 mode active on the same two links. What is the result?",
+      "choices": [
+        "An LACP channel forms because one side is active",
+        "No channel forms; mode on does not negotiate with LACP",
+        "A static channel forms on both sides",
+        "SW1 automatically switches to passive"
+      ],
+      "answer": 1,
+      "explanation": "on sends no LACP messages, so SW2's active ports never get a partner. on works only with on at the other end.",
+      "concept": "on versus negotiation",
+      "section": 2
+    },
+    {
+      "id": "ccna-etherchannel-q06",
+      "type": "mcq",
+      "difficulty": "hard",
+      "question": "Both switches use channel-group 1 mode auto on two links. show etherchannel summary shows both members as (I), and STP blocks one link. What fixes it?",
+      "choices": [
+        "Change both sides to passive",
+        "Make the channel-group numbers different",
+        "Change one side to desirable",
+        "Configure mode on one side only"
+      ],
+      "answer": 2,
+      "explanation": "auto only responds to PAgP, so two auto sides never negotiate. Making one side desirable starts the negotiation. passive is LACP and would still have no initiator.",
+      "concept": "auto plus auto",
+      "section": 2
+    },
+    {
+      "id": "ccna-etherchannel-q07",
+      "type": "cli",
+      "shell": "ios",
+      "difficulty": "easy",
+      "question": "Type the interface command that adds the port to channel-group 1 using LACP and actively starts negotiation.",
+      "answer": "channel-group 1 mode active",
+      "explanation": "mode active selects LACP and initiates negotiation. IOS creates interface port-channel 1 if it does not exist yet.",
+      "concept": "configure LACP member",
+      "section": 3
+    },
+    {
+      "id": "ccna-etherchannel-q08",
+      "type": "cli",
+      "shell": "ios",
+      "difficulty": "medium",
+      "question": "From global configuration mode, type the command that selects Gi0/1 through Gi0/4 at once.",
+      "answer": "interface range gigabitethernet0/1 - 4",
+      "accept": [
+        "interface range gigabitethernet 0/1 - 4",
+        "interface range gigabitethernet0/1-4",
+        "interface range gi0/1 - 4",
+        "interface range gi0/1-4",
+        "interface range g0/1 - 4"
+      ],
+      "explanation": "interface range applies the following commands to every listed port, which is the easy way to keep EtherChannel members identical.",
+      "concept": "interface range",
+      "section": 3
+    },
+    {
+      "id": "ccna-etherchannel-q09",
+      "type": "cli",
+      "shell": "ios",
+      "difficulty": "medium",
+      "question": "Type the global command that enters configuration mode for the logical interface of channel-group 3.",
+      "answer": "interface port-channel 3",
+      "accept": [
+        "interface port-channel3",
+        "interface po3",
+        "interface po 3"
+      ],
+      "explanation": "The port-channel interface number matches the channel-group number. Settings applied there are applied to the members.",
+      "concept": "port-channel interface",
+      "section": 3
+    },
+    {
+      "id": "ccna-etherchannel-q10",
+      "type": "order",
+      "difficulty": "medium",
+      "question": "Starting in global configuration mode, put the commands in order to build an LACP bundle on Gi0/1 and Gi0/2 and make it a trunk.",
+      "items": [
+        "interface range gigabitethernet0/1 - 2",
+        "channel-group 1 mode active",
+        "exit",
+        "interface port-channel 1",
+        "switchport mode trunk",
+        "end"
+      ],
+      "explanation": "Create the bundle on the members first (which creates Po1), then configure trunking on the port-channel so both members inherit it.",
+      "concept": "EtherChannel configuration order",
+      "section": 3
+    },
+    {
+      "id": "ccna-etherchannel-q11",
+      "type": "mcq",
+      "difficulty": "medium",
+      "question": "Which statement about channel-group numbers is true?",
+      "choices": [
+        "They must match on both switches",
+        "They only need to match among the member ports on one switch",
+        "They must equal the number of member links",
+        "They must equal the trunk's native VLAN"
+      ],
+      "answer": 1,
+      "explanation": "Channel-group numbers are locally significant. SW1 can call the bundle Po1 while SW2 calls the same links Po7.",
+      "concept": "locally significant group number",
+      "section": 3
+    },
+    {
+      "id": "ccna-etherchannel-q12",
+      "type": "multi",
+      "difficulty": "medium",
+      "question": "Which three settings must be the same on all member ports for them to bundle? (Choose three.)",
+      "choices": [
+        "Speed",
+        "Interface description",
+        "Duplex",
+        "Allowed VLAN list (for trunk members)",
+        "Whether CDP is enabled"
+      ],
+      "answers": [
+        0,
+        2,
+        3
+      ],
+      "explanation": "The switch checks speed, duplex, access or trunk mode, VLAN settings and STP settings. Descriptions and the CDP setting are not compared.",
+      "concept": "member consistency",
+      "section": 4
+    },
+    {
+      "id": "ccna-etherchannel-q13",
+      "type": "debug",
+      "difficulty": "hard",
+      "question": "Gi0/4 will not bundle. Based on the configuration and output, why is it suspended?",
+      "code": "interface Port-channel1\n switchport trunk allowed vlan 10,20\n switchport mode trunk\ninterface GigabitEthernet0/3\n switchport trunk allowed vlan 10,20\n switchport mode trunk\n channel-group 1 mode active\ninterface GigabitEthernet0/4\n switchport trunk allowed vlan 10,20,30\n switchport mode trunk\n channel-group 1 mode active\n\nSW1# show etherchannel summary\n! flags legend omitted\nGroup  Port-channel  Protocol    Ports\n------+-------------+-----------+-----------------------------------------------\n1      Po1(SU)         LACP      Gi0/3(P)    Gi0/4(s)",
+      "language": "cisco",
+      "choices": [
+        "Gi0/4 uses PAgP while Gi0/3 uses LACP",
+        "Gi0/4 needs channel-group 2 because Gi0/3 already uses group 1",
+        "Gi0/4's allowed VLAN list differs from the port-channel and Gi0/3",
+        "Gi0/4 must be configured with mode passive"
+      ],
+      "answer": 2,
+      "explanation": "Both members use mode active, so the protocol matches. Gi0/4 allows VLAN 30 while the others allow only 10 and 20, so it is suspended (s). Matching the list, ideally by configuring only the port-channel, fixes it.",
+      "concept": "suspended member",
+      "section": 4
+    },
+    {
+      "id": "ccna-etherchannel-q14",
+      "type": "mcq",
+      "difficulty": "medium",
+      "question": "After a mismatch caused the switch to err-disable Po1 and its members, you correct the setting. The interfaces stay err-disabled. What should you do next?",
+      "choices": [
+        "Reload the switch",
+        "Delete and re-create the VLANs",
+        "Clear the MAC address table",
+        "Enter shutdown and then no shutdown on the port-channel interface"
+      ],
+      "answer": 3,
+      "explanation": "Err-disabled interfaces stay down until bounced. Bouncing the port-channel also bounces its members, which brings the corrected bundle back.",
+      "concept": "err-disabled recovery",
+      "section": 4
+    },
+    {
+      "id": "ccna-etherchannel-q15",
+      "type": "mcq",
+      "difficulty": "easy",
+      "question": "In show etherchannel summary, which flag on a member port means it is bundled in the port-channel?",
+      "choices": [
+        "S",
+        "U",
+        "I",
+        "P"
+      ],
+      "answer": 3,
+      "explanation": "P means bundled in port-channel. S (Layer 2) and U (in use) describe the port-channel itself, and I means stand-alone.",
+      "concept": "P flag",
+      "section": 5
+    },
+    {
+      "id": "ccna-etherchannel-q16",
+      "type": "match",
+      "difficulty": "medium",
+      "question": "Match each show etherchannel summary flag to its meaning.",
+      "pairs": [
+        {
+          "left": "P",
+          "right": "Bundled in the port-channel"
+        },
+        {
+          "left": "I",
+          "right": "Stand-alone, not bundled"
+        },
+        {
+          "left": "s (on a member)",
+          "right": "Suspended"
+        },
+        {
+          "left": "H",
+          "right": "Hot-standby (LACP only)"
+        },
+        {
+          "left": "R",
+          "right": "Layer 3 port-channel"
+        },
+        {
+          "left": "S (on the port-channel)",
+          "right": "Layer 2 port-channel"
+        }
+      ],
+      "explanation": "Lowercase s (suspended) and uppercase S (Layer 2) are easy to confuse: S and R describe the port-channel, while s describes a member.",
+      "concept": "summary flags",
+      "section": 5
+    },
+    {
+      "id": "ccna-etherchannel-q17",
+      "type": "mcq",
+      "difficulty": "hard",
+      "question": "Based on the output, what is the most likely cause?",
+      "code": "SW1# show etherchannel summary\n! flags legend omitted\nGroup  Port-channel  Protocol    Ports\n------+-------------+-----------+-----------------------------------------------\n1      Po1(SD)         LACP      Gi0/1(I)    Gi0/2(I)",
+      "language": "cisco",
+      "choices": [
+        "The members are bundled and working normally",
+        "Po1 is a Layer 3 channel without an IP address",
+        "The neighbor is not negotiating LACP with SW1, for example passive facing passive",
+        "Both members are hot-standby links"
+      ],
+      "answer": 2,
+      "explanation": "Po1 is a Layer 2 channel that is down, and both members are stand-alone, meaning LACP found no partner. Typical causes are passive on both ends, the other side using PAgP or on, or LACP not configured on the neighbor.",
+      "concept": "channel not negotiating",
+      "section": 5
+    },
+    {
+      "id": "ccna-etherchannel-q18",
+      "type": "mcq",
+      "difficulty": "hard",
+      "question": "show etherchannel summary shows: 1  Po1(SU)  LACP  Gi0/1(P)  Gi0/2(D). What can you conclude?",
+      "choices": [
+        "The bundle is down",
+        "The bundle works on Gi0/1 only; Gi0/2 is down",
+        "Gi0/2 is suspended by a VLAN mismatch",
+        "Gi0/2 is waiting in hot-standby"
+      ],
+      "answer": 1,
+      "explanation": "Po1 is a Layer 2 channel in use, but D on Gi0/2 means that member is down (cable, shutdown or the far end). The channel keeps working on the remaining member at reduced bandwidth.",
+      "concept": "partial bundle",
+      "section": 5
+    },
+    {
+      "id": "ccna-etherchannel-q19",
+      "type": "typed",
+      "difficulty": "medium",
+      "question": "What is the maximum number of active member links in one LACP EtherChannel? (Number only.)",
+      "answer": "8",
+      "accept": [
+        "eight"
+      ],
+      "explanation": "LACP allows up to 16 ports in a group, but only 8 are active at a time; the rest wait in hot-standby.",
+      "concept": "LACP active links",
+      "section": 1
+    },
+    {
+      "id": "ccna-etherchannel-q20",
+      "type": "mcq",
+      "difficulty": "medium",
+      "question": "Ten ports are configured in the same LACP channel-group. What happens to the two ports beyond the active limit?",
+      "choices": [
+        "They wait in hot-standby and replace a failed active link",
+        "They are err-disabled",
+        "They form a second port-channel automatically",
+        "They carry only broadcast traffic"
+      ],
+      "answer": 0,
+      "explanation": "LACP keeps 8 links active and holds extra members in hot-standby (flag H), ready to take over if an active member fails.",
+      "concept": "LACP hot-standby",
+      "section": 1
+    },
+    {
+      "id": "ccna-etherchannel-q21",
+      "type": "cli",
+      "shell": "ios",
+      "difficulty": "medium",
+      "question": "Type the interface command that turns a Layer 3 switch port into a routed port, as required on the members of a Layer 3 EtherChannel.",
+      "answer": "no switchport",
+      "explanation": "no switchport makes the interface a routed port. Both the members and the port-channel of a Layer 3 EtherChannel need it.",
+      "concept": "routed member ports",
+      "section": 6
+    },
+    {
+      "id": "ccna-etherchannel-q22",
+      "type": "debug",
+      "difficulty": "hard",
+      "question": "This Layer 3 EtherChannel does not work as intended. What is wrong with the configuration?",
+      "code": "interface GigabitEthernet1/0/13\n no switchport\n ip address 10.1.12.1 255.255.255.0\n channel-group 12 mode active\n!\ninterface GigabitEthernet1/0/14\n no switchport\n ip address 10.1.12.2 255.255.255.0\n channel-group 12 mode active\n!\ninterface Port-channel12\n no switchport",
+      "language": "cisco",
+      "choices": [
+        "The members need switchport mode trunk",
+        "The IP address belongs on Port-channel12 only, not on the members",
+        "Layer 3 channels must use PAgP desirable",
+        "Port-channel12 must use switchport for routing to work"
+      ],
+      "answer": 1,
+      "explanation": "In a Layer 3 EtherChannel the port-channel is the routed interface and holds the one IP address. Members get no switchport and no ip address.",
+      "concept": "Layer 3 EtherChannel addressing",
+      "section": 6
+    },
+    {
+      "id": "ccna-etherchannel-q23",
+      "type": "mcq",
+      "difficulty": "medium",
+      "question": "How does a switch choose which member link carries a given frame?",
+      "choices": [
+        "Round robin, one frame per link in turn",
+        "It fills the lowest-numbered member first",
+        "It hashes header fields such as MAC, IP or port numbers so each flow uses one link",
+        "Randomly for each frame"
+      ],
+      "answer": 2,
+      "explanation": "Hashing keeps all frames of a flow on one link, which avoids reordering. Round robin or random choices could deliver packets out of order.",
+      "concept": "per-flow load balancing",
+      "section": 6
+    },
+    {
+      "id": "ccna-etherchannel-q24",
+      "type": "mcq",
+      "difficulty": "hard",
+      "question": "An access switch uses port-channel load-balance dst-mac. Almost all traffic leaving it over Po1 goes to the default gateway's MAC address. What do you expect, and what is a better choice?",
+      "choices": [
+        "Traffic spreads evenly because there are many PCs; no change needed",
+        "Nearly all of that traffic uses one member; src-dst-ip would spread it better",
+        "The bundle fails because one MAC cannot use a port-channel",
+        "Frames alternate between members, so nothing changes"
+      ],
+      "answer": 1,
+      "explanation": "With dst-mac, every frame to the same gateway MAC hashes to the same member. Hashing on source and destination IP uses fields that vary between flows, so traffic spreads across the members.",
+      "concept": "choosing a hash method",
+      "section": 6
+    },
+    {
+      "id": "ccna-etherchannel-q25",
+      "type": "cli",
+      "shell": "ios",
+      "difficulty": "medium",
+      "question": "Type the global command that sets EtherChannel load balancing to use both source and destination IP addresses.",
+      "answer": "port-channel load-balance src-dst-ip",
+      "explanation": "port-channel load-balance is a global command; its keyword picks the header fields used in the hash. Check the result with show etherchannel load-balance.",
+      "concept": "configure load balancing",
+      "section": 6
+    },
+    {
+      "id": "ccna-etherchannel-q26",
+      "type": "cli",
+      "shell": "ios",
+      "difficulty": "easy",
+      "question": "Type the command that lists each port-channel with its protocol and member port flags.",
+      "answer": "show etherchannel summary",
+      "explanation": "show etherchannel summary is the one-stop view of every bundle, its Layer 2 or Layer 3 status and each member's state.",
+      "concept": "show etherchannel summary",
+      "section": 5
+    },
+    {
+      "id": "ccna-etherchannel-q27",
+      "type": "recall",
+      "difficulty": "easy",
+      "question": "Why doesn't spanning tree block the members of an EtherChannel?",
+      "answer": "STP runs on the port-channel interface rather than on the physical members, so it sees a single logical link between the switches and there is no loop to break.",
+      "explanation": "That is the whole point of bundling: redundancy and bandwidth without STP disabling the extra links.",
+      "concept": "STP and port-channels",
+      "section": 0
+    },
+    {
+      "id": "ccna-etherchannel-q28",
+      "type": "mcq",
+      "difficulty": "medium",
+      "question": "Why is LACP usually preferred over channel-group mode on?",
+      "choices": [
+        "LACP gives each member link more bandwidth",
+        "Mode on is Cisco proprietary and cannot connect to servers",
+        "Mode on cannot carry trunks",
+        "LACP detects misconnected or mismatched links and keeps them out of the bundle"
+      ],
+      "answer": 3,
+      "explanation": "Negotiation lets the switches confirm both ends agree before bundling. Mode on bundles blindly, so a cabling or configuration mistake can black-hole traffic or create a loop. Bandwidth per link is the same either way.",
+      "concept": "why negotiate",
+      "section": 1
+    }
+  ]
+}

@@ -1,0 +1,789 @@
+{
+  "id": "swe-system-design",
+  "name": "System Design Interviews",
+  "version": "1.0.0",
+  "author": "Recurse",
+  "subject": "swe",
+  "level": "intermediate",
+  "description": "A repeatable approach to system design interviews: estimates, caching, replication, queues, CAP, a URL shortener and a feed.",
+  "icon": "SDI",
+  "language": "plaintext",
+  "prereqs": [
+    "system-design-101",
+    "swe-apis-rest",
+    "swe-databases"
+  ],
+  "tags": [
+    "system-design",
+    "interviews",
+    "scalability",
+    "caching",
+    "queues",
+    "sharding",
+    "cap"
+  ],
+  "lesson": {
+    "estimatedMinutes": 28,
+    "intro": "System design rounds show up for new-grad roles and some internships, and the skills behind them are what you use whenever a feature has to handle real traffic. This lesson gives you a step-by-step approach, the estimates and building blocks interviewers expect, and two complete worked designs you can adapt to other prompts.",
+    "objectives": [
+      "Run a system design interview with a clear sequence from requirements to trade-offs",
+      "Estimate requests per second, storage and server counts with powers of ten",
+      "Apply load balancing, caching, CDNs, replication, sharding and queues to a design, and name their costs",
+      "Explain CAP in plain terms and choose consistency or availability per feature",
+      "Design a URL shortener and a news feed end to end"
+    ],
+    "sections": [
+      {
+        "title": "A repeatable approach for the interview",
+        "body": "The interviewer says: \"Design a URL shortener.\" You have 45 minutes and a blank whiteboard. Candidates who struggle rarely lack knowledge. They jump straight into drawing databases, design for a problem nobody asked about, and run out of time before anything interesting. A fixed sequence fixes that, and interviewers explicitly score whether you drive the conversation.\n\n1. **Requirements.** Ask before you draw. Functional requirements say what it must do: create a short link, redirect, maybe custom aliases and expiry. Non-functional requirements say how well: how many users, how fast, how available, how consistent. Agree on what is out of scope, and write the list where the interviewer can see it.\n2. **Estimates.** Rough numbers for requests per second, the read to write ratio, storage and bandwidth. They tell you whether one server is enough or you need caches, replicas and shards.\n3. **API.** A few endpoints with inputs and outputs: `POST /links {long_url} -> {code}`, `GET /{code} -> 302`.\n4. **Data model.** The main entities, their key fields, and which kind of store fits the access pattern.\n5. **High-level design.** Boxes and arrows: clients, load balancer, app servers, cache, database, queue. Walk one request through it end to end.\n6. **Deep dives.** The hardest or most interesting parts, chosen by you or the interviewer: how codes are generated, how the feed is built, what happens when the cache dies.\n7. **Trade-offs and wrap-up.** Bottlenecks, single points of failure, what you would monitor, and what changes at ten times the scale.\n\nThink out loud the whole way and state trade-offs as you make them: \"I'll return 302 so we can count clicks, at the cost of more traffic to our servers.\" There is rarely one right design. There are designs whose costs you understand and designs whose costs you do not, and the interview is checking which kind you produce.\n\nThe table shows a time budget that works for a 45-minute round. In a 60-minute round, give the extra time to deep dives.",
+        "code": "Minutes  Step                What to put on the board\n-------  ------------------  ------------------------------------------\n 0-5     Requirements        functional list, non-functional numbers,\n                             what is out of scope\n 5-10    Estimates           QPS (average and peak), read:write ratio,\n                             storage per year\n10-13    API                 3 to 5 endpoints with inputs and outputs\n13-16    Data model          tables or documents, keys, store choice\n16-26    High-level design   boxes and arrows, one request traced through\n26-40    Deep dives          the 2 or 3 hardest components in detail\n40-45    Trade-offs          bottlenecks, failure modes, the next 10x",
+        "language": "plaintext",
+        "tip": "When you are stuck, go back to the requirements. 'Which of these is hardest at our scale?' usually tells you where to deep dive.",
+        "pitfall": "Opening with technology ('we'll use Kafka and Cassandra') before you know the requirements. Interviewers read it as pattern matching rather than design.",
+        "check": {
+          "question": "The interviewer says 'Design Instagram.' What should you do first?",
+          "choices": [
+            "Draw the database schema for photos and users",
+            "Ask clarifying questions about features and scale, and agree on scope",
+            "Decide between SQL and NoSQL",
+            "Estimate how many servers will be needed"
+          ],
+          "answer": 1,
+          "explanation": "'Instagram' could mean feeds, stories, messaging, search and more. Clarifying features and scale first keeps you from designing the wrong system, and the estimates and storage choices depend on the answers."
+        }
+      },
+      {
+        "title": "Back-of-the-envelope estimates",
+        "body": "Estimates turn \"a lot of users\" into decisions. 1,000 requests per second fits on a couple of servers; 1,000,000 needs caching, sharding and a very different conversation. You do not need precision. You need the right power of ten, quickly, with your assumptions written down.\n\nNumbers worth memorizing:\n\n- A day has 86,400 seconds. Round it to **100,000 (10^5)** for mental math. So 1 million requests a day is about 10 per second, and 1 billion a day is about 10,000 per second.\n- **Peak traffic** is often 2 to 5 times the average. Size the system for the peak.\n- Sizes: 1 KB = 10^3 bytes, 1 MB = 10^6, 1 GB = 10^9, 1 TB = 10^12, 1 PB = 10^15. (Strictly these are powers of 2, but powers of 10 are fine for estimates.)\n- A year is about 365 days, so 5 years is about 1,800 days.\n- Rough latencies: a memory read takes about 100 nanoseconds, a random SSD read about 100 microseconds, a round trip inside one data center about 0.5 ms, and a round trip across a continent or an ocean 50 to 150 ms. Memory is roughly a thousand times faster than SSD, which is why caches matter, and cross-region calls are expensive enough to count one by one.\n\nThe method is always the same. Users times actions per user gives events per day. Divide by 10^5 for events per second. Multiply by size for storage and bandwidth. Then, most importantly, say what the numbers imply.\n\nThe example works through a photo-sharing app. The last line is the one the interviewer is waiting for: about 6,000 reads per second on average, 60 times more reads than writes, so a cache in front of the database and a CDN for the images will carry most of the load. Petabytes of photos also rule out storing images in the database; they go to object storage such as S3, with only metadata in the database.",
+        "code": "Photo-sharing app (assumptions first)\n  Daily active users (DAU)            20 million\n  Photos uploaded per user per day    0.5\n  Feed views per user per day         30\n  Average photo size (compressed)     1 MB\n\nWrites:   20M x 0.5     = 10M uploads/day  / 10^5 s  = ~100 uploads/s\nReads:    20M x 30      = 600M views/day   / 10^5 s  = ~6,000 views/s\nPeak:     x 3           = ~300 uploads/s and ~18,000 views/s\nStorage:  10M x 1 MB    = 10 TB/day  -> ~3.6 PB/year (before replicas)\nRatio:    6,000 / 100   = 60:1 read-heavy -> cache, CDN, object storage",
+        "language": "plaintext",
+        "tip": "Round aggressively and keep units on every number. '10M x 1 MB = 10 TB' is easy to check; a bare 10000000000000 is not.",
+        "pitfall": "Spending ten minutes on exact arithmetic. Interviewers want the order of magnitude and what it means for the design, not the third significant digit.",
+        "check": {
+          "question": "A service receives 500 million requests per day. Using 1 day ≈ 10^5 seconds, about how many requests per second is that on average?",
+          "choices": [
+            "About 50",
+            "About 500",
+            "About 5,000",
+            "About 50,000"
+          ],
+          "answer": 2,
+          "explanation": "500,000,000 / 100,000 = 5,000. Dividing by 10^5 is the shortcut: drop five zeros."
+        }
+      },
+      {
+        "title": "Load balancers and stateless services",
+        "body": "Your app runs on one server. After a launch, traffic triples and the CPU sits at 100%. You can buy a bigger machine (**vertical scaling**): simple, but there is a ceiling, and one machine is still a single point of failure. Or you can run several copies behind a **load balancer** (**horizontal scaling**), which is how almost every large system works.\n\nA load balancer accepts client connections and forwards each request to one server in a pool:\n\n- **Algorithms.** Round robin takes turns. Least connections picks the server with the fewest requests in flight, which spreads load better when some requests are slow. Hashing on a key (client IP or user id) sends the same client to the same server.\n- **Health checks.** The balancer probes each server, for example `GET /healthz` every few seconds, stops sending traffic to one that fails, and adds it back when it recovers. This is what turns \"a server died\" into a non-event.\n- **Layer 4 or layer 7.** An L4 balancer routes by IP address and port without reading the request. An L7 balancer understands HTTP, so it can send `/api` and `/images` to different pools, terminate TLS and add headers.\n- **No single point of failure.** The balancer itself runs as a redundant pair or as a managed cloud service.\n\nHorizontal scaling only works if app servers are **stateless**: any server can handle any request because nothing about the user lives in one server's memory or disk. Sessions go in a shared store such as Redis or in a signed token, and uploaded files go to object storage, not the local disk. Then adding capacity means starting more servers, and losing one loses nothing.\n\nThe alternative, **sticky sessions** (the balancer pins each user to one server), works but has costs: load becomes uneven, deploys are awkward, and when that server dies its users lose their sessions.",
+        "code": "                  +----------------------+\n clients -------> |  Load balancer (L7)  |   health checks every 5 s\n                  +----------------------+\n                     |        |        |\n                 +------+ +------+ +------+\n                 | app1 | | app2 | | app3 |   stateless, identical\n                 +------+ +------+ +------+\n                     |        |        |\n          +-------------------------------------+\n          |  Redis: sessions and cache          |\n          |  PostgreSQL: data   S3: files       |\n          +-------------------------------------+",
+        "language": "plaintext",
+        "tip": "Whenever you add a box, say how it fails: 'If app2 dies, health checks remove it within ten seconds and the other two absorb its traffic.'",
+        "pitfall": "Keeping sessions or uploaded files on an app server, then adding a load balancer. Users get logged out at random, and files exist on only one machine.",
+        "check": {
+          "question": "Why should app servers behind a load balancer be stateless?",
+          "choices": [
+            "Because load balancers cannot forward cookies to servers",
+            "Because stateless servers use much less CPU",
+            "So the database can be skipped for most reads",
+            "So any server can handle any request, and servers can be added or lost without losing user data"
+          ],
+          "answer": 3,
+          "explanation": "Statelessness is what makes servers interchangeable: shared state lives in Redis, the database or object storage, so scaling out and surviving failures are both easy. Load balancers forward cookies just fine."
+        }
+      },
+      {
+        "title": "Caching and CDNs",
+        "body": "A product page runs six database queries and takes 120 ms. It is viewed 50,000 times an hour and changes twice a day. Computing the same answer 50,000 times is waste. A **cache** keeps recent results in fast storage (memory, in Redis or Memcached) so repeated reads skip the slow path.\n\nThe most common pattern is **cache-aside**, also called lazy loading, shown in the example:\n\n- **Read:** look in the cache. On a hit, return it. On a miss, read the database, store the result in the cache with a TTL, and return it.\n- **Write:** update the database, then **delete** the cache key so the next read refills it. Deleting is safer than writing the new value into the cache, because two concurrent writers can otherwise leave the older value cached.\n\nTwo more patterns to know by name: **write-through** writes to the cache and the database together, so the cache is always warm; **write-behind** writes to the cache now and flushes to the database later, which is fast but can lose data.\n\nThe hard part is **invalidation**, making sure stale data does not live forever:\n\n- A **TTL** (time to live) on every entry bounds staleness. With a 5-minute TTL, data is at most about 5 minutes old even if an invalidation is missed.\n- Explicit deletes on write cover data that must refresh quickly.\n- Versioned keys (`product:42:v7`) let a new version simply use a new key.\n\nWatch for the **cache stampede**, also called the thundering herd: a hot key expires, thousands of requests miss at the same moment, and they all hit the database together. Fixes include letting a single request rebuild the value while the others wait or get the stale copy, and adding random jitter to TTLs so keys do not expire in lockstep.\n\nA **CDN** (content delivery network) is a cache someone else runs, with servers in hundreds of cities. Static files such as images, video, JavaScript and CSS are served from an edge location near the user, which cuts a 150 ms trip to perhaps 10 ms and takes that traffic off your servers entirely. The usual trick is content-hashed filenames (`app.3f9a1c.js`) cached for a year: a new version gets a new name, so nothing stale is ever served. HTML and API responses get short TTLs or are not cached at the edge at all.",
+        "code": "import json\n\nCACHE_TTL = 300  # seconds: data is at most about 5 minutes stale\n\ndef get_product(product_id):\n    key = f\"product:{product_id}\"\n    cached = redis.get(key)\n    if cached is not None:                      # hit: no database work\n        return json.loads(cached)\n    product = db.fetch_product(product_id)      # miss: go to the database\n    redis.set(key, json.dumps(product), ex=CACHE_TTL)\n    return product\n\ndef update_product(product_id, fields):\n    db.update_product(product_id, fields)       # 1. write the source of truth\n    redis.delete(f\"product:{product_id}\")       # 2. invalidate; next read refills",
+        "language": "python",
+        "tip": "Say what staleness each piece of data can tolerate: 'a product description can be five minutes old; a bank balance cannot.'",
+        "pitfall": "Adding a cache with no TTL and no invalidation plan. Sooner or later a user sees data that is days old and nobody can explain why.",
+        "check": {
+          "question": "In cache-aside, what should happen when a product is updated?",
+          "choices": [
+            "Update only the cache; the database catches up on the next read",
+            "Leave the cache alone and let the TTL fix it eventually",
+            "Update the database, then delete the product's cache key",
+            "Flush the entire cache so nothing stale remains"
+          ],
+          "answer": 2,
+          "explanation": "The database is the source of truth, so write it first, then delete the key so the next read loads fresh data. Updating only the cache risks losing the write, waiting for the TTL serves stale data, and flushing everything causes a stampede."
+        }
+      },
+      {
+        "title": "Databases at scale: replication, sharding and CAP",
+        "body": "The database is usually the first thing to buckle, because app servers are easy to multiply and data is not.\n\n**Replication** keeps copies of the same data on several machines. In the common **leader-follower** setup (also called primary-replica), all writes go to the leader, which streams its changes to followers, and reads can go to any follower. You gain read capacity, by adding followers to a read-heavy app, and resilience: if the leader dies, a follower is promoted, which is called **failover**.\n\nThe catch is **replication lag**. Followers usually apply changes asynchronously, milliseconds to seconds behind. A user updates their bio, the next page load reads from a follower, and the old bio comes back. A common fix is **read-your-writes**: for a short time after a user writes, send that user's reads to the leader.\n\n**Sharding** (horizontal partitioning) splits the data itself across several databases, each holding a subset of the rows. You need it when one machine cannot store all the data or absorb all the writes. Everything depends on the **shard key**:\n\n- **Hash-based** (hash of the key modulo the number of shards, or consistent hashing) spreads data evenly, but range queries must ask every shard.\n- **Range-based** (user names A to F on shard 1) keeps ranges together but creates **hot spots** when activity clusters, such as sharding by date so that all of today's writes land on one shard.\n- Pick a key that matches the main access pattern, so most queries touch one shard. Shard chat messages by `conversation_id` and loading a conversation is one query on one shard.\n\nSharding is a big step: joins and transactions across shards get hard, and resharding is painful. Mention it when the numbers demand it, not by default.\n\nOnce data lives on several machines, the network between them can fail. **CAP** in plain terms: when a network partition splits your nodes, each side must either refuse requests it cannot confirm are up to date (choosing **consistency**) or keep answering with possibly stale data (choosing **availability**). You cannot have both during the partition. A bank balance or the last seat on a flight leans toward consistency. A like count, a feed or a product review leans toward availability with **eventual consistency**: replicas converge once the partition heals. When there is no partition, the everyday trade-off is latency versus consistency, because waiting for more replicas to confirm a write makes it safer but slower.",
+        "code": "              writes                       reads right after a write\n app ----------------> [ leader ] <------------------------------- app\n                          |     \\\n           async stream   |      \\  async stream\n                          v       v\n                 [ follower 1 ]  [ follower 2 ]  <---- most reads\n                   (lag: milliseconds to seconds)\n\n Sharding chat messages by conversation_id (hash mod 4):\n   hash(conversation 1842) % 4 = 2   ->  shard 2 holds all of conversation 1842",
+        "language": "plaintext",
+        "tip": "Name the consistency each feature needs: 'Payments need strong consistency; the follower count can be a few seconds stale.' That sentence shows more understanding than reciting CAP.",
+        "pitfall": "Sharding by a key that does not match the queries, such as message timestamp when you always load by conversation. Every read then fans out to every shard, and today's shard takes all the writes.",
+        "activity": {
+          "type": "hash-table",
+          "title": "Why resharding hurts",
+          "prompt": "Think of each bucket as a database shard and each key as a user id. Insert eight or so keys and note which bucket each lands in. Then resize and watch how many keys move to a different bucket. With plain hash mod N, changing N moves most keys, which is why resharding is painful and why consistent hashing exists.",
+          "props": {
+            "buckets": 4
+          }
+        },
+        "check": {
+          "question": "A user edits their bio, refreshes, and sees the old bio for a few seconds. Reads go to asynchronous followers. What is happening?",
+          "choices": [
+            "The CDN is caching the database",
+            "Replication lag: the follower has not yet applied the write",
+            "The leader silently rejected the write",
+            "Sharding stored the bio on two different shards"
+          ],
+          "answer": 1,
+          "explanation": "The write reached the leader, but the follower serving the read has not caught up yet. Routing a user's reads to the leader for a short time after they write (read-your-writes) hides this."
+        }
+      },
+      {
+        "title": "Queues, async workers and rate limiting",
+        "body": "A user uploads a video. Transcoding it into five resolutions takes four minutes. If the upload request waits for that, it times out, and if a thousand people upload at once, your web servers drown. The fix is to do slow work **asynchronously**.\n\nA **message queue** (Amazon SQS, RabbitMQ, or a log such as Kafka) sits between a **producer** and **consumers**:\n\n1. The web server stores the upload, puts a message such as `{\"video_id\": 981}` on the queue, and immediately returns 202 Accepted.\n2. A pool of **workers** pulls messages and does the slow work at its own pace.\n3. When a job finishes, the worker updates the database (status ready) and perhaps notifies the user.\n\nYou gain fast responses, a buffer for spikes (the queue grows and workers catch up), workers that scale independently of web servers, and automatic retries when a worker crashes. Typical uses: emails, image and video processing, reports, webhooks, search indexing.\n\nWhat you must handle:\n\n- **At-least-once delivery.** Most queues redeliver a message if a worker crashes before acknowledging it, so a message can be processed twice. Make consumers **idempotent**: check whether video 981 is already done, or rely on a unique constraint, so a repeat is harmless.\n- **Poison messages.** A message that always crashes its worker would retry forever. After a few failures, move it to a **dead-letter queue** for a human to inspect.\n- **Ordering.** Many queues do not guarantee order across messages. If order matters, say how you keep it (Kafka, for example, keeps order within a partition).\n\n**Rate limiting** protects services from overload and abuse by capping requests per client. The classic algorithm is the **token bucket**: each client has a bucket holding up to N tokens, refilled at a steady rate. Each request spends a token, and an empty bucket means `429 Too Many Requests`. It allows short bursts up to the bucket size while enforcing the average rate. A **fixed window** counter (\"100 per minute, reset on the minute\") is simpler but lets a client send 100 requests at 0:59 and 100 more at 1:00. **Sliding window** variants smooth that out. With many app servers, the counters must live in a shared store such as Redis; otherwise each server enforces its own separate limit.",
+        "code": "Token bucket: capacity 10, refills 1 token per second\n\nt=0s   bucket 10   12 requests arrive  -> 10 allowed, 2 rejected (429)\nt=1s   bucket 1    1 request           -> allowed\nt=5s   bucket 4    5 requests          -> 4 allowed, 1 rejected\n       (the long-run rate can never exceed 1 request per second)\n\nAsync upload flow\n  POST /videos -> save file to S3 -> enqueue {\"video_id\": 981} -> 202 Accepted\n  worker: dequeue -> already processed? skip : transcode -> mark ready -> ack",
+        "language": "plaintext",
+        "tip": "Whenever a request does slow work the user does not need to wait for, say 'I'd put that on a queue', and mention retries and idempotency in the same breath.",
+        "pitfall": "Assuming every message is processed exactly once. With at-least-once delivery, a consumer that is not idempotent sends two emails or charges twice.",
+        "check": {
+          "question": "Why must queue consumers usually be idempotent?",
+          "choices": [
+            "Queues reorder the bytes inside each message",
+            "Idempotent code always runs faster",
+            "Queues require every consumer to be written in the same language",
+            "Most queues deliver at least once, so the same message can be processed more than once"
+          ],
+          "answer": 3,
+          "explanation": "If a worker crashes after doing the work but before acknowledging, the queue delivers the message again. Idempotent consumers make that second delivery harmless instead of sending a second email or charge."
+        }
+      },
+      {
+        "title": "Worked design: a URL shortener",
+        "body": "Time to put it together the way you would in an interview.\n\n**Requirements.** Functional: create a short link for a long URL, redirect a short link to its long URL, optional custom alias and expiry. Out of scope: user accounts and dashboards. Non-functional: redirects are fast (under about 50 ms of server time) and highly available, a link never points to the wrong URL, and the service handles 100 million new links a month.\n\n**Estimates.** A month is about 2.6 million seconds (30 x 86,400), so 100M links a month is about 40 writes per second. Assume 100 reads per write: about 4,000 redirects per second, perhaps 10,000 at peak. Five years of links is 100M x 12 x 5 = 6 billion; at about 500 bytes each, roughly 3 TB. Read-heavy, small records, simple key lookups.\n\n**Codes.** Base62 (a to z, A to Z, 0 to 9) gives 62^7, about 3.5 trillion, 7-character codes: plenty for 6 billion links. Three ways to generate them:\n\n- **Counter plus base62.** A global counter, handed out in blocks of ids to each app server so they do not coordinate on every request, converted to base62. No collisions, but sequential codes are guessable, which can leak your volume and let people enumerate links.\n- **Random 7 characters**, inserted under a unique constraint and retried on the rare collision. Unpredictable, at the cost of an occasional retry.\n- **Hash of the long URL**, such as the first 7 characters of a SHA-256 digest. Truncation causes collisions you must detect and resolve, and the same URL always gets the same code, which may or may not be what you want.\n\n**API.** `POST /api/links {\"long_url\": \"...\", \"alias\": null} -> 201 {\"code\": \"aZ3kP9q\"}` and `GET /aZ3kP9q -> 302 Location: https://...`.\n\n**Data model.** `links(code PRIMARY KEY, long_url, created_at, expires_at)`. Every read is a lookup by primary key, which a relational database with replicas or a key-value store handles easily.\n\n**High-level design and deep dives.** The diagram shows the read path, which is what matters at 100 reads per write. Popular links follow a power law, so a cache of a few gigabytes holds the hot ones and absorbs most redirects. The status code is a real trade-off: **301** (permanent) lets browsers cache the redirect, cutting your traffic but hiding repeat clicks and making the link hard to change later; **302** (temporary) sends every click through you, so you can count it. Analytics must not slow the redirect, so the app emits a click event to a queue and aggregates it in the background.",
+        "code": "            GET /aZ3kP9q\n browser ------------------> [ LB ] --> [ app servers ]\n    ^                                      | 1. cache.get(\"aZ3kP9q\")\n    |   302 Location: https://long...      | 2. on a miss: SELECT long_url FROM links\n    +--------------------------------------+    WHERE code = 'aZ3kP9q'; then cache.set\n                                           | 3. enqueue a click event (async)\n                                           v\n             [ Redis cache ]   [ links DB + replicas ]   [ queue -> analytics ]\n\n Estimates: ~40 writes/s, ~4,000 reads/s (10k peak), 6B links and ~3 TB over 5 years",
+        "language": "plaintext",
+        "tip": "Close with failure modes: 'If Redis dies, reads fall back to the replicas, which can take 4,000 per second; if the leader dies, creating links pauses until failover, but redirects keep working.'",
+        "pitfall": "Choosing 301 without thinking. Browsers may cache it for a long time, so for those users you can no longer change or expire the link, or count their clicks.",
+        "check": {
+          "question": "Why does this design concentrate on the read path?",
+          "choices": [
+            "Writes are handled entirely by the CDN",
+            "Reads cost more to store than writes",
+            "Reads outnumber writes about 100 to 1, so redirects dominate the load",
+            "Interviewers only ever ask about reads"
+          ],
+          "answer": 2,
+          "explanation": "The estimates show about 40 writes per second against about 4,000 reads. Caching and replicas for redirects therefore matter far more than optimizing link creation."
+        }
+      },
+      {
+        "title": "Worked design: a news feed",
+        "body": "Design the home feed for a social app: users follow others and see recent posts from the people they follow, newest first. There are 50 million daily users who each open the feed about 10 times a day. An average user follows 200 accounts, and a few celebrities have tens of millions of followers.\n\n**Estimates.** Feed reads: 50M x 10 = 500M a day, about 5,000 per second on average and perhaps 15,000 at peak. Posts: say 5M a day, about 50 per second. Reads dominate, and each feed read conceptually merges posts from 200 accounts, so building feeds at read time is the expensive part.\n\n**API.** `POST /posts`, and `GET /feed?cursor=...&limit=20` returning posts plus a next cursor. Cursor pagination matters here because new posts arrive constantly, and offsets would shift under the user.\n\n**Two core strategies:**\n\n- **Fan-out on read (pull).** When a user opens the feed, fetch recent posts from each account they follow and merge them. Writes are cheap and nothing is precomputed for inactive users, but every feed load does a lot of work and gets slow for users who follow many accounts.\n- **Fan-out on write (push).** When someone posts, workers push the post id into a precomputed feed list for every follower, for example a Redis list per user trimmed to the latest 800 ids. Reading a feed is then one fast lookup. The cost lands on writes: a celebrity with 30 million followers triggers 30 million inserts per post, and you maintain feeds for people who never log in.\n\n**The hybrid** most real systems use: push for normal accounts, pull for celebrities. At read time, take the user's precomputed feed and merge in recent posts from the few celebrities they follow. Fan-out runs through a queue and workers, so posting stays fast and fan-out catches up within seconds. That is acceptable because feeds can be eventually consistent: nobody is harmed if a post appears three seconds late.\n\n**Deep dives worth offering:** storing feed entries as post ids and hydrating content from a post cache, so an edited or deleted post is fixed in one place; ranking instead of pure recency (collect candidate posts, score them, sort); and recovering when the feed cache is lost (rebuild on read with fan-out on read, then repopulate).",
+        "code": " POST /posts by alice (300 followers)\n   app -> posts DB -> queue {\"post_id\": 77, \"author\": \"alice\"}\n   fan-out workers, for each follower f:\n       LPUSH feed:f 77\n       LTRIM feed:f 0 799          (keep the newest 800 ids)\n\n POST /posts by a celebrity (30M followers)\n   app -> posts DB                 (no fan-out: too expensive)\n\n GET /feed for bob\n   ids  = LRANGE feed:bob 0 19                      precomputed (push)\n   ids += recent posts of celebrities bob follows    merged at read time (pull)\n   sort, hydrate ids from the post cache, return 20 posts + next cursor",
+        "language": "plaintext",
+        "tip": "Contrast consistency needs out loud: 'If Bob sees Alice's post three seconds late, nobody is hurt. A payment is different.'",
+        "pitfall": "Choosing pure fan-out on write and forgetting celebrities. A single post from an account with 30 million followers becomes 30 million writes.",
+        "check": {
+          "question": "Why do real feed systems use a hybrid of push and pull?",
+          "choices": [
+            "Pull is always faster than push for every user",
+            "Pushing a post from an account with millions of followers is too expensive, so those posts are pulled at read time while normal accounts are pushed",
+            "Push loses posts whenever the queue is full",
+            "A hybrid design removes the need for any cache"
+          ],
+          "answer": 1,
+          "explanation": "Push makes reads cheap but its cost grows with follower count, which explodes for celebrities. Pulling only those few accounts at read time keeps both reads and writes manageable."
+        }
+      }
+    ],
+    "keyTerms": [
+      {
+        "term": "Non-functional requirement",
+        "definition": "How well the system must work: latency, availability, scale, consistency."
+      },
+      {
+        "term": "QPS",
+        "definition": "Queries (requests) per second; estimate as daily count divided by about 10^5."
+      },
+      {
+        "term": "Load balancer",
+        "definition": "Spreads requests across a pool of servers and stops sending to ones that fail health checks."
+      },
+      {
+        "term": "Stateless service",
+        "definition": "A server that keeps no per-user state locally, so any instance can handle any request."
+      },
+      {
+        "term": "Cache-aside",
+        "definition": "Read from the cache, fill it from the database on a miss, and delete the key when data changes."
+      },
+      {
+        "term": "TTL",
+        "definition": "Time to live: how long a cached entry is kept before it expires."
+      },
+      {
+        "term": "CDN",
+        "definition": "A network of edge servers that cache static content close to users."
+      },
+      {
+        "term": "Replication lag",
+        "definition": "The delay before a follower database reflects a write made on the leader."
+      },
+      {
+        "term": "Shard key",
+        "definition": "The field that decides which database shard holds a row; it should match the main access pattern."
+      },
+      {
+        "term": "CAP",
+        "definition": "During a network partition, a distributed system must choose between consistency and availability."
+      },
+      {
+        "term": "Token bucket",
+        "definition": "A rate-limiting algorithm that allows bursts up to the bucket size while enforcing an average rate."
+      },
+      {
+        "term": "Fan-out on write",
+        "definition": "Pushing each new post into every follower's precomputed feed at write time."
+      }
+    ],
+    "summary": [
+      "Drive the interview: requirements, estimates, API, data model, high-level design, deep dives, trade-offs.",
+      "Estimate with 1 day ≈ 10^5 seconds and powers of ten, then say what the numbers imply for the design.",
+      "Stateless servers behind a health-checking load balancer scale out; cache-aside with TTLs and a CDN absorb reads.",
+      "Replicas add read capacity but lag, shard keys must match the access pattern, and during a partition you pick consistency or availability per feature.",
+      "Queues make slow work asynchronous and need idempotent consumers; token buckets limit request rates.",
+      "URL shortener: base62 codes, a cache-heavy read path, 302 for analytics. News feed: push for most accounts, pull for celebrities."
+    ],
+    "feynmanPrompt": "Walk a friend through designing a URL shortener for 100 million new links a month: your estimates, how you generate codes, and how a redirect stays fast even when a cache server fails."
+  },
+  "questions": [
+    {
+      "id": "swe-system-design-q01",
+      "type": "order",
+      "difficulty": "easy",
+      "question": "Put the steps of a system design interview in a sensible order.",
+      "items": [
+        "Clarify functional and non-functional requirements",
+        "Make back-of-the-envelope estimates",
+        "Sketch the API",
+        "Define the data model",
+        "Draw the high-level design and trace a request",
+        "Deep dive into the hardest components",
+        "Discuss trade-offs, bottlenecks and failure modes"
+      ],
+      "explanation": "Requirements and estimates shape everything after them, the API and data model come before the boxes and arrows, and deep dives and trade-offs come last, once there is a design to dig into.",
+      "concept": "Interview structure",
+      "section": 0
+    },
+    {
+      "id": "swe-system-design-q02",
+      "type": "multi",
+      "difficulty": "medium",
+      "question": "Which of these are non-functional requirements for a URL shortener? Select all that apply.",
+      "choices": [
+        "Redirects complete in under 50 ms at the 99th percentile",
+        "Users can choose a custom alias",
+        "The service stays up if one data center fails",
+        "Links can expire on a chosen date",
+        "It handles 10,000 redirects per second at peak"
+      ],
+      "answers": [
+        0,
+        2,
+        4
+      ],
+      "explanation": "Non-functional requirements describe how well the system works: latency, availability, scale. Custom aliases and expiry are features, so they are functional requirements.",
+      "concept": "Non-functional requirements",
+      "section": 0
+    },
+    {
+      "id": "swe-system-design-q03",
+      "type": "mcq",
+      "difficulty": "easy",
+      "question": "Twenty minutes into the interview, you realize you never asked how many users the system must support. What is the best move?",
+      "choices": [
+        "Keep going, since scale questions are optional",
+        "Assume billions of users and add sharding everywhere",
+        "Ask the interviewer to choose the database instead",
+        "Pause, ask, and adjust the design to the answer"
+      ],
+      "answer": 3,
+      "explanation": "Scale changes the design, and interviewers reward candidates who notice gaps and adapt. Assuming the maximum leads to an over-engineered design you cannot justify.",
+      "concept": "Recovering from missed requirements",
+      "section": 0
+    },
+    {
+      "id": "swe-system-design-q04",
+      "type": "typed",
+      "difficulty": "medium",
+      "question": "An app has 50 million daily active users, each making 20 requests a day. Using 1 day ≈ 100,000 seconds, how many requests per second is that on average?",
+      "answer": "10000",
+      "accept": [
+        "10,000",
+        "10k",
+        "10000 rps",
+        "10,000 rps"
+      ],
+      "explanation": "50M x 20 = 1 billion requests a day. 1,000,000,000 / 100,000 = 10,000 requests per second.",
+      "concept": "Requests per second",
+      "section": 1
+    },
+    {
+      "id": "swe-system-design-q05",
+      "type": "typed",
+      "difficulty": "medium",
+      "question": "Users upload 1 million photos a day at 2 MB each. About how many terabytes of new storage is that per year (365 days), before replication? Give the number of TB.",
+      "answer": "730",
+      "accept": [
+        "730 TB",
+        "730TB"
+      ],
+      "explanation": "1M x 2 MB = 2 TB a day, and 2 TB x 365 = 730 TB a year. With three replicas you would plan for about 2.2 PB.",
+      "concept": "Storage per year",
+      "section": 1
+    },
+    {
+      "id": "swe-system-design-q06",
+      "type": "typed",
+      "difficulty": "easy",
+      "question": "A service averages 2,000 requests per second, and peaks are about 3 times the average. How many requests per second should you plan for at peak?",
+      "answer": "6000",
+      "accept": [
+        "6,000",
+        "6k",
+        "6000 rps",
+        "6,000 rps"
+      ],
+      "explanation": "2,000 x 3 = 6,000 requests per second. Size the system for the peak, not the average, or it falls over at the busiest moment of the day.",
+      "concept": "Peak traffic",
+      "section": 1
+    },
+    {
+      "id": "swe-system-design-q07",
+      "type": "typed",
+      "difficulty": "medium",
+      "question": "Peak load is 30,000 requests per second, and load tests show one app server comfortably handles 2,000. How many app servers do you need at peak, before adding headroom for failures?",
+      "answer": "15",
+      "accept": [
+        "15 servers"
+      ],
+      "explanation": "30,000 / 2,000 = 15 servers. In practice you add headroom, for example a few extra servers so losing one or two, or a whole zone, does not overload the rest.",
+      "concept": "Server count",
+      "section": 1
+    },
+    {
+      "id": "swe-system-design-q08",
+      "type": "mcq",
+      "difficulty": "hard",
+      "question": "A request makes 3 sequential calls to a service on another continent (about 100 ms round trip each) and 20 cache reads inside the data center (about 0.5 ms each). Roughly where does the time go?",
+      "choices": [
+        "The cache reads dominate, at about 300 ms",
+        "Both take about the same time, roughly 150 ms each",
+        "The cross-continent calls dominate, about 300 ms against about 10 ms",
+        "Neither matters; the total is under 20 ms"
+      ],
+      "answer": 2,
+      "explanation": "3 x 100 ms = about 300 ms for the cross-continent calls, against 20 x 0.5 ms = about 10 ms for the cache reads. Cut or parallelize the remote calls first; tuning the cache would barely matter.",
+      "concept": "Latency budget",
+      "section": 1
+    },
+    {
+      "id": "swe-system-design-q09",
+      "type": "mcq",
+      "difficulty": "medium",
+      "question": "After adding a load balancer and a second app server, users get logged out at random. What is the most likely cause?",
+      "choices": [
+        "Sessions are stored in each server's memory, so requests landing on the other server find no session",
+        "The load balancer removes cookies from requests",
+        "Health checks log users out every few seconds",
+        "Round robin encrypts cookies differently on each server"
+      ],
+      "answer": 0,
+      "explanation": "Each server keeps its own in-memory sessions, so a request that lands on the other server finds no session. Move sessions to a shared store such as Redis, or use signed tokens.",
+      "concept": "Session state",
+      "section": 2
+    },
+    {
+      "id": "swe-system-design-q10",
+      "type": "mcq",
+      "difficulty": "medium",
+      "question": "Some requests to your service take 20 ms and others take 5 seconds. Which load balancing algorithm usually spreads the load better than round robin here?",
+      "choices": [
+        "Random choice",
+        "Least connections",
+        "Round robin with more servers",
+        "Hashing on the request URL"
+      ],
+      "answer": 1,
+      "explanation": "Round robin ignores how busy each server is, so one server can pile up slow requests. Least connections sends new work to the server with the fewest requests in flight.",
+      "concept": "Least connections",
+      "section": 2
+    },
+    {
+      "id": "swe-system-design-q11",
+      "type": "mcq",
+      "difficulty": "hard",
+      "question": "Instead of moving sessions to Redis, a teammate proposes sticky sessions on the load balancer. What is the main downside?",
+      "choices": [
+        "Sticky sessions require HTTP/3 on every client",
+        "Load can become uneven, and when a server dies its users lose their sessions",
+        "They make TLS termination impossible",
+        "They double the number of database writes"
+      ],
+      "answer": 1,
+      "explanation": "Pinning users to servers makes load uneven (a few heavy users can swamp one machine) and ties each session's fate to one server, so a crash or deploy logs those users out.",
+      "concept": "Sticky sessions",
+      "section": 2
+    },
+    {
+      "id": "swe-system-design-q12",
+      "type": "code-fill",
+      "difficulty": "medium",
+      "question": "Complete the cache-aside read path so a miss fills the cache.",
+      "code": "def get_user(user_id):\n    key = f\"user:{user_id}\"\n    cached = redis.get(key)\n    if cached is not None:\n        return json.loads(cached)\n    user = db.fetch_user(user_id)\n    _____\n    return user",
+      "language": "python",
+      "choices": [
+        "redis.delete(key)",
+        "db.update_user(user_id, user)",
+        "redis.set(key, json.dumps(user), ex=300)",
+        "return json.loads(cached)"
+      ],
+      "answer": 2,
+      "explanation": "On a miss, load from the database, store the result with a TTL so it expires on its own, and return it. Deleting the key or writing to the database belong to the write path, not the read path.",
+      "concept": "Cache-aside read",
+      "section": 3
+    },
+    {
+      "id": "swe-system-design-q13",
+      "type": "debug",
+      "difficulty": "hard",
+      "question": "What is wrong with this update path?",
+      "code": "def update_price(product_id, new_price):\n    redis.set(f\"product:{product_id}:price\", new_price)      # no TTL\n    db.execute(\"UPDATE products SET price = %s WHERE id = %s\",\n               (new_price, product_id))",
+      "language": "python",
+      "choices": [
+        "redis.set cannot store numeric values",
+        "The UPDATE statement must run before the function is called",
+        "Prices are sensitive data and must never be cached",
+        "The cache is written before the database and has no TTL, so a failed UPDATE leaves a never-saved price cached indefinitely"
+      ],
+      "answer": 3,
+      "explanation": "The cache is written first, with no TTL. If the UPDATE fails or the process crashes before it, the cache serves a price that was never saved, and without a TTL it does so indefinitely. Write the database first, then delete the cache key, and give entries a TTL.",
+      "concept": "Cache write ordering",
+      "section": 3
+    },
+    {
+      "id": "swe-system-design-q14",
+      "type": "mcq",
+      "difficulty": "medium",
+      "question": "A key read 20,000 times a second expires, and database CPU jumps to 100% for several seconds. What is this, and what helps?",
+      "choices": [
+        "Replication lag; send all reads to the leader",
+        "A memory leak in Redis; restart it on a schedule",
+        "A cache stampede; let one request rebuild the value while others wait or get the stale copy, and jitter TTLs",
+        "An N+1 query problem; use eager loading"
+      ],
+      "answer": 2,
+      "explanation": "Thousands of simultaneous misses on one hot key is a cache stampede. Let one request rebuild the value (a lock or request coalescing) while others wait or get the old copy, and jitter TTLs so hot keys do not expire together.",
+      "concept": "Cache stampede",
+      "section": 3
+    },
+    {
+      "id": "swe-system-design-q15",
+      "type": "mcq",
+      "difficulty": "easy",
+      "question": "What does a CDN do for your site's images and JavaScript files?",
+      "choices": [
+        "Compresses and indexes your database",
+        "Balances writes across database shards",
+        "Encrypts your files at rest",
+        "Serves cached copies from servers near each user, cutting latency and load on your servers"
+      ],
+      "answer": 3,
+      "explanation": "CDN edge servers cache static files close to users, so requests travel a short distance and never reach your servers. It does not touch your database or encryption at rest.",
+      "concept": "What a CDN does",
+      "section": 3
+    },
+    {
+      "id": "swe-system-design-q16",
+      "type": "mcq",
+      "difficulty": "medium",
+      "question": "Why do sites name assets like `app.3f9a1c.js` and let CDNs cache them for a year?",
+      "choices": [
+        "A new version gets a new filename, so long caching is safe and updates take effect immediately",
+        "Browsers refuse to cache files without a hash in the name",
+        "The hash encrypts the file so the CDN cannot read it",
+        "CDNs only accept files whose names contain a hash"
+      ],
+      "answer": 0,
+      "explanation": "The hash changes whenever the content changes, so a new deploy references a new filename. Old files can be cached forever because they never change, and users still get updates immediately.",
+      "concept": "Hashed asset names",
+      "section": 3
+    },
+    {
+      "id": "swe-system-design-q17",
+      "type": "mcq",
+      "difficulty": "easy",
+      "question": "A read-heavy app's database is at 90% CPU, almost all of it from SELECT queries. What is the most direct first fix?",
+      "choices": [
+        "Shard the database by user id right away",
+        "Add read replicas and send reads to them, with a cache for hot data",
+        "Put a bigger load balancer in front of the app servers",
+        "Drop indexes so the database has less to maintain"
+      ],
+      "answer": 1,
+      "explanation": "Read replicas (plus a cache for hot data) add read capacity without the complexity of sharding. Sharding is for when writes or total data outgrow one machine.",
+      "concept": "Read replicas",
+      "section": 4
+    },
+    {
+      "id": "swe-system-design-q18",
+      "type": "mcq",
+      "difficulty": "hard",
+      "question": "You shard a chat app's messages across 16 databases. Most reads load the latest 50 messages of one conversation. Which shard key fits best?",
+      "choices": [
+        "The message timestamp, ranged by day",
+        "sender_id, so each user's messages are together",
+        "conversation_id, hashed, so each conversation lives on one shard",
+        "A random number per message, for perfect balance"
+      ],
+      "answer": 2,
+      "explanation": "Hashing conversation_id keeps each conversation on one shard, so the main query touches one database, while different conversations spread evenly. Timestamps create a hot shard for today, and sender_id or random keys scatter a conversation across shards.",
+      "concept": "Choosing a shard key",
+      "section": 4
+    },
+    {
+      "id": "swe-system-design-q19",
+      "type": "multi",
+      "difficulty": "hard",
+      "question": "During a network partition, which of these features should refuse or delay requests rather than risk stale or conflicting data? Select all that apply.",
+      "choices": [
+        "Deducting a payment from a wallet balance",
+        "Selling the last seat on a flight",
+        "Showing a post's like count",
+        "Loading a news feed",
+        "Reserving a unique username"
+      ],
+      "answers": [
+        0,
+        1,
+        4
+      ],
+      "explanation": "Money, a single scarce seat and globally unique names break if two sides of a partition both say yes. Like counts and feeds can be briefly stale and converge later.",
+      "concept": "Consistency or availability",
+      "section": 4
+    },
+    {
+      "id": "swe-system-design-q20",
+      "type": "recall",
+      "difficulty": "medium",
+      "question": "Explain the CAP theorem in plain terms.",
+      "answer": "When a network partition splits a distributed system, each side must choose: refuse requests it cannot confirm are current (consistency) or keep answering with possibly stale data (availability). Without a partition you can have both; the everyday trade-off is latency versus consistency.",
+      "explanation": "Interviewers prefer this practical version over the acronym: name the partition, the choice, and which features need which side.",
+      "concept": "CAP in plain terms",
+      "section": 4
+    },
+    {
+      "id": "swe-system-design-q21",
+      "type": "match",
+      "difficulty": "medium",
+      "question": "Match each term to its description.",
+      "pairs": [
+        {
+          "left": "Leader",
+          "right": "Accepts every write and streams changes to the others"
+        },
+        {
+          "left": "Follower",
+          "right": "Applies the leader's changes and serves reads"
+        },
+        {
+          "left": "Replication lag",
+          "right": "The delay before a follower reflects a recent write"
+        },
+        {
+          "left": "Failover",
+          "right": "Promoting a follower when the leader dies"
+        },
+        {
+          "left": "Shard",
+          "right": "One database holding only a subset of the rows"
+        }
+      ],
+      "explanation": "The leader takes writes, followers copy them and serve reads, lag is how far behind they are, failover replaces a dead leader, and a shard holds only part of the data.",
+      "concept": "Replication vocabulary",
+      "section": 4
+    },
+    {
+      "id": "swe-system-design-q22",
+      "type": "mcq",
+      "difficulty": "easy",
+      "question": "Which task is the best candidate to move onto a queue and a background worker?",
+      "choices": [
+        "Checking the password during login",
+        "Reading a product's price to render the page",
+        "Sending a welcome email after signup",
+        "Validating that a form field is not empty"
+      ],
+      "answer": 2,
+      "explanation": "The user does not need to wait for the welcome email, and it can be retried if the email service is down. The other tasks are needed to answer the current request.",
+      "concept": "Good queue candidates",
+      "section": 5
+    },
+    {
+      "id": "swe-system-design-q23",
+      "type": "debug",
+      "difficulty": "hard",
+      "question": "The queue delivers at least once. Customers sometimes receive two 'Your order shipped' emails. What is wrong with this consumer?",
+      "code": "def handle(message):\n    order = db.get_order(message[\"order_id\"])\n    send_email(order.customer_email, \"Your order shipped!\")\n    db.execute(\"UPDATE orders SET shipped_email_sent = true WHERE id = %s\",\n               (order.id,))\n    queue.ack(message)",
+      "language": "python",
+      "choices": [
+        "It never checks shipped_email_sent before sending, so a redelivered message sends the email again",
+        "ack must be called before the order is read",
+        "The UPDATE should be an INSERT",
+        "send_email cannot be called from a worker"
+      ],
+      "answer": 0,
+      "explanation": "If the worker crashes after sending the email but before the UPDATE or ack, the message is redelivered and the email goes out again. Check shipped_email_sent first (ideally claim it atomically with an UPDATE ... WHERE shipped_email_sent = false) so a repeat does nothing. Acking first would instead risk never sending the email.",
+      "concept": "Idempotent consumer",
+      "section": 5
+    },
+    {
+      "id": "swe-system-design-q24",
+      "type": "typed",
+      "difficulty": "medium",
+      "question": "A client's token bucket holds up to 10 tokens and is full. It refills at 2 tokens per second. At t = 0, 25 requests arrive at the same instant. How many are rejected?",
+      "answer": "15",
+      "explanation": "The full bucket allows a burst of 10, and no time has passed for any refill, so the other 15 are rejected with 429. One second later, 2 more requests would be allowed.",
+      "concept": "Token bucket",
+      "section": 5
+    },
+    {
+      "id": "swe-system-design-q25",
+      "type": "mcq",
+      "difficulty": "medium",
+      "question": "A limiter allows 100 requests per minute using fixed windows that reset on the minute. What is the most requests a client can get through within about 2 seconds?",
+      "choices": [
+        "100",
+        "101",
+        "200",
+        "50"
+      ],
+      "answer": 2,
+      "explanation": "The client sends 100 at 0:59 (the end of one window) and 100 at 1:00 (the start of the next): 200 in about two seconds, double the intended rate. Sliding windows and token buckets avoid this.",
+      "concept": "Fixed window weakness",
+      "section": 5
+    },
+    {
+      "id": "swe-system-design-q26",
+      "type": "typed",
+      "difficulty": "medium",
+      "question": "Codes use base62 characters (a to z, A to Z, 0 to 9). What is the shortest code length that gives at least 1 billion distinct codes?",
+      "answer": "6",
+      "accept": [
+        "6 characters"
+      ],
+      "explanation": "62^5 is about 916 million, just short of a billion. 62^6 is about 56.8 billion, so 6 characters are enough. 7 characters give about 3.5 trillion.",
+      "concept": "Base62 code length",
+      "section": 6
+    },
+    {
+      "id": "swe-system-design-q27",
+      "type": "typed",
+      "difficulty": "hard",
+      "question": "A shortener creates 100 million links a month, and each link is read 100 times for every write. Assuming a month has 2.5 million seconds, how many redirects per second is that on average?",
+      "answer": "4000",
+      "accept": [
+        "4,000",
+        "4k",
+        "4000 rps",
+        "4,000 rps"
+      ],
+      "explanation": "Writes: 100M / 2.5M s = 40 per second. Reads: 40 x 100 = 4,000 redirects per second, before applying a peak factor.",
+      "concept": "Shortener read load",
+      "section": 6
+    },
+    {
+      "id": "swe-system-design-q28",
+      "type": "mcq",
+      "difficulty": "medium",
+      "question": "The product team wants click counts for every short link. Which redirect status should the service return?",
+      "choices": [
+        "301, so browsers cache the redirect",
+        "302, so every click passes through your servers and can be counted",
+        "200 with the long URL in the body",
+        "404 followed by a JavaScript redirect"
+      ],
+      "answer": 1,
+      "explanation": "With 302, browsers come back to you on every click, so each one can be counted. 301 lets browsers cache the redirect and skip your server, so repeat clicks vanish from analytics.",
+      "concept": "301 versus 302",
+      "section": 6
+    },
+    {
+      "id": "swe-system-design-q29",
+      "type": "mcq",
+      "difficulty": "hard",
+      "question": "A design uses the first 7 characters of the long URL's MD5 hash as the short code. What must the design handle?",
+      "choices": [
+        "Nothing, because MD5 never produces collisions",
+        "Codes that are longer than 7 characters",
+        "Collisions: different URLs can share the same 7-character prefix, so inserts must detect and resolve them",
+        "Codes that change every time the same URL is hashed"
+      ],
+      "answer": 2,
+      "explanation": "Truncating a hash to 7 characters makes collisions between different URLs possible, and their likelihood grows with billions of links, so inserts must detect a taken code and resolve it (for example by rehashing with a salt). Hashing is deterministic, so the same URL always gives the same code.",
+      "concept": "Hash-based codes",
+      "section": 6
+    },
+    {
+      "id": "swe-system-design-q30",
+      "type": "mcq",
+      "difficulty": "medium",
+      "question": "With pure fan-out on write, what happens when an account with 30 million followers posts?",
+      "choices": [
+        "The post is rejected for being too popular",
+        "Nothing special; push cost does not depend on follower count",
+        "Followers must refresh twice to see it",
+        "One post triggers about 30 million feed inserts, delaying fan-out and wasting work"
+      ],
+      "answer": 3,
+      "explanation": "Push cost is proportional to follower count, so one post means about 30 million feed inserts. Fan-out lags, workers are swamped, and much of the work goes to feeds of users who will not log in today.",
+      "concept": "Celebrity fan-out",
+      "section": 7
+    },
+    {
+      "id": "swe-system-design-q31",
+      "type": "mcq",
+      "difficulty": "easy",
+      "question": "Why does the feed API use cursor pagination rather than offsets?",
+      "choices": [
+        "New posts arrive constantly, so offsets shift and cause duplicates; a cursor marks exactly where the last page ended",
+        "Offsets cannot be used with Redis lists",
+        "HTTP/2 requires cursors for all list endpoints",
+        "Offsets reveal other users' ids"
+      ],
+      "answer": 0,
+      "explanation": "New posts keep arriving at the top, so offset-based pages shift and show duplicates or skip posts. A cursor marks exactly where the previous page ended.",
+      "concept": "Feed pagination",
+      "section": 7
+    },
+    {
+      "id": "swe-system-design-q32",
+      "type": "multi",
+      "difficulty": "medium",
+      "question": "Which statements about the hybrid feed design are true? Select all that apply.",
+      "choices": [
+        "Posts from normal accounts are pushed into followers' precomputed feeds",
+        "Celebrity posts are merged in at read time",
+        "Fan-out runs in background workers fed by a queue",
+        "Every feed read queries the posts of all 200 followed accounts",
+        "Feeds must be strongly consistent across all replicas"
+      ],
+      "answers": [
+        0,
+        1,
+        2
+      ],
+      "explanation": "Normal accounts are pushed by background workers, and celebrity posts are pulled and merged at read time. Feeds are deliberately eventually consistent, and reads do not query all 200 followees.",
+      "concept": "The hybrid feed",
+      "section": 7
+    }
+  ]
+}

@@ -1,0 +1,718 @@
+{
+  "id": "swe-sliding-window",
+  "name": "Sliding Window",
+  "version": "1.0.0",
+  "author": "Recurse",
+  "subject": "swe",
+  "level": "intermediate",
+  "description": "Fixed and variable windows over arrays and strings: one template, hash map state, and the classic window bugs.",
+  "icon": "[=]",
+  "language": "python",
+  "prereqs": [
+    "swe-two-pointers",
+    "swe-hash-maps",
+    "big-o"
+  ],
+  "tags": [
+    "interviews",
+    "sliding window",
+    "strings",
+    "arrays",
+    "two pointers"
+  ],
+  "lesson": {
+    "estimatedMinutes": 34,
+    "intro": "Many interview questions ask about the best contiguous stretch of an array or string: the longest substring without repeats, the shortest subarray that reaches a sum, the best k days in a row. The sliding window technique answers them in one pass by updating a running summary as the range moves. This pack gives you one template for fixed and variable windows and walks through the classic problems that use it.",
+    "objectives": [
+      "Recognize contiguous-range problems that a window can solve, and the ones it cannot",
+      "Write fixed-size and variable-size windows from one template, recording the answer in the right place",
+      "Maintain window state with sums, sets and count maps, adding and removing one item at a time",
+      "Explain why a window with a while loop inside a for loop still runs in O(n)"
+    ],
+    "sections": [
+      {
+        "title": "From brute force to a window",
+        "body": "A weather station logs a temperature every hour, and you want the highest average over any 3 consecutive hours. The brute force recomputes each 3-hour sum from scratch: for n readings and a window of k, that is O(n k) work. But neighboring windows overlap almost completely. Going from hours 0 to 2 to hours 1 to 3, one reading leaves and one arrives; the other k - 1 are shared.\n\nA **sliding window** keeps a summary of the current contiguous range (a sum, counts, a set) and updates it as the range moves: add what enters on the right, remove what leaves on the left. Each update is O(1), so the whole scan is O(n).\n\nSignals in a problem statement:\n\n- **Contiguous** subarray or substring. This is the big one. A subsequence (items that need not be next to each other) is not a window.\n- Longest, shortest, maximum, minimum or count over such ranges.\n- A condition on the range: \"at most k distinct\", \"no repeats\", \"sum at least target\", \"exactly length k\".\n\nThere are two kinds of windows:\n\n- **Fixed size**: the length k is given, and the window slides one step at a time.\n- **Variable size**: the window grows on the right and shrinks on the left to keep a condition true, and you look for the longest or shortest window that satisfies it.\n\nA sliding window is a two-pointer technique with both pointers moving in the same direction: `left` and `right`, with the window being `nums[left..right]`. Neither pointer ever moves backward, which is why the total work is linear.\n\nOne important limit: a variable window over sums needs the condition to behave **monotonically**. With all-positive numbers, growing a window always increases its sum and shrinking always decreases it, so you know which pointer to move. Negative numbers break that, and you need prefix sums with a hash map instead (see the hash maps pack).",
+        "code": "nums = [2, 1, 5, 1, 3, 2]     k = 3\n\nwindow 0..2:  [2, 1, 5] 1  3  2     sum = 8\nwindow 1..3:   2 [1, 5, 1] 3  2     sum = 8 - 2 + 1 = 7\nwindow 2..4:   2  1 [5, 1, 3] 2     sum = 7 - 1 + 3 = 9\nwindow 3..5:   2  1  5 [1, 3, 2]    sum = 9 - 5 + 2 = 6\n\nEach slide: subtract the item leaving on the left, add the item entering on the right.",
+        "language": "plaintext",
+        "tip": "The word \"contiguous\" (or \"substring\", or \"consecutive\") in a problem is the strongest single hint that a sliding window applies.",
+        "check": {
+          "question": "Which problem is NOT a good fit for a sliding window?",
+          "choices": [
+            "The longest substring with at most 2 distinct characters",
+            "The longest increasing subsequence, where the chosen items need not be adjacent",
+            "The maximum sum of any 5 consecutive values",
+            "The shortest subarray of positive numbers with sum at least 50"
+          ],
+          "answer": 1,
+          "explanation": "A window always covers a contiguous range. A subsequence can skip items, so there is no single range to slide; that problem is solved with dynamic programming. The other three are contiguous-range problems."
+        }
+      },
+      {
+        "title": "Fixed-size windows",
+        "body": "With a fixed size k, the template has two phases: build the first window, then slide it.\n\n1. Sum (or summarize) the first k items.\n2. For each new index `right` from k to n - 1, add `nums[right]`, remove `nums[right - k]` (the item that just fell out on the left), and update the answer.\n\nTrace the maximum sum of 3 consecutive items in `[2, 1, 5, 1, 3, 2]`: the first window sums to 8. Slide: add 1 and remove 2, giving 7. Add 3 and remove 1, giving 9. Add 2 and remove 5, giving 6. The best is 9, the window [5, 1, 3]. That is O(n) time and O(1) space.\n\nAn equivalent single-loop form adds `nums[right]` on every step and only starts removing and recording once the window is full, when `right >= k - 1`. Both forms are fine. Pick one and be consistent, because mixing them is where off-by-one bugs come from.\n\nFixed windows work with any numbers, including negatives, because the condition does not choose the size. That has a consequence for initialization: when you compute a maximum, start the best value from the first window's sum (or negative infinity), never from 0. With all-negative input, 0 is not a real window sum, yet it would be returned.\n\nThe same frame works with richer state. Keep a set to answer \"does any window of size k contain a duplicate?\", or a count map to answer \"how many windows of length k are anagrams of p?\" by comparing the window's letter counts with p's. For the maximum value inside every window, one running variable is not enough, because when the maximum leaves you cannot recover the next one; that needs a monotonic deque, introduced in the stacks and queues pack.",
+        "code": "def window_averages(nums, k):\n    \"\"\"Average of every contiguous window of length k.\"\"\"\n    window = sum(nums[:k])                # build the first window\n    result = [window / k]\n    for right in range(k, len(nums)):\n        window += nums[right]             # item entering on the right\n        window -= nums[right - k]         # item leaving on the left\n        result.append(window / k)\n    return result\n\ndef has_duplicate_within_k(nums, k):\n    \"\"\"True if some window of k consecutive items contains a repeat.\"\"\"\n    seen = set()\n    for right, x in enumerate(nums):\n        if x in seen:\n            return True\n        seen.add(x)\n        if right >= k - 1:                # window is full: drop its oldest item\n            seen.remove(nums[right - k + 1])\n    return False\n\nprint(window_averages([1, 3, 2, 6, -1, 4, 1, 8, 2], 5))\n# [2.2, 2.8, 2.4, 3.6, 2.8]\nprint(has_duplicate_within_k([1, 2, 3, 1], 3))   # False: the 1s are too far apart\nprint(has_duplicate_within_k([1, 2, 1, 3], 3))   # True",
+        "pitfall": "Starting `best = 0` when looking for a maximum. If every number is negative, no window sums to 0, but the function returns 0 anyway. Initialize from the first window.",
+        "activity": {
+          "type": "code-runner",
+          "title": "Slide a fixed window",
+          "prompt": "Run it and check each window sum against a quick mental add. The code compares sums with threshold * k so it never divides. Then change k as the task says and predict every line first.",
+          "props": {
+            "language": "python",
+            "code": "nums = [2, 2, 2, 2, 5, 5, 5, 8]\nk = 3\nthreshold = 4      # count windows whose average is at least this\n\nwindow = sum(nums[:k])\ncount = 1 if window >= threshold * k else 0\nprint(f\"window 0..{k - 1}: sum {window}\")\nfor right in range(k, len(nums)):\n    window += nums[right] - nums[right - k]\n    if window >= threshold * k:\n        count += 1\n    print(f\"window {right - k + 1}..{right}: sum {window}\")\nprint(\"windows with average >= threshold:\", count)\n",
+            "task": "Change k to 4. Predict each window sum and the final count before you run it.",
+            "expectOutput": "window 0..3: sum 8\nwindow 1..4: sum 11\nwindow 2..5: sum 14\nwindow 3..6: sum 17\nwindow 4..7: sum 23\nwindows with average >= threshold: 2"
+          }
+        },
+        "check": {
+          "question": "What is the maximum sum of 2 consecutive items in [4, -1, 3, 5, -2]?",
+          "choices": [
+            "9",
+            "7",
+            "8",
+            "3"
+          ],
+          "answer": 2,
+          "explanation": "The windows are [4, -1] = 3, [-1, 3] = 2, [3, 5] = 8 and [5, -2] = 3, so the best is 8. 9 would need the non-adjacent 4 and 5."
+        }
+      },
+      {
+        "title": "Variable-size windows: grow and shrink",
+        "body": "Now the size is not given: \"Find the length of the shortest subarray of positive numbers whose sum is at least 7.\" Any range might be the answer, so you let the window breathe. Grow it on the right until the condition holds, then shrink it from the left as far as it keeps holding, recording answers along the way.\n\nEvery variable window problem fits one template:\n\n1. Move `right` forward one step and add `nums[right]` to the window state.\n2. While the window breaks the rule (or, for shortest problems, while it satisfies it), update the answer if appropriate, remove `nums[left]` from the state and move `left` forward.\n3. Update the answer with the current window `left..right` if appropriate.\n\nThe two flavors differ in when you record:\n\n- **Longest valid window**: shrink while invalid, then record after the loop, because the window is valid again.\n- **Shortest valid window**: shrink while valid, recording inside the loop, because every shrink step is a smaller valid window.\n\nTrace the shortest subarray with sum at least 7 in `[2, 3, 1, 2, 4, 3]`:\n\n- right = 0 to 3: the sum grows to 2, 5, 6, 8. At 8 (window 0..3) it is valid, so record length 4, remove 2 (sum 6), and it is invalid again.\n- right = 4: sum 10 (window 1..4), record 4. Remove 3: sum 7 (window 2..4), record 3. Remove 1: sum 6, invalid.\n- right = 5: sum 9 (window 3..5), record 3. Remove 2: sum 7 (window 4..5), record 2. Remove 4: sum 3, invalid.\n\nThe answer is 2, the window [4, 3].\n\nThe `while` inside the `for` looks quadratic, but it is not. `left` only moves forward and never passes `right + 1`, so over the whole run it moves at most n times. Every element enters the window once and leaves at most once: O(n) in total. This **amortized** argument is the one to give when an interviewer asks about the nested loop.",
+        "code": "# Template: variable window\n# left = 0\n# for right in range(len(nums)):\n#     add nums[right] to the window state\n#     while the window is invalid (longest) or valid (shortest):\n#         (shortest: record right - left + 1 here)\n#         remove nums[left] from the state\n#         left += 1\n#     (longest: record right - left + 1 here)\n\ndef min_subarray_len(target, nums):\n    \"\"\"Shortest subarray of positive numbers with sum >= target, or 0.\"\"\"\n    left = 0\n    window = 0\n    best = float(\"inf\")\n    for right, x in enumerate(nums):\n        window += x\n        while window >= target:               # valid: record, then shrink\n            best = min(best, right - left + 1)\n            window -= nums[left]\n            left += 1\n    return 0 if best == float(\"inf\") else best\n\nprint(min_subarray_len(7, [2, 3, 1, 2, 4, 3]))   # 2\nprint(min_subarray_len(100, [1, 2, 3]))          # 0",
+        "pitfall": "Shrinking with `if` instead of `while`. One removal may not be enough to restore the rule, and for shortest problems you skip smaller valid windows that a few more removals would have found.",
+        "check": {
+          "question": "In a \"longest valid window\" problem, where do you update the answer?",
+          "choices": [
+            "Inside the shrink loop, before removing nums[left]",
+            "Only when right reaches the end of the array",
+            "Before adding nums[right] to the window",
+            "After the shrink loop, when the window is valid again"
+          ],
+          "answer": 3,
+          "explanation": "For longest problems you shrink while the window is invalid, so right after the loop it is valid, and that is the moment to measure it. Recording inside the loop would measure invalid windows. Recording inside the loop is correct for shortest problems."
+        }
+      },
+      {
+        "title": "Windows with a hash map: counting what is inside",
+        "body": "Many window problems ask about the characters inside a substring: no repeats, at most k distinct, contains all letters of a pattern. The window state becomes a hash map (or set) of counts.\n\n**At most k distinct characters.** Keep `counts` for the window. Add `s[right]`; while `len(counts) > k`, decrement `counts[s[left]]`, delete the key when it reaches zero, and move left. Then the window is valid, so record its length. Deleting zero-count keys matters, because `len(counts)` is how you measure distinct characters.\n\n**Longest substring without repeating characters** is the same idea with the rule \"no count above 1\". Trace `\"abcabcbb\"`:\n\n- right = 0, 1, 2 add a, b, c: window \"abc\", length 3.\n- right = 3 adds a second a. Shrink: remove a (left = 1). Window \"bca\", length 3.\n- right = 4 adds b, a repeat. Remove b (left = 2). Window \"cab\".\n- right = 5 adds c. Remove c (left = 3). Window \"abc\".\n- right = 6 adds b. Remove a, then b (left = 5). Window \"cb\".\n- right = 7 adds b. Remove c, then b (left = 7). Window \"b\".\n\nThe longest is 3.\n\nA faster variant stores each character's **last index** instead of a count. When `s[right]` was last seen at index j inside the window, jump straight to `left = j + 1` instead of shrinking one step at a time. The catch: the stored index may be from before the current window, so write `left = max(left, last[ch] + 1)`. Without the `max`, `\"abba\"` moves left backward when it meets the final a (last seen at index 0, outside the window) and reports 3 instead of 2.\n\nBoth versions are O(n) time. Space is O(m) for m distinct characters in the window, which is bounded by the alphabet size.",
+        "code": "def longest_with_k_distinct(s, k):\n    counts = {}\n    left = 0\n    best = 0\n    for right, ch in enumerate(s):\n        counts[ch] = counts.get(ch, 0) + 1\n        while len(counts) > k:                # too many distinct: shrink\n            out = s[left]\n            counts[out] -= 1\n            if counts[out] == 0:\n                del counts[out]               # keep len(counts) honest\n            left += 1\n        best = max(best, right - left + 1)    # window is valid here\n    return best\n\nprint(longest_with_k_distinct(\"eceba\", 2))     # 3  (\"ece\")\nprint(longest_with_k_distinct(\"aabbcc\", 1))    # 2\nprint(longest_with_k_distinct(\"aabbcc\", 3))    # 6",
+        "pitfall": "Decrementing a count to zero without deleting the key. The map still lists that character, so `len(counts)` overstates how many distinct characters are in the window, and the window shrinks more than it should.",
+        "activity": {
+          "type": "challenge",
+          "title": "Longest substring without repeats",
+          "prompt": "Adapt the count-map window from this section: the rule is that no character appears twice. Then try the last-index version and make sure \"abba\" returns 2.",
+          "props": {
+            "id": "longest-substring-no-repeat"
+          }
+        },
+        "check": {
+          "question": "With a last-index map, why write left = max(left, last[ch] + 1) instead of left = last[ch] + 1?",
+          "choices": [
+            "To avoid an off-by-one in the window length",
+            "Because max is faster than an if statement",
+            "The stored index may be from before the current window, and without max, left could move backward",
+            "So that left never equals right"
+          ],
+          "answer": 2,
+          "explanation": "A character's last index can lie to the left of the window. Jumping to it would move left backward and pull already-excluded repeats back in, as \"abba\" shows. max keeps left moving forward only."
+        }
+      },
+      {
+        "title": "Longest repeating character replacement",
+        "body": "Here is a window problem whose rule takes a moment to see. Given a string of uppercase letters and an integer k, you may replace up to k characters. How long is the longest substring you can turn into a single repeated letter?\n\nThink about one window. To make it all one letter with the fewest changes, keep its most frequent letter and replace everything else. So the number of replacements needed is `window length - max count`, where max count is how often the most common letter appears in the window. The window is valid when **length - max count <= k**. Now it is a standard longest-window problem: grow right, update the counts, and shrink while invalid.\n\nThe trace table below follows `\"AABABBA\"` with k = 1:\n\n- The window grows to \"AABA\" (0..3): length 4, A appears 3 times, 1 replacement needed. Valid, best 4.\n- Adding B makes \"AABAB\": length 5, max count 3, 2 replacements needed. Shrink from the left until at most 1 is needed: \"BAB\" (2..4).\n- Adding B gives \"BABB\" (2..5): length 4, B appears 3 times, needs 1. Valid, best stays 4.\n- Adding A gives \"BABBA\", which needs 2. Shrink to \"BBA\" (4..6).\n\nThe answer is 4 (for example, \"AABA\" becomes \"AAAA\").\n\nRecomputing the max count over the counts map costs O(26) per step for uppercase letters, so the whole scan is O(26 n), which is O(n).\n\nThere is a well-known optimization: keep `max_count` as the largest count ever seen and never decrease it, and shrink with a single step instead of a loop. The window then never gets shorter than the best length found so far; it slides, and it can only grow when some letter's count beats the old maximum. It is correct but subtle. In an interview the clear version above is enough unless you are asked for more.",
+        "code": "s = \"AABABBA\", k = 1          valid when: length - max_count <= k\n\nright  window (left..right)  counts   length  max  needed  action\n  0    A        (0..0)       A1          1     1     0     best 1\n  1    AA       (0..1)       A2          2     2     0     best 2\n  2    AAB      (0..2)       A2 B1       3     2     1     best 3\n  3    AABA     (0..3)       A3 B1       4     3     1     best 4\n  4    AABAB    (0..4)       A3 B2       5     3     2     shrink\n       BAB      (2..4)       A1 B2       3     2     1     valid\n  5    BABB     (2..5)       A1 B3       4     3     1     best stays 4\n  6    BABBA    (2..6)       A2 B3       5     3     2     shrink\n       BBA      (4..6)       A1 B2       3     2     1     valid\nanswer: 4",
+        "language": "plaintext",
+        "pitfall": "Counting over the whole string instead of the window, or forgetting to decrement the letter that leaves on the left. The rule is about `s[left..right]`, so the counts must describe exactly that window.",
+        "check": {
+          "question": "A window is \"ABBBC\" and k = 1. How many replacements does it need, and is it valid?",
+          "choices": [
+            "1 replacement, so it is valid",
+            "3 replacements, so it is invalid",
+            "2 replacements, so it is invalid",
+            "0 replacements, because B already repeats"
+          ],
+          "answer": 2,
+          "explanation": "The length is 5 and the most frequent letter, B, appears 3 times, so 5 - 3 = 2 characters (A and C) must change. That is more than k = 1, so the window must shrink."
+        }
+      },
+      {
+        "title": "Best time to buy and sell: a window that remembers the minimum",
+        "body": "A stock's prices by day are `[7, 1, 5, 3, 6, 4]`. You buy on one day and sell on a later day. What is the maximum profit? The brute force checks every buy and sell pair: O(n^2).\n\nLook at it as a window that runs from the buy day (`left`) to the sell day (`right`). For a given sell day, the best buy day is the cheapest day before it. So as `right` moves forward, `left` only needs to jump when a new lowest price appears: any later sale does better buying at that new low. The whole window state is the lowest price so far, and the answer is the best `price - lowest` seen.\n\nThe trace table below walks through the example. The profit peaks on day 4: buy at 1, sell at 6, for a profit of 5. If prices only fall, every profit is at most 0, so the answer is 0 (do not trade).\n\nInside the loop, either order works: compute today's profit with the lowest price from earlier days, or update the lowest price first, which only adds a harmless profit of 0 for buying and selling on the same day. What fails is `max(prices) - min(prices)`, because the maximum might come before the minimum, which means selling before you buy.\n\nThis problem is also taught as greedy or as dynamic programming, and both views are right: the best answer ending today depends only on a summary of the past, the minimum. That is exactly a window whose left edge only moves forward. It runs in O(n) time and O(1) space, and the same \"running summary of the past\" idea solves many \"best pair with i < j\" problems, such as the largest temperature rise or the maximum gap between an earlier and a later value.",
+        "code": "prices = [7, 1, 5, 3, 6, 4]\n\nday   price   lowest so far   profit if sold today   best\n 0      7          7                  0                0\n 1      1          1                  0                0\n 2      5          1                  4                4\n 3      3          1                  2                4\n 4      6          1                  5                5\n 5      4          1                  3                5",
+        "language": "plaintext",
+        "pitfall": "Computing `max(prices) - min(prices)`. The maximum can come before the minimum, which means selling before buying: for `[5, 1]` it reports 4 when the real answer is 0.",
+        "check": {
+          "question": "With prices [3, 8, 1, 4], what is the maximum profit from one buy followed by one later sell?",
+          "choices": [
+            "7",
+            "3",
+            "0",
+            "5"
+          ],
+          "answer": 3,
+          "explanation": "Buying at 3 and selling at 8 gives 5. Buying at 1 and selling at 4 gives only 3. 7 would mean buying at 1 and selling at 8, but 8 comes before 1."
+        }
+      },
+      {
+        "title": "Practice: choosing and debugging windows",
+        "body": "Before coding a window, answer four questions out loud:\n\n1. **Is it contiguous?** If the answer may skip elements, it is not a window problem.\n2. **Fixed or variable?** If k is the window's length, fixed. If you want the longest or shortest range that satisfies a rule, variable.\n3. **What state do I keep, and how do I add and remove one item?** A sum, a count map, a set, the lowest price so far. If you cannot remove an item in O(1) (a maximum, for example), you need another structure, such as a monotonic deque.\n4. **What is the validity rule, and is it monotonic?** Shrinking a valid window must keep it valid, and growing an invalid one must keep it invalid. Sums of positive numbers, \"at most k distinct\" and \"no repeats\" qualify; sums with negative numbers do not.\n\nCommon bugs:\n\n- `if` instead of `while` when shrinking.\n- Recording the answer in the wrong place (after the loop for longest, inside it for shortest).\n- Forgetting to delete zero counts, so the distinct count is wrong.\n- Window length written as `right - left` instead of `right - left + 1`.\n- Starting a maximum at 0 when values can be negative.\n- Using a variable window on sums that include negative numbers.\n\nAll the solutions in this pack run in O(n) time, because each pointer only moves forward. Space is O(1) for sums and bounded by the alphabet or window contents for maps and sets.\n\nThe other challenges in this set: best time to buy and sell stock, longest substring without repeats, maximum sum of a size-k window, and the shortest subarray reaching a target sum.",
+        "code": "Problem                                       Window     State                  Rule and when to record\nMax sum of k consecutive items                fixed      running sum            record after every slide\nLongest substring without repeats             variable   counts or last index   shrink while a count > 1, record after\nLongest substring with at most k distinct     variable   counts map             shrink while len(counts) > k, record after\nShortest subarray, sum >= target (positive)   variable   running sum            record and shrink while sum >= target\nLongest repeating character replacement       variable   counts map             shrink while length - max count > k\nBest time to buy and sell stock               variable   lowest price so far    record price - lowest every day",
+        "language": "plaintext",
+        "activity": {
+          "type": "challenge",
+          "title": "Longest repeating character replacement",
+          "prompt": "Use the rule from the trace table: the window is valid when length - max count <= k. Shrink while invalid and record after the loop. Check that \"AABABBA\" with k = 1 gives 4 before you submit.",
+          "props": {
+            "id": "longest-repeating-replacement"
+          }
+        },
+        "check": {
+          "question": "Your longest-window solution returns 2 for \"abc\" under the rule \"no repeated characters\". Which bug is most likely?",
+          "choices": [
+            "The window length is computed as right - left instead of right - left + 1",
+            "The shrink step uses while instead of if",
+            "The counts map deletes keys that reach zero",
+            "left starts at 0"
+          ],
+          "answer": 0,
+          "explanation": "The window 0..2 holds 3 characters, but right - left gives 2. Indexes are inclusive at both ends, so the length is right - left + 1. Using while and deleting zero counts are both correct."
+        }
+      }
+    ],
+    "keyTerms": [
+      {
+        "term": "Sliding window",
+        "definition": "A technique that keeps a summary of a contiguous range and updates it as the range moves, instead of recomputing it."
+      },
+      {
+        "term": "Fixed-size window",
+        "definition": "A window of given length k that slides one step at a time, adding the entering item and removing nums[right - k]."
+      },
+      {
+        "term": "Variable-size window",
+        "definition": "A window that grows on the right and shrinks on the left to find the longest or shortest range meeting a rule."
+      },
+      {
+        "term": "Window state",
+        "definition": "What you track about the window, such as a sum, a set or a count map, updated in O(1) per item."
+      },
+      {
+        "term": "Validity rule",
+        "definition": "The condition a window must meet, such as no repeated characters or sum at least target."
+      },
+      {
+        "term": "Monotonic condition",
+        "definition": "A rule where shrinking a valid window keeps it valid (and growing an invalid one keeps it invalid), which variable windows require."
+      },
+      {
+        "term": "Amortized O(n)",
+        "definition": "Total linear work even with a nested loop, because each element enters and leaves the window at most once."
+      },
+      {
+        "term": "Last-seen index",
+        "definition": "A map from each character to the index where it last appeared, letting left jump past a repeat in one step."
+      }
+    ],
+    "summary": [
+      "A sliding window updates a summary of a contiguous range as it moves, turning O(n k) or O(n^2) work into O(n).",
+      "Fixed windows add the entering item and remove nums[right - k]; start a maximum from the first window, not 0.",
+      "Variable windows grow right and shrink left: shrink while invalid for longest, while valid for shortest.",
+      "Count maps track what is inside a window; delete zero counts so the number of keys stays accurate.",
+      "Each pointer only moves forward, so a while loop inside the for loop is still O(n) overall.",
+      "Variable sum windows need a monotonic rule such as all-positive numbers; with negatives, use prefix sums and a hash map."
+    ],
+    "feynmanPrompt": "Explain to a friend how a sliding window finds the longest stretch of a playlist with no repeated song, why the left edge only ever moves forward, and why that makes the whole scan linear."
+  },
+  "questions": [
+    {
+      "id": "swe-sliding-window-q01",
+      "type": "mcq",
+      "difficulty": "easy",
+      "question": "What must be true about the answer for a sliding window to apply?",
+      "choices": [
+        "It is a contiguous subarray or substring",
+        "It comes from a sorted input",
+        "It contains no duplicate values",
+        "It can be any subset of the items"
+      ],
+      "answer": 0,
+      "explanation": "A window always covers consecutive items. Sorting is not required (and would destroy the order that defines the ranges), duplicates are fine, and arbitrary subsets are not windows.",
+      "concept": "contiguity",
+      "section": 0
+    },
+    {
+      "id": "swe-sliding-window-q02",
+      "type": "multi",
+      "difficulty": "medium",
+      "question": "Which problems can a sliding window solve directly? Select all that apply.",
+      "choices": [
+        "Maximum sum of any 4 consecutive values",
+        "Longest substring with no repeated characters",
+        "Longest increasing subsequence",
+        "Shortest subarray of positive numbers with sum at least S",
+        "Number of pairs (i, j) anywhere in the array with nums[i] + nums[j] = k"
+      ],
+      "answers": [
+        0,
+        1,
+        3
+      ],
+      "explanation": "The first, second and fourth ask about contiguous ranges with a monotonic rule. A subsequence can skip items, and arbitrary pairs are not ranges at all; those need dynamic programming and a hash map respectively.",
+      "concept": "window fit",
+      "section": 0
+    },
+    {
+      "id": "swe-sliding-window-q03",
+      "type": "typed",
+      "difficulty": "medium",
+      "question": "A brute force recomputes the sum of every window of size k from scratch in an array of n items. What is its time complexity in Big-O notation?",
+      "answer": "O(nk)",
+      "accept": [
+        "O(n*k)",
+        "O(n k)",
+        "nk",
+        "O(kn)",
+        "n*k",
+        "O(n * k)"
+      ],
+      "explanation": "There are about n windows and each costs k additions, so O(n k). Sliding the window reuses the shared k - 1 items and brings it to O(n).",
+      "concept": "brute force cost",
+      "section": 0
+    },
+    {
+      "id": "swe-sliding-window-q04",
+      "type": "mcq",
+      "difficulty": "hard",
+      "question": "Why does a variable window fail for \"shortest subarray with sum at least S\" when the array contains negative numbers?",
+      "choices": [
+        "Negative numbers cannot be stored in a running sum",
+        "Shrinking no longer reliably lowers the sum, so you cannot tell which pointer to move",
+        "The window would need to move backward, which Python does not allow",
+        "No algorithm can solve the problem with negative numbers"
+      ],
+      "answer": 1,
+      "explanation": "With negatives, removing an item from the left can raise the sum, and adding one can lower it, so a too-small window might become valid by shrinking. The rule is no longer monotonic. Prefix sums with a sorted structure or a deque solve that version.",
+      "concept": "monotonic condition",
+      "section": 0
+    },
+    {
+      "id": "swe-sliding-window-q05",
+      "type": "code-fill",
+      "difficulty": "easy",
+      "question": "Fill the blank so the fixed window removes the item that leaves on the left.",
+      "code": "def max_sum_k(nums, k):\n    window = sum(nums[:k])\n    best = window\n    for right in range(k, len(nums)):\n        window += nums[right] - _____\n        best = max(best, window)\n    return best",
+      "choices": [
+        "nums[right - k + 1]",
+        "nums[right - 1]",
+        "nums[k]",
+        "nums[right - k]"
+      ],
+      "answer": 3,
+      "explanation": "Before this step the window was right - k to right - 1. Adding nums[right] and dropping nums[right - k] keeps exactly k items. nums[right - k + 1] is still inside the new window.",
+      "concept": "fixed window slide",
+      "section": 1
+    },
+    {
+      "id": "swe-sliding-window-q06",
+      "type": "typed",
+      "difficulty": "easy",
+      "question": "How many windows of size k = 3 does an array of 10 items have?",
+      "answer": "8",
+      "explanation": "Windows start at indexes 0 through n - k = 7, so there are n - k + 1 = 8 of them.",
+      "concept": "number of windows",
+      "section": 1
+    },
+    {
+      "id": "swe-sliding-window-q07",
+      "type": "debug",
+      "difficulty": "medium",
+      "question": "max_sum_k([-3, -1, -4, -2], 2) prints 0, but the best window sum is -4. What is the bug?",
+      "code": "def max_sum_k(nums, k):\n    window = 0\n    best = 0\n    for right in range(len(nums)):\n        window += nums[right]\n        if right >= k:\n            window -= nums[right - k]\n        if right >= k - 1:\n            best = max(best, window)\n    return best",
+      "choices": [
+        "The window should subtract nums[right - k + 1]",
+        "right >= k - 1 should be right >= k",
+        "best starts at 0, which no window reaches when every number is negative",
+        "window should start at nums[0]"
+      ],
+      "answer": 2,
+      "explanation": "The window sums are -4, -5 and -6, all below 0, so max never replaces the starting 0. Start best at float(\"-inf\") or at the first full window's sum. The sliding logic itself is correct.",
+      "concept": "initializing a maximum",
+      "section": 1
+    },
+    {
+      "id": "swe-sliding-window-q08",
+      "type": "mcq",
+      "difficulty": "medium",
+      "question": "In the single-loop fixed window, which adds nums[right] on every step, when is the window first full?",
+      "choices": [
+        "When right == k",
+        "When right == 0",
+        "When right == k - 1",
+        "When right == len(nums) - k"
+      ],
+      "answer": 2,
+      "explanation": "Indexes 0 through k - 1 are k items, so the window is full once right reaches k - 1. From then on you record an answer each step, and from right == k you also remove nums[right - k].",
+      "concept": "window full condition",
+      "section": 1
+    },
+    {
+      "id": "swe-sliding-window-q09",
+      "type": "mcq",
+      "difficulty": "medium",
+      "question": "Which window state answers \"does any window of size k contain a duplicate?\" in O(n)?",
+      "choices": [
+        "A running sum of the window",
+        "A sorted copy of each window",
+        "A stack of the window's items",
+        "A set of the window's items, adding the new item and removing the one that leaves"
+      ],
+      "answer": 3,
+      "explanation": "A set gives O(1) membership checks for the new item, and removing the item that slides out keeps it equal to the window. A sum cannot detect duplicates, and sorting each window costs O(k log k) per step.",
+      "concept": "set as window state",
+      "section": 1
+    },
+    {
+      "id": "swe-sliding-window-q10",
+      "type": "order",
+      "difficulty": "medium",
+      "question": "Put the steps of the shortest-valid-window loop in order (for example, shortest subarray with sum at least target).",
+      "items": [
+        "Add nums[right] to the window sum",
+        "While the sum is at least the target, record right - left + 1",
+        "Still inside that loop, subtract nums[left] and move left forward",
+        "Move right to the next index and repeat"
+      ],
+      "explanation": "Grow first, then record and shrink as long as the window stays valid, because every successful shrink is a shorter valid window. Then grow again.",
+      "concept": "shortest window steps",
+      "section": 2
+    },
+    {
+      "id": "swe-sliding-window-q11",
+      "type": "typed",
+      "difficulty": "medium",
+      "question": "What does min_subarray_len(11, [1, 2, 3, 4, 5]) return (shortest subarray with sum at least 11)?",
+      "answer": "3",
+      "explanation": "[3, 4, 5] sums to 12 and has length 3. No two consecutive items reach 11 (the biggest pair, 4 + 5, is 9).",
+      "concept": "shortest window trace",
+      "section": 2
+    },
+    {
+      "id": "swe-sliding-window-q12",
+      "type": "debug",
+      "difficulty": "medium",
+      "question": "min_subarray_len(7, [1, 1, 1, 7]) returns 4, but [7] alone has length 1. What is wrong?",
+      "code": "def min_subarray_len(target, nums):\n    left = 0\n    window = 0\n    best = float(\"inf\")\n    for right, x in enumerate(nums):\n        window += x\n        if window >= target:\n            best = min(best, right - left + 1)\n            window -= nums[left]\n            left += 1\n    return 0 if best == float(\"inf\") else best",
+      "choices": [
+        "It shrinks with if, so only one item leaves per step and the shorter valid windows are never measured",
+        "The length should be right - left",
+        "best should start at 0",
+        "window -= nums[left] must come after left += 1"
+      ],
+      "answer": 0,
+      "explanation": "When 7 arrives, the window 0..3 is valid and recorded, then one item leaves and the loop moves on, although 1..3 and 2..3 and 3..3 are all still valid. A while loop keeps shrinking and records each of them, reaching length 1.",
+      "concept": "while not if",
+      "section": 2
+    },
+    {
+      "id": "swe-sliding-window-q13",
+      "type": "mcq",
+      "difficulty": "hard",
+      "question": "Why is the variable window O(n) even though a while loop sits inside the for loop?",
+      "choices": [
+        "The while loop runs at most once per iteration",
+        "left only moves forward, at most n times in total, so each element is added once and removed at most once",
+        "The while loop only runs when the window is valid, which is rare",
+        "Python merges nested loops into a single loop"
+      ],
+      "answer": 1,
+      "explanation": "Count total work, not per-iteration work. right makes n steps and left makes at most n steps over the whole run, so all the inner iterations together cost O(n). A single iteration of the while loop can run many times, which is why the first choice is wrong.",
+      "concept": "amortized analysis",
+      "section": 2
+    },
+    {
+      "id": "swe-sliding-window-q14",
+      "type": "mcq",
+      "difficulty": "medium",
+      "question": "In a \"shortest valid window\" problem, where is the answer recorded?",
+      "choices": [
+        "Inside the shrink loop, while the window is still valid",
+        "After the shrink loop",
+        "Only at the very end",
+        "Before adding nums[right]"
+      ],
+      "answer": 0,
+      "explanation": "You shrink while the window is valid, so each pass through the loop body sees a valid window that is shorter than the last; record it before removing nums[left]. After the loop the window is invalid.",
+      "concept": "where to record",
+      "section": 2
+    },
+    {
+      "id": "swe-sliding-window-q15",
+      "type": "recall",
+      "difficulty": "medium",
+      "question": "State the variable sliding window template in words.",
+      "answer": "Move right forward and add the new item to the window state. While the window breaks the rule (for longest) or satisfies it (for shortest), update the answer if needed, remove the left item and move left forward. For longest problems, record the window length after the shrink loop.",
+      "explanation": "Being able to say this template is what lets you write any window problem quickly: only the state, the rule and the recording spot change.",
+      "concept": "window template",
+      "section": 2
+    },
+    {
+      "id": "swe-sliding-window-q16",
+      "type": "code-fill",
+      "difficulty": "medium",
+      "question": "Fill the blank in the shrink loop of the at-most-k-distinct window.",
+      "code": "while len(counts) > k:\n    out = s[left]\n    counts[out] -= 1\n    if counts[out] == 0:\n        _____\n    left += 1",
+      "choices": [
+        "counts[out] = 1",
+        "del counts[out]",
+        "left -= 1",
+        "break"
+      ],
+      "answer": 1,
+      "explanation": "A character with count 0 is no longer in the window, so its key must go, or len(counts) keeps counting it as distinct and the loop shrinks too far.",
+      "concept": "delete zero counts",
+      "section": 3
+    },
+    {
+      "id": "swe-sliding-window-q17",
+      "type": "typed",
+      "difficulty": "easy",
+      "question": "What is the length of the longest substring without repeating characters in \"pwwkew\"?",
+      "answer": "3",
+      "explanation": "\"wke\" has three distinct characters. \"pwke\" is not a substring, because the characters are not contiguous.",
+      "concept": "no repeats",
+      "section": 3
+    },
+    {
+      "id": "swe-sliding-window-q18",
+      "type": "debug",
+      "difficulty": "hard",
+      "question": "longest_unique(\"abba\") returns 3, but the answer is 2. What is the bug?",
+      "code": "def longest_unique(s):\n    last = {}\n    left = 0\n    best = 0\n    for right, ch in enumerate(s):\n        if ch in last:\n            left = last[ch] + 1\n        last[ch] = right\n        best = max(best, right - left + 1)\n    return best",
+      "choices": [
+        "last[ch] should be stored before the check",
+        "The length should be right - left",
+        "left can move backward when the stored index is outside the window; use left = max(left, last[ch] + 1)",
+        "best should only be updated when ch is new"
+      ],
+      "answer": 2,
+      "explanation": "At the second b, left jumps to 2. At the final a, last[\"a\"] is 0, so left drops back to 1 and the window \"bba\" (with a repeat) is measured as 3. Taking the max keeps left from moving backward.",
+      "concept": "last index jump",
+      "section": 3
+    },
+    {
+      "id": "swe-sliding-window-q19",
+      "type": "mcq",
+      "difficulty": "medium",
+      "question": "What does longest_with_k_distinct(\"eceba\", 2) return?",
+      "choices": [
+        "4",
+        "2",
+        "5",
+        "3"
+      ],
+      "answer": 3,
+      "explanation": "\"ece\" uses two distinct letters and has length 3. Adding b makes three distinct letters, so the window shrinks to \"eb\", and nothing longer appears later.",
+      "concept": "k distinct trace",
+      "section": 3
+    },
+    {
+      "id": "swe-sliding-window-q20",
+      "type": "mcq",
+      "difficulty": "easy",
+      "question": "How much extra space does a count-map window use on a string of lowercase English letters?",
+      "choices": [
+        "O(n) in every case",
+        "O(1): at most 26 keys",
+        "O(n^2)",
+        "O(k^2), where k is the window length"
+      ],
+      "answer": 1,
+      "explanation": "The map holds one key per distinct character in the window, which can never exceed the 26-letter alphabet, so the space is bounded by a constant. For an unbounded alphabet you would say O(min(n, alphabet size)).",
+      "concept": "window map space",
+      "section": 3
+    },
+    {
+      "id": "swe-sliding-window-q21",
+      "type": "typed",
+      "difficulty": "easy",
+      "question": "How many replacements does the window \"AABBB\" need to become a single repeated letter?",
+      "answer": "2",
+      "explanation": "Length 5 minus the most frequent letter's count (B appears 3 times) is 2: replace the two As.",
+      "concept": "replacements needed",
+      "section": 4
+    },
+    {
+      "id": "swe-sliding-window-q22",
+      "type": "mcq",
+      "difficulty": "hard",
+      "question": "For longest repeating character replacement, what is the answer for \"AABABBA\" with k = 2?",
+      "choices": [
+        "4",
+        "6",
+        "5",
+        "7"
+      ],
+      "answer": 2,
+      "explanation": "\"AABAB\" (or \"BABBA\") has length 5 with a most frequent letter appearing 3 times, so 2 replacements suffice. Any length-6 window has 3 As and 3 Bs and needs 3 replacements.",
+      "concept": "replacement trace",
+      "section": 4
+    },
+    {
+      "id": "swe-sliding-window-q23",
+      "type": "code-fill",
+      "difficulty": "medium",
+      "question": "Fill the blank so the window shrinks while it needs more than k replacements.",
+      "code": "counts[s[right]] = counts.get(s[right], 0) + 1\nwhile _____:\n    counts[s[left]] -= 1\n    left += 1\nbest = max(best, right - left + 1)",
+      "choices": [
+        "max(counts.values()) > k",
+        "(right - left + 1) - max(counts.values()) > k",
+        "right - left + 1 > k",
+        "len(counts) > k"
+      ],
+      "answer": 1,
+      "explanation": "Replacements needed = window length - count of its most common letter, and the window is invalid when that exceeds k. len(counts) > k is the at-most-k-distinct rule, a different problem.",
+      "concept": "replacement rule",
+      "section": 4
+    },
+    {
+      "id": "swe-sliding-window-q24",
+      "type": "recall",
+      "difficulty": "hard",
+      "question": "Why is \"window length minus the count of its most frequent letter\" the number of replacements a window needs?",
+      "answer": "To turn the window into one repeated letter with the fewest changes, keep the letter that already appears most often and replace every other character. Those other characters number length minus the max count.",
+      "explanation": "Choosing any other target letter keeps fewer characters, so it needs more replacements. This turns a scary-sounding problem into a standard longest-window rule.",
+      "concept": "why the rule works",
+      "section": 4
+    },
+    {
+      "id": "swe-sliding-window-q25",
+      "type": "typed",
+      "difficulty": "easy",
+      "question": "What is the maximum profit for prices [7, 6, 4, 3, 1] with one buy followed by one later sell (0 if no profit is possible)?",
+      "answer": "0",
+      "explanation": "Prices only fall, so every later price is lower than any earlier one and every trade loses money. The answer is 0: do not trade.",
+      "concept": "no profitable trade",
+      "section": 5
+    },
+    {
+      "id": "swe-sliding-window-q26",
+      "type": "debug",
+      "difficulty": "medium",
+      "question": "max_profit([9, 2, 6]) returns 7, but the best trade (buy at 2, sell at 6) makes 4. What is wrong?",
+      "code": "def max_profit(prices):\n    return max(prices) - min(prices)",
+      "choices": [
+        "max and min are O(n^2) together",
+        "It should return min(prices) - max(prices)",
+        "It ignores the last price",
+        "It pairs the earlier high (9) with the later low (2), which means selling before buying"
+      ],
+      "answer": 3,
+      "explanation": "The order of days matters: you can only sell after you buy. Track the lowest price so far and, for each day, the profit from selling today; that respects the order in one O(n) pass.",
+      "concept": "order matters",
+      "section": 5
+    },
+    {
+      "id": "swe-sliding-window-q27",
+      "type": "code-fill",
+      "difficulty": "medium",
+      "question": "Fill the blank to complete the one-pass stock profit solution.",
+      "code": "def max_profit(prices):\n    lowest = float(\"inf\")\n    best = 0\n    for p in prices:\n        lowest = min(lowest, p)\n        best = max(best, _____)\n    return best",
+      "choices": [
+        "lowest - p",
+        "p - prices[0]",
+        "p - lowest",
+        "best - lowest"
+      ],
+      "answer": 2,
+      "explanation": "Selling today at p after buying at the lowest earlier (or same-day) price earns p - lowest. Updating lowest first only adds a same-day profit of 0, which is harmless. p - prices[0] fixes the buy day to day 0.",
+      "concept": "running minimum",
+      "section": 5
+    },
+    {
+      "id": "swe-sliding-window-q28",
+      "type": "mcq",
+      "difficulty": "easy",
+      "question": "What state does the best-time-to-buy-and-sell solution keep as it scans the prices?",
+      "choices": [
+        "A count of each price",
+        "The lowest price seen so far",
+        "The sum of all prices so far",
+        "A sorted list of earlier prices"
+      ],
+      "answer": 1,
+      "explanation": "For each sell day, the best buy is the cheapest earlier day, so the lowest price so far is the only summary of the past you need. It gives O(1) space.",
+      "concept": "window state for stocks",
+      "section": 5
+    },
+    {
+      "id": "swe-sliding-window-q29",
+      "type": "match",
+      "difficulty": "medium",
+      "question": "Match each problem with the right technique.",
+      "pairs": [
+        {
+          "left": "Max sum of k consecutive items",
+          "right": "Fixed window with a running sum"
+        },
+        {
+          "left": "Longest substring with no repeats",
+          "right": "Variable window with counts or last index"
+        },
+        {
+          "left": "Shortest subarray with sum >= S, positive numbers",
+          "right": "Variable window with a running sum"
+        },
+        {
+          "left": "Best time to buy and sell stock",
+          "right": "Running minimum of earlier prices"
+        },
+        {
+          "left": "Count subarrays with sum k, negatives allowed",
+          "right": "Prefix sums with a hash map"
+        }
+      ],
+      "explanation": "The last one is the trap: negative numbers break the monotonic rule a variable window needs, so you count earlier prefix sums equal to prefix - k instead.",
+      "concept": "choosing the technique",
+      "section": 6
+    },
+    {
+      "id": "swe-sliding-window-q30",
+      "type": "mcq",
+      "difficulty": "hard",
+      "question": "You need the maximum value in every window of size k. Why is one running variable not enough, and what is used instead?",
+      "choices": [
+        "When the maximum leaves the window, one number cannot tell you the next maximum; a monotonic deque keeps the candidates in order",
+        "Maximums can be negative, so you should keep a running sum instead",
+        "A running maximum works if you reset it every k steps",
+        "A count map finds the maximum in O(1)"
+      ],
+      "answer": 0,
+      "explanation": "Removing an item from a sum is just a subtraction, but removing the current maximum leaves you no record of the runner-up. A deque of indexes with decreasing values keeps every possible future maximum and gives O(n) overall.",
+      "concept": "removable state",
+      "section": 6
+    },
+    {
+      "id": "swe-sliding-window-q31",
+      "type": "multi",
+      "difficulty": "medium",
+      "question": "Which of these are common sliding window bugs? Select all that apply.",
+      "choices": [
+        "Shrinking with if instead of while",
+        "Writing the window length as right - left",
+        "Forgetting to delete keys whose count reaches zero",
+        "Moving left only forward",
+        "Starting a maximum at 0 when values can be negative"
+      ],
+      "answers": [
+        0,
+        1,
+        2,
+        4
+      ],
+      "explanation": "Moving left only forward is correct; it is what makes windows O(n). The other four are the bugs interviewers see most often.",
+      "concept": "window bugs",
+      "section": 6
+    }
+  ]
+}

@@ -89,7 +89,7 @@ describe('generators', () => {
         const result = gradeQuestion(q, answerKey(q))
         expect(result.allCorrect, `${q.prompt} ${JSON.stringify(result.fields.filter((x) => !x.ok))}`).toBe(true)
         expect(q.solution.length).toBeGreaterThan(0)
-        expect(q.prompt + q.solution.join(' ')).not.toMatch(/—/)
+        expect(q.prompt + q.solution.join(' ')).not.toMatch(/\u2014/)
       }
     }
   })

@@ -51,7 +51,7 @@ export function formatValue(value, options) {
       if (!proto) return ''
       var c = proto.constructor
       return c && typeof c.name === 'string' ? c.name : ''
-    } catch (e) {
+    } catch {
       return ''
     }
   }

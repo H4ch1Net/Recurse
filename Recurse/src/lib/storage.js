@@ -309,5 +309,12 @@ export function resetStorage() {
   const store = storage()
   if (!store) return
   for (const key of Object.values(KEYS)) store.removeItem(key)
+  // Code drafts, the theme cache and other per-feature keys all share the prefix.
+  const extra = []
+  for (let i = 0; i < store.length; i++) {
+    const key = store.key(i)
+    if (key?.startsWith('recurse_')) extra.push(key)
+  }
+  extra.forEach((key) => store.removeItem(key))
   write(KEYS.version, STORAGE_VERSION)
 }

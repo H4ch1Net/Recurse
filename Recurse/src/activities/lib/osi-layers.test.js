@@ -39,7 +39,7 @@ describe('cards', () => {
   })
 
   it('never use em dashes', () => {
-    for (const c of OSI_CARDS) expect(c.label + c.why).not.toMatch(/—/)
+    for (const c of OSI_CARDS) expect(c.label + c.why).not.toMatch(/\u2014/)
   })
 })
 

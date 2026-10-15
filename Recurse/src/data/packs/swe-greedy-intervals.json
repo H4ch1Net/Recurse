@@ -1,0 +1,756 @@
+{
+  "id": "swe-greedy-intervals",
+  "name": "Greedy Algorithms and Intervals",
+  "version": "1.0.0",
+  "author": "Recurse",
+  "subject": "swe",
+  "level": "intermediate",
+  "description": "When the locally best choice is provably right: Kadane's scan, jump game, and sorting intervals to merge, insert and schedule.",
+  "icon": "Gr",
+  "language": "python",
+  "prereqs": [
+    "swe-arrays-strings",
+    "swe-dynamic-programming",
+    "algorithms",
+    "big-o"
+  ],
+  "tags": [
+    "greedy",
+    "intervals",
+    "sorting",
+    "kadane",
+    "scheduling",
+    "interviews"
+  ],
+  "lesson": {
+    "estimatedMinutes": 40,
+    "intro": "A greedy algorithm builds its answer one step at a time, always taking the choice that looks best right now and never revisiting it. When it works it is short and fast, often one pass after a sort. The hard part is knowing when it works. This pack covers the patterns where greedy is provably right, how to argue it in an interview, and the classic cases where it quietly gives the wrong answer.",
+    "objectives": [
+      "Explain with an exchange argument why a greedy choice is safe, or find a counterexample when it is not",
+      "Find the maximum subarray sum in one pass with Kadane's algorithm",
+      "Decide reachability problems such as jump game by tracking the farthest reach",
+      "Merge, insert and schedule intervals after sorting by start or by end",
+      "Choose between greedy and dynamic programming for a given problem"
+    ],
+    "sections": [
+      {
+        "title": "What greedy means, and when to trust it",
+        "body": "You are a cashier giving 63 cents in change with US coins (25, 10, 5 and 1) and you want to hand over as few coins as possible. Without thinking you take the biggest coin that fits, again and again: 25, 25, 10, 1, 1, 1. Six coins, and that is optimal. The habit is a **greedy algorithm**: build the answer one step at a time, always make the choice that looks best right now, and never go back.\n\nNow make 6 from coins (1, 3, 4). Greedy takes 4, then 1, then 1: three coins. But 3 + 3 is two. The locally best choice, the biggest coin, closed off the globally best answer. Same algorithm, different input, wrong answer. That is the whole story of greedy: when it works it is short and fast, and when it does not, it fails quietly.\n\nGreedy is correct when the problem has the **greedy choice property**: some optimal solution starts with the greedy choice, and after making it, what remains is a smaller copy of the same problem. The standard way to show it is an **exchange argument**:\n\n- Take any optimal solution.\n- If its first choice differs from the greedy choice, swap the greedy choice in.\n- Show the swap keeps the solution valid and no worse.\n\nIf the swap always works, some optimal solution agrees with greedy's first step, and repeating the argument on what remains shows greedy is optimal all the way. In an interview you do not need a formal proof. One or two sentences of exchange reasoning, such as \"if an optimal schedule starts with a meeting that ends later, swapping in the one that ends first cannot cause a conflict\", show that you know why it works.\n\nWhen you cannot find the argument, try to break the rule instead. Small inputs and a brute-force checker find counterexamples quickly, as you will see later in this pack.",
+        "code": "def greedy_coins(coins, amount):\n    count = 0\n    for c in sorted(coins, reverse=True):   # biggest coin first\n        count += amount // c\n        amount %= c\n    return count if amount == 0 else -1\n\nprint(greedy_coins([25, 10, 5, 1], 63))   # 6: 25 + 25 + 10 + 1 + 1 + 1, optimal\nprint(greedy_coins([4, 3, 1], 6))         # 3: 4 + 1 + 1, but 3 + 3 uses only 2",
+        "language": "python",
+        "pitfall": "Trusting greedy because it passes the examples. The examples in a problem statement are often exactly the cases where greedy happens to work. Before committing, try to build a small input where the locally best step blocks a better finish.",
+        "check": {
+          "question": "What does an exchange argument show?",
+          "choices": [
+            "That greedy always runs faster than dynamic programming",
+            "That any optimal solution can be changed to start with the greedy choice without getting worse",
+            "That every input has exactly one optimal solution",
+            "That the greedy choice is always the largest item available"
+          ],
+          "answer": 1,
+          "explanation": "The argument takes an arbitrary optimal solution and swaps in the greedy choice, showing the result is still valid and no worse. That proves some optimal solution agrees with greedy. It says nothing about speed or about the number of optimal solutions."
+        }
+      },
+      {
+        "title": "Kadane's algorithm: maximum subarray",
+        "body": "Find the largest sum of any non-empty run of consecutive numbers in `[-2, 1, -3, 4, -1, 2, 1, -5, 4]`. Brute force tries every start and end, O(n^2). **Kadane's algorithm** does it in one pass, using one observation: **a running sum that has gone negative can only hurt whatever comes after it**. If the best run ending at the previous index has a negative total, the best run ending here should drop it and start fresh at the current number.\n\nSo at each index keep `cur`, the best sum of a run that ends exactly here, and the best seen anywhere:\n\n`cur = max(x, cur + x)` and `best = max(best, cur)`\n\nThat is greedy in spirit (drop a negative prefix the moment it appears) and DP in structure: `cur` is dp[i], the best run ending at i, stored in a single variable. The trace is in the code below; the best run is `[4, -1, 2, 1]` with sum 6.\n\nTwo details matter. First, start both `cur` and `best` at `nums[0]`, not 0. If every number is negative, the answer is the largest single number, and starting at 0 would report the sum of an empty run. Second, if you need the run itself, remember the index where `cur` last restarted, and record the start and end whenever `best` improves.\n\nThe same \"best ending here\" idea solves the best time to buy and sell a stock once (track the lowest price so far and the best profit), and maximum product subarray, where you track both the largest and the smallest product ending here, because a negative times a negative can suddenly become the largest.",
+        "code": "def max_subarray(nums):\n    cur = best = nums[0]\n    for x in nums[1:]:\n        cur = max(x, cur + x)       # extend the run, or start fresh at x\n        best = max(best, cur)\n    return best\n\n# x:     -2   1  -3   4  -1   2   1  -5   4\n# cur:   -2   1  -2   4   3   5   6   1   5\n# best:  -2   1   1   4   4   5   6   6   6\nprint(max_subarray([-2, 1, -3, 4, -1, 2, 1, -5, 4]))   # 6",
+        "language": "python",
+        "pitfall": "Starting `best` at 0. That silently allows an empty run, so an all-negative input returns 0, which is not the sum of any non-empty subarray. Start from `nums[0]`, or from `-Infinity` in JavaScript.",
+        "activity": {
+          "type": "code-runner",
+          "title": "Fix the all-negative case",
+          "prompt": "Run it. The first answer is right, but the second prints 0 for [-3, -1, -2], which is the sum of an empty run. Change the start so cur and best begin at nums[0] (and loop over nums[1:]), then run it again.",
+          "props": {
+            "language": "python",
+            "code": "def max_subarray(nums):\n    cur = best = 0\n    for x in nums:\n        cur = max(x, cur + x)\n        best = max(best, cur)\n    return best\n\nprint(max_subarray([-2, 1, -3, 4, -1, 2, 1, -5, 4]))\nprint(max_subarray([-3, -1, -2]))",
+            "task": "Make it print 6 and then -1.",
+            "expectOutput": "6\n-1"
+          }
+        },
+        "check": {
+          "question": "During Kadane's scan, cur is -3 and the next number is 5. What is the new cur?",
+          "choices": [
+            "5, because the negative run is dropped and a new run starts at 5",
+            "2, because the run is always extended",
+            "-3, because the negative number is kept as the best",
+            "8, because the absolute values are added"
+          ],
+          "answer": 0,
+          "explanation": "cur = max(x, cur + x) = max(5, 2) = 5. A run with a negative total can only lower whatever follows, so starting fresh at 5 beats extending to 2."
+        }
+      },
+      {
+        "title": "Reachability: jump game",
+        "body": "Each `nums[i]` says how far you may jump forward from index i: any distance from 1 up to `nums[i]`. Starting at index 0, can you reach the last index? With `[2, 3, 1, 1, 4]` you can (0 to 1, then 1 to 4). With `[3, 2, 1, 0, 4]` you cannot: every route lands on index 3, and its 0 is a dead end.\n\nYou could treat this as a graph search or a DP over indexes, both O(n^2) in the worst case. The greedy insight is that **the reachable indexes always form one unbroken stretch from 0 up to some farthest index**. If you can reach index j, you can reach every index before it, because the jump that carried you past an index could have landed on it instead. So you never need to know which indexes are reachable, only how far the stretch goes.\n\nScan left to right, keeping `farthest`, the largest index reachable so far:\n\n- If `i > farthest`, index i cannot be reached, and nothing beyond it can be either: return false.\n- Otherwise extend the stretch: `farthest = max(farthest, i + nums[i])`.\n- Once `farthest` reaches the last index, return true.\n\nFor `[3, 2, 1, 0, 4]`, farthest is 3 after index 0 and stays 3, and at i = 4 the scan finds 4 > 3. One pass, O(n) time and O(1) space.\n\nA popular follow-up asks for the **fewest jumps** to reach the end. The same idea works level by level, like BFS: the indexes reachable with k jumps form a window, and the farthest point reachable from anywhere in that window is the edge of the window for k + 1 jumps. For `[2, 3, 1, 1, 4]` the answer is 2.",
+        "code": "def can_jump(nums):\n    farthest = 0\n    for i, step in enumerate(nums):\n        if i > farthest:                # a gap: i is unreachable\n            return False\n        farthest = max(farthest, i + step)\n        if farthest >= len(nums) - 1:\n            return True\n    return True\n\nprint(can_jump([2, 3, 1, 1, 4]))   # True\nprint(can_jump([3, 2, 1, 0, 4]))   # False: farthest stays 3",
+        "language": "python",
+        "pitfall": "Looking for zeros instead of tracking reach. A zero is only a problem if nothing before it can jump past it: `[2, 0, 0]` succeeds because index 0 jumps straight to the end. Track the farthest reach and the zeros take care of themselves.",
+        "check": {
+          "question": "nums = [1, 1, 0, 1]. What happens in the scan at i = 3?",
+          "choices": [
+            "farthest becomes 4, so it returns True",
+            "It skips index 2 because its value is 0",
+            "3 is greater than farthest, which is 2, so it returns False",
+            "It raises an IndexError at the last index"
+          ],
+          "answer": 2,
+          "explanation": "farthest goes 1, 2, 2 over indexes 0 to 2. Index 3 lies beyond it, so it cannot be reached. The value at index 2 is 0, so the stretch of reachable indexes stops growing there."
+        }
+      },
+      {
+        "title": "Intervals: sort by start, then sweep",
+        "body": "A calendar holds meetings as `[start, end]` pairs: `[[1, 3], [8, 10], [2, 6], [15, 18]]`. Merge every group of overlapping meetings into one block. Comparing every pair is O(n^2) and still leaves chains such as A overlaps B overlaps C to resolve. Sorting solves both problems.\n\n**Sort by start time.** After that, a new interval can only overlap the block you are currently building, never a block you already finished, because every finished block ended before the current block started. The sweep is short:\n\n- Start with the first interval as the current block.\n- For each next interval, if its start is at most the block's end, it overlaps: extend the block's end to the larger of the two ends.\n- Otherwise the block is finished; the interval starts a new one.\n\nThe \"larger of the two ends\" matters. `[1, 10]` followed by `[2, 3]` is fully contained, and the block must still end at 10, not shrink to 3. Sorting costs O(n log n) and the sweep O(n), so the total is O(n log n), plus O(n) for the output.\n\nWhether touching intervals such as `[1, 4]` and `[4, 5]` overlap depends on the problem. For closed time ranges they merge into `[1, 5]`; read the statement and choose `<=` or `<` to match. A test worth memorizing: closed intervals `[a, b]` and `[c, d]` overlap exactly when `a <= d and c <= b`.",
+        "code": "def merge(intervals):\n    if not intervals:\n        return []\n    intervals = sorted(intervals, key=lambda iv: iv[0])   # sort by start\n    merged = [intervals[0][:]]\n    for start, end in intervals[1:]:\n        last = merged[-1]\n        if start <= last[1]:              # overlaps the current block\n            last[1] = max(last[1], end)   # extend, never shrink\n        else:\n            merged.append([start, end])   # gap: start a new block\n    return merged\n\nprint(merge([[1, 3], [8, 10], [2, 6], [15, 18]]))\n# sorted: [1, 3] [2, 6] [8, 10] [15, 18]\n# result: [[1, 6], [8, 10], [15, 18]]",
+        "language": "python",
+        "pitfall": "In JavaScript, `intervals.sort()` with no comparator turns each pair into a string and sorts alphabetically, so `[10, 12]` lands before `[2, 3]`. Always pass a comparator: `intervals.sort((a, b) => a[0] - b[0])`.",
+        "check": {
+          "question": "Why is sorting by start time enough to merge all overlaps in one pass?",
+          "choices": [
+            "Sorting removes duplicate intervals",
+            "Sorting by start also sorts the intervals by end",
+            "Sorting makes every interval the same length",
+            "After sorting, a new interval can only overlap the block being built, never a block already finished"
+          ],
+          "answer": 3,
+          "explanation": "Every finished block ended before the current block began, and later intervals start no earlier than the current block, so they cannot reach back into a finished block. Sorting by start does not sort the ends, which is why the extend step uses max."
+        }
+      },
+      {
+        "title": "Insert interval: three phases, one pass",
+        "body": "Now the calendar is already sorted with no overlaps, and one new meeting arrives: insert `[4, 8]` into `[[1, 2], [3, 5], [6, 7], [8, 10], [12, 16]]`. You could append it and run merge again in O(n log n). But the list is already sorted, so a single O(n) pass in **three phases** does the job:\n\n- **Before**: copy every interval that ends before the new one starts (`end < new_start`). None of them can touch it.\n- **Overlap**: while the next interval starts at or before the new one ends (`start <= new_end`), it overlaps. Absorb it by widening the new interval to the smaller start and the larger end. Then append the widened interval once.\n- **After**: copy the rest unchanged.\n\nIn the example, `[1, 2]` comes before; `[3, 5]`, `[6, 7]` and `[8, 10]` all overlap and merge with `[4, 8]` into `[3, 10]`; and `[12, 16]` comes after. The result is `[[1, 2], [3, 10], [12, 16]]`.\n\nThe phases make the edge cases fall out on their own. If the new interval goes before everything, phase one copies nothing. If it goes after everything, phase two absorbs nothing and it is appended at the end. If the list is empty, the result is just the new interval. Three small loops are much less error-prone than one loop full of special cases, and naming the phases out loud shows an interviewer you have a plan before you type.",
+        "code": "def insert(intervals, new):\n    result, i, n = [], 0, len(intervals)\n    start, end = new\n    while i < n and intervals[i][1] < start:     # 1. ends before new starts\n        result.append(intervals[i])\n        i += 1\n    while i < n and intervals[i][0] <= end:      # 2. overlaps: absorb it\n        start = min(start, intervals[i][0])\n        end = max(end, intervals[i][1])\n        i += 1\n    result.append([start, end])\n    result.extend(intervals[i:])                 # 3. everything after\n    return result\n\nprint(insert([[1, 2], [3, 5], [6, 7], [8, 10], [12, 16]], [4, 8]))\n# [[1, 2], [3, 10], [12, 16]]",
+        "language": "python",
+        "pitfall": "Mixing up `<` and `<=`. With touching intervals counted as overlapping, phase one keeps intervals with `end < new_start` (strictly before) and phase two absorbs those with `start <= new_end`. Swap either comparison and touching intervals end up merged in one place and left apart in another.",
+        "check": {
+          "question": "Inserting [5, 6] into [[1, 2], [8, 9]], what does the overlap phase absorb?",
+          "choices": [
+            "[8, 9], because it comes after [5, 6]",
+            "Nothing, so [5, 6] is appended on its own between the two",
+            "[1, 2], because it ends before 5",
+            "Both intervals, because the list is sorted"
+          ],
+          "answer": 1,
+          "explanation": "Phase one copies [1, 2], which ends before 5. [8, 9] starts after 6, so phase two absorbs nothing and [5, 6] is appended unchanged, followed by [8, 9] in phase three."
+        }
+      },
+      {
+        "title": "Scheduling: sort by end time",
+        "body": "You have one meeting room and a list of requested meetings. What is the largest number you can hold without overlaps? Several greedy rules sound reasonable:\n\n- Earliest start first fails on `[[1, 10], [2, 3], [4, 5]]`: it takes `[1, 10]`, which blocks the other two.\n- Shortest first fails on `[[1, 5], [4, 7], [6, 10]]`: it takes `[4, 7]`, which conflicts with both others.\n- **Earliest end first** is always optimal.\n\nWhy earliest end? Exchange argument: take any optimal schedule and look at its first meeting. The meeting with the earliest end time finishes no later than that one, so swapping it in cannot conflict with the rest of the schedule, and the count stays the same. So some optimal schedule starts with the earliest-ending meeting; repeat the argument on the meetings that start after it ends. Intuitively, finishing as early as possible leaves the most room for everything else.\n\nThe code sorts by end, remembers the end of the last kept meeting, and keeps each meeting that starts at or after it (here touching meetings such as `[1, 2]` and `[2, 3]` do not conflict). The classic variant, **non-overlapping intervals**, asks for the fewest intervals to remove so the rest do not overlap. That is simply n minus the most you can keep: same sort, same scan, O(n log n).\n\nA related problem, the **minimum number of meeting rooms**, also starts with a sort but counts how many meetings are running at once, using a min-heap of end times or two sorted lists of starts and ends. For `[[0, 30], [5, 10], [15, 20]]` it is 2. Know which question you are answering: \"how many can I keep\" sorts by end; \"how many rooms do I need\" counts overlaps.",
+        "code": "def erase_overlap_intervals(intervals):\n    intervals = sorted(intervals, key=lambda iv: iv[1])   # sort by END\n    kept, last_end = 0, float(\"-inf\")\n    for start, end in intervals:\n        if start >= last_end:          # fits after the last kept meeting\n            kept += 1\n            last_end = end\n    return len(intervals) - kept       # remove everything else\n\nprint(erase_overlap_intervals([[1, 2], [2, 3], [3, 4], [1, 3]]))   # 1\nprint(erase_overlap_intervals([[1, 10], [2, 3], [4, 5]]))          # 1",
+        "language": "python",
+        "pitfall": "Sorting by start for the scheduling problem. Merging uses start order, but keeping the most non-overlapping intervals needs end order. If you do sort by start, every conflict must keep the interval with the smaller end, which is the end-time rule in disguise.",
+        "check": {
+          "question": "Why does sorting by end time give the most non-overlapping meetings?",
+          "choices": [
+            "Meetings that end early are always the shortest",
+            "Sorting by end also sorts the meetings by start",
+            "The earliest-ending meeting can replace the first meeting of any optimal schedule without creating a conflict",
+            "It keeps the longest meetings, which cover the most time"
+          ],
+          "answer": 2,
+          "explanation": "That is the exchange argument: the swapped-in meeting ends no later, so it fits wherever the original first meeting did, and the count is unchanged. Early-ending meetings are not necessarily short, and the rule does not care about length."
+        }
+      },
+      {
+        "title": "When greedy fails, and how to find out",
+        "body": "Greedy fails whenever an early, locally best choice can block a better finish. A few classic pairs are worth knowing by name, because new problems often have the same shape:\n\n- **Coin change**: biggest coin first works for US coins (25, 10, 5, 1) but not for (1, 3, 4). Arbitrary coin systems need DP.\n- **Knapsack**: if items can be split (fractional knapsack), taking the best value per unit of weight first is optimal. If each item is all or nothing (0/1 knapsack), it is not. With capacity 10 and items (weight 6, value 9), (5, 7) and (5, 7), best ratio first takes the 6 and has no room left for a 5, scoring 9, while the two 5s score 14.\n- **Scheduling**: the most meetings is greedy (earliest end). The most total value when each meeting has a weight is weighted interval scheduling, which needs DP.\n- **Shortest paths**: stepping to the nearest neighbor fails. Dijkstra's algorithm is greedy in a smarter way (finalize the closest unfinished node from the source), and even it needs non-negative edge weights.\n\nThe pattern: greedy works when items can be split, or when one number (the end time, a coin in a well-designed coin system) captures everything that matters about a choice. Once choices interact, so that taking one changes the value of the others, you are in DP territory.\n\nWhen unsure, test it. Write the greedy and a brute force or DP, run both on every small input, and compare. A counterexample usually appears within a few dozen cases, as the code below shows for coins (1, 3, 4). In an interview, \"my first idea was greedy, but coins [1, 3, 4] with amount 6 break it, so I switched to DP\" is a strong signal, not a weakness.",
+        "code": "def greedy_coins(coins, amount):\n    count = 0\n    for c in sorted(coins, reverse=True):\n        count += amount // c\n        amount %= c\n    return count if amount == 0 else -1\n\ndef dp_coins(coins, amount):\n    INF = float(\"inf\")\n    dp = [0] + [INF] * amount\n    for a in range(1, amount + 1):\n        dp[a] = min((dp[a - c] + 1 for c in coins if c <= a), default=INF)\n    return dp[amount] if dp[amount] != INF else -1\n\ncoins = [1, 3, 4]\nfor amount in range(1, 100):\n    if greedy_coins(coins, amount) != dp_coins(coins, amount):\n        print(\"greedy fails at\", amount)\n        break\nelse:\n    print(\"no counterexample below 100\")",
+        "language": "python",
+        "pitfall": "Arguing correctness from a handful of examples. \"It works on the three examples\" is not evidence. Either give an exchange argument or run a brute-force comparison on many small inputs.",
+        "activity": {
+          "type": "code-runner",
+          "title": "Hunt for a counterexample",
+          "prompt": "Run it to find the first amount where biggest-coin-first loses for coins [1, 3, 4]. Then try [1, 5, 10, 25] (no counterexample) and [1, 5, 12]. Notice how quickly a brute-force check settles a question that intuition cannot.",
+          "props": {
+            "language": "python",
+            "code": "def greedy_coins(coins, amount):\n    count = 0\n    for c in sorted(coins, reverse=True):\n        count += amount // c\n        amount %= c\n    return count if amount == 0 else -1\n\ndef dp_coins(coins, amount):\n    INF = float(\"inf\")\n    dp = [0] + [INF] * amount\n    for a in range(1, amount + 1):\n        dp[a] = min((dp[a - c] + 1 for c in coins if c <= a), default=INF)\n    return dp[amount] if dp[amount] != INF else -1\n\ncoins = [1, 3, 4]\nfor amount in range(1, 100):\n    if greedy_coins(coins, amount) != dp_coins(coins, amount):\n        print(\"greedy fails at\", amount)\n        break\nelse:\n    print(\"no counterexample below 100\")",
+            "task": "Find the first failing amount for coins [1, 5, 12].",
+            "expectOutput": "greedy fails at 15"
+          }
+        },
+        "check": {
+          "question": "Capacity 10, items (weight 6, value 9), (5, 7) and (5, 7), and items cannot be split. What does best-value-per-weight first score, and what is optimal?",
+          "choices": [
+            "Greedy scores 14, optimal is 14",
+            "Greedy scores 16, optimal is 16",
+            "Greedy scores 7, optimal is 9",
+            "Greedy scores 9, optimal is 14"
+          ],
+          "answer": 3,
+          "explanation": "The 6-weight item has the best ratio (1.5 versus 1.4), so greedy takes it and has 4 capacity left, too little for either 5. Taking both 5s scores 14. With splittable items greedy would be right; with all-or-nothing items you need DP."
+        }
+      },
+      {
+        "title": "Practice: recognize it, justify it, solve it",
+        "body": "Signals that a problem is greedy or an interval problem:\n\n- Intervals, meetings, bookings, ranges or segments in the input: sort them first. By **start** to merge or insert; by **end** to keep the most or remove the fewest.\n- \"Maximum number of non-overlapping ...\", or \"minimum number of removals, arrows or rooms\".\n- \"Can you reach the end\" or \"fewest jumps\": track the farthest reach.\n- \"Largest sum of a contiguous run\", or \"buy once, sell once\": one scan with a running best (Kadane).\n- Large inputs (n up to 10^5) where O(n log n) is expected and an obvious local rule exists.\n\nGreedy or DP? If you can state the rule, give an exchange argument in a sentence or two, and a small brute-force check agrees, use greedy. If the choices interact, or a small counterexample breaks your rule, use DP.\n\nAn interview script for greedy:\n\n- State the rule: \"sort by end time and keep each interval that starts at or after the last kept one ends\".\n- Justify it with one or two sentences of exchange argument.\n- Mention a tempting rule that fails and its counterexample. It shows you checked.\n- Give the complexity: usually O(n log n) for the sort plus O(n) for the scan.\n\nThen solve the challenge below in Python or JavaScript.",
+        "pitfall": "Forgetting that the sort is the cost. Most interval solutions are O(n log n) because of the sort, even though the sweep itself is O(n). Say both parts.",
+        "activity": {
+          "type": "challenge",
+          "title": "Challenge: non-overlapping intervals",
+          "prompt": "Sort by end, keep each interval that starts at or after the last kept end, and return how many you had to drop. Touching intervals do not overlap.",
+          "props": {
+            "id": "non-overlapping-intervals"
+          }
+        },
+        "check": {
+          "question": "Which rule correctly finds the fewest intervals to remove so the rest do not overlap?",
+          "choices": [
+            "Sort by end and keep each interval that starts at or after the last kept end",
+            "Sort by start and keep each interval that starts after the previous one starts",
+            "Remove every interval that overlaps any other interval",
+            "Sort by length and keep the shortest intervals first"
+          ],
+          "answer": 0,
+          "explanation": "Earliest end first is the rule with an exchange argument behind it. Shortest first fails on [[1, 5], [4, 7], [6, 10]], and removing everything that overlaps anything removes far too much."
+        }
+      }
+    ],
+    "keyTerms": [
+      {
+        "term": "greedy algorithm",
+        "definition": "An algorithm that makes the locally best choice at each step and never undoes it."
+      },
+      {
+        "term": "greedy choice property",
+        "definition": "Some optimal solution begins with the greedy choice, so committing to it is safe."
+      },
+      {
+        "term": "exchange argument",
+        "definition": "A proof that swaps the greedy choice into any optimal solution without making it worse."
+      },
+      {
+        "term": "counterexample",
+        "definition": "A specific input where a proposed rule gives a wrong answer, which is enough to reject the rule."
+      },
+      {
+        "term": "Kadane's algorithm",
+        "definition": "A one-pass scan for the maximum subarray sum that restarts the running sum whenever extending it would be worse."
+      },
+      {
+        "term": "farthest reach",
+        "definition": "In jump game, the largest index reachable so far; every index up to it is reachable."
+      },
+      {
+        "term": "interval",
+        "definition": "A pair [start, end] describing a range, such as a meeting's time slot."
+      },
+      {
+        "term": "merge intervals",
+        "definition": "Combining overlapping intervals into blocks, done by sorting by start and sweeping once."
+      },
+      {
+        "term": "interval scheduling",
+        "definition": "Choosing the most non-overlapping intervals, solved greedily by earliest end time."
+      },
+      {
+        "term": "fractional knapsack",
+        "definition": "Knapsack where items can be split, solved greedily by value per weight; the 0/1 version needs DP."
+      }
+    ],
+    "summary": [
+      "Greedy commits to the locally best choice; it is right only when an exchange argument shows that choice is safe.",
+      "Kadane's algorithm keeps the best run ending here, restarting when the running sum would only hurt, in O(n) time and O(1) space.",
+      "Jump game needs only the farthest reachable index, because the reachable indexes form one unbroken stretch.",
+      "Sort intervals by start to merge or insert, and by end to keep the most or remove the fewest.",
+      "Coin change with coins (1, 3, 4) and 0/1 knapsack break greedy; test a greedy idea against brute force on small inputs."
+    ],
+    "feynmanPrompt": "Explain to a friend why picking the meeting that ends earliest always lets you fit the most meetings in one room, and why the same kind of greedy thinking fails when making 6 cents from coins of 1, 3 and 4."
+  },
+  "questions": [
+    {
+      "id": "swe-greedy-intervals-q01",
+      "type": "mcq",
+      "difficulty": "easy",
+      "question": "What is a greedy algorithm?",
+      "choices": [
+        "One that tries every combination and keeps the best",
+        "One that stores the answers to subproblems in a table",
+        "One that makes the locally best choice at each step and never revisits it",
+        "One that splits the input in half and recurses on each half"
+      ],
+      "answer": 2,
+      "explanation": "Greedy commits to the best-looking choice right now. Trying everything is brute force or backtracking, a table of subproblem answers is DP, and splitting in half is divide and conquer.",
+      "concept": "greedy definition",
+      "section": 0
+    },
+    {
+      "id": "swe-greedy-intervals-q02",
+      "type": "typed",
+      "difficulty": "easy",
+      "question": "Using biggest-coin-first with coins (1, 3, 4), how many coins does greedy use to make 6?",
+      "answer": "3",
+      "explanation": "Greedy takes 4, then 1 and 1, three coins. The optimum is 3 + 3, two coins, which is why coin change with arbitrary coins needs DP.",
+      "concept": "greedy coin counterexample",
+      "section": 0
+    },
+    {
+      "id": "swe-greedy-intervals-q03",
+      "type": "multi",
+      "difficulty": "medium",
+      "question": "For which coin sets and amounts does biggest-coin-first give the fewest coins? Select all that apply.",
+      "choices": [
+        "Coins (1, 5, 10, 25), amount 63",
+        "Coins (1, 3, 4), amount 6",
+        "Coins (1, 2, 5), amount 11",
+        "Coins (1, 5, 12), amount 15",
+        "Coins (1, 3, 4), amount 7"
+      ],
+      "answers": [
+        0,
+        2,
+        4
+      ],
+      "explanation": "63 = 25 + 25 + 10 + 1 + 1 + 1, 11 = 5 + 5 + 1 and 7 = 4 + 3 are all optimal. Greedy fails on 6 with (1, 3, 4), using 4 + 1 + 1 instead of 3 + 3, and on 15 with (1, 5, 12), using 12 + 1 + 1 + 1 instead of 5 + 5 + 5.",
+      "concept": "when coin greedy works",
+      "section": 0
+    },
+    {
+      "id": "swe-greedy-intervals-q04",
+      "type": "order",
+      "difficulty": "medium",
+      "question": "Put the steps of an exchange argument in order.",
+      "items": [
+        "Take any optimal solution",
+        "Find the first choice where it differs from greedy",
+        "Swap the greedy choice in at that point",
+        "Show the result is still valid and no worse",
+        "Repeat the argument on the remaining subproblem"
+      ],
+      "explanation": "The swap turns an arbitrary optimal solution into one that agrees with greedy one step further, without losing quality. Repeating it shows that greedy's whole answer is optimal.",
+      "concept": "exchange argument steps",
+      "section": 0
+    },
+    {
+      "id": "swe-greedy-intervals-q05",
+      "type": "typed",
+      "difficulty": "easy",
+      "question": "What does Kadane's algorithm return for `[5, -9, 6, -2, 3]`?",
+      "answer": "7",
+      "explanation": "cur goes 5, -4, 6, 4, 7. After -9 the run is negative, so it restarts at 6, and 6 - 2 + 3 = 7 is the best.",
+      "concept": "Kadane trace",
+      "section": 1
+    },
+    {
+      "id": "swe-greedy-intervals-q06",
+      "type": "debug",
+      "difficulty": "medium",
+      "question": "`maxSubArray([-4, -2, -7])` returns 0. What should change?",
+      "code": "function maxSubArray(nums) {\n  let cur = 0\n  let best = 0\n  for (const x of nums) {\n    cur = Math.max(x, cur + x)\n    best = Math.max(best, cur)\n  }\n  return best\n}",
+      "language": "javascript",
+      "choices": [
+        "Initialize best to nums[0] (or -Infinity) so an all-negative input returns its largest number",
+        "Use Math.min instead of Math.max when updating cur",
+        "Reset cur to 0 whenever x is negative",
+        "Loop over the array from the end"
+      ],
+      "answer": 0,
+      "explanation": "best starts at 0 and every run sum is negative, so best never changes. The answer must be the sum of a non-empty run, here -2. Resetting cur to 0 would make the same mistake.",
+      "concept": "Kadane initialization",
+      "section": 1
+    },
+    {
+      "id": "swe-greedy-intervals-q07",
+      "type": "mcq",
+      "difficulty": "easy",
+      "question": "What are the time and extra space of Kadane's algorithm?",
+      "choices": [
+        "O(n^2) time and O(1) space",
+        "O(n log n) time and O(n) space",
+        "O(n) time and O(n) space",
+        "O(n) time and O(1) space"
+      ],
+      "answer": 3,
+      "explanation": "One pass over the array, keeping only cur and best. A full dp array would be O(n) space, but each step reads only the previous value.",
+      "concept": "Kadane complexity",
+      "section": 1
+    },
+    {
+      "id": "swe-greedy-intervals-q08",
+      "type": "mcq",
+      "difficulty": "hard",
+      "question": "For the maximum product subarray, why must you track the smallest product ending here as well as the largest?",
+      "choices": [
+        "Products can overflow, so the smallest one is kept as a backup",
+        "A very negative product times a negative number can become the new largest product",
+        "The smallest product tells you when to restart at zero",
+        "Kadane's update only works on lists of positive numbers"
+      ],
+      "answer": 1,
+      "explanation": "With [2, -3, -4], the run ending at -3 has its largest product at -3 and its smallest at -6; multiplying by -4 turns -6 into 24, the answer. Tracking only the largest would miss it.",
+      "concept": "maximum product subarray",
+      "section": 1
+    },
+    {
+      "id": "swe-greedy-intervals-q09",
+      "type": "typed",
+      "difficulty": "medium",
+      "question": "Prices by day are `[7, 1, 5, 3, 6, 4]`. You buy once and sell once later. What is the best profit?",
+      "answer": "5",
+      "explanation": "Track the lowest price so far and the best price minus that low. Buying at 1 and selling at 6 gives 5. Selling at 7 is not allowed because that day comes before the low.",
+      "concept": "buy and sell once",
+      "section": 1
+    },
+    {
+      "id": "swe-greedy-intervals-q10",
+      "type": "mcq",
+      "difficulty": "medium",
+      "question": "Why is it enough to track a single number, farthest, in jump game?",
+      "choices": [
+        "Each index can be reached in only one way",
+        "The array is sorted, so later indexes jump farther",
+        "The reachable indexes always form one unbroken stretch starting at index 0",
+        "Every jump uses its full length"
+      ],
+      "answer": 2,
+      "explanation": "Any jump may be shorter than its maximum, so if you can reach j you can reach every index before it. The reachable set is therefore 0 to farthest, and that one number describes it.",
+      "concept": "why one number suffices",
+      "section": 2
+    },
+    {
+      "id": "swe-greedy-intervals-q11",
+      "type": "typed",
+      "difficulty": "easy",
+      "question": "nums = [2, 0, 0]. Can you reach the last index? Answer true or false.",
+      "answer": "true",
+      "accept": [
+        "yes"
+      ],
+      "explanation": "From index 0 you may jump 2 steps, straight to the last index. The zeros never matter because you never need to stand on them.",
+      "concept": "jump game with zeros",
+      "section": 2
+    },
+    {
+      "id": "swe-greedy-intervals-q12",
+      "type": "code-fill",
+      "difficulty": "medium",
+      "question": "Fill the blank so `can_jump` returns False exactly when the last index is unreachable.",
+      "code": "def can_jump(nums):\n    farthest = 0\n    for i, step in enumerate(nums):\n        if _____:\n            return False\n        farthest = max(farthest, i + step)\n    return True",
+      "choices": [
+        "i > farthest",
+        "step == 0",
+        "i + step < farthest",
+        "farthest == i"
+      ],
+      "answer": 0,
+      "explanation": "An index past the reachable stretch can never be reached, and neither can anything after it. `step == 0` is the classic wrong check: it fails [2, 0, 0], which is reachable.",
+      "concept": "jump game condition",
+      "section": 2
+    },
+    {
+      "id": "swe-greedy-intervals-q13",
+      "type": "typed",
+      "difficulty": "medium",
+      "question": "What is the fewest number of jumps to reach the last index of `[2, 3, 1, 1, 4]`?",
+      "answer": "2",
+      "explanation": "Jump from index 0 to index 1, then from index 1 (value 3) to index 4. Level by level: one jump reaches indexes 1 to 2, and from that window you can reach index 4.",
+      "concept": "fewest jumps",
+      "section": 2
+    },
+    {
+      "id": "swe-greedy-intervals-q14",
+      "type": "mcq",
+      "difficulty": "easy",
+      "question": "If touching intervals count as overlapping, what does merge return for `[[1, 4], [4, 5]]`?",
+      "choices": [
+        "[[1, 5]]",
+        "[[1, 4], [4, 5]]",
+        "[[4, 4]]",
+        "[[1, 4], [5, 5]]"
+      ],
+      "answer": 0,
+      "explanation": "4 <= 4, so the second interval overlaps the first and the block grows to end at 5. With a strict < test they would stay separate.",
+      "concept": "touching intervals",
+      "section": 3
+    },
+    {
+      "id": "swe-greedy-intervals-q15",
+      "type": "debug",
+      "difficulty": "medium",
+      "question": "`merge([[1, 10], [2, 3], [4, 8]])` returns `[[1, 3], [4, 8]]`. What is the bug?",
+      "code": "def merge(intervals):\n    intervals.sort(key=lambda iv: iv[0])\n    merged = [intervals[0][:]]\n    for start, end in intervals[1:]:\n        if start <= merged[-1][1]:\n            merged[-1][1] = end\n        else:\n            merged.append([start, end])\n    return merged",
+      "choices": [
+        "It should sort by end instead of start",
+        "The overlap test should be start < merged[-1][0]",
+        "It should copy intervals[0] without [:]",
+        "It sets the block's end to the new interval's end instead of the larger of the two ends"
+      ],
+      "answer": 3,
+      "explanation": "[2, 3] lies inside [1, 10], so the block must keep ending at 10. Assigning 3 shrinks it, and then [4, 8] looks like a separate block. Use `max(merged[-1][1], end)`.",
+      "concept": "contained intervals",
+      "section": 3
+    },
+    {
+      "id": "swe-greedy-intervals-q16",
+      "type": "mcq",
+      "difficulty": "hard",
+      "question": "What does this print?",
+      "code": "const iv = [[10, 12], [2, 3], [1, 5]]\niv.sort()\nconsole.log(JSON.stringify(iv))",
+      "language": "javascript",
+      "choices": [
+        "[[1,5],[2,3],[10,12]]",
+        "[[10,12],[1,5],[2,3]]",
+        "[[1,5],[10,12],[2,3]]",
+        "[[2,3],[1,5],[10,12]]"
+      ],
+      "answer": 2,
+      "explanation": "Without a comparator, sort converts each pair to a string (\"10,12\", \"2,3\", \"1,5\") and compares them character by character, so everything starting with \"1\" comes before \"2,3\". Pass `(a, b) => a[0] - b[0]` to sort by start.",
+      "concept": "JavaScript default sort",
+      "section": 3
+    },
+    {
+      "id": "swe-greedy-intervals-q17",
+      "type": "multi",
+      "difficulty": "easy",
+      "question": "Which pairs of closed intervals overlap, counting a shared endpoint as overlap? Select all that apply.",
+      "choices": [
+        "[1, 5] and [5, 9]",
+        "[2, 3] and [1, 10]",
+        "[1, 2] and [3, 4]",
+        "[6, 8] and [4, 7]",
+        "[0, 1] and [2, 2]"
+      ],
+      "answers": [
+        0,
+        1,
+        3
+      ],
+      "explanation": "Use a <= d and c <= b. [1, 5] and [5, 9] share 5, [2, 3] is inside [1, 10], and [6, 8] and [4, 7] share 6 to 7. The other two pairs have a gap between them.",
+      "concept": "overlap test",
+      "section": 3
+    },
+    {
+      "id": "swe-greedy-intervals-q18",
+      "type": "mcq",
+      "difficulty": "medium",
+      "question": "What is the time complexity of merging n intervals by sorting and sweeping?",
+      "choices": [
+        "O(n)",
+        "O(n log n)",
+        "O(n^2)",
+        "O(log n)"
+      ],
+      "answer": 1,
+      "explanation": "The sort is O(n log n) and the sweep O(n), so the sort dominates. Without sorting, comparing every pair would be O(n^2).",
+      "concept": "merge complexity",
+      "section": 3
+    },
+    {
+      "id": "swe-greedy-intervals-q19",
+      "type": "mcq",
+      "difficulty": "easy",
+      "question": "What does `insert([[1, 3], [6, 9]], [2, 5])` return?",
+      "choices": [
+        "[[1, 9]]",
+        "[[1, 3], [2, 5], [6, 9]]",
+        "[[2, 5], [6, 9]]",
+        "[[1, 5], [6, 9]]"
+      ],
+      "answer": 3,
+      "explanation": "[1, 3] overlaps [2, 5], so they merge into [1, 5]. [6, 9] starts after 5, so it stays separate.",
+      "concept": "insert interval result",
+      "section": 4
+    },
+    {
+      "id": "swe-greedy-intervals-q20",
+      "type": "order",
+      "difficulty": "medium",
+      "question": "Put the steps of insert interval in order.",
+      "items": [
+        "Copy the intervals that end before the new interval starts",
+        "Absorb the intervals that start before the new interval ends, widening it",
+        "Append the widened new interval",
+        "Copy the remaining intervals unchanged"
+      ],
+      "explanation": "Before, overlap, after. The widened interval is appended exactly once, between the two copying phases.",
+      "concept": "insert interval phases",
+      "section": 4
+    },
+    {
+      "id": "swe-greedy-intervals-q21",
+      "type": "mcq",
+      "difficulty": "medium",
+      "question": "Why is insert interval O(n) when merge intervals is O(n log n)?",
+      "choices": [
+        "Insert only looks at the intervals next to the new one",
+        "Insert uses binary search for every interval",
+        "The existing list is already sorted and non-overlapping, so no sort is needed",
+        "Merge compares every pair of intervals"
+      ],
+      "answer": 2,
+      "explanation": "The sort is what makes merge O(n log n). Insert gets a sorted, clean list, so a single pass does it. Binary search can find where the new interval goes, but building the output is still O(n).",
+      "concept": "insert vs merge cost",
+      "section": 4
+    },
+    {
+      "id": "swe-greedy-intervals-q22",
+      "type": "code-fill",
+      "difficulty": "hard",
+      "question": "Fill the blank so phase two absorbs exactly the intervals that overlap the new one. Phase one has already copied those ending before `start`.",
+      "code": "while i < n and _____:\n    start = min(start, intervals[i][0])\n    end = max(end, intervals[i][1])\n    i += 1",
+      "choices": [
+        "intervals[i][0] <= end",
+        "intervals[i][1] <= end",
+        "intervals[i][0] >= start",
+        "intervals[i][1] < start"
+      ],
+      "answer": 0,
+      "explanation": "Any remaining interval that starts no later than the new end overlaps it. Testing the interval's end instead would miss one that starts inside the new interval but runs past it, such as [8, 10] when inserting [4, 8].",
+      "concept": "absorbing overlaps",
+      "section": 4
+    },
+    {
+      "id": "swe-greedy-intervals-q23",
+      "type": "typed",
+      "difficulty": "easy",
+      "question": "What does `erase_overlap_intervals([[1, 2], [1, 2], [1, 2]])` return?",
+      "answer": "2",
+      "explanation": "All three are the same meeting, so you can keep one and must remove the other two.",
+      "concept": "removing duplicates",
+      "section": 5
+    },
+    {
+      "id": "swe-greedy-intervals-q24",
+      "type": "mcq",
+      "difficulty": "medium",
+      "question": "Which input shows that \"earliest start first\" can keep fewer meetings than possible?",
+      "choices": [
+        "[[1, 2], [3, 4], [5, 6]]",
+        "[[1, 10], [2, 3], [4, 5]]",
+        "[[1, 3], [3, 5]]",
+        "[[1, 2]]"
+      ],
+      "answer": 1,
+      "explanation": "Earliest start takes [1, 10] and then nothing else fits, so it keeps 1. Earliest end keeps [2, 3] and [4, 5], which is 2. In the other inputs nothing conflicts, so every rule gets them right.",
+      "concept": "earliest start counterexample",
+      "section": 5
+    },
+    {
+      "id": "swe-greedy-intervals-q25",
+      "type": "debug",
+      "difficulty": "hard",
+      "question": "For `[[1, 10], [2, 3], [4, 5]]` this returns 2, but the answer is 1. What is wrong?",
+      "code": "def erase_overlap_intervals(intervals):\n    intervals = sorted(intervals)          # sorts by start\n    kept, last_end = 0, float(\"-inf\")\n    for start, end in intervals:\n        if start >= last_end:\n            kept += 1\n            last_end = end\n    return len(intervals) - kept",
+      "choices": [
+        "start >= last_end should be start > last_end",
+        "It sorts by start, so it keeps [1, 10], which blocks both short meetings; sorting by end keeps them instead",
+        "last_end should start at 0",
+        "It should return kept instead of len(intervals) - kept"
+      ],
+      "answer": 1,
+      "explanation": "`sorted()` on pairs sorts by the first element, the start. The scan then keeps [1, 10] and rejects the other two, removing 2. Sorted by end, it keeps [2, 3] and [4, 5] and removes only [1, 10].",
+      "concept": "sorting by the wrong key",
+      "section": 5
+    },
+    {
+      "id": "swe-greedy-intervals-q26",
+      "type": "match",
+      "difficulty": "medium",
+      "question": "Match each interval problem to its approach.",
+      "pairs": [
+        {
+          "left": "Merge overlapping intervals",
+          "right": "Sort by start, extend the current block"
+        },
+        {
+          "left": "Keep the most non-overlapping intervals",
+          "right": "Sort by end, keep each that fits after the last"
+        },
+        {
+          "left": "Insert into a sorted, clean list",
+          "right": "No sort: three phases in one pass"
+        },
+        {
+          "left": "Minimum number of meeting rooms",
+          "right": "Count meetings in progress with a heap of end times"
+        }
+      ],
+      "explanation": "Start order makes overlaps adjacent for merging, end order makes the exchange argument work for scheduling, insert needs no sort at all, and room counting tracks how many meetings overlap at once.",
+      "concept": "interval approaches",
+      "section": 5
+    },
+    {
+      "id": "swe-greedy-intervals-q27",
+      "type": "typed",
+      "difficulty": "medium",
+      "question": "Meetings are `[[0, 30], [5, 10], [15, 20]]`. What is the minimum number of rooms needed?",
+      "answer": "2",
+      "explanation": "[0, 30] overlaps both others, but [5, 10] and [15, 20] do not overlap each other, so they can share a second room. At most two meetings are running at any moment.",
+      "concept": "meeting rooms",
+      "section": 5
+    },
+    {
+      "id": "swe-greedy-intervals-q28",
+      "type": "multi",
+      "difficulty": "hard",
+      "question": "Which of these are solved correctly by the greedy rule given? Select all that apply.",
+      "choices": [
+        "Fractional knapsack, taking the best value per weight first",
+        "Most non-overlapping intervals, taking the earliest end first",
+        "0/1 knapsack, taking the best value per weight first",
+        "Fewest coins for any coin set, taking the biggest coin first",
+        "Maximum subarray sum, with Kadane's running best"
+      ],
+      "answers": [
+        0,
+        1,
+        4
+      ],
+      "explanation": "Splittable items, earliest end and Kadane all have a provable greedy choice. 0/1 knapsack fails on capacity 10 with weights 6, 5, 5, and biggest coin first fails for coins (1, 3, 4).",
+      "concept": "greedy-correct problems",
+      "section": 6
+    },
+    {
+      "id": "swe-greedy-intervals-q29",
+      "type": "mcq",
+      "difficulty": "medium",
+      "question": "Each meeting now has a value, and you want the largest total value of non-overlapping meetings. Which approach is right?",
+      "choices": [
+        "DP over meetings sorted by end, choosing take or skip for each",
+        "Greedy by earliest end, as for the unweighted version",
+        "Greedy by highest value first",
+        "Merge the intervals, then take the longest block"
+      ],
+      "answer": 0,
+      "explanation": "Weights make choices interact: one valuable long meeting can beat two short ones, or the reverse. DP compares taking a meeting (plus the best before its start) with skipping it. Earliest end only maximizes the count.",
+      "concept": "weighted scheduling",
+      "section": 6
+    },
+    {
+      "id": "swe-greedy-intervals-q30",
+      "type": "recall",
+      "difficulty": "medium",
+      "question": "You have a greedy idea but no proof. How do you check it quickly?",
+      "answer": "Write the greedy and a brute force (or DP), run both on many small inputs, and compare. Any disagreement is a counterexample, so switch to DP; if thousands of cases agree, look for an exchange argument to confirm it.",
+      "explanation": "A brute-force comparison takes minutes and catches most wrong greedy rules, which is far more reliable than intuition.",
+      "concept": "testing a greedy idea",
+      "section": 6
+    },
+    {
+      "id": "swe-greedy-intervals-q31",
+      "type": "mcq",
+      "difficulty": "easy",
+      "question": "A problem gives [start, end] bookings and asks for the fewest bookings to cancel so none overlap. What should you do first?",
+      "choices": [
+        "Sort the bookings by start time",
+        "Build a table of every pair of bookings",
+        "Sort the bookings by end time",
+        "Sort the bookings by length"
+      ],
+      "answer": 2,
+      "explanation": "This is non-overlapping intervals, which keeps the most bookings by earliest end. Start order is for merging, and comparing every pair is O(n^2).",
+      "concept": "first step for scheduling",
+      "section": 7
+    },
+    {
+      "id": "swe-greedy-intervals-q32",
+      "type": "recall",
+      "difficulty": "hard",
+      "question": "Interview prompt: \"Return the fewest intervals to remove so the rest do not overlap.\" Explain your solution and why it is correct.",
+      "answer": "Sort by end time, keep each interval that starts at or after the last kept end, and return n minus the number kept. It is correct because the interval that ends first can replace the first interval of any optimal set without causing a conflict. Sorting by start fails on [[1, 10], [2, 3], [4, 5]]; the time is O(n log n) for the sort.",
+      "explanation": "A strong answer states the rule, gives the exchange argument in a sentence, names a rule that fails, and gives the complexity.",
+      "concept": "explaining a greedy solution",
+      "section": 7
+    }
+  ]
+}

@@ -1,11 +1,11 @@
 {
   "id": "linux-cli",
   "name": "Linux Command Line",
-  "version": "2.0.0",
+  "version": "3.0.0",
   "author": "Recurse",
   "subject": "tools",
   "level": "beginner",
-  "description": "Move around the filesystem, manage files and permissions, and combine commands with pipes.",
+  "description": "Navigate the file system, manage files and permissions, chain commands with pipes, and run processes, SSH and scripts.",
   "icon": ">_",
   "language": "bash",
   "prereqs": [],
@@ -13,140 +13,250 @@
     "linux",
     "shell",
     "bash",
-    "command-line"
+    "command-line",
+    "permissions",
+    "ssh"
   ],
   "lesson": {
-    "estimatedMinutes": 15,
-    "intro": "The shell lets you control a computer by typing commands, and small commands combine into powerful ones. This lesson covers moving around the filesystem, managing files, permissions, pipes and redirection, searching with grep and find, and managing processes and environment variables.",
+    "estimatedMinutes": 30,
+    "intro": "The command line is how developers drive servers, containers, build tools and Git. It looks bare, but once you know a few dozen commands and how to combine them, it is faster and more precise than any graphical tool, and on most servers it is the only interface you get. This lesson goes from finding your way around the file system to permissions, pipes, processes, SSH and your first script.",
+    "objectives": [
+      "Navigate the Linux file system with absolute and relative paths",
+      "Create, copy, move and delete files safely, and read and change permissions with chmod",
+      "Combine commands with pipes and redirection, and search with grep and find",
+      "Inspect and stop processes, and set environment variables and PATH",
+      "Install packages, log in with SSH keys and write a small shell script"
+    ],
     "sections": [
       {
-        "title": "Navigating and managing files",
-        "body": "Linux arranges everything in one tree that starts at `/`, the root. Your home directory is usually `/home/<name>`, and `~` is short for it. The shell always has a current directory, and `pwd` prints it.\n\n- An absolute path starts with `/` and means the same thing from anywhere: `/etc/hosts`.\n- A relative path starts from the current directory: `docs/notes.txt`.\n- `.` is the current directory and `..` is its parent. `cd -` jumps back to the directory you were in before.\n\n`ls` lists a directory. `ls -l` adds permissions, owner, size and date, and `ls -a` also shows hidden files, whose names start with a dot, such as `.bashrc`.\n\nTo manage files: `mkdir -p a/b/c` creates a directory and any missing parents, `cp` copies (add `-r` for a directory), `mv` moves or renames, and `rm` deletes (add `-r` for a directory). There is no trash can, so `rm` is permanent.",
-        "code": "pwd                       # /home/ana\ncd projects/site          # relative path\ncd ..                     # up one level: /home/ana/projects\ncd /var/log               # absolute path\ncd -                      # back to /home/ana/projects\nmkdir -p backup/2024/june\ncp -r site backup/2024/june/\nmv draft.txt final.txt    # rename",
-        "tip": "Press Tab to complete file and directory names. It saves typing and catches typos before they happen.",
+        "title": "The shell and the file system tree",
+        "body": "You connect to a server to find out why a website is down. There is no desktop and no file browser, just a prompt like `ada@web1:~$` and a blinking cursor. Everything from here happens by typing commands. The program reading them is the **shell** (usually **bash** or **zsh**): it reads a command, runs it and shows you the output.\n\nMost commands share one shape: the command name, then **options** that change its behavior (starting with `-` or `--`), then **arguments** such as file names. In `ls -l /etc`, `ls` is the command, `-l` an option and `/etc` the argument. Short options combine, so `ls -la` means `ls -l -a`. When you forget an option, `man ls` opens the manual (press `q` to quit) and `ls --help` prints a summary.\n\nLinux keeps everything in a single tree that starts at the **root**, written `/`. There are no drive letters like `C:`; extra disks are attached somewhere inside the tree. The top-level folders have conventional jobs:\n\n- `/home/ada`: Ada's home directory, written `~` for short. Your own files live here.\n- `/etc`: system-wide configuration, mostly plain text files.\n- `/var/log`: log files, the first place to look when something breaks.\n- `/usr/bin` (and `/bin`): installed programs such as `ls`, `grep` and `python3`.\n- `/tmp`: scratch space, often cleared on reboot.\n- `/root`: the home directory of the administrator account, root.\n\nA **path** names a spot in the tree. An **absolute path** starts with `/` and works from anywhere: `/var/log/nginx/error.log`. A **relative path** starts from the directory you are in right now: from `/var/log`, the path `nginx/error.log` names the same file. Two special names help: `.` is the current directory and `..` is its parent. Names are case-sensitive, so `Notes.txt` and `notes.txt` are different files, and names starting with a dot (like `.bashrc`) are hidden from a plain `ls`.",
+        "code": "/\n├── etc/            configuration: nginx/, ssh/, hosts\n├── home/\n│   └── ada/        your home directory, also written ~\n│       └── projects/\n├── root/           the root user's home\n├── tmp/            scratch files\n├── usr/\n│   └── bin/        programs: ls, grep, python3\n└── var/\n    └── log/        logs: syslog, nginx/",
+        "language": "plaintext",
+        "pitfall": "Confusing / (the top of the whole tree) with ~ (your home directory). cd / takes you to the very top; cd ~, or plain cd, takes you home.",
         "check": {
-          "question": "Which command takes you back to the directory you were in just before the last `cd`?",
+          "question": "You are in /home/ada/projects. Which path refers to /home/ada/projects/site/index.html?",
           "choices": [
-            "cd ..",
-            "cd -",
-            "cd ~",
-            "cd /"
+            "/site/index.html",
+            "../site/index.html",
+            "site/index.html",
+            "~/site/index.html"
           ],
-          "answer": 1,
-          "explanation": "cd - switches to the previous directory. cd .. goes to the parent, cd ~ goes home, and cd / goes to the root."
+          "answer": 2,
+          "explanation": "A relative path starts from the current directory, so site/index.html is right. /site/... starts at the root of the whole tree, ../site goes up to /home/ada first, and ~/site means /home/ada/site."
         }
       },
       {
-        "title": "Permissions",
-        "body": "Every file has an owner, a group, and three sets of permissions: for the owner (user), for the group, and for everyone else (others). `ls -l` shows them as ten characters, such as `-rwxr-xr--`.\n\nThe first character is the type: `-` for a file, `d` for a directory. Then come three groups of `rwx` for user, group and others. `r` is read, `w` is write, `x` is execute, and `-` means that permission is missing.\n\nOn a directory, `r` lets you list its contents and `x` lets you enter it with `cd` and reach the files inside.\n\n`chmod` changes permissions in two styles. Symbolic: `chmod u+x script.sh` adds execute for the owner, and `chmod go-w file` removes write from group and others. Octal: each of the three groups is one digit, the sum of r=4, w=2 and x=1. So 7 is rwx, 6 is rw-, 5 is r-x and 4 is r--, and `chmod 754 file` gives `rwxr-xr--`.",
-        "code": "ls -l deploy.sh\n-rw-r--r-- 1 ana staff 210 Jun 3 10:12 deploy.sh\n./deploy.sh               # Permission denied: no x bit\nchmod u+x deploy.sh\nls -l deploy.sh\n-rwxr--r-- 1 ana staff 210 Jun 3 10:12 deploy.sh\nchmod 640 notes.txt       # rw- r-- ---",
-        "tip": "`chmod 777` lets everyone change the file. It is almost never the right fix for a permission error.",
+        "title": "Moving around: pwd, ls, cd",
+        "body": "The three commands you will type most are `pwd` (print working directory: where am I?), `ls` (what is here?) and `cd` (go somewhere else).\n\n`ls` has a handful of options worth memorizing:\n\n- `ls -l`: long format, one entry per line with permissions, owner, size and modification time.\n- `ls -a`: include hidden entries (names starting with a dot), plus `.` and `..`.\n- `ls -lh`: long format with human-readable sizes like `4.0K` and `12M`.\n- `ls -ltr`: sorted by time with the newest at the bottom, handy in a folder of logs.\n\n`cd` moves you:\n\n- `cd projects/site` goes down into a subdirectory, using a relative path.\n- `cd ..` goes up one level and `cd ../..` goes up two.\n- `cd` on its own, or `cd ~`, goes home from anywhere.\n- `cd -` jumps back to the directory you were in before the last `cd`, perfect for flipping between two places.\n\nTwo habits make the shell far faster. Press **Tab** to complete file and command names, and press it twice to list the options when several names match. You will rarely type a full path or make a typo again, and if Tab will not complete something, it usually does not exist. Press the **Up arrow** to bring back earlier commands, or `Ctrl+R` to search your history by typing part of one.\n\nFinally, get used to silence. When a command succeeds it often prints nothing at all; errors are what get printed. `cd projects` with no output means it worked.",
+        "code": "ada@web1:~$ pwd\n/home/ada\nada@web1:~$ ls\nnotes.txt  projects\nada@web1:~$ ls -a\n.  ..  .bashrc  .ssh  notes.txt  projects\nada@web1:~$ cd projects/site\nada@web1:~/projects/site$ ls -lh\ntotal 12K\ndrwxr-xr-x 2 ada ada 4.0K Oct 10 11:12 images\n-rw-r--r-- 1 ada ada 1.2K Oct 14 09:30 index.html\n-rw-r--r-- 1 ada ada  340 Oct 12 17:05 style.css\nada@web1:~/projects/site$ cd -\n/home/ada",
+        "pitfall": "Typing long paths by hand and getting one letter wrong. Let Tab complete them; when Tab refuses, check the spelling or the directory you are in.",
+        "activity": {
+          "type": "terminal",
+          "title": "Find your way around",
+          "prompt": "Use Tab to complete names, and run pwd whenever you lose track of where you are. Notice which entries appear only with ls -a. The last task previews find, covered in the searching section.",
+          "props": {
+            "scenario": "navigation"
+          }
+        },
         "check": {
-          "question": "Which octal mode gives the owner read and write access and gives nobody else any access?",
+          "question": "You are in /var/log/nginx and run `cd ../../..`. Where are you now?",
           "choices": [
-            "644",
-            "700",
-            "400",
-            "600"
+            "/var",
+            "/var/log",
+            "/home",
+            "/"
           ],
           "answer": 3,
-          "explanation": "Read plus write is 4 + 2 = 6 for the owner, and 0 for group and others. 644 lets everyone read, 700 adds execute, and 400 is read-only."
+          "explanation": "Each .. climbs one level: /var/log, then /var, then /. Counting the levels out loud is the reliable way to read a path full of .."
+        }
+      },
+      {
+        "title": "Working with files and directories",
+        "body": "You need to back up a config file, make a folder for new reports, rename a draft and clear out old logs. These are the everyday file commands:\n\n- `touch notes.txt`: create an empty file, or update the timestamp of an existing one.\n- `mkdir reports`: create a directory. `mkdir -p reports/2026/q1` also creates any missing parents.\n- `cp a.txt b.txt`: copy a file. Directories need `-r` (recursive): `cp -r site site-old`.\n- `mv old.txt new.txt` renames; `mv new.txt archive/` moves into a directory. It is one command because a rename is just a move within the same folder.\n- `rm file.txt` deletes a file and `rm -r folder` deletes a directory with everything in it. `rmdir` removes only empty directories.\n\nTo read files, `cat file` prints the whole thing (fine for short files) and `less file` lets you scroll and search (type `/word` to search, `q` to quit). `head -n 20 file` shows the first 20 lines and `tail -n 20 file` the last 20. `tail -f app.log` keeps printing new lines as they are written, which is how you watch a live log. For quick edits inside a terminal, `nano` is the friendliest editor.\n\nThe shell expands **wildcards** (globs) before a command runs: `*` matches any run of characters, `?` exactly one character and `[abc]` one of the listed characters. `rm *.tmp` has already become `rm a.tmp b.tmp` by the time `rm` starts, so `rm` never sees the star. That makes `echo *.tmp` a safe way to preview what a glob matches before you hand it to `rm`.\n\nBe careful: **there is no trash can**. `rm` deletes immediately and permanently, and `cp` and `mv` silently overwrite an existing file with the same name. Add `-i` (`rm -i`, `cp -i`, `mv -i`) to be asked before anything is destroyed.",
+        "code": "$ mkdir -p backup/2026\n$ cp /etc/nginx/nginx.conf backup/2026/\n$ cp -r site site-old\n$ mv draft.md report.md\n$ echo *.log\naccess.log error.log\n$ rm -i *.log\nrm: remove regular file 'access.log'? y\nrm: remove regular file 'error.log'? y",
+        "pitfall": "Running rm -r on a glob or path you have not checked. Preview it with ls or echo first, because a deleted file does not come back.",
+        "activity": {
+          "type": "terminal",
+          "title": "Create, copy and delete",
+          "prompt": "Predict what each command will print before you run it (often nothing, since silence means success). Before deleting drafts, list its contents so you know exactly what rm -r is about to remove for good.",
+          "props": {
+            "scenario": "files"
+          }
+        },
+        "check": {
+          "question": "What does `mv notes.txt archive/` do when archive is an existing directory?",
+          "choices": [
+            "Moves notes.txt into archive, keeping its name",
+            "Renames notes.txt to a file called archive",
+            "Copies notes.txt into archive and keeps the original",
+            "Fails, because mv can only rename files"
+          ],
+          "answer": 0,
+          "explanation": "When the destination is an existing directory, mv moves the file into it under the same name. mv never leaves the original behind; that would be cp."
+        }
+      },
+      {
+        "title": "Permissions and chmod",
+        "body": "You download a deploy script, type `./deploy.sh` and get `Permission denied`. The file exists and you own it, so what is wrong? Its permissions.\n\nEvery file has an **owner** (a user), a **group**, and three sets of permissions that `ls -l` shows as three triplets after the file type character:\n\n- `r` (read): read the file. On a directory: list the names inside.\n- `w` (write): change the file. On a directory: create, delete and rename entries in it.\n- `x` (execute): run the file as a program. On a directory: enter it with `cd` and reach anything inside.\n\nThe first triplet is for the owner (**u**ser), the second for members of the file's **g**roup and the third for everyone else (**o**thers). Linux applies only the first category that fits you, so the owner gets the user triplet even when the group triplet is more generous.\n\n`chmod` changes permissions in two notations. **Symbolic** mode edits specific bits: `chmod u+x deploy.sh` adds execute for the owner, `chmod go-w notes.txt` removes write from group and others, and `chmod a+r notes.txt` adds read for all. **Octal** mode sets everything at once, adding r = 4, w = 2 and x = 1 within each triplet. `chmod 755 deploy.sh` means rwx (4+2+1) for the owner and r-x (4+1) for group and others. Common values: `755` for programs and directories, `644` for ordinary files and `600` for private files such as SSH keys.\n\n`chown ada:devs file` changes owner and group. That, and anything else touching system files, needs the administrator account, **root**. Instead of logging in as root, prefix a single command with `sudo`, which runs it as root after asking for your password. Root skips permission checks entirely, so give `sudo` only to the command that needs it.",
+        "code": "$ ls -l deploy.sh\n-rw-r--r-- 1 ada devs 812 Oct 14 09:30 deploy.sh\n$ ./deploy.sh\nbash: ./deploy.sh: Permission denied\n$ chmod u+x deploy.sh\n$ ls -l deploy.sh\n-rwxr--r-- 1 ada devs 812 Oct 14 09:30 deploy.sh\n\n  -     rwx    r--    r--     ada    devs\n type   user   group  others  owner  group\n (d = directory, - = regular file)",
+        "pitfall": "Fixing a permission error with chmod 777. It lets every user on the system change the file; add only the bit that is missing, such as u+x.",
+        "activity": {
+          "type": "terminal",
+          "title": "Permission denied",
+          "prompt": "Read the ls -l output first and predict which scripts you are allowed to run. After the chmod, run ls -l again and find the x that appeared. For secret.txt, work out the octal number before you type it.",
+          "props": {
+            "scenario": "permissions"
+          }
+        },
+        "check": {
+          "question": "Which command gives a file the permissions rw-r--r--?",
+          "choices": [
+            "chmod 755 file",
+            "chmod 644 file",
+            "chmod 600 file",
+            "chmod 466 file"
+          ],
+          "answer": 1,
+          "explanation": "rw- is 4+2 = 6, and r-- is 4 for both group and others: 644. 755 would add execute everywhere, 600 removes access for group and others, and 466 puts the digits in the wrong triplets."
         }
       },
       {
         "title": "Pipes and redirection",
-        "body": "Every command has three standard streams: standard input (stdin, number 0), standard output (stdout, 1) and standard error (stderr, 2). By default, output and errors both go to the terminal.\n\n- `cmd > file` sends stdout to a file, replacing what was in it.\n- `cmd >> file` appends to the file instead.\n- `cmd 2> file` sends stderr to a file.\n- `cmd > file 2>&1` sends both to the same file. Redirections are applied left to right, so point stdout at the file first, then point stderr at stdout.\n- `cmd < file` reads stdin from a file.\n\n`/dev/null` is a special file that discards anything written to it, so `2> /dev/null` hides error messages.\n\nA pipe `|` connects one command's stdout to the next command's stdin, so small tools combine into bigger ones. `sort` sorts lines, `uniq` removes adjacent duplicates (`-c` counts them), `wc -l` counts lines, and `head -n 3` keeps the first three.",
-        "code": "ls -l /etc > listing.txt             # overwrite listing.txt\ndate >> log.txt                      # append a line\nfind / -name \"*.conf\" 2> /dev/null   # hide permission errors\nsort names.txt | uniq -c | sort -rn | head -n 3",
-        "tip": "`uniq` only removes duplicates that sit next to each other, so sort first.",
+        "body": "Your web server's access log has 200,000 lines, and you want to know which IP address sent the most requests. No single command does that, but four small ones joined together do. That is the Unix idea: small tools that each do one job well, connected by pipes.\n\nEvery program starts with three streams: **standard input** (stdin, normally the keyboard), **standard output** (stdout, normally the screen) and **standard error** (stderr, also the screen, but kept separate for error messages). **Redirection** sends them elsewhere:\n\n- `cmd > file` writes stdout to a file, replacing whatever it held.\n- `cmd >> file` appends stdout to the end of the file.\n- `cmd 2> errors.txt` redirects only stderr (stream number 2).\n- `cmd > all.txt 2>&1` sends both to the file. Redirections run left to right: stdout goes to the file first, then `2>&1` points stderr wherever stdout now points. Reverse the order and errors still go to the screen.\n- `cmd 2> /dev/null` throws errors away. `/dev/null` is a special file that discards anything written to it.\n- `cmd < file` feeds a file to the program's stdin.\n\nA **pipe** (`|`) connects one program's stdout to the next program's stdin, with no temporary files. Filters worth knowing:\n\n- `sort` orders lines (`-n` numerically, `-r` reversed). `uniq` collapses identical **adjacent** lines and `uniq -c` prefixes each with its count. Because uniq only compares neighbors, sort first.\n- `wc -l` counts lines; `head` and `tail` keep the first or last lines.\n- `cut -d' ' -f1` keeps one field per line, here the first space-separated one.\n- `tee file` saves its input to a file and also passes it along the pipe.\n\nRead a pipeline left to right, picturing the text flowing between stages. Build it one stage at a time, running it after each `|` you add, and you will rarely get it wrong.",
+        "code": "# Top 3 IP addresses in an access log\n$ cut -d' ' -f1 access.log | sort | uniq -c | sort -rn | head -n 3\n   4821 203.0.113.7\n   1290 198.51.100.23\n    877 192.0.2.44\n\n# Save the error lines, then count them\n$ grep ERROR app.log > errors.txt\n$ wc -l < errors.txt\n42",
+        "pitfall": "Redirecting into the file you are reading, as in sort data.txt > data.txt. The shell empties data.txt before sort even starts, so the data is gone.",
+        "activity": {
+          "type": "terminal",
+          "title": "Pipes and filters",
+          "prompt": "Build each pipeline one stage at a time and run it after every | you add, so you can see the text change at each step. For the visitors, try uniq without sort first and notice why the result is wrong.",
+          "props": {
+            "scenario": "pipes"
+          }
+        },
         "check": {
-          "question": "Which stream does a pipe `|` pass to the next command?",
+          "question": "What does `sort names.txt | uniq | wc -l` print?",
           "choices": [
-            "Standard output only",
-            "Standard error only",
-            "Both standard output and standard error",
-            "Standard input of the first command"
+            "The total number of lines in names.txt",
+            "The most common line in names.txt",
+            "The number of distinct lines in names.txt",
+            "The number of lines that appear more than once"
           ],
-          "answer": 0,
-          "explanation": "A pipe carries stdout. Error messages still go to the terminal unless you redirect them, for example with 2>&1 before the pipe."
+          "answer": 2,
+          "explanation": "sort groups identical lines together, uniq keeps one of each group, and wc -l counts what is left: the number of distinct lines."
         }
       },
       {
-        "title": "Searching with grep and find",
-        "body": "`grep` prints the lines that match a pattern. It reads the files you name, or stdin when used in a pipe.\n\n- `grep error app.log` prints lines containing \"error\".\n- `-i` ignores case, `-n` shows line numbers, `-v` shows lines that do not match, and `-c` counts matching lines.\n- `-r` searches every file under a directory.\n\n`find` walks a directory tree and prints the paths that pass its tests:\n\n- `find . -name \"*.txt\"` matches names below the current directory.\n- `find . -type d -name node_modules` matches directories only (`-type f` is regular files).\n- `find /var/log -size +10M` matches files bigger than 10 MB, and `-mtime -1` matches files changed in the last day.\n\nQuote patterns like `\"*.txt\"`. Without quotes, the shell expands `*.txt` using the files in the current directory before `find` even starts, so find receives the wrong arguments.",
-        "code": "grep -n \"TODO\" src/app.js\ngrep -ri \"timeout\" config/\nps aux | grep nginx\nfind . -name \"*.log\" -mtime -1\nfind ~ -type f -size +100M",
-        "tip": "grep searches inside files; find searches for files by name, type, size or age.",
+        "title": "Searching: grep and find",
+        "body": "Two questions come up constantly: which lines mention this? (`grep`) and where is that file? (`find`).\n\n`grep pattern file` prints every line of the file that contains the pattern. The options you will use most:\n\n- `-i` ignores case, so `error`, `Error` and `ERROR` all match.\n- `-n` shows line numbers.\n- `-r` searches every file under a directory, as in `grep -rn TODO src/`.\n- `-v` inverts the match, printing lines that do **not** contain the pattern: `grep -v '^#' app.conf` hides comment lines.\n- `-c` counts matching lines instead of printing them, and `-l` prints only the names of files that match.\n- `-w` matches whole words only, and `-E` allows extended regular expressions such as `'error|warn'`.\n\nWith no file name, grep reads stdin, so it slots straight into pipelines: `ps aux | grep nginx`, `history | grep ssh`.\n\n`find` walks a directory tree and tests every entry against conditions you combine:\n\n- `find . -name \"*.py\"` matches names against a pattern (`-iname` ignores case).\n- `-type f` keeps only files and `-type d` only directories.\n- `-mtime -1` means modified within the last day, and `-size +100M` larger than 100 MB.\n- `-exec rm {} \\;` runs a command on each result. Run the find without `-exec` first to see what it would touch.\n\nAlways quote the pattern after `-name`. Unquoted, the shell expands `*.py` against the current folder before find runs, so find receives file names instead of a pattern, or fails with an error. In short: grep searches inside files; find searches for files by name, type, size and age.",
+        "code": "$ grep -rn \"TODO\" src/\nsrc/app.py:14:    # TODO: handle an empty cart\nsrc/utils.py:3:# TODO: remove this helper\n\n$ grep -c ERROR /var/log/app.log\n42\n\n$ find /var/log -name \"*.log\" -mtime -1\n/var/log/app.log\n/var/log/nginx/access.log\n\n$ find ~/Downloads -type f -size +500M\n/home/ada/Downloads/ubuntu.iso",
+        "pitfall": "Leaving the find pattern unquoted. It can appear to work in one folder and fail in another, depending on which files happen to match the glob there.",
         "check": {
-          "question": "Which command prints every line of app.log that does NOT contain DEBUG?",
+          "question": "Which command lists the files under /etc whose contents mention ssh?",
           "choices": [
-            "grep -n DEBUG app.log",
-            "grep -c DEBUG app.log",
-            "grep -v DEBUG app.log",
-            "find app.log -not DEBUG"
+            "find /etc -name ssh",
+            "grep -c ssh /etc",
+            "find /etc -type f ssh",
+            "grep -rl ssh /etc"
           ],
-          "answer": 2,
-          "explanation": "-v inverts the match, printing only lines without the pattern. -n adds line numbers to matches and -c counts them."
+          "answer": 3,
+          "explanation": "grep looks inside files: -r searches the whole tree and -l prints just the matching file names. find -name matches file names, not contents, and grep without -r refuses to read a directory."
         }
       },
       {
         "title": "Processes, environment variables and PATH",
-        "body": "A running program is a process, and each one has a process ID (PID). `ps aux` lists every process; `top` shows them live.\n\n`kill PID` sends a signal. By default it is SIGTERM (15), which asks the process to stop and lets it clean up first. `kill -9 PID` sends SIGKILL, which ends the process immediately with no cleanup, so use it only when SIGTERM does not work. Ctrl+C sends SIGINT to the program in the foreground.\n\nJobs are processes started from your current shell:\n- `command &` starts it in the background.\n- Ctrl+Z pauses (stops) the foreground job.\n- `jobs` lists them, `bg %1` resumes job 1 in the background, and `fg %1` brings it to the foreground.\n\nEnvironment variables are named values that programs read, such as `HOME` and `USER`. `NAME=value` sets a variable in the current shell only; `export NAME` passes it on to every program you start from that shell.\n\n`PATH` is a colon-separated list of directories. When you type a command name, the shell searches them in order and runs the first match. `which name` shows which file that is.",
-        "code": "sleep 300 &                        # [1] 4821\njobs                               # [1]+ Running   sleep 300 &\nkill %1                            # same as: kill 4821\nexport API_URL=\"https://api.example.com\"\necho $PATH                         # /usr/local/bin:/usr/bin:/bin\nexport PATH=\"$HOME/bin:$PATH\"      # add a directory to the front\nwhich python3                      # the file that will run",
-        "tip": "Variables you export last only for the current shell session. Put the export line in `~/.bashrc` to keep it.",
+        "body": "The server feels slow. Something is eating the CPU, and you need to find it and stop it. Every running program is a **process** with a numeric ID, its **PID**.\n\n- `ps aux` lists every process with its user, PID, CPU and memory use, and command line. Pipe it to grep to find one: `ps aux | grep python`.\n- `top` (or the friendlier `htop`, if installed) shows a live view sorted by CPU; press `q` to quit.\n- `kill 4821` sends the **SIGTERM** signal, a polite request to shut down that lets the program save work and clean up. If it ignores that, `kill -9 4821` sends **SIGKILL**, which the kernel enforces at once with no cleanup. `pkill -f crunch` signals processes by name.\n- `Ctrl+C` sends **SIGINT** to the program running in the foreground, which usually stops it. `Ctrl+Z` only suspends it: `bg` resumes it in the background, `fg` brings it back and `jobs` lists them. Ending a command with `&` starts it in the background straight away.\n\nEach process also carries **environment variables**, named strings that configure programs: `HOME`, `USER`, `LANG`, and your own, such as `DATABASE_URL`. `echo $HOME` reads one and `env` lists them all. `export API_KEY=abc123` sets a variable *and* hands it to every program you start from this shell; without `export` it is a plain shell variable that child programs cannot see. Anything set at the prompt disappears when you close the terminal, so put lasting `export` lines in `~/.bashrc` (or `~/.zshrc` for zsh).\n\nThe most important variable is **PATH**: a colon-separated list of directories the shell searches, in order, when you type a command name. That is how `python3` turns into `/usr/bin/python3`. `which python3` shows which file will run. To add your own folder, prepend it and keep the rest: `export PATH=\"$HOME/bin:$PATH\"`.",
+        "code": "$ ps aux | grep python\nada   4821 98.7  2.1 412340 86012 pts/0  R   09:12  3:41 python3 crunch.py\nada   4950  0.0  0.0   6432   720 pts/1  S+  09:16  0:00 grep python\n$ kill 4821\n\n$ echo $PATH\n/home/ada/bin:/usr/local/bin:/usr/bin:/bin\n$ which python3\n/usr/bin/python3\n$ export DATABASE_URL=\"postgres://localhost/shop\"",
+        "pitfall": "Reaching for kill -9 first. SIGKILL gives the program no chance to finish writing files or release locks; try plain kill and give it a few seconds.",
         "check": {
-          "question": "You run `sleep 500`, press Ctrl+Z, then run `bg`. What state is sleep in now?",
+          "question": "You run `export EDITOR=nano` in one terminal, then open a new terminal window. Is EDITOR set there?",
           "choices": [
-            "Stopped (paused)",
-            "Running in the background",
-            "Terminated",
-            "Running in the foreground"
+            "No: it lasts only for that shell and the programs started from it",
+            "Yes: export saves the variable permanently",
+            "Yes, but only for programs run with sudo",
+            "No: export only works inside shell scripts"
+          ],
+          "answer": 0,
+          "explanation": "export passes a variable down to child processes of that shell, nothing more. A new window starts a fresh shell, so to make it permanent you add the export line to ~/.bashrc."
+        }
+      },
+      {
+        "title": "Packages, SSH and shell scripts",
+        "body": "Three more skills turn you from a visitor into someone who can run a server: installing software, connecting to other machines and automating what you type.\n\n**Package managers** install software from your distribution's trusted repositories, together with everything it depends on. On Debian and Ubuntu that is `apt`: `sudo apt update` refreshes the list of available packages, `sudo apt install nginx` installs one, `sudo apt upgrade` upgrades everything and `sudo apt remove nginx` uninstalls. Fedora and Red Hat use `dnf`, Arch uses `pacman`, and on macOS Homebrew's `brew install` plays the same role. Prefer the package manager to random downloads: updates and security fixes then arrive with one command.\n\n**SSH** (Secure Shell) gives you an encrypted shell on a remote machine: `ssh deploy@203.0.113.10`. The first time, ssh shows the server's key fingerprint and asks you to confirm it; it stores the key in `~/.ssh/known_hosts` and warns loudly if it ever changes. Rather than typing a password each time, use a key pair. `ssh-keygen -t ed25519` creates a **private key** (`~/.ssh/id_ed25519`, which never leaves your machine) and a **public key** (`id_ed25519.pub`). `ssh-copy-id deploy@203.0.113.10` appends the public key to the server's `~/.ssh/authorized_keys`, and from then on the key logs you in. `scp report.pdf deploy@203.0.113.10:/srv/files/` copies files over the same secure channel.\n\nA **shell script** is commands saved in a file. The first line, the **shebang** (`#!/usr/bin/env bash`), names the interpreter. Make the file executable with `chmod +x backup.sh` and run it as `./backup.sh`. Inside, `NAME=value` sets a variable (no spaces around `=`), `\"$NAME\"` uses it (quoted, in case it contains spaces), `$1` and `$2` are the script's arguments, and `$(date +%Y-%m-%d)` inserts a command's output. Every command returns an **exit code**: 0 means success, anything else failure, and `$?` holds the last one. `a && b` runs b only if a succeeded, and `a || b` only if a failed. Starting a script with `set -euo pipefail` makes it stop at the first failing command instead of carrying on in a broken state.",
+        "code": "#!/usr/bin/env bash\nset -euo pipefail\n\n# Usage: ./backup.sh <directory>\nSOURCE=\"$1\"\nSTAMP=$(date +%Y-%m-%d)\nDEST=\"$HOME/backups/$(basename \"$SOURCE\")-$STAMP.tar.gz\"\n\nmkdir -p \"$HOME/backups\"\ntar -czf \"$DEST\" \"$SOURCE\" && echo \"Saved $DEST\"",
+        "pitfall": "Writing NAME = value with spaces. Bash then tries to run a command called NAME with the arguments = and value, and fails with \"command not found\".",
+        "check": {
+          "question": "What does `cd /srv/app && git pull` do if /srv/app does not exist?",
+          "choices": [
+            "git pull runs in the current directory instead",
+            "cd fails, so git pull never runs",
+            "The shell creates /srv/app and then pulls",
+            "Both commands run, and only the error is hidden"
           ],
           "answer": 1,
-          "explanation": "Ctrl+Z pauses the job and bg resumes it in the background, so it keeps running while you get your prompt back. fg would bring it to the foreground instead."
+          "explanation": "&& runs the second command only when the first exits with code 0. That is exactly what you want here: running git pull in the wrong directory could do damage."
         }
       }
     ],
     "keyTerms": [
       {
-        "term": "absolute path",
-        "definition": "A path that starts at the root /, so it means the same thing from any directory."
+        "term": "Shell",
+        "definition": "The program, such as bash or zsh, that reads your commands, runs them and shows the output."
       },
       {
-        "term": "octal mode",
-        "definition": "Permissions written as three digits for user, group and others, each the sum of r=4, w=2, x=1."
+        "term": "Absolute path",
+        "definition": "A path that starts at the root, /, and means the same thing from any directory."
       },
       {
-        "term": "standard error",
-        "definition": "Stream 2, where programs write error messages; it is separate from standard output."
+        "term": "Relative path",
+        "definition": "A path interpreted from the current directory; . is here and .. is the parent."
       },
       {
-        "term": "pipe",
-        "definition": "The | operator, which feeds one command's standard output into the next command's standard input."
+        "term": "Permissions (rwx)",
+        "definition": "Read, write and execute bits for the owner, the group and others, changed with chmod."
       },
       {
-        "term": "PID",
-        "definition": "The process ID, a number that identifies a running process."
+        "term": "sudo",
+        "definition": "Runs one command as root, the administrator account that bypasses permission checks."
       },
       {
-        "term": "signal",
-        "definition": "A message sent to a process, such as SIGTERM (please stop) or SIGKILL (stop now)."
+        "term": "stdout and stderr",
+        "definition": "A program's normal output stream (1) and its separate error stream (2)."
       },
       {
-        "term": "environment variable",
-        "definition": "A named value, such as HOME, that exported shells pass on to the programs they start."
+        "term": "Pipe",
+        "definition": "The | operator, which feeds one command's output into the next command's input."
+      },
+      {
+        "term": "Process (PID)",
+        "definition": "A running program, identified by a numeric process ID."
+      },
+      {
+        "term": "Signal",
+        "definition": "A message to a process, such as SIGTERM (please exit), SIGKILL (stop now) or SIGINT (Ctrl+C)."
+      },
+      {
+        "term": "Environment variable",
+        "definition": "A named string passed to programs; export makes a shell variable visible to them."
       },
       {
         "term": "PATH",
-        "definition": "The list of directories the shell searches, in order, to find the program for a command name."
+        "definition": "The colon-separated list of directories searched, in order, for a command name."
+      },
+      {
+        "term": "SSH key pair",
+        "definition": "A private key kept on your machine and a public key placed on servers, used to log in without a password."
       }
     ],
     "summary": [
-      "Absolute paths start at `/`; relative paths start where you are, and `..` means the parent directory.",
-      "Permissions are rwx for user, group and others; each octal digit adds r=4, w=2, x=1.",
-      "`>` overwrites, `>>` appends, `2>` redirects errors, and `|` feeds one command's output into the next.",
-      "grep finds lines inside files; find finds files by name, type, size or age.",
-      "`kill` sends SIGTERM by default, `export` passes variables to child programs, and PATH is searched left to right."
+      "Everything lives in one tree under /; absolute paths start with /, relative paths start where you are.",
+      "Silence means success, Tab completes names, and rm has no undo, so preview before you delete.",
+      "Permissions are rwx for user, group and others; on a directory, x means enter and w means create or delete entries.",
+      "Pipes chain small tools; > overwrites, >> appends, 2> catches errors, and the order of 2>&1 matters.",
+      "grep searches inside files and find searches for files; quote find patterns.",
+      "kill sends SIGTERM and kill -9 sends SIGKILL; export passes variables to programs, and PATH decides which program a name runs."
     ],
-    "feynmanPrompt": "Explain to a friend what happens when they type `grep error app.log | wc -l` and press Enter: how the shell finds each program, what the pipe does, and what ends up on the screen."
+    "feynmanPrompt": "Explain to a friend who has only ever used a mouse what happens when you type `grep ERROR app.log | wc -l` and press Enter: how the shell finds the two programs, how text flows between them, and where the final number is printed."
   },
   "questions": [
     {
@@ -163,11 +273,11 @@
       "answer": 2,
       "explanation": "-p creates every missing parent along the path and does not complain if some already exist. Without -p, mkdir fails with \"No such file or directory\".",
       "concept": "mkdir -p",
-      "section": 0
+      "section": 2
     },
     {
       "id": "linux-cli-q02",
-      "type": "typed",
+      "type": "cli",
       "difficulty": "easy",
       "question": "Type the command that lists the current directory including hidden files, whose names start with a dot.",
       "answer": "ls -a",
@@ -179,9 +289,10 @@
         "ls -lA",
         "ls -Al"
       ],
+      "shell": "bash",
       "explanation": "Plain ls skips names that start with a dot. -a shows them, including the . and .. entries; -A shows them without . and ..",
       "concept": "hidden files",
-      "section": 0
+      "section": 1
     },
     {
       "id": "linux-cli-q03",
@@ -198,7 +309,7 @@
       "answer": 1,
       "explanation": "cp copies single files unless you ask for a recursive copy. cp -r site backup/ copies the directory and its contents.",
       "concept": "cp -r for directories",
-      "section": 0
+      "section": 2
     },
     {
       "id": "linux-cli-q04",
@@ -230,7 +341,7 @@
       "answer": 0,
       "explanation": "The user triplet rwx and the group triplet r-x both include x. The others triplet --- has nothing, so everyone else cannot run, read or change it.",
       "concept": "reading rwx triplets",
-      "section": 1
+      "section": 3
     },
     {
       "id": "linux-cli-q06",
@@ -240,7 +351,7 @@
       "answer": "754",
       "explanation": "rwx is 4+2+1 = 7, r-x is 4+1 = 5, and r-- is 4. Together: 754.",
       "concept": "octal permissions",
-      "section": 1
+      "section": 3
     },
     {
       "id": "linux-cli-q07",
@@ -257,7 +368,7 @@
       "answer": 2,
       "explanation": "u+x adds execute for the owner only. +x adds it for everyone, 777 gives everyone full access, and u=x sets the owner to execute only, removing their read and write.",
       "concept": "symbolic chmod",
-      "section": 1
+      "section": 3
     },
     {
       "id": "linux-cli-q08",
@@ -273,7 +384,7 @@
       "answer": 1,
       "explanation": "On directories, x means \"may enter and reach files inside\". With rw- the owner has no x, so cd fails with Permission denied. Owners get no automatic bypass; only root does.",
       "concept": "directory execute bit",
-      "section": 1
+      "section": 3
     },
     {
       "id": "linux-cli-q09",
@@ -289,7 +400,7 @@
       "answer": 3,
       "explanation": "Redirections run left to right. 2>&1 points stderr at wherever stdout points at that moment, the terminal. Then > moves only stdout to the file. Write ls missing.txt > out.txt 2>&1 to capture both.",
       "concept": "redirection order",
-      "section": 2
+      "section": 4
     },
     {
       "id": "linux-cli-q10",
@@ -306,7 +417,7 @@
       "answer": 0,
       "explanation": "After sorting, identical lines sit together, and uniq -c collapses each group into one line prefixed with its count. sort -rn then puts the biggest count first. Plain uniq would drop the counts.",
       "concept": "sort | uniq -c",
-      "section": 2
+      "section": 4
     },
     {
       "id": "linux-cli-q11",
@@ -323,7 +434,7 @@
       "answer": 1,
       "explanation": ">> appends to the file. > would truncate it every hour, leaving only the latest date. | expects a command, not a file, and 2> redirects only errors.",
       "concept": "append with >>",
-      "section": 2
+      "section": 4
     },
     {
       "id": "linux-cli-q12",
@@ -339,26 +450,24 @@
       "answer": 2,
       "explanation": "-c counts matching lines, so a line with \"error\" twice still counts once. -n would print the lines with numbers, and -l would print file names.",
       "concept": "grep -c counts lines",
-      "section": 3
+      "section": 5
     },
     {
       "id": "linux-cli-q13",
-      "type": "typed",
+      "type": "cli",
       "difficulty": "medium",
       "question": "Type a find command that lists everything under the current directory whose name ends in `.py`.",
       "answer": "find . -name \"*.py\"",
       "accept": [
-        "find . -name '*.py'",
         "find . -type f -name \"*.py\"",
-        "find . -type f -name '*.py'",
         "find . -name \"*.py\" -type f",
-        "find . -name '*.py' -type f",
         "find -name \"*.py\"",
-        "find -name '*.py'"
+        "find . -iname \"*.py\""
       ],
+      "shell": "bash",
       "explanation": "find starts at . (the current directory) and -name tests each file name against the pattern. The quotes stop the shell from expanding *.py before find sees it.",
       "concept": "find -name",
-      "section": 3
+      "section": 5
     },
     {
       "id": "linux-cli-q14",
@@ -375,7 +484,7 @@
       "answer": 0,
       "explanation": "The shell replaced *.txt with a.txt b.txt, so find received \"-name a.txt b.txt\" and choked on the extra word. Writing -name \"*.txt\" passes the pattern through to find.",
       "concept": "quoting find patterns",
-      "section": 3
+      "section": 5
     },
     {
       "id": "linux-cli-q15",
@@ -391,7 +500,7 @@
       "answer": 3,
       "explanation": "With no signal given, kill sends SIGTERM (15), which a program can catch to save its work and exit. SIGKILL needs kill -9 and cannot be caught.",
       "concept": "kill default signal",
-      "section": 4
+      "section": 6
     },
     {
       "id": "linux-cli-q16",
@@ -408,7 +517,7 @@
       "answer": 2,
       "explanation": "The assignment threw away /usr/bin and /bin, so the shell no longer finds ls. Prepending keeps the old list: PATH=\"$HOME/bin:$PATH\".",
       "concept": "extending PATH",
-      "section": 4
+      "section": 6
     },
     {
       "id": "linux-cli-q17",
@@ -418,7 +527,341 @@
       "answer": "A plain assignment creates a shell variable that only the current shell can see. Run `export API_KEY` (or `export API_KEY=abc123`) so programs started from the shell inherit it.",
       "explanation": "Child processes receive only exported variables. You can also set a variable for one command: API_KEY=abc123 ./script.sh.",
       "concept": "export",
+      "section": 6
+    },
+    {
+      "id": "linux-cli-q18",
+      "type": "match",
+      "difficulty": "easy",
+      "question": "Match each directory to what it normally holds.",
+      "pairs": [
+        {
+          "left": "/etc",
+          "right": "System-wide configuration files"
+        },
+        {
+          "left": "/home/ada",
+          "right": "Ada's personal files and settings"
+        },
+        {
+          "left": "/var/log",
+          "right": "Log files from the system and services"
+        },
+        {
+          "left": "/usr/bin",
+          "right": "Installed programs such as ls and grep"
+        },
+        {
+          "left": "/tmp",
+          "right": "Scratch files that may vanish on reboot"
+        }
+      ],
+      "explanation": "These conventions hold on almost every Linux system, so knowing them tells you where to look: config in /etc, logs in /var/log, programs in /usr/bin and your own work under /home.",
+      "concept": "file system layout",
+      "section": 0
+    },
+    {
+      "id": "linux-cli-q19",
+      "type": "multi",
+      "difficulty": "medium",
+      "question": "Your home directory is /home/ada and you are in /home/ada/projects. Which paths refer to /home/ada/notes.txt? Select all that apply.",
+      "choices": [
+        "~/notes.txt",
+        "../notes.txt",
+        "/home/ada/notes.txt",
+        "./notes.txt",
+        "/notes.txt"
+      ],
+      "answers": [
+        0,
+        1,
+        2
+      ],
+      "explanation": "~ expands to /home/ada, .. climbs from projects to /home/ada, and the absolute path is the same file spelled out. ./notes.txt would be inside projects, and /notes.txt sits at the root of the tree.",
+      "concept": "equivalent paths",
+      "section": 0
+    },
+    {
+      "id": "linux-cli-q20",
+      "type": "mcq",
+      "difficulty": "medium",
+      "question": "You are in /etc/nginx, run `cd /var/log`, then run `cd -`. Where are you now?",
+      "choices": [
+        "/var",
+        "/home/ada",
+        "/",
+        "/etc/nginx"
+      ],
+      "answer": 3,
+      "explanation": "cd - returns to the previous directory (bash keeps it in OLDPWD) and prints its path. Running cd - again would take you back to /var/log.",
+      "concept": "cd -",
+      "section": 1
+    },
+    {
+      "id": "linux-cli-q21",
+      "type": "mcq",
+      "difficulty": "medium",
+      "question": "A folder holds a.txt, b.txt and notes.md. You run `ls *.txt`. What does the ls program actually receive as arguments?",
+      "choices": [
+        "The single argument *.txt, which ls expands itself",
+        "The two arguments a.txt and b.txt",
+        "Every file name in the folder, which ls then filters",
+        "Nothing; ls reads the pattern from standard input"
+      ],
+      "answer": 1,
+      "explanation": "The shell expands the glob before starting the program, so ls just sees a list of names. This is why echo *.txt previews a glob safely, and why find patterns need quotes. (If nothing matches, bash passes the pattern through unchanged.)",
+      "concept": "shell expands globs",
+      "section": 2
+    },
+    {
+      "id": "linux-cli-q22",
+      "type": "cli",
+      "difficulty": "medium",
+      "question": "Type the command that prints the end of /var/log/app.log and keeps printing new lines as they are written.",
+      "answer": "tail -f /var/log/app.log",
+      "accept": [
+        "tail -F /var/log/app.log",
+        "tail --follow /var/log/app.log"
+      ],
+      "shell": "bash",
+      "explanation": "tail shows the last lines of a file, and -f (follow) keeps the file open and prints new lines as they arrive. Press Ctrl+C to stop watching.",
+      "concept": "follow a log",
+      "section": 2
+    },
+    {
+      "id": "linux-cli-q23",
+      "type": "match",
+      "difficulty": "easy",
+      "question": "Match each octal digit to the permissions it sets within one triplet.",
+      "pairs": [
+        {
+          "left": "7",
+          "right": "rwx"
+        },
+        {
+          "left": "6",
+          "right": "rw-"
+        },
+        {
+          "left": "5",
+          "right": "r-x"
+        },
+        {
+          "left": "4",
+          "right": "r--"
+        },
+        {
+          "left": "0",
+          "right": "---"
+        }
+      ],
+      "explanation": "Add r = 4, w = 2 and x = 1: 4+2+1 = 7, 4+2 = 6, 4+1 = 5, 4 alone is read only and 0 is nothing.",
+      "concept": "octal digits",
+      "section": 3
+    },
+    {
+      "id": "linux-cli-q24",
+      "type": "cli",
+      "difficulty": "medium",
+      "question": "Type the command that makes secret.txt readable and writable by its owner only, with no access at all for group and others.",
+      "answer": "chmod 600 secret.txt",
+      "accept": [
+        "chmod 0600 secret.txt",
+        "chmod u=rw,go= secret.txt",
+        "chmod u=rw,g=,o= secret.txt"
+      ],
+      "shell": "bash",
+      "explanation": "6 (rw-) for the owner, 0 (---) for group and for others. SSH refuses to use a private key whose permissions are looser than this.",
+      "concept": "chmod 600",
+      "section": 3
+    },
+    {
+      "id": "linux-cli-q25",
+      "type": "mcq",
+      "difficulty": "hard",
+      "question": "The directory /shared is `drwxrwxr-x root team`. Inside it, report.txt is `-rw-r--r-- alice team`. Bob is in the team group. What happens when Bob runs `rm -f /shared/report.txt`?",
+      "choices": [
+        "It fails: Bob has no write permission on report.txt",
+        "It fails: only root can delete another user's file",
+        "It works: deleting needs write permission on the directory, which Bob has",
+        "It works, but only because -f overrides every permission check"
+      ],
+      "answer": 2,
+      "explanation": "Deleting removes an entry from the directory, so the directory's w and x bits decide, not the file's. The group triplet rwx lets Bob do it. -f only skips the confirmation prompt. Shared folders like /tmp set the sticky bit (drwxrwxrwt) to stop exactly this.",
+      "concept": "deleting needs directory write",
+      "section": 3
+    },
+    {
+      "id": "linux-cli-q26",
+      "type": "mcq",
+      "difficulty": "medium",
+      "question": "What changes when you add `2> /dev/null` to `find / -name passwd`?",
+      "choices": [
+        "Error messages such as Permission denied are discarded, and results still print",
+        "The results are discarded, and only error messages print",
+        "Both results and errors are saved to a file called null",
+        "find runs as root, so no Permission denied errors occur"
+      ],
+      "answer": 0,
+      "explanation": "2> redirects only stream 2, stderr, and /dev/null swallows whatever is written to it. The matches travel on stdout, so they still reach your screen.",
+      "concept": "2> /dev/null",
       "section": 4
+    },
+    {
+      "id": "linux-cli-q27",
+      "type": "typed",
+      "difficulty": "hard",
+      "question": "What line does this pipeline print? Ignore leading spaces.",
+      "code": "printf 'b\\na\\nb\\nc\\nb\\n' | sort | uniq -c | sort -rn | head -n 1",
+      "answer": "3 b",
+      "accept": [
+        "3b"
+      ],
+      "explanation": "sort gives a, b, b, b, c. uniq -c turns that into \"1 a\", \"3 b\", \"1 c\". sort -rn puts the largest count first, and head -n 1 keeps only that line: 3 b.",
+      "concept": "trace a pipeline",
+      "section": 4
+    },
+    {
+      "id": "linux-cli-q28",
+      "type": "cli",
+      "difficulty": "medium",
+      "question": "Type a grep command that searches every file under src/ for TODO and shows line numbers.",
+      "answer": "grep -rn TODO src/",
+      "accept": [
+        "grep -rn TODO src",
+        "grep -rn \"TODO\" src/",
+        "grep -rn \"TODO\" src",
+        "grep -nr TODO src/",
+        "grep -nr TODO src",
+        "grep -nr \"TODO\" src/",
+        "grep -nr \"TODO\" src",
+        "grep -r -n TODO src/",
+        "grep -r -n TODO src",
+        "grep -r -n \"TODO\" src/",
+        "grep -r -n \"TODO\" src",
+        "grep -n -r TODO src/",
+        "grep -n -r TODO src",
+        "grep -n -r \"TODO\" src/",
+        "grep -n -r \"TODO\" src",
+        "grep -Rn TODO src/",
+        "grep -Rn TODO src",
+        "grep -Rn \"TODO\" src/",
+        "grep -Rn \"TODO\" src",
+        "grep -nR TODO src/",
+        "grep -nR TODO src",
+        "grep -nR \"TODO\" src/",
+        "grep -nR \"TODO\" src",
+        "grep -R -n TODO src/",
+        "grep -R -n TODO src",
+        "grep -R -n \"TODO\" src/",
+        "grep -R -n \"TODO\" src",
+        "grep -n -R TODO src/",
+        "grep -n -R TODO src",
+        "grep -n -R \"TODO\" src/",
+        "grep -n -R \"TODO\" src"
+      ],
+      "shell": "bash",
+      "explanation": "-r searches the directory tree recursively and -n prefixes each match with its line number, so the output reads file:line:text.",
+      "concept": "recursive grep",
+      "section": 5
+    },
+    {
+      "id": "linux-cli-q29",
+      "type": "mcq",
+      "difficulty": "medium",
+      "question": "What does `grep -v '^#' app.conf` print?",
+      "choices": [
+        "Only the lines that start with #",
+        "The number of comment lines in app.conf",
+        "Every line, with the # characters removed",
+        "Every line that does not start with #"
+      ],
+      "answer": 3,
+      "explanation": "-v inverts the match, and ^# means \"# at the start of the line\". Together they hide comment lines, a quick way to read just the active settings of a config file.",
+      "concept": "grep -v",
+      "section": 5
+    },
+    {
+      "id": "linux-cli-q30",
+      "type": "mcq",
+      "difficulty": "medium",
+      "question": "A script is stuck in an infinite loop in your terminal. What is the usual way to stop it?",
+      "choices": [
+        "Press Ctrl+C, which sends SIGINT to the foreground program",
+        "Press Ctrl+Z, which ends the program and frees its memory",
+        "Press Ctrl+D, which sends SIGKILL to the program",
+        "Type kill at the prompt while the loop keeps running"
+      ],
+      "answer": 0,
+      "explanation": "Ctrl+C sends SIGINT, which stops most programs. Ctrl+Z only suspends the program (it stays in memory until resumed or killed), and Ctrl+D signals end of input, which a loop ignores.",
+      "concept": "Ctrl+C",
+      "section": 6
+    },
+    {
+      "id": "linux-cli-q31",
+      "type": "cli",
+      "difficulty": "easy",
+      "question": "Type the command that shows the full path of the program that runs when you type python3.",
+      "answer": "which python3",
+      "accept": [
+        "command -v python3",
+        "type python3",
+        "type -p python3"
+      ],
+      "shell": "bash",
+      "explanation": "which searches PATH the same way the shell does and prints the first match, such as /usr/bin/python3. It is the quickest way to debug \"wrong version\" problems.",
+      "concept": "which",
+      "section": 6
+    },
+    {
+      "id": "linux-cli-q32",
+      "type": "cli",
+      "difficulty": "easy",
+      "question": "On Ubuntu, type the command that installs the package tree, with administrator rights.",
+      "answer": "sudo apt install tree",
+      "accept": [
+        "sudo apt-get install tree",
+        "sudo apt install -y tree",
+        "sudo apt-get install -y tree",
+        "sudo apt -y install tree"
+      ],
+      "shell": "bash",
+      "explanation": "apt is the package manager on Debian and Ubuntu, and installing system software needs root, hence sudo. Run sudo apt update first if the package list is old.",
+      "concept": "apt install",
+      "section": 7
+    },
+    {
+      "id": "linux-cli-q33",
+      "type": "mcq",
+      "difficulty": "medium",
+      "question": "You want to log in to deploy@203.0.113.10 without typing a password each time. What is the right setup?",
+      "choices": [
+        "Copy your private key into the server's authorized_keys file",
+        "Save the password in ~/.bashrc as SSH_PASSWORD",
+        "Create a key pair with ssh-keygen and put the public key on the server",
+        "Run ssh with sudo so the server skips the password"
+      ],
+      "answer": 2,
+      "explanation": "The public key goes on the server (ssh-copy-id appends it to ~/.ssh/authorized_keys) and the private key never leaves your machine. Copying the private key anywhere defeats the point, and a saved password in a file is easy to steal.",
+      "concept": "ssh keys",
+      "section": 7
+    },
+    {
+      "id": "linux-cli-q34",
+      "type": "debug",
+      "difficulty": "hard",
+      "question": "This script prints an error and then \", Ada\". What is the bug?",
+      "code": "#!/usr/bin/env bash\ngreeting = \"Hello\"\necho \"$greeting, $1\"\n\n$ ./greet.sh Ada\n./greet.sh: line 2: greeting: command not found\n, Ada",
+      "choices": [
+        "Variables must be declared with var before they are used",
+        "The spaces around = make bash run greeting as a command",
+        "$1 is empty because arguments need -- in front of them",
+        "The shebang must be #!/bin/sh for echo to work"
+      ],
+      "answer": 1,
+      "explanation": "In bash, NAME=value must have no spaces. With spaces, bash runs a command called greeting with the arguments = and \"Hello\", which fails, so $greeting stays empty. Write greeting=\"Hello\".",
+      "concept": "variable assignment",
+      "section": 7
     }
   ]
 }

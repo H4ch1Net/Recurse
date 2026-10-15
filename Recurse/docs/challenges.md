@@ -68,3 +68,32 @@ are provided by the runner, so learners can use them without defining them.
 Learner code runs in a Web Worker with a time limit, so an infinite loop cannot freeze the page.
 Python runs on Pyodide, which the browser downloads once (about 10 MB) the first time a Python
 challenge runs.
+
+## Optional fields
+
+These are all optional; existing sets need no changes.
+
+| Field | Rules |
+|---|---|
+| set `description` | one sentence about the set, for lists of sets |
+| set `order` | number; lower sorts first (default 100). `warmups` uses 0 so beginners see it first |
+| `argTypes` | an array aligned with `params` (use `null` for plain values, as in `["list", null]`) or an object keyed by parameter name (`{ "root": "tree" }`). Besides `"list"` and `"tree"`, `"list[]"` and `"tree[]"` convert an array of arrays into an array of lists or trees (for example, merging k sorted lists). `returnType` accepts the same four values |
+| `timeLimit` | milliseconds per test, 500 to 20000 (default 3000). Raise it only when a correct Python solution needs longer on a big test |
+
+## How the runner treats learner code
+
+- Tests run one at a time, each with fresh copies of its arguments, and each test gets its own
+  time limit. Results report pass or fail, the returned value, anything printed, errors with line
+  numbers in the learner's code, and the time taken.
+- JavaScript: the function is looked up by name, so `function twoSum`, `const twoSum = (...) =>`
+  and `var twoSum = function` all work. A function may return a promise; it is awaited.
+- Python: the module runs once, then the function is called per test. A LeetCode style
+  `class Solution` with a method named like the function (or its camelCase form) also works.
+  `List`, `Optional` and the other `typing` names are available for type hints; anything else
+  from the standard library needs an import. `input()` is not available.
+- Results go through JSON before comparing: Python tuples and sets become lists, `None` is `null`.
+  A JavaScript function that returns `undefined` fails (expected values never contain it), and
+  the learner is told they probably forgot a `return`.
+- Hidden tests show only pass or fail until the learner passes them.
+- Drafts are saved per challenge and language in `localStorage` under
+  `recurse_code_<id>_<language>`.

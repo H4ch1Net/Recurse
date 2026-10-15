@@ -52,7 +52,7 @@ export default function QuizRunner() {
   const finished = useRef(false)
 
   const timeLeft = minutes ? minutes * 60 - elapsed : null
-  const finish = useEffectEvent(() => {
+  function finish() {
     if (finished.current || !setup) return
     finished.current = true
     const result = scoreQuiz(setup.items, answers, setup.scope.groups)
@@ -69,7 +69,7 @@ export default function QuizRunner() {
         .concat(mode === 'exam' ? setup.items.filter((i) => !answers[i.key]).map((i) => ({ packId: i.packId, questionId: i.questionId, correct: false, given: '' })) : [])
     })
     navigate(`/quiz/result/${record.id}`, { replace: true })
-  })
+  }
 
   const tick = useEffectEvent(() => {
     const seconds = Math.round((Date.now() - (setup?.started || Date.now())) / 1000)

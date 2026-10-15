@@ -1,0 +1,501 @@
+{
+  "id": "ccna-wireless-security",
+  "name": "Wireless Security",
+  "version": "1.0.0",
+  "author": "Recurse",
+  "subject": "networking",
+  "level": "intermediate",
+  "description": "Compare WEP, WPA, WPA2 and WPA3, Personal and Enterprise modes, and configure and verify a WPA2-PSK WLAN in the WLC GUI.",
+  "icon": "WPA",
+  "language": "plaintext",
+  "prereqs": ["ccna-wireless-principles", "ccna-wireless-architectures", "ccna-security-concepts"],
+  "tags": ["ccna", "5.9", "5.10", "wireless", "wpa2", "wpa3", "802.1x"],
+  "lesson": {
+    "estimatedMinutes": 30,
+    "intro": "A wired network at least makes an attacker find a jack. A wireless network broadcasts into the parking lot. This lesson explains how Wi-Fi security got from the broken WEP to WPA3, the difference between Personal (pre-shared key) and Enterprise (802.1X with RADIUS) modes, what the 4-way handshake does, and then walks through building and verifying a WPA2-PSK WLAN in a Cisco wireless LAN controller GUI, which the CCNA tests directly.",
+    "objectives": [
+      "Explain why WEP failed and what WPA, WPA2 and WPA3 each changed",
+      "Compare Personal (PSK or SAE) and Enterprise (802.1X/EAP with RADIUS) authentication and name the 802.1X roles",
+      "Describe the 4-way handshake and why WPA2-Personal is exposed to offline dictionary attacks",
+      "Configure a WLAN with WPA2 PSK in the WLC GUI and verify and troubleshoot it"
+    ],
+    "sections": [
+      {
+        "title": "Why wireless needs its own security",
+        "body": "A client in a coffee shop types a password into an unencrypted connection. The radio signal does not go only to the access point; it spreads out in every direction, and anyone within range with a laptop can capture the frames. There is no cable to trace and no port to lock.\n\nWireless security therefore has three jobs:\n\n- **Authentication**: only trusted clients may join. Ideally the client also authenticates the network, because an attacker can run a fake AP with the same SSID (an evil twin) and become a man in the middle.\n- **Privacy**: every data frame is encrypted before it goes on the air. The AP negotiates a unique key with each client for unicast traffic and uses a shared **group key** for broadcast and multicast frames.\n- **Integrity**: a **message integrity check (MIC)** is computed over each frame, so the receiver can detect any tampering in transit.\n\nThe original 802.11 standard offered just two methods. **Open authentication** asks for no credentials at all; any 802.11 device may associate. It is used for guest networks, often with a web portal where users accept terms, but the data itself is not encrypted by open authentication. The other was WEP, the subject of the next section.\n\nTwo popular tricks are not real security. Hiding the SSID (not broadcasting it in beacons) does not stop anyone, because clients still send the name in their probes. And MAC address filtering is defeated by copying an allowed MAC. Real protection comes from strong authentication and encryption.",
+        "code": "Need             What it protects against                 Mechanism\nAuthentication   Unknown clients joining, fake APs        PSK/SAE or 802.1X/EAP\nPrivacy          Eavesdroppers in radio range             Encryption with per-client keys (AES)\nIntegrity        Frames altered in transit                Message integrity check (MIC)",
+        "pitfall": "Treating a hidden SSID or a MAC filter list as security. Both are trivial to bypass with a free wireless sniffer.",
+        "check": {
+          "question": "What does a message integrity check (MIC) add to a wireless frame?",
+          "choices": ["It hides the SSID from beacons", "It lets the receiver detect whether the frame was altered in transit", "It assigns the client an IP address", "It authenticates the client to the RADIUS server"],
+          "answer": 1,
+          "explanation": "The MIC is computed over the frame's contents; if anything changes, the receiver's calculation no longer matches and the frame is rejected. Encryption provides privacy, not tamper detection."
+        }
+      },
+      {
+        "title": "WEP and why it failed",
+        "body": "**Wired Equivalent Privacy (WEP)** was part of the original 802.11 standard in 1999. It encrypted frames with the **RC4** stream cipher using a static key of 40 or 104 bits (typed as 10 or 26 hex digits) that was configured on the AP and on every client. Vendors called these 64-bit and 128-bit WEP because a 24-bit **initialization vector (IV)** was added to the key for each frame. The same key could also be used for shared-key authentication, where the AP sent a challenge and the client returned it encrypted.\n\nWEP failed on several fronts at once:\n\n- The **24-bit IV** is tiny and sent in clear text. On a busy WLAN, IVs repeat within hours, and combined with weaknesses in how WEP fed keys to RC4, an attacker who collects enough frames can recover the key, in minutes with modern tools.\n- The key is **static and shared**. Every user has the same key, it never changes on its own, and replacing it means touching every device.\n- Its integrity check is a simple CRC-32 checksum, not a cryptographic MIC, so attackers can modify frames without being detected.\n- Shared-key authentication actually helps the attacker, because capturing the challenge and its encrypted response leaks keystream.\n\nThe weaknesses were published in 2001, and the 802.11i amendment (2004) officially deprecated WEP. Making the key longer (128-bit WEP) does not fix any of these problems. If a device can only do WEP, it should not be on your network.",
+        "code": "WEP at a glance\n  Cipher       RC4 stream cipher\n  Key          static 40-bit or 104-bit key typed on every device\n               (10 or 26 hex digits; \"64/128-bit\" includes the IV)\n  IV           24 bits, sent in clear, repeats quickly on a busy WLAN\n  Integrity    CRC-32 checksum, not a cryptographic MIC\n  Status       broken in 2001, deprecated by 802.11i in 2004",
+        "pitfall": "Assuming 128-bit WEP is acceptable because the number looks big. The flaws are in the design (short IV, static shared key, weak integrity), so key length does not help.",
+        "check": {
+          "question": "Which WEP weakness lets attackers recover the key by collecting enough traffic?",
+          "choices": ["It uses AES with too short a key", "It requires a RADIUS server", "Its short 24-bit IV, sent in clear, repeats with a static shared key", "It encrypts only the SSID"],
+          "answer": 2,
+          "explanation": "With only 24 bits, IVs repeat quickly, and with one static key for everyone, the repeated IVs and RC4 key weaknesses let tools derive the key. WEP uses RC4, not AES, and needs no RADIUS server."
+        }
+      },
+      {
+        "title": "WPA, WPA2 and WPA3",
+        "body": "Rather than ask you to pick ciphers and methods one by one, the **Wi-Fi Alliance** certifies devices for three generations of **Wi-Fi Protected Access**. If the client and the AP or WLC are certified for the same version, they interoperate securely.\n\n**WPA** (2003) was a stopgap built from a draft of 802.11i so that existing WEP hardware could be upgraded with firmware. It used **TKIP** (Temporal Key Integrity Protocol), which still uses RC4 but mixes a fresh key for every frame, doubles the IV to 48 bits, adds a sequence counter against replays and a real MIC (nicknamed Michael). TKIP was later attacked too and is deprecated.\n\n**WPA2** (2004) implements the full 802.11i standard and requires **AES-CCMP**: AES in counter mode for encryption plus CBC-MAC for the integrity check. It needed new hardware with AES support, and it has been the baseline for well over a decade.\n\n**WPA3** (2018) keeps AES and adds important protections:\n\n- **SAE** (Simultaneous Authentication of Equals) replaces the pre-shared key exchange in Personal mode, which defeats offline dictionary attacks and provides **forward secrecy** (a leaked password does not decrypt traffic captured earlier).\n- **Protected Management Frames (PMF)** are required, so attackers cannot forge deauthentication frames to kick clients off.\n- A 192-bit security mode for Enterprise uses the stronger **GCMP-256** cipher. Cisco's CCNA material pairs WPA3 with AES-GCMP, so expect that association on the exam.\n\nEvery version supports two authentication modes: **Personal** (a shared key) and **Enterprise** (802.1X). Always choose the highest version your clients support; many WLCs offer a WPA2/WPA3 transition mode while older clients are phased out.",
+        "code": "                          WPA (2003)        WPA2 (2004)        WPA3 (2018)\nBased on                  Draft 802.11i     Full 802.11i       WPA2 plus new protections\nEncryption and MIC        TKIP (RC4-based)  AES-CCMP           AES (GCMP-256 in 192-bit mode)\nPersonal authentication   PSK               PSK                SAE\nEnterprise authentication 802.1X/EAP        802.1X/EAP         802.1X/EAP\nProtected mgmt frames     No                Optional           Required\nStatus                    Deprecated        Widely deployed    Current best choice",
+        "tip": "A quick mapping for the exam: WEP = RC4 static key, WPA = TKIP, WPA2 = AES-CCMP, WPA3 = SAE plus PMF (and GCMP).",
+        "pitfall": "Selecting WPA2 with TKIP for compatibility. TKIP is deprecated and also limits 802.11n and newer clients to slow legacy data rates; use AES only.",
+        "check": {
+          "question": "Which encryption and integrity method is required by WPA2?",
+          "choices": ["RC4 with a static key", "TKIP", "AES-CCMP", "Open authentication"],
+          "answer": 2,
+          "explanation": "WPA2 implements the full 802.11i standard with AES-CCMP. TKIP belongs to WPA, and RC4 with a static key is WEP."
+        }
+      },
+      {
+        "title": "Personal versus Enterprise",
+        "body": "**Personal mode** uses one **pre-shared key (PSK)**: a passphrase of 8 to 63 ASCII characters (or 64 hex digits) configured on the AP or WLC and on every client. It is simple and needs no servers, which makes it right for homes, small offices and devices such as printers and sensors that cannot do anything fancier. The costs show up as the network grows: everybody shares one secret, an employee who leaves still knows it, changing it means reconfiguring every device, and with WPA2 the shared key can be attacked offline (next section).\n\n**Enterprise mode** authenticates every user or device individually with **802.1X** and the **Extensible Authentication Protocol (EAP)**, against a central **RADIUS** server such as Cisco ISE. 802.1X defines three roles:\n\n- **Supplicant**: the client device asking for access.\n- **Authenticator**: the network device controlling access, here the AP or, in a controller-based design, the **WLC**.\n- **Authentication server (AS)**: usually a RADIUS server that checks the credentials against a user database and policies.\n\nThe client first associates using open authentication, but until 802.1X succeeds, the authenticator passes only EAP messages, relaying them to the RADIUS server. EAP is a framework, so several methods exist:\n\n- **EAP-TLS**: certificates on both the server and every client. The strongest, but you need a PKI to issue and revoke client certificates.\n- **PEAP**: only the server has a certificate; the client proves itself with a username and password (such as MSCHAPv2) inside a TLS tunnel.\n- **EAP-FAST**: Cisco's method using a protected access credential (PAC) instead of certificates.\n- **LEAP**: an early Cisco method, now deprecated.\n\nEnterprise gives per-user accounts you can revoke individually, unique keys per session and accounting of who connected when.",
+        "code": "Supplicant           Authenticator                Authentication server\n(laptop)  ~~~~~~~~~  AP ===CAPWAP=== WLC ------------ RADIUS server (Cisco ISE)\n          802.11 open association,      RADIUS (UDP 1812)\n          then EAP over the air         carries the EAP exchange\n\nUntil 802.1X succeeds, only EAP traffic from the supplicant is allowed.",
+        "pitfall": "Thinking the AP or WLC checks the user's password in Enterprise mode. The authenticator only relays EAP; the RADIUS server makes the decision.",
+        "check": {
+          "question": "In a WPA2-Enterprise WLAN using a Cisco WLC, which device plays the 802.1X authenticator role?",
+          "choices": ["The laptop", "The WLC", "The RADIUS server", "The DHCP server"],
+          "answer": 1,
+          "explanation": "The WLC (with its APs) controls access and relays EAP between the client and the server, which makes it the authenticator. The laptop is the supplicant and the RADIUS server is the authentication server."
+        }
+      },
+      {
+        "title": "The 4-way handshake",
+        "body": "Both modes end the same way. Once the client is authenticated, the client and the AP share a **pairwise master key (PMK)**. In Personal mode the PMK is derived from the passphrase and the SSID, so every client ends up with the same PMK. In Enterprise mode it comes out of the 802.1X/EAP exchange, unique to each user and session.\n\nThe PMK is never used directly. The **4-way handshake** turns it into fresh session keys:\n\n1. The AP sends a random number, the **ANonce**.\n2. The client picks its own random **SNonce** and computes the **pairwise transient key (PTK)** from the PMK, both nonces and both MAC addresses. It sends the SNonce plus a MIC computed with the new key.\n3. The AP computes the same PTK and checks the MIC; a valid MIC proves the client knows the PMK. The AP sends the **group temporal key (GTK)**, encrypted, plus its own MIC.\n4. The client confirms, and both install the keys.\n\nThe PTK encrypts unicast frames between this client and the AP; the GTK encrypts broadcast and multicast frames for all clients. Notice what never crosses the air: the passphrase and the PMK.\n\nThere is still a weakness in **WPA2-Personal**. An attacker who records one handshake has the nonces, the MAC addresses and a MIC. Offline, the attacker can guess passphrases, compute the PTK for each guess and check it against the captured MIC, as fast as their hardware allows, with no lockout. Short or common passphrases fall quickly. Defenses: long random passphrases, or **WPA3-SAE**, where each guess requires a live exchange with the AP, so offline guessing does not work.",
+        "code": "Client (supplicant)                                    AP / WLC (authenticator)\n Both already hold the PMK (from the passphrase, or from 802.1X/EAP)\n  1.  <-------------------- ANonce -------------------------\n      client derives PTK from PMK + ANonce + SNonce + both MACs\n  2.  --------------------- SNonce + MIC ------------------>\n      AP derives the same PTK and checks the MIC\n  3.  <-------------------- GTK (encrypted) + MIC ----------\n  4.  --------------------- ACK + MIC --------------------->\n Unicast now encrypted with the PTK; broadcast and multicast with the GTK",
+        "pitfall": "Believing the passphrase is sent to the AP during association. It never is; the MIC in message 2 proves the client knows it without revealing it.",
+        "check": {
+          "question": "In the 4-way handshake, how does the AP know the client has the correct pre-shared key?",
+          "choices": ["The client sends the passphrase encrypted in message 2", "The RADIUS server confirms it", "The client's MIC in message 2 verifies with the PTK the AP computed from the same PMK", "The AP compares the client's MAC with an allowed list"],
+          "answer": 2,
+          "explanation": "Both sides derive the PTK from the PMK and the exchanged nonces. A MIC that verifies proves the client derived the same key, so it must know the PSK, and the key itself never crosses the air."
+        }
+      },
+      {
+        "title": "Configuring a WPA2-PSK WLAN in the WLC GUI",
+        "body": "The CCNA expects you to know the steps and settings for building a WLAN with WPA2 Personal in a controller's web GUI. Before you start, decide three things: the **SSID**, the **VLAN** (and so the controller interface) where its clients will live, and the **security** settings. The steps below follow the classic Cisco WLC (AireOS) GUI used in the official guide; a Catalyst 9800 controller offers the same choices under Configuration > Tags & Profiles > WLANs.\n\n1. **Create a dynamic interface** for the client VLAN: Controller > Interfaces > New. Enter an interface name and the VLAN ID, apply, then set the interface's IP address, netmask, gateway and the primary (and optional secondary) DHCP server that the controller will relay client requests to. A dynamic interface is what maps a WLAN to a wired VLAN.\n2. **Create the WLAN**: WLANs > Create New > Go. Choose type WLAN, enter a profile name and the SSID (often the same text), keep or pick the WLAN ID, and click Apply.\n3. **General tab**: check Status Enabled, set the Radio Policy (all bands, or limit it to one), select the dynamic interface under Interface/Interface Group, and leave Broadcast SSID checked.\n4. **Security tab, Layer 2**: set Layer 2 Security to WPA+WPA2. Under WPA+WPA2 Parameters, check WPA2 Policy (leave WPA unchecked) and WPA2 Encryption AES (leave TKIP unchecked). Under Authentication Key Management, uncheck 802.1X (the default for a new WLAN) and enable PSK. Set PSK Format to ASCII and type the passphrase (8 to 63 characters). No RADIUS server and no Layer 3 (web) security are needed for PSK.\n5. **QoS tab**: Silver (best effort) is the default; Platinum is for voice, Gold for video, Bronze for background traffic.\n6. **Advanced tab**: the defaults are fine for the exam, including a session timeout of 1800 seconds and client exclusion of misbehaving clients.\n7. Click **Apply**, then **Save Configuration** so the WLAN survives a controller reboot.",
+        "code": "Tab / page               Setting                          Value for WPA2-Personal\nController > Interfaces  Dynamic interface                Name, VLAN ID, IP, mask, gateway, DHCP server\nWLANs > Create New       Type / Profile Name / SSID / ID  WLAN / Staff / Staff / 1\nGeneral                  Status                           Enabled\nGeneral                  Interface/Interface Group(G)     The dynamic interface for the client VLAN\nGeneral                  Broadcast SSID                   Checked\nSecurity > Layer 2       Layer 2 Security                 WPA+WPA2\nSecurity > Layer 2       WPA2 Policy / Encryption         WPA2 checked, AES checked (no WPA, no TKIP)\nSecurity > Layer 2       Auth Key Management              PSK enabled, 802.1X unchecked\nSecurity > Layer 2       PSK Format and key               ASCII, 8 to 63 character passphrase\nQoS                      Quality of Service               Silver (default), Platinum for voice",
+        "pitfall": "Leaving 802.1X checked under Authentication Key Management. A new WLAN defaults to WPA2 with 802.1X, so without changing it to PSK the WLAN expects a RADIUS server and passphrase clients cannot join.",
+        "check": {
+          "question": "You are building a WPA2-Personal WLAN on a WLC. Under Authentication Key Management on the Layer 2 security tab, what should be selected?",
+          "choices": ["PSK, with 802.1X unchecked", "802.1X, with PSK unchecked", "Both 802.1X and PSK, with a RADIUS server", "Neither; the passphrase goes on the Layer 3 tab"],
+          "answer": 0,
+          "explanation": "WPA2-Personal means pre-shared key authentication, so PSK is enabled and 802.1X (the default, used for WPA2-Enterprise) is unchecked. Layer 3 security is for web authentication, not the passphrase."
+        }
+      },
+      {
+        "title": "Verifying and troubleshooting the WLAN",
+        "body": "After you apply the configuration, check it from the controller's point of view before blaming the clients.\n\nThe **WLANs** page lists each WLAN with its ID, profile name, SSID, **Admin Status** (Enabled) and **Security Policies**. A correct WPA2-Personal WLAN shows `[WPA2][Auth(PSK)]`; if you see `Auth(802.1X)`, the key management setting was not changed. **Monitor > Clients** lists associated clients with their MAC address, the AP they joined, the WLAN profile and their status, and the client detail page shows the IP address the client received.\n\nMost problems fall into a few patterns:\n\n- **The SSID does not appear** on clients: the WLAN is not enabled, Broadcast SSID is unchecked, the radio policy excludes the client's band, or no AP has joined the controller.\n- **The client sees the SSID but cannot join**: a wrong passphrase (the most common cause), a client that does not support WPA2 with AES, or the WLAN still set to 802.1X.\n- **The client joins but gets no usable IP address** (for example a 169.254.x.x address): the WLAN is mapped to the wrong interface, the dynamic interface has the wrong VLAN or DHCP server, or the switch trunk to the WLC does not carry that VLAN. This is a wired problem, not a security one.\n- **You cannot reach the controller GUI from a wireless client**: by default the WLC refuses management sessions that come in through a WLAN. That is a deliberate security choice; it is changed globally under Management > Mgmt Via Wireless if really needed.",
+        "code": "Symptom                              Check first\nSSID not visible                     WLAN Status Enabled? Broadcast SSID? Radio policy? APs joined?\nSees SSID, cannot authenticate       Passphrase, WPA2 + AES on client, PSK (not 802.1X) selected\nAssociated but 169.254.x.x address   Interface/VLAN mapping, dynamic interface DHCP server, trunk VLANs\nNo GUI access from wireless client   Mgmt Via Wireless is disabled by default\n\nExpected on the WLANs page:  Admin Status Enabled   Security Policies [WPA2][Auth(PSK)]",
+        "pitfall": "Changing the passphrase when clients associate but get no address. A client that successfully associated already passed the PSK check; look at the interface, VLAN and DHCP path instead.",
+        "check": {
+          "question": "Clients join a new WPA2-PSK WLAN successfully but all receive 169.254.x.x addresses. What is the most likely cause?",
+          "choices": ["The passphrase is wrong", "The WLAN uses AES instead of TKIP", "Broadcast SSID is unchecked", "The WLAN's interface, VLAN or DHCP server mapping is wrong"],
+          "answer": 3,
+          "explanation": "Joining proves the PSK and security settings work. A self-assigned address means DHCP failed, which points to the WLAN-to-interface mapping, the VLAN or the DHCP server on the dynamic interface."
+        }
+      }
+    ],
+    "keyTerms": [
+      { "term": "WEP", "definition": "Wired Equivalent Privacy: the original 802.11 encryption using RC4, a static shared key and a 24-bit IV; broken and deprecated." },
+      { "term": "TKIP", "definition": "Temporal Key Integrity Protocol: WPA's RC4-based stopgap with per-frame keys and a MIC; now deprecated." },
+      { "term": "AES-CCMP", "definition": "The encryption (AES counter mode) and integrity (CBC-MAC) method required by WPA2." },
+      { "term": "SAE", "definition": "Simultaneous Authentication of Equals: WPA3-Personal's key exchange that resists offline dictionary attacks and gives forward secrecy." },
+      { "term": "Protected Management Frames", "definition": "Protection for 802.11 management frames such as deauthentication; required in WPA3." },
+      { "term": "Pre-shared key (PSK)", "definition": "A passphrase of 8 to 63 characters shared by the AP or WLC and every client in Personal mode." },
+      { "term": "802.1X", "definition": "Port-based access control that authenticates each user or device through EAP before allowing traffic; used in Enterprise mode." },
+      { "term": "Supplicant", "definition": "The client device requesting access in 802.1X." },
+      { "term": "Authenticator", "definition": "The device that controls access and relays EAP in 802.1X, such as an AP or WLC." },
+      { "term": "4-way handshake", "definition": "The exchange that derives the session keys (PTK and GTK) from the PMK using two nonces, without sending the key itself." },
+      { "term": "Dynamic interface", "definition": "A WLC interface that maps a WLAN to a wired VLAN, with its own IP address and DHCP server settings." }
+    ],
+    "summary": [
+      "Wireless security needs authentication, privacy (encryption) and integrity (MIC); hidden SSIDs and MAC filters are not real protection.",
+      "WEP (RC4, static key, 24-bit IV) is broken; WPA used TKIP as a stopgap; WPA2 requires AES-CCMP; WPA3 adds SAE, required PMF and GCMP.",
+      "Personal mode shares one PSK; Enterprise mode uses 802.1X/EAP with a supplicant, an authenticator (AP or WLC) and a RADIUS server.",
+      "The 4-way handshake derives the PTK and GTK from the PMK without sending the key; WPA2-Personal handshakes can be attacked offline, which SAE prevents.",
+      "In the WLC GUI: create a dynamic interface, create the WLAN, enable it and map the interface, then set WPA2 + AES + PSK on the Layer 2 security tab.",
+      "Verify Security Policies [WPA2][Auth(PSK)] and Admin Status Enabled; no IP address means an interface, VLAN or DHCP problem, not a key problem."
+    ],
+    "feynmanPrompt": "Explain to a small business owner why their old WEP network is unsafe, what WPA2-Personal and WPA3 do better, when they should move to WPA2-Enterprise with a RADIUS server, and the settings you would choose when creating their new WPA2-PSK WLAN on a Cisco controller."
+  },
+  "questions": [
+    {
+      "id": "ccna-wireless-security-q01",
+      "type": "mcq",
+      "difficulty": "easy",
+      "question": "Why must wireless data frames be encrypted even inside a company building?",
+      "choices": ["Radio signals reach anyone in range, who can capture the frames", "Encryption increases the data rate", "Access points cannot forward unencrypted frames", "Encryption is needed to assign IP addresses"],
+      "answer": 0,
+      "explanation": "Radio spreads beyond walls and cannot be confined to authorized users, so any receiver in range can capture frames unless they are encrypted.",
+      "concept": "wireless exposure",
+      "section": 0
+    },
+    {
+      "id": "ccna-wireless-security-q02",
+      "type": "multi",
+      "difficulty": "medium",
+      "question": "Which two measures provide little real security on a WLAN? (Choose two.)",
+      "choices": ["Hiding the SSID by not broadcasting it", "Allowing only a list of client MAC addresses", "WPA2-Enterprise with 802.1X", "WPA3-Personal with SAE", "AES-CCMP encryption"],
+      "answers": [0, 1],
+      "explanation": "Clients reveal hidden SSIDs in their probes, and allowed MAC addresses can be sniffed and copied. Strong authentication and AES encryption are what actually protect the WLAN.",
+      "concept": "weak controls",
+      "section": 0
+    },
+    {
+      "id": "ccna-wireless-security-q03",
+      "type": "mcq",
+      "difficulty": "medium",
+      "question": "A guest WLAN uses open authentication with a web portal where users accept the terms of use. What protection does this give the guests' wireless data?",
+      "choices": ["AES encryption with a per-session key", "The same protection as WPA2-Personal", "None; open authentication does not encrypt data over the air", "Integrity only, through a MIC"],
+      "answer": 2,
+      "explanation": "Open authentication requires no credentials and provides no encryption. The web portal controls access to the network, not the privacy of the radio link.",
+      "concept": "open authentication",
+      "section": 0
+    },
+    {
+      "id": "ccna-wireless-security-q04",
+      "type": "mcq",
+      "difficulty": "easy",
+      "question": "Which cipher does WEP use?",
+      "choices": ["AES", "RC4", "3DES", "GCMP"],
+      "answer": 1,
+      "explanation": "WEP uses the RC4 stream cipher with a static key. AES arrived with WPA2 (CCMP) and GCMP with WPA3.",
+      "concept": "WEP cipher",
+      "section": 1
+    },
+    {
+      "id": "ccna-wireless-security-q05",
+      "type": "typed",
+      "difficulty": "medium",
+      "question": "How many bits long is the WEP initialization vector, the field whose small size lets IVs repeat quickly?",
+      "answer": "24",
+      "accept": ["24 bits", "24-bit"],
+      "explanation": "WEP's IV is only 24 bits and is sent in clear text. TKIP later doubled it to 48 bits.",
+      "concept": "WEP IV",
+      "section": 1
+    },
+    {
+      "id": "ccna-wireless-security-q06",
+      "type": "multi",
+      "difficulty": "hard",
+      "question": "Which three are design weaknesses of WEP? (Choose three.)",
+      "choices": ["A short 24-bit IV that repeats on busy networks", "One static key shared by every user", "A CRC-32 integrity check that is not cryptographic", "It requires a RADIUS server", "It uses AES, which is too slow for wireless"],
+      "answers": [0, 1, 2],
+      "explanation": "Short IVs, a static shared key and a non-cryptographic integrity check together make WEP crackable and forgeable. WEP needs no RADIUS server and uses RC4, not AES.",
+      "concept": "WEP weaknesses",
+      "section": 1
+    },
+    {
+      "id": "ccna-wireless-security-q07",
+      "type": "match",
+      "difficulty": "easy",
+      "question": "Match each wireless security standard to the method most associated with it.",
+      "pairs": [
+        { "left": "WEP", "right": "RC4 with a static shared key" },
+        { "left": "WPA", "right": "TKIP" },
+        { "left": "WPA2", "right": "AES-CCMP" },
+        { "left": "WPA3", "right": "SAE and required protected management frames" }
+      ],
+      "explanation": "Each generation replaced the weak point of the previous one: WEP's static RC4 key, then TKIP as a stopgap, then AES-CCMP, then SAE with PMF.",
+      "concept": "WPA generations",
+      "section": 2
+    },
+    {
+      "id": "ccna-wireless-security-q08",
+      "type": "mcq",
+      "difficulty": "easy",
+      "question": "Which encryption method does WPA2 require?",
+      "choices": ["TKIP", "WEP", "AES-CCMP", "RC4"],
+      "answer": 2,
+      "explanation": "WPA2 implements the full 802.11i standard, which requires AES-CCMP for encryption and integrity.",
+      "concept": "WPA2 encryption",
+      "section": 2
+    },
+    {
+      "id": "ccna-wireless-security-q09",
+      "type": "mcq",
+      "difficulty": "medium",
+      "question": "Why was TKIP designed to keep using the RC4 cipher?",
+      "choices": ["RC4 is stronger than AES", "So existing WEP hardware could be upgraded to WPA with a firmware update", "Because RADIUS servers only support RC4", "To stay compatible with WPA3"],
+      "answer": 1,
+      "explanation": "WEP adapters had RC4 built into hardware. TKIP added per-frame keys, a longer IV and a MIC on top of RC4 so that hardware could be upgraded rather than replaced, buying time until AES-based WPA2.",
+      "concept": "TKIP purpose",
+      "section": 2
+    },
+    {
+      "id": "ccna-wireless-security-q10",
+      "type": "multi",
+      "difficulty": "medium",
+      "question": "Which three improvements does WPA3 bring over WPA2? (Choose three.)",
+      "choices": ["SAE replaces the PSK exchange in Personal mode", "Protected management frames are required", "Forward secrecy for Personal mode", "TKIP is reintroduced for older clients", "802.1X is removed from Enterprise mode"],
+      "answers": [0, 1, 2],
+      "explanation": "WPA3 adds SAE (with forward secrecy) and makes PMF mandatory. It does not bring back TKIP, and Enterprise mode still uses 802.1X.",
+      "concept": "WPA3 features",
+      "section": 2
+    },
+    {
+      "id": "ccna-wireless-security-q11",
+      "type": "mcq",
+      "difficulty": "medium",
+      "question": "An attacker repeatedly sends forged deauthentication frames to disconnect clients from an AP. Which WPA3 feature is designed to stop this?",
+      "choices": ["SAE", "GCMP-256", "Open authentication", "Protected Management Frames"],
+      "answer": 3,
+      "explanation": "PMF authenticates management frames such as deauthentication, so forged ones are ignored. WPA3 makes PMF mandatory.",
+      "concept": "PMF",
+      "section": 2
+    },
+    {
+      "id": "ccna-wireless-security-q12",
+      "type": "mcq",
+      "difficulty": "hard",
+      "question": "A warehouse has one old barcode scanner that supports only WPA with TKIP. Every other device supports WPA2 with AES. What is the best approach?",
+      "choices": ["Enable WPA and TKIP alongside WPA2 on the main WLAN", "Switch the main WLAN to WEP so everything connects", "Keep the main WLAN on WPA2 with AES only, and replace or isolate the legacy scanner", "Use open authentication with MAC filtering for all devices"],
+      "answer": 2,
+      "explanation": "Adding TKIP weakens the WLAN for everyone and slows newer clients; WEP and open authentication are worse. Replace the scanner, or isolate it on its own restricted WLAN while it is phased out.",
+      "concept": "legacy clients",
+      "section": 2
+    },
+    {
+      "id": "ccna-wireless-security-q13",
+      "type": "match",
+      "difficulty": "easy",
+      "question": "Match each 802.1X role to the device that plays it in a controller-based WLAN.",
+      "pairs": [
+        { "left": "Supplicant", "right": "The employee's laptop" },
+        { "left": "Authenticator", "right": "The wireless LAN controller" },
+        { "left": "Authentication server", "right": "The RADIUS server, such as Cisco ISE" }
+      ],
+      "explanation": "The supplicant requests access, the authenticator controls the port and relays EAP, and the authentication server checks credentials and decides.",
+      "concept": "802.1X roles",
+      "section": 3
+    },
+    {
+      "id": "ccna-wireless-security-q14",
+      "type": "mcq",
+      "difficulty": "easy",
+      "question": "A company with 2,000 employees, regular staff turnover and an existing RADIUS server is designing its corporate WLAN. Which mode fits best?",
+      "choices": ["WPA2-Enterprise or WPA3-Enterprise with 802.1X", "WPA2-Personal with one shared passphrase", "Open authentication with a hidden SSID", "WEP with a 104-bit key"],
+      "answer": 0,
+      "explanation": "Enterprise mode gives every user their own credentials that can be revoked individually when they leave. A shared PSK would have to be changed on every device each time someone left.",
+      "concept": "Personal vs Enterprise",
+      "section": 3
+    },
+    {
+      "id": "ccna-wireless-security-q15",
+      "type": "mcq",
+      "difficulty": "medium",
+      "question": "Which EAP method requires a digital certificate on the authentication server and on every client device?",
+      "choices": ["PEAP", "EAP-FAST", "LEAP", "EAP-TLS"],
+      "answer": 3,
+      "explanation": "EAP-TLS uses certificates on both sides for mutual authentication, which is why it needs a PKI. PEAP needs only a server certificate, and EAP-FAST uses a PAC.",
+      "concept": "EAP-TLS",
+      "section": 3
+    },
+    {
+      "id": "ccna-wireless-security-q16",
+      "type": "mcq",
+      "difficulty": "medium",
+      "question": "With PEAP, how does the client prove its identity?",
+      "choices": ["With its own client certificate", "With a username and password sent inside a TLS tunnel built using the server's certificate", "With the WLAN's pre-shared key", "With its MAC address"],
+      "answer": 1,
+      "explanation": "In PEAP only the server has a certificate. The client verifies it, a TLS tunnel is built, and the client then authenticates inside the tunnel, typically with MSCHAPv2.",
+      "concept": "PEAP",
+      "section": 3
+    },
+    {
+      "id": "ccna-wireless-security-q17",
+      "type": "mcq",
+      "difficulty": "hard",
+      "question": "A laptop has associated to a WPA2-Enterprise WLAN but 802.1X authentication has not finished yet. What traffic can it send through the authenticator?",
+      "choices": ["Only DHCP and DNS", "All traffic except to other wireless clients", "Only EAP messages, which are relayed to the RADIUS server", "Any traffic, because association already succeeded"],
+      "answer": 2,
+      "explanation": "802.1X blocks everything except EAP until authentication succeeds. The client cannot even get an IP address before it is authenticated.",
+      "concept": "802.1X port control",
+      "section": 3
+    },
+    {
+      "id": "ccna-wireless-security-q18",
+      "type": "typed",
+      "difficulty": "medium",
+      "question": "What is the minimum number of characters for an ASCII WPA2 pre-shared key passphrase?",
+      "answer": "8",
+      "accept": ["eight"],
+      "explanation": "An ASCII passphrase must be 8 to 63 characters (or exactly 64 hex digits). Longer random passphrases resist offline guessing far better.",
+      "concept": "passphrase length",
+      "section": 3
+    },
+    {
+      "id": "ccna-wireless-security-q19",
+      "type": "order",
+      "difficulty": "hard",
+      "question": "Put the messages of the 4-way handshake in order.",
+      "items": [
+        "AP sends its ANonce to the client",
+        "Client derives the PTK and sends its SNonce with a MIC",
+        "AP derives the same PTK, checks the MIC and sends the encrypted GTK with a MIC",
+        "Client acknowledges and both install the keys"
+      ],
+      "explanation": "Each side needs both nonces to compute the PTK, so the AP's nonce goes first and the client's second. The GTK can only be sent once a PTK exists to encrypt it.",
+      "concept": "4-way handshake",
+      "section": 4
+    },
+    {
+      "id": "ccna-wireless-security-q20",
+      "type": "mcq",
+      "difficulty": "medium",
+      "question": "Which key encrypts broadcast and multicast frames that the AP sends to all of its clients?",
+      "choices": ["The PMK", "The GTK", "The PTK", "The ANonce"],
+      "answer": 1,
+      "explanation": "The group temporal key is shared by all clients of the AP for broadcast and multicast. Each client's PTK protects only its own unicast traffic.",
+      "concept": "GTK",
+      "section": 4
+    },
+    {
+      "id": "ccna-wireless-security-q21",
+      "type": "mcq",
+      "difficulty": "hard",
+      "question": "An attacker sits outside an office running WPA2-Personal and records one client joining. What can the attacker now do with that capture?",
+      "choices": ["Read the passphrase directly from message 2", "Nothing, because the handshake contains no useful information", "Join the WLAN immediately using the captured MIC", "Guess passphrases offline and check each guess against the captured MIC"],
+      "answer": 3,
+      "explanation": "The capture contains the nonces, MAC addresses and a MIC. For each guessed passphrase the attacker can compute the PTK and test the MIC, with no lockout. WPA3-SAE prevents this offline guessing.",
+      "concept": "offline dictionary attack",
+      "section": 4
+    },
+    {
+      "id": "ccna-wireless-security-q22",
+      "type": "mcq",
+      "difficulty": "medium",
+      "question": "Why does WPA3-SAE resist offline dictionary attacks on the passphrase?",
+      "choices": ["Each password guess requires a live exchange with the AP, so captured traffic cannot be used to test guesses", "SAE sends the passphrase encrypted with AES", "SAE requires a RADIUS server", "SAE forces passphrases to be at least 63 characters"],
+      "answer": 0,
+      "explanation": "SAE's exchange does not give an eavesdropper anything to test guesses against offline. An attacker must interact with the AP for each guess, which is slow and detectable.",
+      "concept": "SAE",
+      "section": 4
+    },
+    {
+      "id": "ccna-wireless-security-q23",
+      "type": "recall",
+      "difficulty": "medium",
+      "question": "In WPA2-Personal, where does the PMK come from, and is it ever sent over the air?",
+      "answer": "The PMK is derived from the pre-shared passphrase and the SSID, so all clients of that WLAN share it. It is never sent over the air; the 4-way handshake derives session keys from it and proves knowledge of it with MICs.",
+      "explanation": "Because every client shares the same PMK in Personal mode, a captured handshake is enough to attack the passphrase offline.",
+      "concept": "PMK",
+      "section": 4
+    },
+    {
+      "id": "ccna-wireless-security-q24",
+      "type": "order",
+      "difficulty": "medium",
+      "question": "Put these WLC GUI steps for a new WPA2-PSK WLAN in a working order.",
+      "items": [
+        "Create a dynamic interface for the client VLAN under Controller > Interfaces",
+        "Create the WLAN under WLANs > Create New with a profile name and SSID",
+        "On the General tab, enable the WLAN and select the dynamic interface",
+        "On the Security > Layer 2 tab, choose WPA2 with AES and PSK, and enter the passphrase",
+        "Click Apply and save the configuration"
+      ],
+      "explanation": "The interface must exist before the WLAN can be mapped to it. Security is set on the WLAN's tabs, and saving keeps the work after a reboot.",
+      "concept": "WLC configuration steps",
+      "section": 5
+    },
+    {
+      "id": "ccna-wireless-security-q25",
+      "type": "mcq",
+      "difficulty": "easy",
+      "question": "In the WLC GUI, what is the purpose of a dynamic interface?",
+      "choices": ["It stores the WLAN's passphrase", "It maps a WLAN to a wired VLAN and holds the DHCP server setting for its clients", "It connects the WLC to the RADIUS server only", "It is the interface used for CAPWAP tunnels to APs"],
+      "answer": 1,
+      "explanation": "Dynamic interfaces connect WLANs to VLANs, each with its own IP address and DHCP server for relaying client requests. CAPWAP uses the management interface.",
+      "concept": "dynamic interface",
+      "section": 5
+    },
+    {
+      "id": "ccna-wireless-security-q26",
+      "type": "multi",
+      "difficulty": "medium",
+      "question": "Which three settings are part of configuring a WPA2-Personal WLAN on a WLC? (Choose three.)",
+      "choices": ["Layer 2 Security set to WPA+WPA2 with WPA2 Policy checked", "WPA2 Encryption set to AES", "Authentication Key Management set to PSK with a passphrase", "A RADIUS server added on the AAA Servers tab", "TKIP checked for compatibility", "Web authentication on the Layer 3 tab"],
+      "answers": [0, 1, 2],
+      "explanation": "WPA2-Personal needs WPA2 with AES and PSK key management. A RADIUS server is for 802.1X Enterprise mode, TKIP is deprecated, and Layer 3 web authentication is a different feature.",
+      "concept": "WPA2-PSK settings",
+      "section": 5
+    },
+    {
+      "id": "ccna-wireless-security-q27",
+      "type": "mcq",
+      "difficulty": "medium",
+      "question": "An engineer creates a WLAN and sets a passphrase, but clients cannot join, and the WLANs page shows the security below. What was missed?",
+      "code": "WLAN ID  Type  Profile Name  WLAN SSID  Admin Status  Security Policies\n1        WLAN  Staff         Staff      Enabled       [WPA2][Auth(802.1X)]",
+      "choices": ["The WLAN must be disabled and re-enabled", "Authentication Key Management is still 802.1X; it must be changed to PSK", "The SSID must differ from the profile name", "AES must be replaced with TKIP"],
+      "answer": 1,
+      "explanation": "A new WLAN defaults to WPA2 with 802.1X. Auth(802.1X) means the WLAN expects RADIUS authentication; enabling PSK (and unchecking 802.1X) makes it show [WPA2][Auth(PSK)].",
+      "concept": "key management",
+      "section": 5
+    },
+    {
+      "id": "ccna-wireless-security-q28",
+      "type": "mcq",
+      "difficulty": "easy",
+      "question": "A WLAN will carry mostly voice-over-Wi-Fi calls. Which QoS setting on the WLAN's QoS tab fits?",
+      "choices": ["Bronze", "Silver", "Gold", "Platinum"],
+      "answer": 3,
+      "explanation": "Platinum is for voice, Gold for video, Silver (the default) for best effort and Bronze for background traffic.",
+      "concept": "WLAN QoS",
+      "section": 5
+    },
+    {
+      "id": "ccna-wireless-security-q29",
+      "type": "mcq",
+      "difficulty": "hard",
+      "question": "Clients associate to the new Staff WLAN using the correct passphrase, but they all receive 169.254.x.x addresses. The WLAN is mapped to the management interface instead of the Staff dynamic interface for VLAN 20. What is the best fix?",
+      "choices": ["Change the passphrase and reconnect the clients", "Change the WLAN encryption from AES to TKIP", "On the General tab, select the Staff dynamic interface for VLAN 20, and confirm its DHCP server", "Uncheck Broadcast SSID"],
+      "answer": 2,
+      "explanation": "Associating with the right passphrase proves the security works. The clients land in the wrong VLAN with no working DHCP path, so the WLAN must be mapped to the correct dynamic interface.",
+      "concept": "WLAN interface mapping",
+      "section": 6
+    },
+    {
+      "id": "ccna-wireless-security-q30",
+      "type": "mcq",
+      "difficulty": "medium",
+      "question": "A new WLAN is fully configured, but no client can see its SSID. Which cause is most likely?",
+      "choices": ["The passphrase is too long", "The WLAN's Status is not enabled, or Broadcast SSID is unchecked", "The QoS level is set to Silver", "Client exclusion is enabled"],
+      "answer": 1,
+      "explanation": "A disabled WLAN is not advertised, and with Broadcast SSID unchecked it does not appear in client lists. Passphrase and QoS settings do not affect whether the SSID is seen.",
+      "concept": "SSID not visible",
+      "section": 6
+    },
+    {
+      "id": "ccna-wireless-security-q31",
+      "type": "mcq",
+      "difficulty": "easy",
+      "question": "An engineer on a laptop connected to the corporate WLAN cannot open the WLC's web GUI, although it works from a wired PC. What explains this?",
+      "choices": ["The WLC GUI only supports Internet Explorer", "WPA2 blocks HTTPS traffic", "The WLC blocks management access from wireless clients by default", "The laptop needs a static IP address"],
+      "answer": 2,
+      "explanation": "By default a Cisco WLC does not allow management sessions that arrive through a WLAN, a deliberate security choice. It can be enabled globally with Management > Mgmt Via Wireless.",
+      "concept": "management via wireless",
+      "section": 6
+    },
+    {
+      "id": "ccna-wireless-security-q32",
+      "type": "recall",
+      "difficulty": "medium",
+      "question": "A client sees the SSID but fails to authenticate to a WPA2-PSK WLAN. What would you check, and why are VLAN and DHCP not the first suspects?",
+      "answer": "Check the passphrase first, then that the client supports WPA2 with AES and that the WLAN uses PSK rather than 802.1X. VLAN and DHCP problems only appear after a client has authenticated, as associated clients with no valid IP address.",
+      "explanation": "Sorting symptoms into not visible, cannot authenticate and no IP address points you to the right part of the configuration.",
+      "concept": "WLAN troubleshooting",
+      "section": 6
+    }
+  ]
+}

@@ -1,4 +1,4 @@
-import { useLayoutEffect, useRef, useState } from 'react'
+import { useId, useLayoutEffect, useRef, useState } from 'react'
 import { ArrowDownToLine, ArrowLeftFromLine, ArrowRightToLine, ArrowUpFromLine, Check, Eye, Play, RotateCcw } from 'lucide-react'
 import { feedbackCorrect, feedbackSuccess, feedbackWrong } from '../../lib/juice'
 import { sfx } from '../../lib/sfx'
@@ -54,6 +54,7 @@ export default function StackQueue({ props, onComplete, standalone }) {
   const [combo, setCombo] = useState(0)
   const [done, setDone] = useState({})
   const ids = useRef(1)
+  const uid = useId().replace(/[^a-zA-Z0-9_-]/g, '')
   const stackRef = useRef(null)
   const queueRef = useRef(null)
   const queueTrack = useRef(null)
@@ -64,7 +65,7 @@ export default function StackQueue({ props, onComplete, standalone }) {
   useLayoutEffect(() => {
     const before = flip.current
     flip.current = null
-    if (!before || !queueTrack.current) return
+    if (!before || !queueTrack.current || reducedMotion()) return
     for (const el of queueTrack.current.querySelectorAll('[data-id]')) {
       const old = before.get(el.dataset.id)
       if (!old || !el.animate) continue
@@ -248,9 +249,9 @@ export default function StackQueue({ props, onComplete, standalone }) {
 
       <div className={`sq-panels${showStack && showQueue ? ' both' : ''}`}>
         {showStack && (
-          <section className="sq-panel" ref={stackRef} aria-labelledby="sq-stack-title">
+          <section className="sq-panel" ref={stackRef} aria-labelledby={`sq-stack-${uid}`}>
             <header className="sq-panel-head">
-              <h4 id="sq-stack-title">Stack</h4>
+              <h4 id={`sq-stack-${uid}`}>Stack</h4>
               <span className="xsmall subtle">Last in, first out</span>
             </header>
 
@@ -327,9 +328,9 @@ export default function StackQueue({ props, onComplete, standalone }) {
         )}
 
         {showQueue && (
-          <section className="sq-panel" ref={queueRef} aria-labelledby="sq-queue-title">
+          <section className="sq-panel" ref={queueRef} aria-labelledby={`sq-queue-${uid}`}>
             <header className="sq-panel-head">
-              <h4 id="sq-queue-title">Queue</h4>
+              <h4 id={`sq-queue-${uid}`}>Queue</h4>
               <span className="xsmall subtle">First in, first out</span>
               <span className="grow" />
               <button type="button" className="btn btn-sm btn-ghost" onClick={resetQueue} aria-label="Empty the queue"><RotateCcw size={14} /></button>
