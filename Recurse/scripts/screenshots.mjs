@@ -96,7 +96,7 @@ function demoData() {
     longestStreak: 31,
     lastStudyDay: dayKey(now),
     sessions: [],
-    achievements: ['First Blood', 'Centurion', 'Thousand', 'Streak Week', 'Iron Mind', 'Debugger', 'Memory Palace', 'Relearner', 'Scholar', 'Polyglot', 'Polymath', 'Feynman', 'Mastered'],
+    achievements: ['First Blood', 'Centurion', 'Thousand', 'Streak Week', 'Iron Mind', 'Debugger', 'Memory Palace', 'Relearner', 'Scholar', 'Polyglot', 'Polymath', 'Feynman', 'Mastered', 'Console', 'Hello'],
     feynmanCount: 4
   }
   const user = { name: 'Sam', interests: ['networking', 'swe', 'programming'], goals: ['ccna', 'swe-internship'], onboardingComplete: true, createdAt: now.toISOString(), approach: { quiz: { answers: [0, 0, 1, 1, 0, 0, 2, 1], totals: { builder: 14, visual: 6, challenger: 9, explainer: 4, balanced: 6 }, date: now.toISOString() } } }
@@ -215,12 +215,14 @@ page = await open({ theme: 'dark' })
 await page.goto(`${base}/practice/lab/cl-d2-vlans`)
 await page.waitForTimeout(800)
 const term = page.locator('.terminal input').first()
-for (const cmd of ['enable', 'conf t', 'vlan 10', 'name SALES', 'exit', 'int g0/1', 'sw mode access', 'sw acc vlan 10', 'end', 'sh vlan br']) {
+for (const cmd of ['enable', 'conf t', 'vlan 10', 'name SALES', 'vlan 20', 'name ENG', 'int g0/1', 'sw mode access', 'sw acc vlan 10', 'end', 'sh vlan br']) {
   await term.fill(cmd)
   await term.press('Enter')
   await page.waitForTimeout(80)
 }
-await shot(page, 'lab')
+// Frame the console and the live checks together.
+await page.locator('.iosc-layout').evaluate((el) => window.scrollTo(0, el.getBoundingClientRect().top + window.scrollY - 96))
+await shot(page, 'lab', { wait: 700 })
 await page.context().close()
 
 page = await open({ theme: 'terminal' })
