@@ -18,6 +18,17 @@
 - CCNA content rewritten from the official blueprint, SWE content for interview patterns through
   getting hired, and every existing topic reviewed and deepened
 
+## Done in 3.1
+
+- "What do you want to achieve?" goal picker, with Software Engineer and Python Developer paths added
+- CCNA rebuilt domain by domain against the blueprint: 38 topics, 1,658 questions, 41 console labs
+  (troubleshooting and two capstones), a wireless LAN controller GUI simulator, troubleshooting and
+  exam strategy
+- SWE: every common interview pattern (121 challenges), mock interviews, a SQL lab on real SQLite,
+  React, CI/CD and the cloud, object-oriented design, and deeper career packs
+- Glossary, outside resources with reasons in a Recommended tab, faster startup on phones, phone
+  polish across screens and widgets, Netlify config
+
 ## Done in 2.0
 
 - Study engine rebuilt on FSRS: due reviews first, new cards in lesson order, daily new-card limit,
@@ -29,14 +40,16 @@
 
 ## Next
 
-- [ ] More topics: React, Rust, statistics in practice, German, US history, music theory
-- [ ] More console labs: wireless LAN controller setup, IPv6 OSPF, port-channel troubleshooting
+- [ ] Deferred goal paths (drafts and requirement lists in `drafts/`): Embedded Software Engineer,
+      Network Engineer, Security Engineer (defensive), Computer Science Degree companion, Web
+      Developer, Data Analyst, DevOps and Cloud Engineer
+- [ ] More topics: Rust, statistics in practice, German, US history, music theory
+- [ ] More console labs: IPv6 OSPF, multi-area OSPF awareness
 - [ ] Packet capture views (Wireshark-style) for the networking simulators
 - [ ] Edit built-in cards locally (fix a typo or add a note without forking the pack)
 - [ ] Image support in cards (diagrams, anatomy, maps)
 - [ ] FSRS parameter optimization from the learner's own review history
 - [ ] Cloze deletion cards
-- [ ] Mock interview mode: a timed coding challenge plus spoken explanation prompts
 
 ## Later (needs a backend)
 
