@@ -1,0 +1,776 @@
+{
+  "id": "swe-testing",
+  "name": "Testing Your Code",
+  "version": "1.0.0",
+  "author": "Recurse",
+  "subject": "swe",
+  "level": "beginner",
+  "description": "Write tests a team trusts with pytest and Jest or Vitest: the test pyramid, edge cases, mocks, TDD, coverage and flaky tests.",
+  "icon": "Tst",
+  "language": "python",
+  "prereqs": [
+    "python-basics",
+    "loops-functions",
+    "javascript-basics"
+  ],
+  "tags": [
+    "testing",
+    "pytest",
+    "jest",
+    "vitest",
+    "tdd",
+    "mocking"
+  ],
+  "lesson": {
+    "estimatedMinutes": 32,
+    "intro": "On a real team, nobody merges code because it looked fine on their laptop. Tests are how you prove a change works and how you stop next month's change from quietly breaking it. This lesson covers what to test, how to write tests people trust, and the tools you will meet on day one: pytest for Python and Jest or Vitest for JavaScript.",
+    "objectives": [
+      "Choose between unit, integration and end-to-end tests for a given change",
+      "Write clear arrange-act-assert tests with descriptive names in pytest and Jest or Vitest",
+      "Pick edge cases and boundary values that catch real bugs",
+      "Decide when a stub, mock or fake helps and when mocking makes tests brittle",
+      "Run the red, green, refactor loop and explain what coverage does and does not prove"
+    ],
+    "sections": [
+      {
+        "title": "Why teams test, and the test pyramid",
+        "body": "It is your second week. You fix a rounding bug in `apply_discount()`, click through checkout once, it looks right, and you merge. Two days later support reports that customers with a 100% coupon are being charged one cent. Your fix was right for the case you tried and wrong for one you never thought to try. A test suite would have tried it for you, on every change, in seconds.\n\nTests are code that runs your code and checks the result. On a team they do four jobs:\n\n- **Catch regressions.** A regression is something that used to work and broke. Once a test covers a behavior, nobody can break it silently.\n- **Make change safe.** You can refactor (restructure code without changing what it does) because the tests tell you the moment behavior changes.\n- **Document behavior.** A test named `test_expired_coupon_is_rejected` tells the next reader exactly what the code promises.\n- **Gate merges.** Continuous integration (CI) runs the suite on every pull request, and the merge button stays blocked until it passes.\n\nTests come in sizes. A **unit test** checks one function or class in isolation, with no network, database or disk, and runs in milliseconds. An **integration test** checks that several real pieces work together, for example your API handler writing to a real test database. An **end-to-end (E2E) test** drives the whole running system the way a user would, usually a real browser clicking buttons through a tool such as Playwright or Cypress.\n\nThe **test pyramid** says how many of each to write: many unit tests at the base, fewer integration tests in the middle, and a handful of E2E tests at the top for the journeys that must never break (sign up, log in, pay). Lower tests are fast and point at the exact broken line. Higher tests give more confidence that the real thing works, but they are slower, harder to debug and more likely to be flaky.\n\nThe pyramid is a guideline, not a law. Many web teams write more integration tests than the classic shape suggests, because so much of their code is glue between a framework and a database. The shape everyone agrees is bad is the inverted pyramid, nicknamed the ice cream cone: nearly everything is checked by slow E2E runs or by people clicking around before each release.",
+        "code": "             /\\\n            /E2E\\           few: slow, broad, can be flaky\n           /------\\\n          /  integ. \\        some: real DB, real HTTP between your parts\n         /------------\\\n        /     unit      \\     many: milliseconds each, one unit at a time\n       /------------------\\\n\n               Unit             Integration          End-to-end\nSpeed          milliseconds     0.1 s to seconds     seconds to minutes\nScope          one function     a few components     whole app via UI or API\nOn failure     exact line       the seam between     \"something in the\n               is obvious       two parts            journey broke\"",
+        "language": "plaintext",
+        "tip": "When you pick up a ticket, find where the existing tests for that area live before you write any code. Matching the team's testing style is part of the job.",
+        "pitfall": "Checking the happy path once by hand and calling it done. Manual clicking does not repeat itself on the next pull request; a test does.",
+        "check": {
+          "question": "You changed how `format_price()` rounds cents. Which test gives the fastest, most precise feedback?",
+          "choices": [
+            "An end-to-end test that buys an item in a browser",
+            "A unit test that calls format_price() with a few amounts",
+            "An integration test that hits the checkout API and database",
+            "Asking QA to try a purchase on staging"
+          ],
+          "answer": 1,
+          "explanation": "The change lives in one function, so a unit test runs in milliseconds and names the exact failing case. The E2E and integration tests would also catch it, but slower and with many more places to look when they fail."
+        }
+      },
+      {
+        "title": "Anatomy of a good test: arrange, act, assert",
+        "body": "Open any well-run codebase and most tests have the same three-part shape:\n\n- **Arrange:** build the inputs and the world the code needs (objects, sample data, a fake clock).\n- **Act:** call the one thing you are testing, usually a single line.\n- **Assert:** check the outcome: a return value, a raised error or a change of state.\n\nA blank line between the parts makes a test readable at a glance. If you cannot spot the act step, the test is probably doing too much.\n\n**Names matter more in tests than anywhere else**, because a failing test's name is the first thing you read in the CI log. A good name states the scenario and the expected result: `test_cart_total_applies_ten_percent_coupon`, or in JavaScript `it('rejects an expired coupon')`. Compare `test_cart_2` or `it('works')`: when they fail at 6 pm, they tell you nothing.\n\nGood tests share a few properties, sometimes remembered as FIRST:\n\n- **Fast:** unit tests take milliseconds, so people actually run them.\n- **Independent:** each test sets up its own data and passes alone, with the others, and in any order.\n- **Repeatable:** same result every run on every machine. No dependence on today's date, the network or random numbers unless the test controls them.\n- **Self-checking:** the test asserts. Nobody reads printed output to decide whether it passed.\n- **Timely:** written together with the code, not months later.\n\nTest one behavior per test. A test with ten unrelated asserts stops at the first failure and hides the other nine results. Several asserts are fine when they describe one outcome, such as checking both fields of a returned object.\n\nKeep logic out of tests. If a test computes its expected value with the same formula as the code (`expected = price * (1 - pct / 100)`), it will happily agree with a buggy formula. Write the literal answer you worked out by hand: `assert total == 90.00`.",
+        "code": "# cart.py\ndef cart_total(prices, coupon_percent=0):\n    subtotal = sum(prices)\n    return round(subtotal * (100 - coupon_percent) / 100, 2)\n\n\n# test_cart.py\nfrom cart import cart_total\n\ndef test_cart_total_applies_ten_percent_coupon():\n    # Arrange\n    prices = [40.00, 60.00]\n\n    # Act\n    total = cart_total(prices, coupon_percent=10)\n\n    # Assert\n    assert total == 90.00\n\n\ndef test_cart_total_of_empty_cart_is_zero():\n    assert cart_total([]) == 0",
+        "language": "python",
+        "pitfall": "Tests that lean on each other, such as test B passing only because test A created a user first. Run them alone or in another order and they fail for reasons that have nothing to do with the code.",
+        "check": {
+          "question": "Which test name is most useful when it fails in CI?",
+          "choices": [
+            "test_discount_3",
+            "test_discount_works",
+            "test_discount_function_in_pricing_module",
+            "test_discount_is_capped_at_fifty_percent"
+          ],
+          "answer": 3,
+          "explanation": "It states the scenario and the expected result, so the failure alone tells you which promise broke. The others only say where the test lives or that something, somewhere, went wrong."
+        }
+      },
+      {
+        "title": "pytest and Jest or Vitest in practice",
+        "body": "**pytest** is the standard Python test runner. It collects files named `test_*.py` or `*_test.py`, runs every function whose name starts with `test`, and lets you use the plain `assert` statement. When an assert fails, pytest shows the values on both sides, so `assert total == 90` failing also tells you what `total` actually was.\n\nThree pytest features you will see in almost every codebase:\n\n- `with pytest.raises(ValueError):` asserts that the block raises that exception.\n- `@pytest.mark.parametrize` runs one test body over a table of inputs and expected outputs. Each row is reported as its own test.\n- **Fixtures** are functions marked `@pytest.fixture` that build setup. A test asks for one by naming it as a parameter, and by default gets a fresh one per test. Built-ins include `tmp_path` (a new temporary directory) and `monkeypatch` (temporarily replace attributes or environment variables).\n\n**Jest** and **Vitest** are the common JavaScript runners, and their APIs are nearly identical. They pick up files such as `price.test.js` or `price.spec.ts`. You group tests with `describe`, write each with `it` or `test`, and check results with `expect(value)` plus a matcher. Vitest wants you to import these from `'vitest'`; Jest provides them as globals.\n\nThe matchers that trip up newcomers:\n\n- `toBe` compares with `Object.is`. For objects and arrays that means \"is it the very same object\", so two arrays with equal contents fail `toBe`.\n- `toEqual` compares contents recursively. Use it for objects and arrays.\n- `toThrow` needs a function it can call: `expect(() => parse('x')).toThrow()`. Writing `expect(parse('x')).toThrow()` calls `parse` before `expect` even runs, so the error escapes and the test crashes instead of passing.\n\nEveryday commands: `pytest` runs everything, `pytest -k coupon` runs tests whose names match \"coupon\", `pytest -x` stops at the first failure, and `pytest tests/test_cart.py::test_cart_total_of_empty_cart_is_zero` runs exactly one test. In JavaScript, `npx vitest` watches your files and reruns affected tests as you save, and `npx jest --watch` does the same for Jest.",
+        "code": "import pytest\nfrom pricing import parse_price\n\n\n@pytest.mark.parametrize(\"text, expected\", [\n    (\"$5\", 5.00),\n    (\"$5.50\", 5.50),\n    (\"  $12.00 \", 12.00),\n])\ndef test_parse_price_reads_dollar_amounts(text, expected):\n    assert parse_price(text) == expected\n\n\ndef test_parse_price_rejects_text_without_an_amount():\n    with pytest.raises(ValueError):\n        parse_price(\"free\")\n\n\n@pytest.fixture\ndef price_file(tmp_path):\n    path = tmp_path / \"prices.txt\"\n    path.write_text(\"$1\\n$2.50\\n\")\n    return path\n\n\ndef test_prices_in_file_add_up(price_file):\n    lines = price_file.read_text().splitlines()\n    assert sum(parse_price(line) for line in lines) == 3.50",
+        "language": "python",
+        "tip": "While fixing one test, run just that test (`pytest -k name`, or `it.only` in JavaScript), then run the whole suite before you push. Never commit `it.only`: it silently skips every other test in the file.",
+        "pitfall": "Using `toBe` to compare arrays or objects. It checks identity, so `expect([1]).toBe([1])` fails. Use `toEqual` for contents.",
+        "activity": {
+          "type": "code-runner",
+          "title": "Fix the tests, not the code",
+          "prompt": "This is a Vitest-style test file with a tiny stand-in for `it` and `expect` at the top. The function is correct, but two tests are written wrong. Run it, read the FAIL messages, then fix only the two tests: one needs a different matcher and one needs to pass a function to expect. Notice that the third failure is not a failed assertion at all, it is the error escaping.",
+          "props": {
+            "language": "javascript",
+            "code": "// A tiny stand-in for Vitest so this runs in the browser.\n// In a real project: import { it, expect } from 'vitest'\nconst results = []\nfunction it(name, fn) {\n  try {\n    fn()\n    results.push('PASS ' + name)\n  } catch (error) {\n    results.push('FAIL ' + name + ': ' + error.message)\n  }\n}\nfunction expect(actual) {\n  const show = (v) => JSON.stringify(v)\n  return {\n    toBe(expected) {\n      if (!Object.is(actual, expected)) throw new Error(`expected ${show(expected)}, got ${show(actual)} (not the same object)`)\n    },\n    toEqual(expected) {\n      if (show(actual) !== show(expected)) throw new Error(`expected ${show(expected)}, got ${show(actual)}`)\n    },\n    toThrow() {\n      let threw = false\n      try { actual() } catch { threw = true }\n      if (!threw) throw new Error('expected the function to throw')\n    }\n  }\n}\n\n// ---- code under test ----\nfunction parseTags(input) {\n  if (typeof input !== 'string') throw new TypeError('input must be a string')\n  return input.split(',').map((tag) => tag.trim().toLowerCase()).filter(Boolean)\n}\n\n// ---- tests (two of them are written wrong) ----\nit('splits, trims and lowercases tags', () => {\n  expect(parseTags('Python, SQL ,git')).toBe(['python', 'sql', 'git'])\n})\nit('ignores empty entries', () => {\n  expect(parseTags('a,,b,')).toEqual(['a', 'b'])\n})\nit('rejects input that is not a string', () => {\n  expect(parseTags(42)).toThrow()\n})\n\nconsole.log(results.join('\\n'))",
+            "task": "Make all three tests print PASS without changing parseTags.",
+            "expectOutput": "PASS splits, trims and lowercases tags\nPASS ignores empty entries\nPASS rejects input that is not a string"
+          }
+        },
+        "check": {
+          "question": "In a Jest test, `expect(getUser()).toBe({ name: 'Ana' })` fails even though getUser returns `{ name: 'Ana' }`. Why?",
+          "choices": [
+            "getUser must be awaited before any matcher can run",
+            "toBe checks that both sides are the same object; toEqual compares contents",
+            "Jest cannot compare objects, so you must compare each field separately",
+            "toBe only works inside a describe block"
+          ],
+          "answer": 1,
+          "explanation": "toBe uses Object.is, which is true only for the very same object. getUser builds a new object, so identity fails even though the contents match. toEqual walks both objects and compares their fields."
+        }
+      },
+      {
+        "title": "Edge cases and boundary values",
+        "body": "A ticket says users must be at least 13 to sign up. You write `if age > 13:` and test it with 25 and 8. Both tests pass. The bug (a 13-year-old is rejected) ships anyway, because you tested the middle of each range and never the edge where the decision flips.\n\nTwo simple techniques find most of these bugs:\n\n- **Equivalence partitioning:** split the inputs into groups the code should treat the same way (under 13, 13 and over). One representative per group is enough.\n- **Boundary value analysis:** bugs cluster where groups meet, so test right at the boundary and one step either side: 12, 13 and 14. Off-by-one mistakes, such as `>` instead of `>=` or `range(n)` instead of `range(n + 1)`, live exactly there.\n\nThen run through the usual suspects for the kind of input:\n\n- **Collections:** empty, one element, two elements, many, duplicates, already sorted, reverse sorted.\n- **Numbers:** zero, negative, one, the maximum allowed, just past the maximum, and floats like 0.1 that have no exact binary form.\n- **Strings:** empty, only spaces, very long, mixed case, non-ASCII text such as \"José\" or an emoji.\n- **Missing values:** `None` in Python, `null` and `undefined` in JavaScript.\n- **Time:** midnight, the last day of a month, February 29, time zones, daylight saving changes.\n\nYou do not need every item for every function. Ask which of these the code could plausibly receive, and which it might get wrong. One test per realistic edge is worth more than ten more tests of typical values, because typical values sit in the middle of a partition, where code is rarely wrong.",
+        "code": "def can_sign_up(age):\n    return age >= 13\n\n# Partitions: too young | old enough\n# Boundary:   12 is the last \"no\", 13 the first \"yes\"\ndef test_twelve_year_old_cannot_sign_up():\n    assert can_sign_up(12) is False\n\ndef test_thirteen_year_old_can_sign_up():\n    assert can_sign_up(13) is True\n\ndef test_fourteen_year_old_can_sign_up():\n    assert can_sign_up(14) is True",
+        "language": "python",
+        "pitfall": "Testing only typical values like 25 and 8. They pass with `>` and with `>=`, so they cannot tell the correct code from the buggy one.",
+        "activity": {
+          "type": "code-runner",
+          "title": "Find the off-by-one",
+          "prompt": "Run the tests. Two fail. Use the failing test names to work out which pages are wrong, then fix the one line in paginate that computes start. Notice that the two passing tests (past the end and empty list) could not detect this bug at all.",
+          "props": {
+            "language": "python",
+            "code": "def paginate(items, page, per_page):\n    \"\"\"Return the items on a page. Pages are numbered from 1.\"\"\"\n    start = page * per_page\n    return items[start:start + per_page]\n\n\ndef test_first_page():\n    assert paginate([\"a\", \"b\", \"c\", \"d\", \"e\"], 1, 2) == [\"a\", \"b\"]\n\ndef test_last_partial_page():\n    assert paginate([\"a\", \"b\", \"c\", \"d\", \"e\"], 3, 2) == [\"e\"]\n\ndef test_page_past_the_end_is_empty():\n    assert paginate([\"a\", \"b\", \"c\", \"d\", \"e\"], 4, 2) == []\n\ndef test_empty_list_has_empty_first_page():\n    assert paginate([], 1, 10) == []\n\n\ntests = [test_first_page, test_last_partial_page,\n         test_page_past_the_end_is_empty, test_empty_list_has_empty_first_page]\npassed = 0\nfor test in tests:\n    try:\n        test()\n        passed += 1\n    except AssertionError:\n        print(\"FAIL\", test.__name__)\nprint(f\"{passed} of {len(tests)} tests passed\")",
+            "task": "Fix paginate so the output is: 4 of 4 tests passed",
+            "expectOutput": "4 of 4 tests passed"
+          }
+        },
+        "check": {
+          "question": "Orders of $50.00 or more get free shipping. Which set of test amounts best covers the boundary?",
+          "choices": [
+            "$10.00, $30.00 and $100.00",
+            "$0.00 and $1,000.00",
+            "$49.99, $50.00 and $50.01",
+            "$50.00 only"
+          ],
+          "answer": 2,
+          "explanation": "The decision flips at $50.00, so test the boundary itself and the closest values on each side. That catches both `>` versus `>=` mistakes and rounding errors near the threshold. Typical values far from the edge cannot."
+        }
+      },
+      {
+        "title": "Test doubles: stubs, mocks and fakes",
+        "body": "Your `place_order()` function saves the order to Postgres and emails the customer. You do not want unit tests that need a database server, send real email, or fail whenever the Wi-Fi drops. So you hand the code stand-ins that look like the real collaborators. These are **test doubles**.\n\n- **Stub:** returns canned answers. A stubbed `get_exchange_rate()` always returns 1.10, so a conversion test is deterministic.\n- **Spy:** a stub that also records how it was called, so you can check afterwards.\n- **Mock:** a double you verify interactions on: \"`send` was called once with this address\". Python's `unittest.mock.Mock` and `patch`, Jest's `jest.fn()` and Vitest's `vi.fn()` all create recording doubles like this, and in everyday speech people call all of them mocks.\n- **Fake:** a real, working, lightweight implementation: an in-memory repository instead of Postgres, a fake clock you can move forward, a local inbox that catches email. Fakes behave like the real thing, so tests that use them read naturally.\n\nThe easiest code to test takes its collaborators as parameters (**dependency injection**) instead of importing globals. Then a test simply passes in a fake, as in the example, and no patching is needed.\n\n**When mocking hurts.** Mocks are the most overused tool in testing. Warning signs:\n\n- The test mocks five collaborators and asserts the exact sequence of calls. It now mirrors the implementation line by line, so any refactor breaks it even when behavior is unchanged.\n- You mock your own database layer, the test passes, and the real SQL is broken. Nothing ever ran the real query.\n- You mock a third-party library's internals, the library changes shape in an upgrade, and the tests keep passing while production breaks.\n\nA good rule of thumb: put doubles at the **boundary** of your system (network, email, payment provider, clock, randomness) and use real objects or fakes for the code inside it. Then cover each boundary with a few integration tests that use the real thing.\n\nOne Python detail catches everyone: `patch` replaces a name **where it is looked up**. If `billing.py` does `from emails import send_email`, then billing holds its own reference, and you must patch `billing.send_email`, not `emails.send_email`.",
+        "code": "from unittest.mock import Mock\n\n\nclass InMemoryOrders:                  # a fake: real behavior, no database\n    def __init__(self):\n        self.saved = []\n\n    def save(self, order):\n        self.saved.append(order)\n\n\ndef place_order(order, orders, mailer):\n    orders.save(order)\n    mailer.send(order[\"email\"], \"Thanks for your order!\")\n\n\ndef test_place_order_saves_and_emails_customer():\n    orders = InMemoryOrders()\n    mailer = Mock()                     # a mock: we check how it was called\n\n    place_order({\"id\": 7, \"email\": \"ana@example.com\"}, orders, mailer)\n\n    assert orders.saved == [{\"id\": 7, \"email\": \"ana@example.com\"}]\n    mailer.send.assert_called_once_with(\"ana@example.com\", \"Thanks for your order!\")",
+        "language": "python",
+        "pitfall": "Mocking everything inside your own code. If a refactor that keeps behavior identical breaks twenty tests, those tests check how the code works rather than what it does.",
+        "check": {
+          "question": "Which collaborator is the best candidate for a test double in a unit test?",
+          "choices": [
+            "A pure helper that formats dates",
+            "The dataclass that holds an order's fields",
+            "The function under test itself",
+            "The HTTP client that calls a payment provider"
+          ],
+          "answer": 3,
+          "explanation": "The payment client crosses the system boundary: it is slow, needs the network and has real side effects. Pure helpers and plain data classes are fast and deterministic, so using the real ones keeps the test honest. Doubling the function under test means testing nothing."
+        }
+      },
+      {
+        "title": "Test-driven development: red, green, refactor",
+        "body": "Test-driven development (TDD) flips the usual order. Instead of writing code and then tests, you go round a short loop, often just a few minutes per lap:\n\n- **Red:** write one small test for the next bit of behavior. Run it and watch it fail. The failure proves the test can fail and that the behavior is really missing.\n- **Green:** write the simplest code that makes it pass. Hard-coding is fine for a moment; the next test will force you to generalize.\n- **Refactor:** with everything green, clean up names, remove duplication and improve structure, running the tests after each change.\n\nThen pick the next behavior and go again. Here is a password rule (at least 8 characters and at least one digit) built that way:\n\n- Red: `test_rejects_short_password` with `\"abc1\"` fails, because `is_strong` does not exist yet.\n- Green: `return len(password) >= 8`.\n- Red: `test_rejects_password_without_digit` with `\"abcdefgh\"` fails, because the length is fine.\n- Green: add `and any(c.isdigit() for c in password)`.\n- Refactor: pull the 8 into a `MIN_LENGTH` constant. The tests still pass, so the refactor is safe.\n\nWhy teams like it: you never write code nobody asked for, every behavior has a test from the start, and awkward designs show up early, because code that is hard to test first is usually hard to use. TDD shines for logic with clear inputs and outputs (parsers, pricing rules, validation) and for bug fixes: reproduce the bug as a failing test first, then fix it, and the test guards against the bug ever returning.\n\nIt is a tool, not a religion. For exploratory work, such as poking at an unfamiliar API or sketching a UI, many developers write a quick throwaway spike first, then test-drive the real version once they know what they are building.",
+        "code": "MIN_LENGTH = 8\n\n\ndef is_strong(password):\n    return len(password) >= MIN_LENGTH and any(c.isdigit() for c in password)\n\n\ndef test_rejects_short_password():\n    assert is_strong(\"abc1\") is False\n\n\ndef test_rejects_password_without_digit():\n    assert is_strong(\"abcdefgh\") is False\n\n\ndef test_accepts_long_password_with_digit():\n    assert is_strong(\"abcdefg1\") is True",
+        "language": "python",
+        "pitfall": "Writing a pile of tests up front and then all the code at once. The feedback in TDD comes from the short loop: one failing test, just enough code, clean up, repeat.",
+        "activity": {
+          "type": "code-runner",
+          "title": "Drive it with tests",
+          "prompt": "All the tests are written, and slugify is a stub. Work through them in order like a TDD loop: run, read the first FAIL, write the simplest code that fixes it, run again. Notice that the empty-title test already passes with the stub, which is why a test that has never failed tells you little.",
+          "props": {
+            "language": "python",
+            "code": "def slugify(title):\n    # Write just enough code to make the next failing test pass.\n    return title\n\n\ndef test_lowercases_and_joins_words_with_dashes():\n    assert slugify(\"Hello World\") == \"hello-world\"\n\ndef test_trims_surrounding_spaces():\n    assert slugify(\"  Trim me  \") == \"trim-me\"\n\ndef test_collapses_repeated_spaces():\n    assert slugify(\"Many   spaces here\") == \"many-spaces-here\"\n\ndef test_empty_title_gives_empty_slug():\n    assert slugify(\"\") == \"\"\n\n\ntests = [test_lowercases_and_joins_words_with_dashes, test_trims_surrounding_spaces,\n         test_collapses_repeated_spaces, test_empty_title_gives_empty_slug]\npassed = 0\nfor test in tests:\n    try:\n        test()\n        passed += 1\n    except AssertionError:\n        print(\"FAIL\", test.__name__)\nprint(f\"{passed} of {len(tests)} tests passed\")",
+            "task": "Implement slugify so the output is: 4 of 4 tests passed",
+            "expectOutput": "4 of 4 tests passed"
+          }
+        },
+        "check": {
+          "question": "In TDD, why do you run a new test and watch it fail before writing the code?",
+          "choices": [
+            "pytest refuses to run tests that pass the first time",
+            "It proves the test can fail and really checks the missing behavior",
+            "It measures how long the code takes to run",
+            "It makes CI record a failed build for the ticket"
+          ],
+          "answer": 1,
+          "explanation": "A test that passes before the code exists is not testing what you think, for example because it asserts nothing or calls the wrong function. Seeing it fail first proves it can catch the missing behavior."
+        }
+      },
+      {
+        "title": "Coverage and flaky tests",
+        "body": "**Coverage** measures which lines (and, with branch coverage, which sides of each `if`) ran during the tests. In Python you get it with the pytest-cov plugin (`pytest --cov=myapp`) or coverage.py. Jest has `jest --coverage`, and Vitest has `vitest run --coverage`.\n\nCoverage is great at one thing: finding code that **no test runs at all**. A module at 0%, or an error branch never executed, is a real gap. It is bad at the thing people often use it for, proving the tests are good. A line counts as covered if it ran, even if nothing checked its result, so the first test in the example earns full coverage while checking nothing. Coverage also cannot see missing code: if nobody handled negative quantities, there is no line to be uncovered.\n\nTreat the number as a smoke alarm for untested areas, not a grade. Many teams set a floor in CI (say 80%) so it does not slide, and judge the tests themselves in code review.\n\nA **flaky test** passes and fails on the same code. Typical causes:\n\n- **Timing:** `sleep(2)` and hope the background job finished, or a timeout that is too tight for a slow CI machine.\n- **Order dependence:** shared state such as a global, a module-level cache or a database row left behind by another test.\n- **Real clocks and randomness:** a test that fails after noon, on the 31st, at midnight UTC, or when `random()` picks an unlucky value.\n- **External services:** the real network, a third-party sandbox, DNS.\n\nFlaky tests are expensive in a sneaky way: once people learn that red sometimes means nothing, they rerun until green and stop trusting the suite, and real failures slip through. When you find one, reproduce it (run it in a loop, or with the suite in random order), fix the cause (wait for a condition instead of sleeping, inject a fixed clock, isolate the state), and if you cannot fix it today, quarantine it with a ticket rather than leaving it to cry wolf.",
+        "code": "# 100% line coverage, zero checking: nothing is asserted\ndef test_cart_total_runs():\n    cart_total([10, 20])\n\n\n# Flaky: depends on the real clock\ndef test_greeting():\n    assert greeting() == \"Good morning\"          # fails every afternoon\n\n\n# Fixed: the test controls the time\ndef test_greeting_before_noon_says_good_morning():\n    nine_am = datetime(2026, 3, 2, 9, 0)\n    assert greeting(now=nine_am) == \"Good morning\"",
+        "language": "python",
+        "pitfall": "Rerunning a red build until it turns green. Fix or quarantine the flaky test, or the team learns to ignore red builds, including the real ones.",
+        "check": {
+          "question": "Your pull request raises coverage from 70% to 85%. What does that prove?",
+          "choices": [
+            "The newly covered lines contain no bugs",
+            "Every branch of every if statement is now tested",
+            "More lines ran during the tests, not that their results were checked",
+            "The suite is now 85% likely to catch a regression"
+          ],
+          "answer": 2,
+          "explanation": "Coverage records execution, not verification. A test with no asserts raises coverage just as much as a careful one. It is useful for finding untested code, not for grading the tests you have."
+        }
+      }
+    ],
+    "keyTerms": [
+      {
+        "term": "Unit test",
+        "definition": "A test of one function or class in isolation, with no network, database or disk. Runs in milliseconds."
+      },
+      {
+        "term": "Integration test",
+        "definition": "A test that checks several real components working together, such as an API handler and a test database."
+      },
+      {
+        "term": "End-to-end test",
+        "definition": "A test that drives the whole running app the way a user would, usually through a browser."
+      },
+      {
+        "term": "Test pyramid",
+        "definition": "The guideline to write many unit tests, fewer integration tests and only a few end-to-end tests."
+      },
+      {
+        "term": "Arrange-act-assert",
+        "definition": "The three-part shape of a test: set up the inputs, perform one action, check the outcome."
+      },
+      {
+        "term": "Regression",
+        "definition": "Behavior that used to work and broke after a change. A regression test keeps it from breaking again."
+      },
+      {
+        "term": "Boundary value",
+        "definition": "An input at the edge where behavior changes, tested together with its nearest neighbors on each side."
+      },
+      {
+        "term": "Test double",
+        "definition": "A stand-in for a real collaborator in a test: a dummy, stub, spy, mock or fake."
+      },
+      {
+        "term": "Mock",
+        "definition": "A double that records calls so the test can verify them, such as send being called once with an address."
+      },
+      {
+        "term": "Fake",
+        "definition": "A working, lightweight implementation used in tests, such as an in-memory repository or a fake clock."
+      },
+      {
+        "term": "Test-driven development",
+        "definition": "Writing a failing test first, then the simplest code to pass it, then refactoring: red, green, refactor."
+      },
+      {
+        "term": "Flaky test",
+        "definition": "A test that passes and fails on the same code because of timing, shared state, clocks, randomness or external services."
+      }
+    ],
+    "summary": [
+      "Tests catch regressions, make refactoring safe, document behavior and gate merges in CI.",
+      "Write many fast unit tests, fewer integration tests and a few end-to-end tests for critical journeys.",
+      "Shape tests as arrange, act, assert, one behavior each, with names that state the scenario and the expected result.",
+      "Test at boundaries and on edge cases such as empty, zero, None and the value where a rule flips.",
+      "Put test doubles at system boundaries; mocking your own internals makes tests brittle.",
+      "TDD is a short red, green, refactor loop. Coverage finds untested code but does not prove tests are good, and flaky tests must be fixed fast."
+    ],
+    "feynmanPrompt": "Explain to a new teammate why the team wants tests with every pull request, what makes one test better than another, and how they should decide between a mock and a real object."
+  },
+  "questions": [
+    {
+      "id": "swe-testing-q01",
+      "type": "recall",
+      "difficulty": "easy",
+      "question": "Name the four jobs an automated test suite does for a team.",
+      "answer": "It catches regressions, makes refactoring safe, documents how the code is meant to behave, and gates merges because CI runs it on every pull request.",
+      "explanation": "These are the reasons teams ask for tests with every pull request. Manual checking does none of them repeatably.",
+      "concept": "why teams test",
+      "section": 0
+    },
+    {
+      "id": "swe-testing-q02",
+      "type": "match",
+      "difficulty": "medium",
+      "question": "Match each kind of test to an example of it.",
+      "pairs": [
+        {
+          "left": "Unit test",
+          "right": "Call parse_date('2026-02-30') and check it raises ValueError"
+        },
+        {
+          "left": "Integration test",
+          "right": "POST to /signup and check a row appears in the test database"
+        },
+        {
+          "left": "End-to-end test",
+          "right": "A browser fills in the signup form and lands on the welcome page"
+        },
+        {
+          "left": "Load test",
+          "right": "Send 500 concurrent checkouts and check the slowest 5% stay under 300 ms"
+        }
+      ],
+      "explanation": "Unit tests exercise one function alone. Integration tests check real components together, such as a handler and a database. End-to-end tests drive the whole app like a user. Load tests check behavior under heavy traffic rather than correctness of one case.",
+      "concept": "kinds of tests",
+      "section": 0
+    },
+    {
+      "id": "swe-testing-q03",
+      "type": "multi",
+      "difficulty": "medium",
+      "question": "Which of these are signs of an inverted test pyramid (the ice cream cone)?",
+      "choices": [
+        "Before each release, people click through staging to check most features",
+        "The CI run takes 90 minutes, mostly browser tests",
+        "Hundreds of unit tests run in under a minute",
+        "When a test fails, finding the broken line takes hours",
+        "A few end-to-end tests cover login and checkout"
+      ],
+      "answers": [
+        0,
+        1,
+        3
+      ],
+      "explanation": "The cone is top-heavy: manual and E2E checks do the bulk of the work, so runs are slow and failures are hard to locate. A fast unit layer and a few E2E tests for critical journeys are exactly what a healthy pyramid looks like.",
+      "concept": "inverted test pyramid",
+      "section": 0
+    },
+    {
+      "id": "swe-testing-q04",
+      "type": "mcq",
+      "difficulty": "medium",
+      "question": "Your team has 40 end-to-end tests (25 minutes) and almost no unit tests. A tax rounding bug was caught only by an E2E test, and it took an hour to find the line. What is the best long-term fix?",
+      "choices": [
+        "Add more E2E tests around the checkout page",
+        "Run the E2E suite twice to make sure failures are real",
+        "Add unit tests for the tax calculation and keep E2E for critical journeys",
+        "Replace all automated tests with a manual QA checklist"
+      ],
+      "answer": 2,
+      "explanation": "Logic like tax rounding belongs under fast unit tests that name the broken case directly. Keep a few E2E tests for the journeys that must work end to end. More E2E tests would make the slow, hard-to-debug part bigger.",
+      "concept": "choosing test level",
+      "section": 0
+    },
+    {
+      "id": "swe-testing-q05",
+      "type": "order",
+      "difficulty": "easy",
+      "question": "Put the steps of this arrange-act-assert test in order.",
+      "items": [
+        "Create a fake clock set to 2026-03-01 09:00",
+        "Create an Account with balance 100 that uses the fake clock",
+        "Call account.withdraw(30)",
+        "Assert the balance is 70 and the last transaction time is 09:00"
+      ],
+      "explanation": "Arrange builds everything the code needs (the clock, then the account that depends on it), act performs the single action, and assert checks the outcome.",
+      "concept": "arrange act assert",
+      "section": 1
+    },
+    {
+      "id": "swe-testing-q06",
+      "type": "debug",
+      "difficulty": "medium",
+      "question": "This test passes, yet apply_tax(200, 8) returns 360.0 instead of 216.0. What is wrong with the test?",
+      "code": "def apply_tax(price, rate):\n    return price + price * rate / 10      # bug: should divide by 100\n\ndef test_apply_tax():\n    price, rate = 200, 8\n    expected = price + price * rate / 10\n    assert apply_tax(price, rate) == expected",
+      "choices": [
+        "It should use pytest.approx because the result is a float",
+        "The arrange step must be split over two lines",
+        "It recomputes the expected value with the same buggy formula; assert the literal 216.0",
+        "Tests cannot assign two variables on one line"
+      ],
+      "answer": 2,
+      "explanation": "Copying the formula into the test means the test agrees with whatever the code does, bug included. Work the answer out by hand (200 plus 8% is 216) and assert that literal. pytest.approx helps with tiny float errors, not a factor-of-ten bug.",
+      "concept": "no logic in tests",
+      "section": 1
+    },
+    {
+      "id": "swe-testing-q07",
+      "type": "mcq",
+      "difficulty": "easy",
+      "question": "`test_delete_user` passes only when `test_create_user` runs before it. Which property of a good test is broken?",
+      "choices": [
+        "Speed",
+        "Independence",
+        "Self-checking",
+        "Timeliness"
+      ],
+      "answer": 1,
+      "explanation": "Each test should set up its own data and pass alone or in any order. Relying on another test's leftovers makes failures depend on ordering, not on the code.",
+      "concept": "independent tests",
+      "section": 1
+    },
+    {
+      "id": "swe-testing-q08",
+      "type": "recall",
+      "difficulty": "medium",
+      "question": "Why should each test check one behavior instead of bundling many unrelated asserts?",
+      "answer": "A test stops at its first failed assert, so later checks are hidden, and one name cannot describe many behaviors. Separate tests report every failure and say exactly which promise broke.",
+      "explanation": "Several asserts about one outcome are fine. Ten asserts about ten behaviors turn one red line in CI into a guessing game.",
+      "concept": "one behavior per test",
+      "section": 1
+    },
+    {
+      "id": "swe-testing-q09",
+      "type": "code-fill",
+      "difficulty": "easy",
+      "question": "Complete the pytest test so it passes only if withdraw raises ValueError.",
+      "code": "import pytest\nfrom accounts import withdraw\n\ndef test_withdrawing_more_than_balance_raises():\n    with _____(ValueError):\n        withdraw(balance=50, amount=80)",
+      "choices": [
+        "pytest.throws",
+        "self.assertRaises",
+        "pytest.raises",
+        "pytest.catch"
+      ],
+      "answer": 2,
+      "explanation": "pytest.raises is a context manager that fails the test unless the block raises the given exception. self.assertRaises is the unittest version and only exists on a TestCase class; pytest has no throws or catch helpers.",
+      "concept": "pytest.raises",
+      "section": 2
+    },
+    {
+      "id": "swe-testing-q10",
+      "type": "code-fill",
+      "difficulty": "medium",
+      "language": "javascript",
+      "question": "Complete the Vitest test so it checks that parseAge throws for a negative age.",
+      "code": "import { it, expect } from 'vitest'\nimport { parseAge } from './parseAge.js'\n\nit('rejects a negative age', () => {\n  expect(_____).toThrow()\n})",
+      "choices": [
+        "parseAge(-1)",
+        "() => parseAge(-1)",
+        "parseAge",
+        "await parseAge(-1)"
+      ],
+      "answer": 1,
+      "explanation": "toThrow needs a function it can call inside its own try block. parseAge(-1) runs before expect, so the error escapes and crashes the test. Passing bare parseAge would call it with no argument, which tests something else.",
+      "concept": "toThrow takes a function",
+      "section": 2
+    },
+    {
+      "id": "swe-testing-q11",
+      "type": "debug",
+      "difficulty": "medium",
+      "language": "javascript",
+      "question": "uniqueSorted really returns [1, 2, 3], but this test fails. Why?",
+      "code": "import { it, expect } from 'vitest'\nimport { uniqueSorted } from './list.js'\n\nit('removes duplicates and sorts', () => {\n  expect(uniqueSorted([3, 1, 3, 2])).toBe([1, 2, 3])\n})",
+      "choices": [
+        "Vitest compares arrays in reverse order",
+        "The test must be wrapped in a describe block",
+        "The test needs to be async because arrays are compared lazily",
+        "toBe checks identity with Object.is, and the result is a different array; use toEqual"
+      ],
+      "answer": 3,
+      "explanation": "The function builds a new array, and the literal [1, 2, 3] is another new array. They have equal contents but are not the same object, so Object.is is false. toEqual compares contents.",
+      "concept": "toBe vs toEqual",
+      "section": 2
+    },
+    {
+      "id": "swe-testing-q12",
+      "type": "cli",
+      "shell": "bash",
+      "difficulty": "easy",
+      "question": "Run only the pytest tests whose names contain `coupon`.",
+      "answer": "pytest -k coupon",
+      "accept": [
+        "pytest -k \"coupon\"",
+        "pytest -k 'coupon'",
+        "python -m pytest -k coupon",
+        "python3 -m pytest -k coupon"
+      ],
+      "explanation": "-k selects tests by a keyword expression matched against test names. It is the fastest way to rerun the handful of tests you are working on.",
+      "concept": "pytest -k",
+      "section": 2
+    },
+    {
+      "id": "swe-testing-q13",
+      "type": "typed",
+      "difficulty": "medium",
+      "question": "By default pytest collects test files named `*_test.py` and one other pattern. Type that other pattern.",
+      "answer": "test_*.py",
+      "explanation": "pytest looks for test_*.py or *_test.py files, then for functions whose names start with test. A file named tests_cart.py or cart_tests.py is silently skipped.",
+      "concept": "pytest discovery",
+      "section": 2
+    },
+    {
+      "id": "swe-testing-q14",
+      "type": "mcq",
+      "difficulty": "medium",
+      "question": "How does pytest run and report this test?",
+      "code": "@pytest.mark.parametrize(\"n, expected\", [(0, 1), (1, 1), (5, 120)])\ndef test_factorial(n, expected):\n    assert factorial(n) == expected",
+      "choices": [
+        "As three separate tests, one per row, each passing or failing on its own",
+        "As one test that stops at the first failing row",
+        "As one test that passes only if every row passes, with no per-row detail",
+        "As three tests that must run in parallel"
+      ],
+      "answer": 0,
+      "explanation": "parametrize generates one test per row, with ids such as test_factorial[5-120]. If one row fails, the others still run and report separately, which tells you exactly which input broke.",
+      "concept": "parametrize",
+      "section": 2
+    },
+    {
+      "id": "swe-testing-q15",
+      "type": "mcq",
+      "difficulty": "hard",
+      "question": "Does test_cart_starts_empty pass when test_add_item runs first?",
+      "code": "@pytest.fixture\ndef cart():\n    return Cart()\n\ndef test_add_item(cart):\n    cart.add(\"pen\")\n    assert len(cart.items) == 1\n\ndef test_cart_starts_empty(cart):\n    assert cart.items == []",
+      "choices": [
+        "No: the fixture returns the same Cart to every test in the file",
+        "Only if pytest happens to run the tests in alphabetical order",
+        "No: fixtures run once per session unless you say otherwise",
+        "Yes: a fixture's default scope is function, so each test gets a fresh Cart"
+      ],
+      "answer": 3,
+      "explanation": "Fixtures default to function scope: pytest calls cart() again for every test that asks for it. You only share an instance across tests if you ask for a wider scope such as scope=\"module\", which is also how leaked state and order dependence creep in.",
+      "concept": "fixture scope",
+      "section": 2
+    },
+    {
+      "id": "swe-testing-q16",
+      "type": "mcq",
+      "difficulty": "easy",
+      "question": "A coupon applies to orders with 3 to 10 items, inclusive. Which set of item counts tests the boundaries best?",
+      "choices": [
+        "1, 5 and 20",
+        "3 and 10 only",
+        "2, 3, 10 and 11",
+        "0 and 100"
+      ],
+      "answer": 2,
+      "explanation": "Each boundary needs its edge and the neighbor on the other side: 2 and 3 for the lower limit, 10 and 11 for the upper. Testing only 3 and 10 would miss a rule that wrongly accepts 2 or 11.",
+      "concept": "boundary value analysis",
+      "section": 3
+    },
+    {
+      "id": "swe-testing-q17",
+      "type": "debug",
+      "difficulty": "medium",
+      "question": "Both asserts pass. Which edge case exposes a bug in last_n?",
+      "code": "def last_n(items, n):\n    \"\"\"Return the last n items.\"\"\"\n    return items[-n:]\n\nassert last_n([1, 2, 3, 4], 2) == [3, 4]\nassert last_n([1, 2, 3], 3) == [1, 2, 3]",
+      "choices": [
+        "An empty list raises IndexError",
+        "n = 0 returns the whole list, because items[-0:] is items[0:]",
+        "n larger than the list raises IndexError",
+        "Negative indexes do not work on lists"
+      ],
+      "answer": 1,
+      "explanation": "-0 is just 0, so the slice becomes items[0:], the entire list, when the caller asked for nothing. Slicing never raises IndexError, so the empty-list and large-n cases quietly return sensible results.",
+      "concept": "zero as an edge case",
+      "section": 3
+    },
+    {
+      "id": "swe-testing-q18",
+      "type": "multi",
+      "difficulty": "medium",
+      "question": "You are testing `average(numbers)`. Which inputs are worth a separate test?",
+      "choices": [
+        "An empty list",
+        "A list with a single number",
+        "A list containing negative numbers",
+        "[2, 4, 6] and then also [4, 6, 8]",
+        "Floats such as [0.1, 0.2]"
+      ],
+      "answers": [
+        0,
+        1,
+        2,
+        4
+      ],
+      "explanation": "Empty (division by zero), single element, negatives and floats each probe a different way the code can fail. [2, 4, 6] and [4, 6, 8] come from the same partition of ordinary positive integers, so the second adds nothing.",
+      "concept": "choosing edge cases",
+      "section": 3
+    },
+    {
+      "id": "swe-testing-q19",
+      "type": "typed",
+      "difficulty": "easy",
+      "question": "A password must be 8 to 64 characters long. Using boundary value analysis, what is the shortest length above the limit that should be rejected? Type the number.",
+      "answer": "65",
+      "explanation": "The upper boundary is 64 (the last valid length), so you test 64 and its invalid neighbor 65. On the lower side you would test 8 and 7.",
+      "concept": "boundary neighbors",
+      "section": 3
+    },
+    {
+      "id": "swe-testing-q20",
+      "type": "match",
+      "difficulty": "medium",
+      "question": "Match each test double to what it does.",
+      "pairs": [
+        {
+          "left": "Stub",
+          "right": "Returns a fixed exchange rate of 1.10 every time it is asked"
+        },
+        {
+          "left": "Mock",
+          "right": "Lets you assert send_email was called once with ana@example.com"
+        },
+        {
+          "left": "Fake",
+          "right": "An in-memory dictionary that stores and returns users like the real repository"
+        },
+        {
+          "left": "Dummy",
+          "right": "Fills a required parameter but is never actually used"
+        }
+      ],
+      "explanation": "Stubs feed canned answers in, mocks let you verify calls going out, fakes are working lightweight implementations, and dummies only satisfy a function signature.",
+      "concept": "kinds of test doubles",
+      "section": 4
+    },
+    {
+      "id": "swe-testing-q21",
+      "type": "debug",
+      "difficulty": "hard",
+      "question": "The real email is still sent and the assertion fails. Why?",
+      "code": "# billing.py\nfrom emails import send_email\n\ndef charge(customer):\n    ...\n    send_email(customer.email, \"Receipt\")\n\n# test_billing.py\nfrom unittest.mock import patch\nimport billing\n\ndef test_charge_sends_receipt():\n    customer = make_customer()\n    with patch(\"emails.send_email\") as fake_send:\n        billing.charge(customer)\n    fake_send.assert_called_once()",
+      "choices": [
+        "billing imported send_email into its own namespace, so patch billing.send_email instead",
+        "patch only works as a decorator, never as a context manager",
+        "assert_called_once requires the expected arguments",
+        "Mocks can replace classes but not plain functions"
+      ],
+      "answer": 0,
+      "explanation": "from emails import send_email copies the reference into billing when the module loads. Patching emails.send_email later changes the name in emails, but billing still calls its own copy. Patch the name where it is looked up: billing.send_email.",
+      "concept": "patch where it is used",
+      "section": 4
+    },
+    {
+      "id": "swe-testing-q22",
+      "type": "mcq",
+      "difficulty": "medium",
+      "question": "A test mocks the repository, cache, logger and formatter and asserts the exact order of seven calls. A teammate refactors to check the cache first; the output is identical, and the test fails. What is the real problem?",
+      "choices": [
+        "The test checks implementation details instead of behavior, so it is brittle",
+        "The refactor must have introduced a bug",
+        "Mocks should always be replaced with stubs",
+        "The test needs an extra mock for the cache"
+      ],
+      "answer": 0,
+      "explanation": "If behavior is unchanged and a test fails, the test was coupled to how the code works. Assert on outcomes (the returned value, the saved row) and keep doubles for real boundaries.",
+      "concept": "over-mocking",
+      "section": 4
+    },
+    {
+      "id": "swe-testing-q23",
+      "type": "recall",
+      "difficulty": "hard",
+      "question": "Give a rule of thumb for what to replace with test doubles in unit tests and what to leave real.",
+      "answer": "Replace things at the edge of your system that are slow, nondeterministic or have side effects: network calls, payment and email providers, the clock, randomness. Use real objects or simple fakes for your own code inside that edge, and cover each boundary with a few integration tests.",
+      "explanation": "Doubles at the boundary keep tests fast and deterministic without hiding bugs in your own logic. Doubles deep inside your own code make tests mirror the implementation.",
+      "concept": "where to mock",
+      "section": 4
+    },
+    {
+      "id": "swe-testing-q24",
+      "type": "code-fill",
+      "difficulty": "medium",
+      "language": "javascript",
+      "question": "Complete the line so the test can check how many times send was called.",
+      "code": "import { it, expect, vi } from 'vitest'\nimport { notifyOverdue } from './notify.js'\n\nit('sends one reminder per overdue invoice', () => {\n  const send = _____\n  notifyOverdue([{ id: 1, overdue: true }, { id: 2, overdue: false }], send)\n  expect(send).toHaveBeenCalledTimes(1)\n})",
+      "choices": [
+        "vi.mock()",
+        "() => {}",
+        "vi.fn()",
+        "vi.spyOn()"
+      ],
+      "answer": 2,
+      "explanation": "vi.fn() creates a mock function that records every call, which toHaveBeenCalledTimes reads. A plain arrow function records nothing, vi.mock replaces a whole module by path, and vi.spyOn needs an object and a method name to wrap.",
+      "concept": "vi.fn mock functions",
+      "section": 4
+    },
+    {
+      "id": "swe-testing-q25",
+      "type": "order",
+      "difficulty": "easy",
+      "question": "Put one lap of the TDD loop in order.",
+      "items": [
+        "Write a small test for the next behavior",
+        "Run it and watch it fail",
+        "Write the simplest code that makes it pass",
+        "Run the tests and see them all pass",
+        "Refactor while keeping the tests green"
+      ],
+      "explanation": "Red (a failing test), green (just enough code), then refactor with the safety net in place. Then start the next lap.",
+      "concept": "red green refactor",
+      "section": 5
+    },
+    {
+      "id": "swe-testing-q26",
+      "type": "mcq",
+      "difficulty": "medium",
+      "question": "A bug report says users named O'Brien cannot sign up. Working test-first, what is your first step?",
+      "choices": [
+        "Fix the quoting in the signup handler, then deploy",
+        "Write a test that signs up O'Brien, run it and watch it fail",
+        "Add logging in production to catch the next occurrence",
+        "Write tests for every other field on the form first"
+      ],
+      "answer": 1,
+      "explanation": "Reproducing the bug as a failing test proves you understand it, tells you when the fix works, and stays in the suite as a regression test so the bug cannot quietly return.",
+      "concept": "test-first bug fixing",
+      "section": 5
+    },
+    {
+      "id": "swe-testing-q27",
+      "type": "mcq",
+      "difficulty": "hard",
+      "question": "In the green step you write `return 120` to pass `test_factorial_of_5`. Is that acceptable in TDD?",
+      "choices": [
+        "No: the green step must always contain the final algorithm",
+        "No: hard-coded values make tests fail in CI",
+        "Yes, and you can stop there because the test passes",
+        "Yes, as a step: the next test, such as factorial of 3, forces a general solution"
+      ],
+      "answer": 3,
+      "explanation": "Green means the simplest code that passes. A fake answer is fine for one lap, because the next test cannot pass with it and pushes you toward the real algorithm. Stopping there would leave the behavior untested beyond one value.",
+      "concept": "simplest code to pass",
+      "section": 5
+    },
+    {
+      "id": "swe-testing-q28",
+      "type": "debug",
+      "difficulty": "medium",
+      "question": "This test reports 100% line and branch coverage for shipping. What is wrong with it?",
+      "code": "def shipping(total):\n    if total >= 50:\n        return 0\n    return 5\n\ndef test_shipping():\n    shipping(80)\n    shipping(20)",
+      "choices": [
+        "Coverage tools cannot measure if statements",
+        "Calling the function twice double-counts coverage",
+        "Nothing is asserted, so it passes even if shipping returns wrong values",
+        "It needs a call with exactly 50 before coverage can reach 100%"
+      ],
+      "answer": 2,
+      "explanation": "Both branches ran, so coverage is complete, but the test never checks a result. Change return 0 to return 99 and it still passes. Coverage measures execution, not verification.",
+      "concept": "coverage limits",
+      "section": 6
+    },
+    {
+      "id": "swe-testing-q29",
+      "type": "multi",
+      "difficulty": "medium",
+      "question": "Which of these commonly make a test flaky?",
+      "choices": [
+        "Using time.sleep to wait for a background job",
+        "Sharing a module-level cache between tests",
+        "Calling a real third-party API from CI",
+        "Asserting a literal expected value",
+        "Depending on today's date"
+      ],
+      "answers": [
+        0,
+        1,
+        2,
+        4
+      ],
+      "explanation": "Sleeps, shared state, external services and the real clock all vary from run to run. Asserting a literal value is deterministic, and it is good practice.",
+      "concept": "causes of flakiness",
+      "section": 6
+    },
+    {
+      "id": "swe-testing-q30",
+      "type": "mcq",
+      "difficulty": "hard",
+      "question": "This test fails about once in twenty CI runs. What is the best fix?",
+      "code": "def test_report_job_finishes():\n    start_report_job()\n    time.sleep(2)\n    assert report_status() == \"done\"",
+      "choices": [
+        "Raise the sleep to 10 seconds",
+        "Set it to retry three times automatically and move on",
+        "Poll the status until done or a timeout, or run the job synchronously in tests",
+        "Remove the assert so the test always passes"
+      ],
+      "answer": 2,
+      "explanation": "The test guesses how long the job takes. Waiting for the actual condition (with a generous timeout), or making the job synchronous in tests, removes the race. A longer sleep slows every run and can still lose on a busy machine; automatic retries hide the problem.",
+      "concept": "fixing timing flakiness",
+      "section": 6
+    },
+    {
+      "id": "swe-testing-q31",
+      "type": "typed",
+      "difficulty": "easy",
+      "question": "What is the name for a test that sometimes passes and sometimes fails on the same code?",
+      "answer": "flaky test",
+      "accept": [
+        "flaky",
+        "a flaky test"
+      ],
+      "explanation": "Flaky tests erode trust: people start rerunning red builds until they turn green, and real failures slip through.",
+      "concept": "flaky tests",
+      "section": 6
+    }
+  ]
+}

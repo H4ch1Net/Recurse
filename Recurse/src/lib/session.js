@@ -10,12 +10,18 @@ export const SESSION_KINDS = {
   review: 'Daily review',
   topic: 'Study',
   practice: 'Practice',
-  mistakes: 'Mistake review'
+  mistakes: 'Mistake review',
+  roulette: 'Recall roulette',
+  path: 'Path review'
 }
+
+// Share of a topic session given to pop quizzes: earlier cards from other topics.
+export const POP_RATES = { off: 0, sometimes: 1 / 6, often: 1 / 3 }
 
 export const MAX_RETRIES = 2
 
-function makeItem(pack, question, card, random, isNew) {
+/** A queue item for a question, with its choices or steps shuffled. */
+export function makeItem(pack, question, card, random = Math.random, isNew = false) {
   const item = {
     key: `${pack.id}:${question.id}`,
     packId: pack.id,
@@ -23,8 +29,46 @@ function makeItem(pack, question, card, random, isNew) {
     isNew,
     retry: 0
   }
-  if (isChoiceType(question.type)) item.order = shuffle(question.choices.map((_, i) => i), random)
+  if (isChoiceType(question.type) || question.type === 'multi') item.order = shuffle(question.choices.map((_, i) => i), random)
+  if (question.type === 'match') item.order = shuffle(question.pairs.map((_, i) => i), random)
+  if (question.type === 'order') item.order = scrambled(question.items.length, random)
   return item
+}
+
+/** A shuffled 0..n-1 that is never already in order (an order question must need work). */
+function scrambled(n, random) {
+  const identity = Array.from({ length: n }, (_, i) => i)
+  if (n < 2) return identity
+  for (let tries = 0; tries < 8; tries++) {
+    const order = shuffle(identity, random)
+    if (order.some((v, i) => v !== i)) return order
+  }
+  return [...identity.slice(1), identity[0]]
+}
+
+/**
+ * Previously seen cards from packs other than `excludeIds`, weakest memory first with a
+ * little randomness, for pop quizzes and recall roulette.
+ */
+export function seenPool(packs, progress, { excludeIds = [], now = new Date(), random = Math.random } = {}) {
+  const skip = new Set(excludeIds)
+  const pool = []
+  for (const pack of packs) {
+    if (skip.has(pack.id)) continue
+    for (const { question, card } of existingCards(pack, progress[pack.id])) {
+      pool.push({ pack, question, card, weight: (1 - retrievability(card, now)) + random() * 0.35 })
+    }
+  }
+  return pool.sort((a, b) => b.weight - a.weight)
+}
+
+/** Spread `extra` items evenly through `items`, never as the very first card. */
+function sprinkle(items, extra) {
+  if (!extra.length) return items
+  const out = [...items]
+  const gap = Math.max(2, Math.floor(out.length / (extra.length + 1)))
+  extra.forEach((item, i) => out.splice(Math.min(out.length, gap * (i + 1) + i), 0, item))
+  return out
 }
 
 function existingCards(pack, topic) {
@@ -82,11 +126,19 @@ export function newCardsRemaining(settings, stats, now = new Date()) {
  * (shuffled cram of one pack, ignores the schedule), 'mistakes' (unresolved misses).
  * Returns { kind, topicId, title, items, ahead } where ahead marks a review-ahead session.
  */
-export function buildSession({ kind, topicId, packs, progress, settings = {}, stats = {}, now = new Date(), seed = Date.now() }) {
+export function buildSession({ kind, topicId, topicIds, packs, progress, settings = {}, stats = {}, now = new Date(), seed = Date.now() }) {
   const random = createRandom(seed)
   const size = Math.max(1, settings.sessionSize ?? 12)
-  const packList = topicId ? packs.filter((p) => p.id === topicId) : packs
+  const scope = topicIds?.length ? new Set(topicIds) : null
+  const packList = topicId ? packs.filter((p) => p.id === topicId) : scope ? packs.filter((p) => scope.has(p.id)) : packs
   const result = { kind, topicId: topicId || null, title: SESSION_KINDS[kind] || 'Study', items: [], ahead: false }
+
+  if (kind === 'roulette') {
+    // Recall roulette: anything you have seen before, weakest first, ignoring the schedule.
+    const pool = seenPool(packList, progress, { now, random })
+    result.items = interleave(shuffle(pool.slice(0, size * 2), random).slice(0, size).map(({ pack, question, card }) => makeItem(pack, question, card, random, false)))
+    return result
+  }
 
   if (kind === 'mistakes') {
     const entries = []
@@ -106,9 +158,12 @@ export function buildSession({ kind, topicId, packs, progress, settings = {}, st
     const pack = packList[0]
     if (!pack) return result
     const topic = progress[pack.id]
-    result.items = shuffle(pack.questions, random)
-      .slice(0, size)
-      .map((q) => makeItem(pack, q, topic?.cards?.[q.id], random, !(topic?.cards?.[q.id]?.reps > 0)))
+    result.items = withPops(
+      shuffle(pack.questions, random)
+        .slice(0, size)
+        .map((q) => makeItem(pack, q, topic?.cards?.[q.id], random, !(topic?.cards?.[q.id]?.reps > 0))),
+      { packs, progress, settings, now, random, excludeIds: [pack.id] }
+    )
     return result
   }
 
@@ -121,15 +176,16 @@ export function buildSession({ kind, topicId, packs, progress, settings = {}, st
   }
   due.sort((a, b) => a.r - b.r)
   let reviews = due.slice(0, size).map(({ pack, question, card }) => makeItem(pack, question, card, random, false))
-  if (kind === 'review') reviews = interleave(reviews)
+  if (kind === 'review' || kind === 'path') reviews = interleave(reviews)
 
   // New cards in teaching order. The daily limit applies to the mixed daily review;
   // choosing a topic explicitly lets you keep learning it.
   const room = size - reviews.length
-  const newLimit = kind === 'review' ? Math.min(room, newCardsRemaining(settings, stats, now)) : room
+  const mixed = kind === 'review' || kind === 'path'
+  const newLimit = mixed ? Math.min(room, newCardsRemaining(settings, stats, now)) : room
   const fresh = []
   if (newLimit > 0) {
-    const sources = kind === 'review'
+    const sources = mixed
       ? packList
           .filter((pack) => {
             const topic = progress[pack.id]
@@ -147,6 +203,11 @@ export function buildSession({ kind, topicId, packs, progress, settings = {}, st
     }
   }
   result.items = mixIn(reviews, fresh)
+  // Studying one topic still pulls a few older cards from elsewhere, so earlier topics
+  // keep getting recalled while you learn new ones.
+  if (kind === 'topic' && result.items.length) {
+    result.items = withPops(result.items, { packs, progress, settings, now, random, excludeIds: [topicId] })
+  }
 
   // Nothing scheduled: offer to review ahead, weakest memories first.
   if (!result.items.length && kind === 'topic') {
@@ -158,6 +219,18 @@ export function buildSession({ kind, topicId, packs, progress, settings = {}, st
     result.ahead = result.items.length > 0
   }
   return result
+}
+
+/** Add pop-quiz cards (seen before, from other topics) at the learner's chosen rate. */
+function withPops(items, { packs, progress, settings, now, random, excludeIds }) {
+  const rate = POP_RATES[settings.popQuiz ?? 'sometimes'] ?? 0
+  const count = Math.floor(items.length * rate)
+  if (!count) return items
+  const pops = seenPool(packs, progress, { excludeIds, now, random })
+    .slice(0, count * 3)
+  const picked = shuffle(pops, random).slice(0, count)
+    .map(({ pack, question, card }) => ({ ...makeItem(pack, question, card, random, false), pop: true }))
+  return sprinkle(items, picked)
 }
 
 /** Requeue a missed card a few positions later so it is retried before the session ends. */

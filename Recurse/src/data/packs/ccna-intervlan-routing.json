@@ -1,0 +1,982 @@
+{
+  "id": "ccna-intervlan-routing",
+  "name": "Inter-VLAN Routing",
+  "version": "1.1.0",
+  "author": "Recurse",
+  "subject": "networking",
+  "level": "intermediate",
+  "description": "Route between VLANs with router-on-a-stick, Layer 3 switch SVIs, routed ports and Layer 3 EtherChannels, and troubleshoot each.",
+  "icon": "IV",
+  "language": "cisco",
+  "prereqs": [
+    "ccna-vlans",
+    "ccna-trunking",
+    "ccna-routing-table"
+  ],
+  "tags": [
+    "ccna",
+    "2.1",
+    "2.2",
+    "2.4",
+    "inter-vlan-routing",
+    "router-on-a-stick",
+    "svi",
+    "layer-3-switch",
+    "routed-port"
+  ],
+  "resources": [
+    {
+      "title": "Free CCNA 200-301 course (Jeremy's IT Lab)",
+      "url": "https://www.youtube.com/playlist?list=PLxbwE86jKRgMpuZuLBivzlM8s2Dk5lXBQ",
+      "kind": "video",
+      "note": "Free video course; its inter-VLAN routing day builds router-on-a-stick and SVIs step by step."
+    },
+    {
+      "title": "Configure Inter-VLAN Routing with Catalyst Switches",
+      "url": "https://www.cisco.com/c/en/us/support/docs/lan-switching/inter-vlan-routing/41260-189.html",
+      "kind": "docs",
+      "note": "Cisco example of SVIs, ip routing and a routed uplink on a Layer 3 switch."
+    },
+    {
+      "title": "Configure Inter VLAN Routing with the Use of an External Router",
+      "url": "https://www.cisco.com/c/en/us/support/docs/lan-switching/inter-vlan-routing/14976-50.html",
+      "kind": "docs",
+      "note": "Cisco router-on-a-stick example with 802.1Q subinterfaces."
+    },
+    {
+      "title": "Routing Between VLANs and Layer 3 Switches",
+      "url": "https://www.practicalnetworking.net/stand-alone/routing-between-vlans/",
+      "kind": "article",
+      "note": "Free illustrated comparison of the router-per-VLAN, ROAS and Layer 3 switch designs."
+    },
+    {
+      "title": "Cisco Packet Tracer",
+      "url": "https://www.netacad.com/cisco-packet-tracer",
+      "kind": "tool",
+      "note": "Free simulator from Cisco Networking Academy to build all three designs yourself."
+    },
+    {
+      "title": "CCNA 200-301 Official Cert Guide, Volume 1 (Wendell Odom)",
+      "url": "https://www.ciscopress.com/store/ccna-200-301-official-cert-guide-volume-1-9780135792735",
+      "kind": "book",
+      "note": "Chapter 17, IP Routing in the LAN, is the source this pack follows."
+    }
+  ],
+  "lesson": {
+    "estimatedMinutes": 40,
+    "intro": "VLANs split a switched network into separate subnets, and something has to route between them before any host can reach another VLAN. This lesson builds the CCNA designs (router-on-a-stick, Layer 3 switch SVIs, routed ports and Layer 3 EtherChannels), follows a packet through each, shows how to verify them and walks through the faults that break them.",
+    "objectives": [
+      "Configure router-on-a-stick with 802.1Q subinterfaces, including the native VLAN",
+      "Configure a Layer 3 switch to route between VLANs with ip routing and SVIs, and trace a packet through it",
+      "Choose between an SVI, a routed port and a Layer 3 EtherChannel, and configure each correctly",
+      "Troubleshoot inter-VLAN routing: wrong encapsulation VLAN, missing ip routing, SVIs that stay down and missing return routes"
+    ],
+    "sections": [
+      {
+        "title": "Why VLANs need a router",
+        "body": "SW1 has two VLANs: VLAN 10 for Sales (192.168.10.0/24) and VLAN 20 for Engineering (192.168.20.0/24). PC-A in VLAN 10 pings PC-B in VLAN 20. Both are plugged into the same switch, a meter apart, and the ping fails.\n\nThat is VLANs doing their job. Each VLAN is a separate broadcast domain, and a Layer 2 switch forwards frames only within a VLAN. In a sound design each VLAN is also its own IP subnet, so PC-A knows 192.168.20.22 is in another subnet and sends the packet to its **default gateway**, 192.168.10.1. If nothing owns that address, PC-A's ARP request for it goes unanswered and the packet goes nowhere.\n\nSo inter-VLAN traffic needs a Layer 3 device with an address in every VLAN: that address is the hosts' gateway, and the device routes between its connected subnets exactly like any router. There are three common ways to build it:\n\n- **One router interface per VLAN.** Each VLAN gets an access link to its own physical router port. Simple, but it burns a router port and a switch port per VLAN, so it only suits two or three VLANs.\n- **Router-on-a-stick (ROAS).** One router port connects to a switch trunk, and the router uses one subinterface per VLAN. Cheap and common at small sites.\n- **A Layer 3 switch with SVIs.** The switch itself routes between VLANs using one virtual interface per VLAN, at hardware speed. The normal choice in a campus. Layer 3 switches can also turn a physical port into a **routed port** for point-to-point links.\n\nWhatever the design, the hosts see the same thing: a gateway address in their own subnet whose MAC they learn with ARP. The rest of this lesson builds each design and shows how each one breaks.",
+        "code": "VLAN 10  192.168.10.0/24                 VLAN 20  192.168.20.0/24\nPC-A 192.168.10.11                       PC-B 192.168.20.22\ngateway 192.168.10.1                     gateway 192.168.20.1\n       |                                          |\n     Fa0/1 (access 10) ---- [ SW1 ] ---- Fa0/2 (access 20)\n                               |\n          something must own .10.1 and .20.1 and route between them",
+        "language": "plaintext",
+        "tip": "One VLAN, one subnet, one gateway address. If those three line up, inter-VLAN routing is just ordinary routing between connected subnets.",
+        "pitfall": "Putting hosts from different VLANs in the same subnet. They still cannot talk (broadcasts and ARP stay inside each VLAN), and routing cannot fix it because the addressing claims they are local.",
+        "activity": {
+          "type": "vlan-trunk",
+          "title": "VLANs isolate, trunks extend",
+          "prompt": "Put two hosts on the same switch in different VLANs and test reachability: notice they cannot talk even though they share a switch. Then make same-VLAN hosts on both switches reach each other across the trunk. That trunk is the Layer 2 half of router-on-a-stick.",
+          "props": {}
+        },
+        "check": {
+          "question": "PC-A (VLAN 10) and PC-B (VLAN 20) connect to SW1, a Layer 2 switch with no router attached. What happens when PC-A pings PC-B?",
+          "choices": [
+            "It works because both ports are on the same switch",
+            "SW1 floods the ping into every VLAN until PC-B answers",
+            "It fails: PC-A sends to its default gateway, and nothing answers for that address",
+            "SW1 routes it, because switches route between their own VLANs by default"
+          ],
+          "answer": 2,
+          "explanation": "PC-B is in another subnet, so PC-A needs its gateway. With no Layer 3 device in VLAN 10, the ARP for the gateway goes unanswered. A Layer 2 switch never forwards frames between VLANs."
+        }
+      },
+      {
+        "title": "Router-on-a-stick: one trunk, many subinterfaces",
+        "body": "A branch has one router (R1) and one switch (SW1) with VLANs 10 and 20. Instead of using two router ports, you cable a single router port, G0/0, to SW1 and make that link an 802.1Q trunk. On the router you split G0/0 into **subinterfaces**, one per VLAN:\n\n- `interface g0/0.10` creates subinterface 10. The number after the dot is just a label; matching it to the VLAN ID is a convention that saves your sanity.\n- `encapsulation dot1q 10` tells the subinterface which VLAN tag it handles: it receives frames tagged 10 and tags frames it sends with 10.\n- `ip address 192.168.10.1 255.255.255.0` makes it the gateway for VLAN 10. IOS refuses an IP address on a LAN subinterface until the encapsulation is set, so the order matters.\n- The physical interface needs `no shutdown`. A subinterface can never be more up than its parent, so a shut parent takes every subinterface down with it.\n\nEach subinterface creates its own connected and local routes, so R1 routes between 192.168.10.0/24 and 192.168.20.0/24 like any other connected subnets.\n\nThe switch side is a normal trunk: `switchport mode trunk` on the port facing R1, with VLANs 10 and 20 allowed. Routers do not negotiate trunking with DTP, so the switch port must be set to trunk statically. (Switches that also support ISL need `switchport trunk encapsulation dot1q` first.)\n\nFollow one packet from PC-A (VLAN 10) to PC-B (VLAN 20): it travels up the trunk tagged 10, R1 routes it from G0/0.10 to G0/0.20, and it travels back down the same trunk tagged 20. Every routed packet crosses the link twice. That **hairpin** is the weakness of ROAS: one physical link carries all inter-VLAN traffic in both directions, so it becomes a bottleneck as the site grows.",
+        "code": "R1(config)# interface g0/0\nR1(config-if)# no shutdown\nR1(config-if)# interface g0/0.10\nR1(config-subif)# encapsulation dot1q 10\nR1(config-subif)# ip address 192.168.10.1 255.255.255.0\nR1(config-subif)# interface g0/0.20\nR1(config-subif)# encapsulation dot1q 20\nR1(config-subif)# ip address 192.168.20.1 255.255.255.0\n\nSW1(config)# interface g0/1\nSW1(config-if)# switchport mode trunk\nSW1(config-if)# switchport trunk allowed vlan 10,20",
+        "tip": "On each subinterface: encapsulation first, IP address second. The parent physical interface needs no IP address, just no shutdown.",
+        "pitfall": "Forgetting no shutdown on the physical interface. The subinterfaces show administratively down even though you never shut them.",
+        "activity": {
+          "type": "ios-console",
+          "title": "Build router-on-a-stick",
+          "prompt": "Bring up G0/0, then build G0/0.10 and G0/0.20. Enter encapsulation dot1q before the IP address on each subinterface. Finish with show ip interface brief and look for both subinterfaces up/up with their gateway addresses.",
+          "props": {
+            "lab": "cl-d3-ros"
+          }
+        },
+        "check": {
+          "question": "Which command on subinterface G0/0.30 tells the router to handle frames tagged with VLAN 30?",
+          "choices": [
+            "encapsulation dot1q 30",
+            "switchport access vlan 30",
+            "switchport trunk allowed vlan 30",
+            "vlan 30"
+          ],
+          "answer": 0,
+          "explanation": "Router subinterfaces bind to a VLAN with encapsulation dot1q <vlan-id>. The switchport and vlan commands are switch commands; a router port is not a switchport."
+        }
+      },
+      {
+        "title": "The native VLAN, and verifying router-on-a-stick",
+        "body": "An 802.1Q trunk sends one VLAN untagged: the **native VLAN**. If R1 must route for the native VLAN's subnet, it needs to know which subinterface owns the untagged frames. There are two options:\n\n- Put the IP address on the physical interface (`interface g0/0`, `ip address ...`) with no encapsulation command. Untagged frames belong to the physical interface.\n- Or use a subinterface with the `native` keyword: `encapsulation dot1q 99 native`. The router then sends VLAN 99 untagged and treats untagged frames it receives as VLAN 99.\n\nEither way, the router's native VLAN must match the native VLAN on the switch trunk. If the switch's native VLAN is 99 but R1 thinks VLAN 99 is tagged, the untagged frames land on the wrong interface and that subnet breaks.\n\nTo verify ROAS, use these commands on the router and the switch:\n\n- `show ip interface brief`: each subinterface, its address and status. A subinterface's status follows its parent.\n- `show ip route connected`: one C and one L route per working subinterface.\n- `show vlans` (router): which subinterface handles each VLAN and its packet counters. The native VLAN's entry adds `This is configured as native Vlan for the following interface(s)` and `Native-vlan Tx-type: Untagged`.\n- `show interfaces trunk` (switch): the port is trunking, the native VLAN, and whether each VLAN is allowed, active and forwarding.\n\nThe trap with ROAS is that each device only sees its own half. If the switch port is an access port, or VLAN 20 is missing from the allowed list, R1 still shows its subinterfaces up/up and its connected routes present. Nothing on the router tells you the switch is wrong, so you must check both ends.",
+        "code": "R1# show ip interface brief\nInterface              IP-Address      OK? Method Status                Protocol\nGigabitEthernet0/0     unassigned      YES unset  up                    up\nGigabitEthernet0/0.10  192.168.10.1    YES manual up                    up\nGigabitEthernet0/0.20  192.168.20.1    YES manual up                    up\nGigabitEthernet0/0.99  192.168.99.1    YES manual up                    up\n\nR1# show running-config interface g0/0.99\n! output trimmed\ninterface GigabitEthernet0/0.99\n encapsulation dot1Q 99 native\n ip address 192.168.99.1 255.255.255.0\n\nSW1# show interfaces trunk\nPort        Mode         Encapsulation  Status        Native vlan\nGi0/1       on           802.1q         trunking      99\n\nPort        Vlans allowed on trunk\nGi0/1       10,20,99\n\nPort        Vlans allowed and active in management domain\nGi0/1       10,20,99\n\nPort        Vlans in spanning tree forwarding state and not pruned\nGi0/1       10,20,99",
+        "tip": "Verify ROAS from both sides: router (show ip interface brief, show vlans) and switch (show interfaces trunk).",
+        "pitfall": "Trusting the router's up/up subinterfaces as proof the design works. The router cannot see a misconfigured switch port.",
+        "check": {
+          "question": "R1's subinterfaces are up/up and show ip route lists both connected subnets, yet no host can reach its gateway. R1's configuration is correct. What should you check next?",
+          "choices": [
+            "Whether R1 needs ip routing enabled for subinterfaces",
+            "Whether R1 needs OSPF to route between its subinterfaces",
+            "Whether R1's physical G0/0 needs its own IP address",
+            "The switch port facing R1: is it trunking, and are VLANs 10 and 20 allowed and active?"
+          ],
+          "answer": 3,
+          "explanation": "Routers do not negotiate trunks and cannot detect switch-side mistakes, so an access port or a pruned VLAN on SW1 breaks ROAS silently. Routers route between connected subnets without any routing protocol, and the physical interface needs an address only for the native VLAN option."
+        }
+      },
+      {
+        "title": "Layer 3 switches and SVIs",
+        "body": "The campus has 30 VLANs and thousands of users. Pushing all of that through one router trunk would be painful. A **Layer 3 switch** solves it: the same box switches frames within each VLAN and routes packets between VLANs, in hardware, with no hairpin over a trunk.\n\nThe routing interface for each VLAN is a **switched virtual interface (SVI)**, also called a VLAN interface. `interface vlan 10` creates it, and its IP address becomes the default gateway for VLAN 10. The SVI is not tied to a physical port; it is the switch's own Layer 3 presence inside the VLAN, reachable through any port in that VLAN.\n\nThe checklist:\n\n- On some models, first enable a routing-capable memory template with `sdm prefer lanbase-routing` (or similar) and reload. If `ip routing` is rejected as invalid input, this is why.\n- `ip routing` in global configuration. Without it the switch keeps its SVIs as management interfaces and does not route between them.\n- Make sure each VLAN exists (`vlan 10`, `vlan 20`).\n- `interface vlan 10`, `ip address 192.168.10.1 255.255.255.0`, `no shutdown`. Repeat per VLAN.\n- Give the switch a route to the rest of the network (a default route or OSPF) if traffic leaves the campus.\n\n`show ip route` then lists one connected and one local route per SVI, with interfaces named `Vlan10`, `Vlan20` and so on. Routing protocols such as OSPF work on SVIs exactly as on router interfaces.\n\nIn a typical campus the access switches stay Layer 2. They trunk the user VLANs up to a pair of distribution Layer 3 switches, and the SVIs live there. Two switches serving the same VLAN raises a new question (which one is the gateway?), and that is exactly what first hop redundancy protocols such as HSRP answer in a later lesson.",
+        "code": "DSW1(config)# ip routing\nDSW1(config)# vlan 10\nDSW1(config-vlan)# vlan 20\nDSW1(config-vlan)# exit\nDSW1(config)# interface vlan 10\nDSW1(config-if)# ip address 192.168.10.1 255.255.255.0\nDSW1(config-if)# no shutdown\nDSW1(config-if)# interface vlan 20\nDSW1(config-if)# ip address 192.168.20.1 255.255.255.0\nDSW1(config-if)# no shutdown\nDSW1(config-if)# end\nDSW1# show ip route connected\n! legend omitted\n      192.168.10.0/24 is variably subnetted, 2 subnets, 2 masks\nC        192.168.10.0/24 is directly connected, Vlan10\nL        192.168.10.1/32 is directly connected, Vlan10\n      192.168.20.0/24 is variably subnetted, 2 subnets, 2 masks\nC        192.168.20.0/24 is directly connected, Vlan20\nL        192.168.20.1/32 is directly connected, Vlan20",
+        "tip": "Hosts can ping their SVI gateway but nothing in another VLAN? Check for ip routing before anything else.",
+        "pitfall": "Forgetting ip routing. The SVIs come up and answer pings from their own VLAN, so everything looks healthy, but the switch does not route between VLANs.",
+        "activity": {
+          "type": "ios-console",
+          "title": "Turn a switch into the gateway",
+          "prompt": "In this free switch sandbox, PC1 on G0/1 is 10.0.10.11 and PC2 on G0/2 is 10.0.20.12. Enable ip routing, create VLANs 10 and 20, put G0/1 in VLAN 10 and G0/2 in VLAN 20, then build interface vlan 10 (10.0.10.1/24) and interface vlan 20 (10.0.20.1/24) with no shutdown. Check show ip route for the Vlan10 and Vlan20 connected routes and ping both PCs. Finally create interface vlan 30 with an address and explain why show ip interface brief lists it as up/down.",
+          "props": {
+            "device": "switch"
+          }
+        },
+        "check": {
+          "question": "Which global command makes a Cisco Layer 3 switch route between its SVIs?",
+          "choices": [
+            "ip default-gateway 192.168.10.1",
+            "ip routing",
+            "no switchport",
+            "ipv6 unicast-routing"
+          ],
+          "answer": 1,
+          "explanation": "ip routing enables IPv4 routing. ip default-gateway is what a switch uses when it is not routing, no switchport makes a physical port a routed port, and ipv6 unicast-routing enables IPv6 forwarding only."
+        }
+      },
+      {
+        "title": "Following a packet through a Layer 3 switch",
+        "body": "PC-A (192.168.10.11, VLAN 10) pings PC-B (192.168.20.22, VLAN 20). Both hang off access switches that trunk up to DSW1, a Layer 3 switch with SVIs 192.168.10.1 and 192.168.20.1. Here is what happens, and it is exactly what a router would do:\n\n- PC-A sees that 192.168.20.22 is in another subnet, so it ARPs for its gateway, 192.168.10.1. Interface Vlan10 on DSW1 answers with DSW1's MAC address.\n- PC-A sends the frame in VLAN 10: destination MAC is DSW1, destination IP is still 192.168.20.22.\n- DSW1 sees its own MAC as the destination, so instead of switching the frame it routes the packet. It strips the frame, decrements the TTL and matches `C 192.168.20.0/24 is directly connected, Vlan20`.\n- DSW1 ARPs for 192.168.20.22 inside VLAN 20, then builds a new frame: source MAC DSW1, destination MAC PC-B, sent in VLAN 20 toward PC-B's access port.\n\nCompare router-on-a-stick: the same logic, but the packet has to climb a trunk to the router and come back down. Here it never leaves the switch's hardware.\n\nTraffic for the rest of the network needs more than connected routes. Give DSW1 a routed uplink to the WAN router and either a static default route (`ip route 0.0.0.0 0.0.0.0 10.0.0.2`) or a routing protocol. OSPF runs on SVIs and routed ports exactly as on router interfaces; make the user-VLAN SVIs passive, since no routers live there.\n\nThen think about the return path. The WAN router must know that 192.168.10.0/24 and 192.168.20.0/24 sit behind DSW1, through static routes or OSPF. Forget that, and hosts reach each other across VLANs perfectly while every reply from beyond the WAN router is dropped.",
+        "code": "PC-A 192.168.10.11 (VLAN 10)  ->  PC-B 192.168.20.22 (VLAN 20), routed by DSW1\n 1. PC-A ARPs for its gateway 192.168.10.1; interface Vlan10 replies with DSW1's MAC\n 2. Frame in VLAN 10: dst MAC = DSW1, dst IP = 192.168.20.22\n 3. DSW1 routes: C 192.168.20.0/24 is directly connected, Vlan20 (TTL - 1)\n 4. DSW1 ARPs for 192.168.20.22 in VLAN 20\n 5. New frame in VLAN 20: src MAC = DSW1, dst MAC = PC-B\n\nDSW1(config)# interface g1/0/24\nDSW1(config-if)# no switchport\nDSW1(config-if)# ip address 10.0.0.1 255.255.255.252\nDSW1(config-if)# exit\nDSW1(config)# ip route 0.0.0.0 0.0.0.0 10.0.0.2\n\n! The WAN router needs the way back to the VLAN subnets\nWAN(config)# ip route 192.168.10.0 255.255.255.0 10.0.0.1\nWAN(config)# ip route 192.168.20.0 255.255.255.0 10.0.0.1",
+        "tip": "An SVI-based switch routes exactly like a router: ARP for the gateway, strip the frame, look up the route, decrement the TTL, build a new frame.",
+        "pitfall": "Testing only between VLANs. Inter-VLAN pings can work while traffic to the WAN fails, because the upstream router has no route back to the VLAN subnets.",
+        "check": {
+          "question": "DSW1 routes a packet from PC-A (VLAN 10) to PC-B (VLAN 20). In the frame DSW1 sends out toward PC-B, what is the source MAC address?",
+          "choices": [
+            "PC-A's MAC address, because switches never change MAC addresses",
+            "DSW1's own MAC address, because DSW1 routed the packet and built a new frame",
+            "The broadcast address, because DSW1 floods routed packets",
+            "PC-B's MAC address"
+          ],
+          "answer": 1,
+          "explanation": "Once DSW1 routes, it behaves like a router: it discards the incoming frame and builds a new one with its own MAC as the source and PC-B's MAC (learned with ARP in VLAN 20) as the destination. Source MACs are preserved only when a frame is switched within one VLAN."
+        }
+      },
+      {
+        "title": "When an SVI stays down",
+        "body": "You create `interface vlan 20`, give it an address, type `no shutdown`, and `show ip interface brief` still shows Vlan20 as up/down. The SVI is fine; its VLAN is not.\n\nAn SVI's line protocol is tied to the health of its VLAN on that switch. For an SVI to be **up/up**, all of these must be true:\n\n- The VLAN exists on the switch (created locally or learned through VTP).\n- At least one interface in the VLAN is up/up and forwarding: an access port assigned to the VLAN, or a trunk that allows the VLAN, has it active and is STP forwarding for it.\n- The VLAN itself is not shut down (`shutdown` in VLAN configuration mode).\n- The SVI is not shut down (`shutdown` in interface vlan mode).\n\nTwo statuses to read quickly:\n\n- **administratively down / down:** the SVI itself is shut. Fix with `no shutdown` under `interface vlan N`.\n- **up / down:** the SVI is enabled, but its VLAN is missing, has no active ports, or is shut down. Look at `show vlan brief` and `show interfaces trunk`.\n\nIn the exhibit, Vlan10 is healthy. Vlan20 is up/down because VLAN 20 exists but no port carries it (this switch has no trunks). Vlan30 is administratively down: someone needs to `no shutdown` the SVI. The \"VLAN\" and the \"VLAN interface\" are separate objects with separate shutdown commands, and both must be enabled.\n\nThe source book's three classic ways to break an SVI make good practice, because in each one the SVI itself stays enabled: shut down the last up port that carries VLAN 10 (Vlan10 drops to up/down), delete VLAN 20 (Vlan20 drops to up/down and its access ports go inactive), or enter `shutdown` under `vlan 30` (`show vlan brief` shows `act/lshut`, and Vlan30 drops to up/down). Fix the VLAN, and the SVI comes back by itself.",
+        "code": "DSW1# show ip interface brief | include Vlan\nVlan1                  unassigned      YES unset  administratively down down\nVlan10                 192.168.10.1    YES manual up                    up\nVlan20                 192.168.20.1    YES manual up                    down\nVlan30                 192.168.30.1    YES manual administratively down down\n\nDSW1# show vlan brief\nVLAN Name                             Status    Ports\n---- -------------------------------- --------- -------------------------------\n1    default                          active    Gi1/0/3, Gi1/0/4, Gi1/0/5\n10   SALES                            active    Gi1/0/1, Gi1/0/2\n20   ENG                              active\n30   VOICE                            active    Gi1/0/6",
+        "tip": "SVI up/down means \"look at the VLAN\": does it exist, does any up port carry it, is the VLAN shut down?",
+        "pitfall": "Typing no shutdown on the SVI over and over when the real problem is a VLAN with no active ports. An SVI can be enabled and still down.",
+        "check": {
+          "question": "Vlan20 shows up/down. VLAN 20 exists and the SVI has no shutdown. What is the most likely cause?",
+          "choices": [
+            "ip routing is disabled",
+            "No up/up access port or forwarding trunk carries VLAN 20 on this switch",
+            "The SVI has the wrong IP address",
+            "The switch has no default route"
+          ],
+          "answer": 1,
+          "explanation": "An enabled SVI goes up/down when its VLAN has no active ports. ip routing, the address and routes affect forwarding, not the SVI's line protocol."
+        }
+      },
+      {
+        "title": "Routed ports: no switchport",
+        "body": "Distribution switch DSW1 has one uplink to the WAN router. That link is a single subnet between two devices, so it does not need a VLAN at all. You could create VLAN 99, make the port an access port in VLAN 99 and build an SVI, but there is a simpler way: turn the port into a **routed port**.\n\n`no switchport` on a physical interface tells a Layer 3 switch to stop treating it as a Layer 2 switch port. It no longer belongs to a VLAN, does not learn MAC addresses or run STP, and behaves like a router interface: you configure the IP address directly on it. Until you do, the switch refuses an address on that port with `% IP addresses may not be configured on L2 links.`\n\nFrames that arrive on a routed port always go to the routing logic: strip the frame, look up the destination IP, build a new frame. That is also the limit of a routed port: it is one interface in one subnet, so it cannot forward into a VLAN that spans other ports. When many ports must share a subnet, you need an SVI.\n\nHow a routed port shows up:\n\n- `show interfaces status` lists `routed` in the VLAN column.\n- `show ip route` lists the physical interface (for example GigabitEthernet1/0/24) as the exit interface of its connected route.\n- `show interfaces g1/0/24 switchport` replies with just `Switchport: Disabled`.\n- `show interfaces g1/0/24` lists the IP address, as it would on a router.\n\nRouted ports are the normal choice for every link between two Layer 3 devices: distribution to core switches, and a Layer 3 switch to a WAN router or firewall. Running a routing protocol over them then gives each link one clean neighbor relationship, with no VLAN or spanning tree involved.",
+        "code": "DSW1(config)# interface g1/0/24\nDSW1(config-if)# no switchport\nDSW1(config-if)# ip address 10.0.0.1 255.255.255.252\nDSW1(config-if)# no shutdown\nDSW1(config-if)# end\nDSW1# show interfaces status | include Gi1/0/24\nGi1/0/24                     connected    routed       a-full a-1000 10/100/1000BaseTX\nDSW1# show interfaces g1/0/24 switchport\nName: Gi1/0/24\nSwitchport: Disabled\nDSW1# show ip route connected | include 1/0/24\nC        10.0.0.0/30 is directly connected, GigabitEthernet1/0/24\nL        10.0.0.1/32 is directly connected, GigabitEthernet1/0/24",
+        "tip": "SVI for a VLAN with many ports, routed port for a link with exactly two devices.",
+        "pitfall": "Typing ip address on a port that is still a switchport and getting \"% IP addresses may not be configured on L2 links.\" The port needs no switchport first.",
+        "check": {
+          "question": "Which link is the best fit for a routed port instead of an SVI?",
+          "choices": [
+            "A user VLAN with 40 access ports",
+            "A trunk carrying VLANs 10, 20 and 30 to another switch",
+            "A voice VLAN shared by phones on every floor",
+            "A single point-to-point uplink from a Layer 3 switch to a WAN router"
+          ],
+          "answer": 3,
+          "explanation": "A routed port is one physical link in one subnet with no VLAN, perfect for an uplink between two Layer 3 devices. Subnets spread across many ports or carried on trunks need SVIs."
+        }
+      },
+      {
+        "title": "Layer 3 EtherChannel, and choosing a design",
+        "body": "Distribution and core switches are usually joined by two or more parallel links. Making each link a separate routed port works, but then OSPF forms one neighbor per link and learns two routes for every destination. A **Layer 3 EtherChannel** bundles the links into one routed interface: one subnet, one neighbor, one route, and the switch balances traffic across the member links.\n\nThe configuration combines two things you already know:\n\n- On each member port: `no switchport` and `channel-group 1 mode active` (LACP; `mode on` builds a static bundle). The channel-group number is local, so it may differ on the two switches.\n- On `interface port-channel 1`: `no switchport` (IOS often adds it for you) and the IP address. The address lives on the port-channel only; members carry none, and `no switchport` on a member even adds `no ip address`.\n\nThe members must agree before they bundle: every one routed (a member left as a switchport does not join), the same speed and the same duplex, plus the usual EtherChannel negotiation rules.\n\nTo verify, `show etherchannel summary` marks a Layer 3 bundle with R: `Po1(RU)` means Layer 3 and in use, and each member shows (P) for bundled. A Layer 2 bundle shows S instead of R. `show ip route` and `show interfaces status` refer to Port-channel1, listed as routed.\n\nChoosing between the designs:\n\n- Many ports must share a subnet (user VLANs): SVI.\n- Exactly one link between two Layer 3 devices: routed port.\n- Several parallel links between two Layer 3 devices: Layer 3 EtherChannel.\n- A small site with only a router and a Layer 2 switch: router-on-a-stick.",
+        "code": "DSW1(config)# interface range gigabitethernet1/0/1 - 2\nDSW1(config-if-range)# no switchport\nDSW1(config-if-range)# channel-group 1 mode active\nDSW1(config-if-range)# exit\nDSW1(config)# interface port-channel 1\nDSW1(config-if)# no switchport\nDSW1(config-if)# ip address 10.0.1.1 255.255.255.252\nDSW1(config-if)# end\nDSW1# show etherchannel summary\nFlags:  D - down        P - bundled in port-channel\n        I - stand-alone s - suspended\n        H - Hot-standby (LACP only)\n        R - Layer3      S - Layer2\n        U - in use      f - failed to allocate aggregator\n! lines omitted\nGroup  Port-channel  Protocol    Ports\n------+-------------+-----------+-----------------------------------------------\n1      Po1(RU)         LACP      Gi1/0/1(P)  Gi1/0/2(P)\n\nDesign              Gateway lives on                  Best for\nRouter per VLAN     one physical router port per VLAN two or three VLANs\nRouter-on-a-stick   router subinterfaces on a trunk   small sites (trunk is the bottleneck)\nSVI                 interface vlan N on an L3 switch  user VLANs in a campus (needs ip routing)\nRouted port         physical port with no switchport  one link between Layer 3 devices\nL3 EtherChannel     interface port-channel, routed    parallel links between Layer 3 devices",
+        "tip": "R in show etherchannel summary means Layer 3, S means Layer 2. A bundle meant to be routed that shows Po1(SU) is missing no switchport.",
+        "pitfall": "Putting IP addresses on the member ports. The bundle is one routed interface, so the single address belongs on interface port-channel.",
+        "check": {
+          "question": "Which link is the best fit for a Layer 3 EtherChannel?",
+          "choices": [
+            "A user VLAN with 40 access ports",
+            "A single uplink from a Layer 3 switch to a WAN router",
+            "A trunk carrying VLANs 10, 20 and 30 to an access switch",
+            "Two parallel links between a distribution switch and a core switch that both route"
+          ],
+          "answer": 3,
+          "explanation": "Parallel links between two Layer 3 devices become one routed bundle with one subnet and one routing neighbor. A single link only needs a routed port, user VLANs need SVIs, and a trunk to an access switch stays Layer 2."
+        }
+      },
+      {
+        "title": "Troubleshooting inter-VLAN routing",
+        "body": "A ticket says \"VLAN 20 cannot reach anything outside VLAN 20, VLAN 10 is fine\". Work from the host outward and only one layer at a time.\n\n**Host:** correct IP and mask for VLAN 20, and the default gateway set to VLAN 20's gateway address (192.168.20.1), not another VLAN's.\n\n**Access switch:** the host's port is an access port in VLAN 20 (`show vlan brief`, `show interfaces status`).\n\n**Trunk (ROAS or uplinks):** `show interfaces trunk` on the switch: the port is trunking, VLAN 20 is allowed, active and forwarding, and the native VLAN matches the router or the far switch.\n\n**Router-on-a-stick:** `show running-config` on R1: the VLAN 20 subinterface has `encapsulation dot1q 20` (the right VLAN number), the right address and mask, and the parent interface is not shut.\n\n**Layer 3 switch:** `ip routing` is enabled, and SVI Vlan20 is up/up (VLAN exists, has an active port, neither VLAN nor SVI shut).\n\nThe exhibit shows the sneakiest ROAS fault. G0/0.20 has the right address and shows up/up, so `show ip interface brief` looks perfect. But its encapsulation is VLAN 200. Frames from VLAN 20 hosts arrive tagged 20, match no subinterface and are discarded, and R1's replies leave tagged 200, a VLAN the switch does not use. `show vlans` gives it away: VLAN ID 200 on G0/0.20. The fix is `encapsulation dot1q 20` on that subinterface.\n\nA Layer 3 switch with routing disabled has its own tell: `show ip route` prints `Default gateway is not set` and an ICMP redirect cache instead of a routing table.\n\nAfter any fix, prove it end to end from a VLAN 20 host: ping its gateway first (proves the access port, trunk and tag), then a host in VLAN 10 (proves routing and the return path). A traceroute should show the gateway as hop 1.",
+        "code": "R1# show running-config | section GigabitEthernet0/0.20\ninterface GigabitEthernet0/0.20\n encapsulation dot1Q 200\n ip address 192.168.20.1 255.255.255.0\n\nR1# show vlans\n! output trimmed to the VLAN 20 gateway\nVirtual LAN ID:  200 (IEEE 802.1Q Encapsulation)\n\n   vLAN Trunk Interface:   GigabitEthernet0/0.20\n\n   Protocols Configured:   Address:          Received:        Transmitted:\n           IP              192.168.20.1              0                 12\n\nDSW2# show ip route\nDefault gateway is not set\n\nHost               Gateway           Last Use    Total Uses  Interface\nICMP redirect cache is empty",
+        "tip": "Up/up proves the interface is enabled, not that its VLAN tag is right. Read the encapsulation line.",
+        "pitfall": "Retyping the IP address on a subinterface that already has the right one. When one VLAN fails and the rest work, compare that VLAN's encapsulation number first.",
+        "activity": {
+          "type": "ios-console",
+          "title": "Troubleshoot: one VLAN cannot route",
+          "prompt": "VLAN 20 hosts cannot reach 192.168.20.1 while VLAN 10 works. Use show running-config and show ip interface brief to find the fault, then fix G0/0.20 without touching G0/0.10. Notice how healthy the broken subinterface looks in show ip interface brief.",
+          "props": {
+            "lab": "cl-ts-intervlan"
+          }
+        },
+        "check": {
+          "question": "A Layer 3 switch has SVIs up/up for VLANs 10 and 20. Hosts ping their own gateway but not hosts in the other VLAN, and show ip route prints \"Default gateway is not set\". What is the fix?",
+          "choices": [
+            "Configure ip routing in global configuration mode",
+            "Configure no shutdown on both SVIs",
+            "Add a default route to the switch",
+            "Configure no switchport on the SVIs"
+          ],
+          "answer": 0,
+          "explanation": "That show ip route output appears when IP routing is disabled. The SVIs are already up/up, a default route would not enable routing, and no switchport applies to physical ports, not SVIs."
+        }
+      }
+    ],
+    "keyTerms": [
+      {
+        "term": "Inter-VLAN routing",
+        "definition": "Routing packets between the subnets of different VLANs using a Layer 3 device that has an interface in each."
+      },
+      {
+        "term": "Router-on-a-stick (ROAS)",
+        "definition": "One router interface on an 802.1Q trunk, with one subinterface per VLAN acting as its gateway."
+      },
+      {
+        "term": "Subinterface",
+        "definition": "A logical interface such as G0/0.10 that carves a physical router interface into several Layer 3 interfaces."
+      },
+      {
+        "term": "encapsulation dot1q",
+        "definition": "The subinterface command that binds it to one 802.1Q VLAN ID (add native for the untagged VLAN)."
+      },
+      {
+        "term": "Native VLAN",
+        "definition": "The VLAN a trunk carries untagged; router and switch must agree on it."
+      },
+      {
+        "term": "Layer 3 switch",
+        "definition": "A switch that also routes IP packets between VLANs in hardware once ip routing is enabled."
+      },
+      {
+        "term": "SVI",
+        "definition": "Switched virtual interface (interface vlan N): a Layer 3 switch's routed interface into a VLAN, used as its gateway."
+      },
+      {
+        "term": "Routed port",
+        "definition": "A Layer 3 switch port with no switchport: no VLAN, an IP address directly on the port."
+      },
+      {
+        "term": "ip routing",
+        "definition": "Global command that enables IPv4 routing on a Layer 3 switch."
+      },
+      {
+        "term": "Hairpin",
+        "definition": "Router-on-a-stick traffic pattern: a routed packet crosses the same trunk twice, up in one VLAN and down in another."
+      },
+      {
+        "term": "SDM template",
+        "definition": "A switch memory profile; some models need a routing template (sdm prefer) and a reload before ip routing is accepted."
+      },
+      {
+        "term": "Layer 3 EtherChannel",
+        "definition": "Parallel routed links bundled into one routed interface, with the IP address on interface port-channel."
+      }
+    ],
+    "summary": [
+      "Each VLAN is its own subnet, so hosts need a gateway in their VLAN, owned by a router subinterface, an SVI or a routed interface.",
+      "ROAS: no shutdown on the parent, then per VLAN a subinterface with encapsulation dot1q <vlan> before the IP address, and a static trunk on the switch.",
+      "Layer 3 switch: ip routing, VLANs created, interface vlan N with an address and no shutdown; it routes like a router, and upstream routers need routes back.",
+      "An SVI is up/up only if its VLAN exists, has an active port and is not shut, and the SVI itself is not shut.",
+      "Routed ports (no switchport) suit single links between Layer 3 devices; parallel links become a Layer 3 EtherChannel with the address on the port-channel.",
+      "A wrong dot1q tag still shows up/up, so read the configuration, and check both the router and the switch side of a trunk."
+    ],
+    "feynmanPrompt": "Explain to a new technician how a ping from a PC in VLAN 10 reaches a PC in VLAN 20, first through router-on-a-stick and then through a Layer 3 switch, and why a typo in one encapsulation dot1q command breaks only one VLAN."
+  },
+  "questions": [
+    {
+      "id": "ccna-intervlan-routing-q01",
+      "type": "mcq",
+      "difficulty": "easy",
+      "question": "Why can't a Layer 2 switch forward traffic between VLAN 10 and VLAN 20 on its own?",
+      "choices": [
+        "VLAN tags make frames too large to switch",
+        "The switch has no MAC addresses for hosts in other VLANs' ports",
+        "Each VLAN is a separate broadcast domain and subnet, and a Layer 2 switch forwards frames only within a VLAN",
+        "Spanning tree blocks all ports between VLANs"
+      ],
+      "answer": 2,
+      "explanation": "VLANs deliberately split a switch into separate Layer 2 domains, each with its own subnet. Moving traffic between them is routing, which needs a Layer 3 device acting as each VLAN's gateway. STP has nothing to do with VLAN separation.",
+      "concept": "why routing is needed",
+      "section": 0
+    },
+    {
+      "id": "ccna-intervlan-routing-q02",
+      "type": "mcq",
+      "difficulty": "medium",
+      "question": "PC-A (192.168.10.11/24, gateway 192.168.10.1) sends a packet to PC-B at 192.168.20.22. Which destination MAC address does PC-A use?",
+      "choices": [
+        "PC-B's MAC address",
+        "The broadcast MAC address",
+        "The MAC address of the switch port PC-B is connected to",
+        "The MAC address of whichever device owns 192.168.10.1 (a router subinterface or SVI)"
+      ],
+      "answer": 3,
+      "explanation": "The destination is in another subnet, so PC-A frames the packet to its gateway. With ROAS that is R1's G0/0 MAC; with a Layer 3 switch it is the SVI's MAC. PC-A never ARPs for a host in another subnet.",
+      "concept": "gateway MAC",
+      "section": 0
+    },
+    {
+      "id": "ccna-intervlan-routing-q03",
+      "type": "match",
+      "difficulty": "easy",
+      "question": "Match each inter-VLAN routing design to its description.",
+      "pairs": [
+        {
+          "left": "Router per VLAN",
+          "right": "One physical router port and access link for each VLAN"
+        },
+        {
+          "left": "Router-on-a-stick",
+          "right": "Router subinterfaces sharing one 802.1Q trunk"
+        },
+        {
+          "left": "SVI",
+          "right": "A VLAN interface on a Layer 3 switch acting as the VLAN's gateway"
+        },
+        {
+          "left": "Routed port",
+          "right": "A Layer 3 switch port configured with no switchport and an IP address"
+        }
+      ],
+      "explanation": "All four give each subnet a gateway. They differ in where that gateway lives and how well they scale: per-VLAN router ports waste ports, ROAS funnels everything through one trunk, and SVIs and routed ports route in switch hardware.",
+      "concept": "inter-VLAN designs",
+      "section": 0
+    },
+    {
+      "id": "ccna-intervlan-routing-q04",
+      "type": "cli",
+      "difficulty": "easy",
+      "question": "You are in configuration mode for subinterface G0/0.10. Type the command that associates it with VLAN 10.",
+      "shell": "ios",
+      "answer": "encapsulation dot1q 10",
+      "explanation": "encapsulation dot1q <vlan-id> binds a router subinterface to an 802.1Q VLAN. The subinterface number (.10) is only a label and does not set the VLAN.",
+      "concept": "dot1q subinterface",
+      "section": 1
+    },
+    {
+      "id": "ccna-intervlan-routing-q05",
+      "type": "order",
+      "difficulty": "medium",
+      "question": "PC-A (VLAN 10) sends a packet to PC-B (VLAN 20) through router-on-a-stick. Put the steps in order.",
+      "items": [
+        "PC-A sends a frame to its gateway's MAC; SW1 receives it on an access port in VLAN 10",
+        "SW1 forwards the frame over the trunk to R1, tagged VLAN 10",
+        "R1 receives it on G0/0.10 and routes the packet out G0/0.20",
+        "R1 sends a new frame back over the same trunk, tagged VLAN 20",
+        "SW1 removes the tag and delivers the frame out PC-B's access port in VLAN 20"
+      ],
+      "explanation": "The packet goes up the trunk in VLAN 10 and comes back down in VLAN 20. That double trip across one link is the ROAS hairpin.",
+      "concept": "ROAS packet flow",
+      "section": 1
+    },
+    {
+      "id": "ccna-intervlan-routing-q06",
+      "type": "mcq",
+      "difficulty": "medium",
+      "question": "An engineer creates G0/0.30 and types the ip address command first. IOS refuses it. Why?",
+      "choices": [
+        "Subinterfaces cannot have IP addresses; only the physical interface can",
+        "IOS requires an encapsulation dot1q command on a LAN subinterface before it accepts an IP address",
+        "The physical interface must have an IP address first",
+        "The subinterface number must match a VLAN that exists on the router"
+      ],
+      "answer": 1,
+      "explanation": "Until the subinterface knows its VLAN, IOS will not let it route. Set encapsulation dot1q 30, then the ip address. Routers do not have a VLAN database, and the physical interface needs no address.",
+      "concept": "encapsulation before IP",
+      "section": 1
+    },
+    {
+      "id": "ccna-intervlan-routing-q07",
+      "type": "mcq",
+      "difficulty": "medium",
+      "question": "What is the main performance drawback of router-on-a-stick compared with a Layer 3 switch?",
+      "choices": [
+        "The router must run a routing protocol between its subinterfaces",
+        "Each subinterface needs its own physical cable",
+        "All inter-VLAN traffic crosses the single trunk twice, so that one link can become a bottleneck",
+        "Hosts must use the router's physical interface address as their gateway"
+      ],
+      "answer": 2,
+      "explanation": "Routed traffic goes up the trunk in the source VLAN and back down in the destination VLAN. A Layer 3 switch routes internally in hardware. Connected subinterfaces need no routing protocol, and each VLAN uses its own subinterface address as the gateway.",
+      "concept": "ROAS limitation",
+      "section": 1
+    },
+    {
+      "id": "ccna-intervlan-routing-q08",
+      "type": "debug",
+      "difficulty": "medium",
+      "question": "Hosts in VLANs 10 and 20 cannot reach their gateways. What is wrong with R1's configuration?",
+      "code": "interface GigabitEthernet0/0\n no ip address\n shutdown\n!\ninterface GigabitEthernet0/0.10\n encapsulation dot1Q 10\n ip address 192.168.10.1 255.255.255.0\n!\ninterface GigabitEthernet0/0.20\n encapsulation dot1Q 20\n ip address 192.168.20.1 255.255.255.0",
+      "language": "cisco",
+      "choices": [
+        "The physical G0/0 is shut down, which takes every subinterface down with it",
+        "G0/0 needs an IP address before subinterfaces can work",
+        "The subinterfaces need no shutdown commands of their own",
+        "dot1Q must be lowercase for the encapsulation to apply"
+      ],
+      "answer": 0,
+      "explanation": "A subinterface's status can never be better than its parent's, so the shutdown on G0/0 leaves both subinterfaces administratively down. The physical interface needs only no shutdown; an address is optional (used for the native VLAN). IOS commands are not case sensitive.",
+      "concept": "parent interface shut",
+      "section": 1
+    },
+    {
+      "id": "ccna-intervlan-routing-q09",
+      "type": "mcq",
+      "difficulty": "medium",
+      "question": "Which configuration does the switch port connected to R1's router-on-a-stick interface need?",
+      "choices": [
+        "switchport mode trunk, with the router's VLANs allowed",
+        "switchport mode dynamic auto, so the router can negotiate the trunk",
+        "switchport mode access with switchport access vlan 10",
+        "no switchport with an IP address in each VLAN"
+      ],
+      "answer": 0,
+      "explanation": "The link must carry several VLANs, so it must be a trunk. Routers do not speak DTP, so dynamic auto would stay an access port. An access port would carry only one VLAN.",
+      "concept": "switch side of ROAS",
+      "section": 1
+    },
+    {
+      "id": "ccna-intervlan-routing-q10",
+      "type": "cli",
+      "difficulty": "medium",
+      "question": "You are configuring subinterface G0/0.99 for VLAN 99, which is the trunk's native VLAN. Type the encapsulation command.",
+      "shell": "ios",
+      "answer": "encapsulation dot1q 99 native",
+      "explanation": "The native keyword tells R1 that VLAN 99 travels untagged on this trunk, so untagged frames belong to G0/0.99 and frames sent from it go out untagged.",
+      "concept": "native VLAN subinterface",
+      "section": 2
+    },
+    {
+      "id": "ccna-intervlan-routing-q11",
+      "type": "mcq",
+      "difficulty": "medium",
+      "question": "Besides a subinterface with the native keyword, how else can a router-on-a-stick router serve the native VLAN's subnet?",
+      "choices": [
+        "Configure the native VLAN as a separate SVI",
+        "Add switchport trunk native vlan to the router interface",
+        "Configure the IP address on the physical interface, with no encapsulation command",
+        "It cannot; the native VLAN is never routed"
+      ],
+      "answer": 2,
+      "explanation": "Untagged frames are handled by the physical interface, so its IP address becomes the native VLAN's gateway. SVIs and switchport commands belong to switches, and the native VLAN can certainly be routed.",
+      "concept": "native VLAN option",
+      "section": 2
+    },
+    {
+      "id": "ccna-intervlan-routing-q12",
+      "type": "mcq",
+      "difficulty": "hard",
+      "question": "SW1's trunk to R1 uses native VLAN 99, so VLAN 99 frames arrive at R1 untagged. VLAN 10 works, but hosts in VLAN 99 cannot reach 192.168.99.1. Which change fixes it?",
+      "code": "R1# show running-config | section GigabitEthernet0/0\ninterface GigabitEthernet0/0\n no ip address\ninterface GigabitEthernet0/0.10\n encapsulation dot1Q 10\n ip address 192.168.10.1 255.255.255.0\ninterface GigabitEthernet0/0.99\n encapsulation dot1Q 99\n ip address 192.168.99.1 255.255.255.0",
+      "language": "cisco",
+      "choices": [
+        "Change G0/0.99 to encapsulation dot1q 1",
+        "Change G0/0.99 to encapsulation dot1q 99 native",
+        "Add ip address 192.168.99.1 255.255.255.0 to G0/0.10",
+        "Change the switch's trunk to switchport mode access"
+      ],
+      "answer": 1,
+      "explanation": "R1 expects VLAN 99 frames to be tagged, but the switch sends them untagged, so they land on the physical interface instead of G0/0.99. Adding native to the subinterface (or moving the address to the physical interface) aligns R1 with the switch. An access port would break VLAN 10.",
+      "concept": "native VLAN mismatch",
+      "section": 2
+    },
+    {
+      "id": "ccna-intervlan-routing-q13",
+      "type": "cli",
+      "difficulty": "easy",
+      "question": "Type the router command that lists each 802.1Q VLAN, the subinterface handling it, and which one is native.",
+      "shell": "ios",
+      "answer": "show vlans",
+      "explanation": "On a router, show vlans maps VLAN IDs to subinterfaces and marks the native VLAN. On a switch, the equivalent views are show vlan brief and show interfaces trunk.",
+      "concept": "router show vlans",
+      "section": 2
+    },
+    {
+      "id": "ccna-intervlan-routing-q14",
+      "type": "mcq",
+      "difficulty": "hard",
+      "question": "VLAN 10 hosts reach their gateway on R1, but VLAN 20 hosts do not. R1's G0/0.20 is correct. Based on SW1's output, what is the fix?",
+      "code": "SW1# show interfaces trunk\nPort        Mode         Encapsulation  Status        Native vlan\nGi0/1       on           802.1q         trunking      1\n\nPort        Vlans allowed on trunk\nGi0/1       10\n\nPort        Vlans allowed and active in management domain\nGi0/1       10\n\nPort        Vlans in spanning tree forwarding state and not pruned\nGi0/1       10",
+      "language": "cisco",
+      "choices": [
+        "Change the native VLAN to 20",
+        "Configure ip routing on SW1",
+        "Create subinterface G0/0.20 on SW1",
+        "Add VLAN 20 to the trunk's allowed list on SW1"
+      ],
+      "answer": 3,
+      "explanation": "Only VLAN 10 is allowed on Gi0/1, so VLAN 20 frames never cross the trunk to R1. The router has no way to notice. switchport trunk allowed vlan add 20 fixes it without removing VLAN 10.",
+      "concept": "allowed list problem",
+      "section": 2
+    },
+    {
+      "id": "ccna-intervlan-routing-q15",
+      "type": "cli",
+      "difficulty": "medium",
+      "question": "Type the switch interface command that adds VLAN 20 to a trunk's existing allowed list without removing the VLANs already allowed.",
+      "shell": "ios",
+      "answer": "switchport trunk allowed vlan add 20",
+      "explanation": "The add keyword appends to the list. Typing switchport trunk allowed vlan 20 would replace the whole list with only VLAN 20, cutting off VLAN 10.",
+      "concept": "trunk allowed add",
+      "section": 2
+    },
+    {
+      "id": "ccna-intervlan-routing-q16",
+      "type": "cli",
+      "difficulty": "easy",
+      "question": "Type the global command that enables IPv4 routing on a Cisco Layer 3 switch.",
+      "shell": "ios",
+      "answer": "ip routing",
+      "explanation": "With ip routing enabled, the switch routes between its SVIs and routed ports. Some models also need a routing SDM template (sdm prefer) and a reload first.",
+      "concept": "enable routing on L3 switch",
+      "section": 3
+    },
+    {
+      "id": "ccna-intervlan-routing-q17",
+      "type": "mcq",
+      "difficulty": "easy",
+      "question": "In an SVI design, what default gateway should hosts in VLAN 10 use?",
+      "choices": [
+        "The management IP address of the access switch",
+        "The IP address of the switch's uplink routed port",
+        "The IP address of interface Vlan10 on the Layer 3 switch",
+        "Any address in the subnet, as long as the switch routes"
+      ],
+      "answer": 2,
+      "explanation": "Each SVI is its VLAN's gateway. The routed uplink belongs to a different subnet, and a host's gateway must be the exact address of a Layer 3 interface in its own subnet.",
+      "concept": "SVI as gateway",
+      "section": 3
+    },
+    {
+      "id": "ccna-intervlan-routing-q18",
+      "type": "code-fill",
+      "difficulty": "medium",
+      "question": "Complete the configuration so the switch becomes the gateway for VLAN 30.",
+      "code": "DSW1(config)# ip routing\nDSW1(config)# _____\nDSW1(config-if)# ip address 192.168.30.1 255.255.255.0\nDSW1(config-if)# no shutdown",
+      "language": "cisco",
+      "choices": [
+        "interface vlan 30",
+        "vlan 30",
+        "switchport access vlan 30",
+        "interface g1/0/30"
+      ],
+      "answer": 0,
+      "explanation": "interface vlan 30 creates the SVI and enters interface mode (config-if). vlan 30 creates the VLAN itself in config-vlan mode, switchport access vlan is a port command, and a physical port would need no switchport before taking an address.",
+      "concept": "creating an SVI",
+      "section": 3
+    },
+    {
+      "id": "ccna-intervlan-routing-q19",
+      "type": "mcq",
+      "difficulty": "hard",
+      "question": "On a Layer 3 switch, show ip route prints only the lines below. What does it tell you?",
+      "code": "DSW1# show ip route\nDefault gateway is not set\n\nHost               Gateway           Last Use    Total Uses  Interface\nICMP redirect cache is empty",
+      "language": "cisco",
+      "choices": [
+        "The switch is routing but has no default route",
+        "All SVIs are down",
+        "The routing table is empty because no routing protocol runs",
+        "IP routing is disabled, so the switch is acting as a host rather than routing between VLANs"
+      ],
+      "answer": 3,
+      "explanation": "When ip routing is off, IOS shows the default gateway and ICMP redirect cache instead of a routing table. A routing switch with no default route would still list \"Gateway of last resort is not set\" and its connected routes.",
+      "concept": "routing disabled symptom",
+      "section": 3
+    },
+    {
+      "id": "ccna-intervlan-routing-q20",
+      "type": "multi",
+      "difficulty": "easy",
+      "question": "Which two are advantages of routing with SVIs on a Layer 3 switch instead of router-on-a-stick? Choose two.",
+      "choices": [
+        "Hosts no longer need a default gateway",
+        "Routing happens in switch hardware without sending traffic over a trunk twice",
+        "VLANs no longer need to be created",
+        "It scales to many VLANs without one link becoming a bottleneck",
+        "ip routing is not required"
+      ],
+      "answers": [
+        1,
+        3
+      ],
+      "explanation": "SVIs route inside the switch, so there is no hairpin and no single router link to saturate. Hosts still need a gateway (the SVI), VLANs must exist for SVIs to come up, and ip routing must be enabled.",
+      "concept": "SVI advantages",
+      "section": 3
+    },
+    {
+      "id": "ccna-intervlan-routing-q21",
+      "type": "mcq",
+      "difficulty": "medium",
+      "question": "Users in VLAN 30 have no gateway. Based on the output, what is the fix?",
+      "code": "DSW1# show ip interface brief | include Vlan30\nVlan30                 192.168.30.1    YES manual administratively down down\n\nDSW1# show vlan brief | include ^30\n30   VOICE                            active    Gi1/0/6",
+      "language": "cisco",
+      "choices": [
+        "Create VLAN 30 with the vlan 30 command",
+        "Enter interface vlan 30 and configure no shutdown",
+        "Configure ip routing",
+        "Assign an IP address to Vlan30"
+      ],
+      "answer": 1,
+      "explanation": "\"administratively down\" means the SVI itself is shut. VLAN 30 exists and has a port (Gi1/0/6), and the address is already configured.",
+      "concept": "SVI admin down",
+      "section": 5
+    },
+    {
+      "id": "ccna-intervlan-routing-q22",
+      "type": "multi",
+      "difficulty": "hard",
+      "question": "Which three conditions are required for SVI Vlan20 to be up/up? Choose three.",
+      "choices": [
+        "The switch has a default route",
+        "VLAN 20 exists on the switch",
+        "A host in VLAN 20 has sent traffic to the SVI",
+        "At least one up/up access port in VLAN 20, or a forwarding trunk that carries it",
+        "ip routing is enabled",
+        "Interface vlan 20 is not shut down"
+      ],
+      "answers": [
+        1,
+        3,
+        5
+      ],
+      "explanation": "The SVI's status follows its VLAN: the VLAN must exist, be carried by an active port and not be shut, and the SVI must be enabled. Routes and ip routing affect forwarding, not interface status, and no host traffic is needed.",
+      "concept": "SVI up/up conditions",
+      "section": 5
+    },
+    {
+      "id": "ccna-intervlan-routing-q23",
+      "type": "mcq",
+      "difficulty": "medium",
+      "question": "Interface vlan 40 has an address and no shutdown, and Gi1/0/9 was an access port in VLAN 40 until someone ran cleanup commands this morning. Based on the output, why is Vlan40 up/down?",
+      "code": "DSW1# show ip interface brief | include Vlan40\nVlan40                 192.168.40.1    YES manual up                    down\n\nDSW1# show vlan brief\nVLAN Name                             Status    Ports\n---- -------------------------------- --------- -------------------------------\n1    default                          active    Gi1/0/3, Gi1/0/4, Gi1/0/5\n10   SALES                            active    Gi1/0/1, Gi1/0/2\n20   ENG                              active    Gi1/0/7",
+      "language": "cisco",
+      "choices": [
+        "VLAN 40 does not exist in the switch's VLAN database",
+        "The SVI is administratively down",
+        "ip routing is disabled",
+        "Gi1/0/9 is a routed port"
+      ],
+      "answer": 0,
+      "explanation": "show vlan brief has no VLAN 40: it was deleted, so Gi1/0/9 (still assigned to VLAN 40) is inactive and the SVI has no VLAN to attach to. Recreating it with vlan 40 reactivates Gi1/0/9 and brings the SVI up. The SVI is not administratively down, and ip routing does not affect interface status.",
+      "concept": "VLAN missing",
+      "section": 5
+    },
+    {
+      "id": "ccna-intervlan-routing-q24",
+      "type": "cli",
+      "difficulty": "easy",
+      "question": "Type the interface command that turns a Layer 3 switch port into a routed port.",
+      "shell": "ios",
+      "answer": "no switchport",
+      "explanation": "no switchport removes Layer 2 behavior from the port so it acts like a router interface and accepts an IP address directly.",
+      "concept": "routed port",
+      "section": 6
+    },
+    {
+      "id": "ccna-intervlan-routing-q25",
+      "type": "mcq",
+      "difficulty": "easy",
+      "question": "In show interfaces status on a Layer 3 switch, what appears in the VLAN column for a routed port?",
+      "choices": [
+        "trunk",
+        "1",
+        "routed",
+        "unassigned"
+      ],
+      "answer": 2,
+      "explanation": "A routed port belongs to no VLAN, so IOS shows \"routed\" instead of an access VLAN number or \"trunk\".",
+      "concept": "routed port in show output",
+      "section": 6
+    },
+    {
+      "id": "ccna-intervlan-routing-q26",
+      "type": "debug",
+      "difficulty": "medium",
+      "question": "The engineer wants Gi1/0/24 to be a routed uplink. Why was the command rejected?",
+      "code": "DSW1(config)# interface g1/0/24\nDSW1(config-if)# ip address 10.0.0.1 255.255.255.252\n% IP addresses may not be configured on L2 links.",
+      "language": "cisco",
+      "choices": [
+        "A /30 mask is not allowed on switch ports",
+        "ip routing must be configured inside the interface first",
+        "The interface must be shut down before addressing it",
+        "The port is still a Layer 2 switchport; it needs no switchport before it accepts an IP address"
+      ],
+      "answer": 3,
+      "explanation": "Switch ports default to switchport (Layer 2) mode, and IOS refuses an IP address on a Layer 2 port. no switchport converts it to a routed port that accepts the address. ip routing is a global command, and /30 masks are fine.",
+      "concept": "missing no switchport",
+      "section": 6
+    },
+    {
+      "id": "ccna-intervlan-routing-q27",
+      "type": "mcq",
+      "difficulty": "hard",
+      "question": "You bundle Gi1/0/1 and Gi1/0/2 into a Layer 3 EtherChannel to a router. Where does the IP address go?",
+      "choices": [
+        "On each member interface, with the same address on both",
+        "On interface port-channel 1, with no switchport on the port-channel and its member ports",
+        "On an SVI for the VLAN the members belong to",
+        "On Gi1/0/1 only, since the first member carries all routed traffic"
+      ],
+      "answer": 1,
+      "explanation": "A Layer 3 EtherChannel is one routed link: the members and the port-channel are routed (no switchport) and the address lives on the port-channel interface. Members do not get their own addresses, and there is no VLAN or SVI involved.",
+      "concept": "Layer 3 EtherChannel",
+      "section": 7
+    },
+    {
+      "id": "ccna-intervlan-routing-q28",
+      "type": "mcq",
+      "difficulty": "medium",
+      "question": "VLAN 20 hosts cannot reach 192.168.20.1, while VLAN 10 works. What is the fix?",
+      "code": "R1# show running-config | section GigabitEthernet0/0.20\ninterface GigabitEthernet0/0.20\n encapsulation dot1Q 200\n ip address 192.168.20.1 255.255.255.0\n\nR1# show ip interface brief | include 0/0.20\nGigabitEthernet0/0.20  192.168.20.1    YES manual up                    up",
+      "language": "cisco",
+      "choices": [
+        "Under G0/0.20, configure no shutdown",
+        "Change the subinterface number from .20 to .200",
+        "Under G0/0.20, configure encapsulation dot1q 20",
+        "Configure ip routing on R1"
+      ],
+      "answer": 2,
+      "explanation": "The subinterface is tagged for VLAN 200, so frames from VLAN 20 never match it. Its status is up/up and the number after the dot does not set the VLAN. Routers route between connected interfaces without an ip routing command (it is on by default).",
+      "concept": "wrong encapsulation VLAN",
+      "section": 8
+    },
+    {
+      "id": "ccna-intervlan-routing-q29",
+      "type": "mcq",
+      "difficulty": "hard",
+      "question": "PC-B (192.168.20.22/24) can ping other VLAN 20 hosts but nothing outside VLAN 20. Routing is configured correctly for both VLANs. PC-B's gateway is set to 192.168.10.1. What is wrong?",
+      "choices": [
+        "PC-B's gateway is not in its own subnet, so PC-B can never reach it; it should be 192.168.20.1",
+        "PC-B needs to be moved to VLAN 10 to reach its gateway",
+        "The router must answer ARP for 192.168.10.1 in VLAN 20",
+        "PC-B needs a /16 mask so 192.168.10.1 is local"
+      ],
+      "answer": 0,
+      "explanation": "A host only ARPs for addresses in its own subnet, so a gateway in another subnet is unusable. Fix the host, not the network: VLAN 20's gateway is 192.168.20.1. Changing VLANs or masks would break the addressing plan.",
+      "concept": "host gateway wrong",
+      "section": 8
+    },
+    {
+      "id": "ccna-intervlan-routing-q30",
+      "type": "recall",
+      "difficulty": "medium",
+      "question": "Name four common reasons one VLAN cannot route while the others work.",
+      "answer": "Any four of: wrong encapsulation dot1q VLAN on the subinterface; VLAN not allowed or not active on the trunk; native VLAN mismatch between router and switch; host gateway or mask wrong; access port in the wrong VLAN; SVI down because the VLAN is missing, has no active ports or is shut down; SVI shut down.",
+      "explanation": "When only one VLAN fails, the problem is almost always specific to that VLAN: its tag, its place on the trunk, its SVI, or its hosts. A global setting like ip routing would break every VLAN at once.",
+      "concept": "common inter-VLAN faults",
+      "section": 8
+    },
+    {
+      "id": "ccna-intervlan-routing-q31",
+      "type": "mcq",
+      "difficulty": "medium",
+      "question": "What does this part of R1's show vlans output tell you?",
+      "code": "R1# show vlans\n! output trimmed\nVirtual LAN ID:  99 (IEEE 802.1Q Encapsulation)\n\n   vLAN Trunk Interface:   GigabitEthernet0/0.99\n\n This is configured as native Vlan for the following interface(s) :\nGigabitEthernet0/0\n   Native-vlan Tx-type: Untagged\n\n   Protocols Configured:   Address:              Received:        Transmitted:\n           IP              192.168.99.1                  3                 4",
+      "language": "cisco",
+      "choices": [
+        "G0/0.99 is configured with encapsulation dot1q 99 native, so VLAN 99 travels untagged on the trunk",
+        "VLAN 99 is not allowed on the trunk",
+        "G0/0.99 tags every frame it sends with VLAN 99",
+        "The physical interface G0/0 owns 192.168.99.1"
+      ],
+      "answer": 0,
+      "explanation": "The native lines appear when a subinterface uses the native keyword: R1 sends VLAN 99 untagged and treats untagged frames as VLAN 99. The address belongs to G0/0.99, and the counters show traffic in both directions.",
+      "concept": "show vlans native",
+      "section": 2
+    },
+    {
+      "id": "ccna-intervlan-routing-q32",
+      "type": "mcq",
+      "difficulty": "medium",
+      "question": "PC-A (VLAN 10) pings PC-B (VLAN 20) through Layer 3 switch DSW1. Compared with the packet PC-A sent, what is different about the packet DSW1 forwards into VLAN 20?",
+      "choices": [
+        "The destination IP address is changed to the Vlan20 SVI",
+        "Nothing; a switch forwards the packet unchanged",
+        "The source IP address becomes 192.168.20.1",
+        "The TTL is one lower, and the packet sits in a new frame with DSW1's MAC as the source"
+      ],
+      "answer": 3,
+      "explanation": "Routing on an SVI is real routing: DSW1 decrements the TTL and re-encapsulates the packet in a new frame for VLAN 20. The IP addresses stay end to end (no NAT is involved).",
+      "concept": "L3 switch routing",
+      "section": 4
+    },
+    {
+      "id": "ccna-intervlan-routing-q33",
+      "type": "mcq",
+      "difficulty": "hard",
+      "question": "Hosts in VLANs 10 and 20 reach each other through DSW1, and DSW1 can ping the WAN router at 10.0.0.2. Yet no host can reach any server beyond the WAN router. DSW1 has `ip route 0.0.0.0 0.0.0.0 10.0.0.2`. What is the most likely cause?",
+      "choices": [
+        "DSW1 needs ip routing enabled on each SVI",
+        "The WAN router has no route back to 192.168.10.0/24 and 192.168.20.0/24",
+        "The SVIs must be made passive",
+        "The hosts need the WAN router as their default gateway"
+      ],
+      "answer": 1,
+      "explanation": "Requests leave through DSW1's default route, but replies from beyond must be routed back to the VLAN subnets. Without static routes or OSPF toward DSW1 on the WAN router, the replies are dropped. Inter-VLAN traffic works because DSW1 knows both subnets as connected routes.",
+      "concept": "return route to VLANs",
+      "section": 4
+    },
+    {
+      "id": "ccna-intervlan-routing-q34",
+      "type": "cli",
+      "difficulty": "medium",
+      "question": "You are configuring a routed member port of a Layer 3 EtherChannel. Type the interface command that adds it to channel group 1 using LACP active negotiation.",
+      "shell": "ios",
+      "answer": "channel-group 1 mode active",
+      "explanation": "channel-group works the same for Layer 2 and Layer 3 bundles; mode active starts LACP negotiation, while mode on builds a static bundle. The member also needs no switchport, and the IP address goes on interface port-channel 1.",
+      "concept": "L3 EtherChannel member",
+      "section": 7
+    },
+    {
+      "id": "ccna-intervlan-routing-q35",
+      "type": "mcq",
+      "difficulty": "hard",
+      "question": "The engineer wanted a routed link between DSW1 and the core, but the output below appears and ip address is rejected on Port-channel1. What is wrong?",
+      "code": "DSW1# show etherchannel summary\n! flags: R - Layer3, S - Layer2, U - in use, P - bundled in port-channel\nGroup  Port-channel  Protocol    Ports\n------+-------------+-----------+-----------------------------------------------\n1      Po1(SU)         LACP      Gi1/0/1(P)  Gi1/0/2(P)",
+      "language": "cisco",
+      "choices": [
+        "LACP cannot build Layer 3 bundles; the mode must be on",
+        "The members are bundled but not up, so the address is refused",
+        "The bundle is Layer 2 (S); the members and the port-channel need no switchport before the address is accepted",
+        "The channel-group number must match the core switch's number"
+      ],
+      "answer": 2,
+      "explanation": "S marks a Layer 2 EtherChannel, which cannot hold an IP address. With no switchport on the member ports and on Port-channel1 the bundle becomes Layer 3 (R). LACP works for both kinds of bundle, U and P show it is in use and bundled, and channel-group numbers are local to each switch.",
+      "concept": "L2 versus L3 bundle",
+      "section": 7
+    },
+    {
+      "id": "ccna-intervlan-routing-q36",
+      "type": "mcq",
+      "difficulty": "medium",
+      "question": "Interface vlan 20 has an address and no shutdown, and Gi1/0/7 is an up access port in VLAN 20, yet Vlan20 is up/down. Based on the output, why?",
+      "code": "DSW1# show vlan brief\nVLAN Name                             Status    Ports\n---- -------------------------------- --------- -------------------------------\n1    default                          active    Gi1/0/3, Gi1/0/4\n10   SALES                            active    Gi1/0/1, Gi1/0/2\n20   ENG                              act/lshut Gi1/0/7",
+      "language": "cisco",
+      "choices": [
+        "VLAN 20 itself has been shut down, and an SVI goes down when its VLAN is shut",
+        "Interface vlan 20 is administratively down",
+        "ip routing is disabled",
+        "Gi1/0/7 must be a trunk for the SVI to come up"
+      ],
+      "answer": 0,
+      "explanation": "act/lshut means VLAN 20 was shut down locally (shutdown in VLAN configuration mode). The VLAN and the VLAN interface are separate objects with separate shutdown commands, and both must be enabled. An administratively down SVI would show \"administratively down\".",
+      "concept": "VLAN shutdown and SVI",
+      "section": 5
+    },
+    {
+      "id": "ccna-intervlan-routing-q37",
+      "type": "mcq",
+      "difficulty": "hard",
+      "question": "DSW1 routes for VLAN 10 (192.168.10.1) and VLAN 20 (192.168.20.1). PC-B in VLAN 20 can ping 192.168.20.1 but cannot ping PC-A at 192.168.10.11. PC-A can ping 192.168.10.1, and its settings are below. What is wrong?",
+      "code": "PC-A> ipconfig\n   IPv4 Address. . . . . . . . . . . : 192.168.10.11\n   Subnet Mask . . . . . . . . . . . : 255.255.255.0\n   Default Gateway . . . . . . . . . : 192.168.10.254",
+      "language": "plaintext",
+      "choices": [
+        "PC-A's mask should be 255.255.0.0 so it can reach VLAN 20 directly",
+        "DSW1 needs a static route to 192.168.10.0/24",
+        "PC-B's request never reaches PC-A, because VLAN 10 is not allowed on the trunk",
+        "PC-A's replies go to 192.168.10.254, an address nobody owns; its gateway must be 192.168.10.1"
+      ],
+      "answer": 3,
+      "explanation": "The request reaches PC-A, but PC-A sends replies for another subnet to its configured gateway, 192.168.10.254, which no device answers. Pinging 192.168.10.1 directly works because that is on-subnet and needs no gateway. DSW1 already has a connected route to 192.168.10.0/24.",
+      "concept": "wrong host gateway",
+      "section": 8
+    },
+    {
+      "id": "ccna-intervlan-routing-q38",
+      "type": "mcq",
+      "difficulty": "easy",
+      "question": "In `show etherchannel summary`, a bundle is listed as `Po1(RU)`. What does the R mean?",
+      "choices": [
+        "The bundle uses RSTP",
+        "The bundle is a Layer 3 (routed) EtherChannel",
+        "The bundle is redundant and on standby",
+        "The bundle is in the process of resetting"
+      ],
+      "answer": 1,
+      "explanation": "R marks a Layer 3 port-channel and S a Layer 2 one; U means the channel is in use. Member ports show (P) when they are bundled.",
+      "concept": "etherchannel R flag",
+      "section": 7
+    },
+    {
+      "id": "ccna-intervlan-routing-q39",
+      "type": "mcq",
+      "difficulty": "medium",
+      "question": "R1 has `interface g0/0.100` configured with `encapsulation dot1q 30` and `ip address 10.30.0.1 255.255.255.0`. Which hosts use this subinterface as their gateway?",
+      "choices": [
+        "Hosts in VLAN 100",
+        "Hosts in VLAN 30",
+        "Hosts in both VLAN 30 and VLAN 100",
+        "None, because the subinterface number must match the VLAN"
+      ],
+      "answer": 1,
+      "explanation": "encapsulation dot1q sets the VLAN; the number after the dot is only a label. Matching them is a good habit, but a mismatch is legal and the subinterface still serves VLAN 30.",
+      "concept": "subinterface number vs VLAN",
+      "section": 1
+    },
+    {
+      "id": "ccna-intervlan-routing-q40",
+      "type": "multi",
+      "difficulty": "hard",
+      "question": "Which three must be true for two ports to join the same Layer 3 EtherChannel on DSW1? Choose three.",
+      "choices": [
+        "Both member ports are configured with no switchport",
+        "Each member port has its own IP address in the same subnet",
+        "The member ports use the same speed",
+        "The member ports use the same duplex",
+        "The channel-group number matches the one used on the neighboring switch"
+      ],
+      "answers": [
+        0,
+        2,
+        3
+      ],
+      "explanation": "Layer 3 bundles need routed members with matching speed and duplex. The address goes only on the port-channel interface, and channel-group numbers are local, so the neighbor may use a different number.",
+      "concept": "L3 EtherChannel rules",
+      "section": 7
+    }
+  ]
+}

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
-import { Plus, Search, Upload } from 'lucide-react'
+import { BookA, Plus, Search, Upload } from 'lucide-react'
 import { useApp } from '../state/context'
 import { useHotkeys } from '../hooks/useHotkeys'
 import { useDocumentTitle } from '../hooks/useDocumentTitle'
@@ -9,6 +9,8 @@ import { missingPrereqs } from '../lib/recommend'
 import TopicCard from '../components/TopicCard'
 import EmptyState from '../components/EmptyState'
 import ImportDialog from '../components/ImportDialog'
+import PathIcon from '../components/PathIcon'
+import { COLLECTIONS } from '../lib/collections'
 
 const STATUSES = [
   { id: 'all', label: 'All' },
@@ -110,9 +112,19 @@ export default function Library() {
           <p className="page-sub">{packs.length} topics and {totalCards} cards across {Object.keys(counts).length - 1} subjects. Every topic has a short lesson and a question bank.</p>
         </div>
         <div className="row wrap">
+          <Link to="/glossary" className="btn"><BookA size={16} /> Glossary</Link>
           <button type="button" className="btn" onClick={() => setImportOpen(true)}><Upload size={16} /> Import</button>
           <Link to="/create" className="btn btn-primary"><Plus size={16} /> Create a pack</Link>
         </div>
+      </div>
+
+      <div className="library-paths">
+        <span className="small muted">Working toward a goal? Paths put these topics in order:</span>
+        {COLLECTIONS.map((c) => (
+          <Link key={c.id} to={`/path/${c.id}`} className="path-badge" style={{ '--hue': c.hue }}>
+            <PathIcon collection={c} size="sm" /> {c.short}
+          </Link>
+        ))}
       </div>
 
       <div className="library-controls">

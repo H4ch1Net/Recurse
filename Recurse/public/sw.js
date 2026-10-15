@@ -2,7 +2,7 @@
 // Navigations: network first, falling back to the cached app shell when offline.
 // Hashed build assets: cache first (their names change whenever content changes).
 // Bump VERSION to drop old caches.
-const VERSION = 'v2'
+const VERSION = 'v5'
 const CACHE = `recurse-${VERSION}`
 const SHELL = ['/', '/index.html', '/manifest.webmanifest', '/favicon.svg']
 

@@ -1,0 +1,1072 @@
+{
+  "id": "swe-advanced-structures",
+  "name": "Tries, Union-Find and Prefix Sums",
+  "version": "1.0.0",
+  "author": "Recurse",
+  "subject": "swe",
+  "level": "intermediate",
+  "description": "The interview structures beyond the basics: tries, union-find, prefix sums, monotonic stacks, grid patterns and LRU design.",
+  "icon": "UF",
+  "language": "python",
+  "prereqs": [
+    "swe-hash-maps",
+    "swe-stacks-queues",
+    "swe-linked-lists",
+    "swe-graphs"
+  ],
+  "tags": [
+    "interviews",
+    "trie",
+    "union-find",
+    "prefix sum",
+    "monotonic stack",
+    "matrix",
+    "lru cache"
+  ],
+  "resources": [
+    {
+      "title": "Algorithms, 4th ed.: Case Study: Union-Find",
+      "url": "https://algs4.cs.princeton.edu/15uf/",
+      "kind": "book",
+      "note": "Free chapter from Sedgewick and Wayne that builds union-find step by step with weighting and compression."
+    },
+    {
+      "title": "Disjoint Set Union",
+      "url": "https://cp-algorithms.com/data_structures/disjoint_set_union.html",
+      "kind": "article",
+      "note": "Path compression, union by rank or size, and many applications, with complexity proofs."
+    },
+    {
+      "title": "USACO Guide: Prefix Sums",
+      "url": "https://usaco.guide/silver/prefix-sums",
+      "kind": "course",
+      "note": "Free module on 1D prefix sums with practice problems; the next module covers 2D sums and difference arrays."
+    },
+    {
+      "title": "Trie",
+      "url": "https://en.wikipedia.org/wiki/Trie",
+      "kind": "article",
+      "note": "Overview of tries, their variants (radix and Patricia trees) and where they are used."
+    },
+    {
+      "title": "Python collections: OrderedDict",
+      "url": "https://docs.python.org/3/library/collections.html#collections.OrderedDict",
+      "kind": "docs",
+      "note": "move_to_end and popitem(last=False), the two calls behind a short LRU cache."
+    },
+    {
+      "title": "NeetCode roadmap",
+      "url": "https://neetcode.io/roadmap",
+      "kind": "practice",
+      "note": "Free roadmap of interview problems by pattern, including tries, advanced graphs and 2D grids."
+    }
+  ],
+  "lesson": {
+    "estimatedMinutes": 60,
+    "intro": "Once arrays, hash maps, stacks and graphs feel natural, interviews start mixing in a second tier of structures that each solve one kind of problem far better than anything else. This pack covers them: tries for prefix questions, union-find for merging groups, prefix sums and difference arrays for ranges, monotonic stacks for \"next larger\" questions, the standard grid walks, and how to design a structure such as an LRU cache from parts you already know.",
+    "objectives": [
+      "Implement a trie and use it for prefix lookups, autocomplete, wildcard search and many-word grid search",
+      "Build union-find with path compression and union by rank, and apply it to groups, cycle detection and valid trees",
+      "Answer range sums with prefix sums, apply range updates with difference arrays, and count subarrays with a running total and a map",
+      "Use monotonic stacks and the standard grid patterns (spiral, rotate, multi-source BFS) on new problems",
+      "Design an O(1) LRU cache by combining a hash map with a doubly linked list"
+    ],
+    "sections": [
+      {
+        "title": "Tries: words stored by their prefixes",
+        "body": "Type `car` into a search box with 100,000 product names behind it, and the suggestions must update on every keystroke. A hash set can tell you whether `card` is a stored word in O(L) time for a word of length L, but it cannot answer \"which words start with `car`?\" without checking every word.\n\nA **trie** (prefix tree, pronounced \"try\") is built for that question. Each node stands for a prefix. The root is the empty prefix, each edge adds one letter, and each node keeps a map from letter to child plus an **end flag** that marks where a complete word stops. Words that begin the same way share a path: in the diagram at the top of the code, `car`, `card`, `care` and `cat` all share the nodes for c and a.\n\nThree operations do almost everything:\n\n- **insert(word)**: walk the letters from the root, creating missing children, then set the end flag on the last node.\n- **search(word)**: walk the letters. True only if the walk succeeds and the last node has its end flag set.\n- **startsWith(prefix)**: walk the letters. True if the walk succeeds at all.\n\nEach operation costs O(L), no matter how many words are stored. That is the trie's selling point. The price is memory: every node carries its own map, so a trie often uses several times the memory of a set holding the same words, even though shared prefixes are stored once. Children can live in a dict (any alphabet, compact when sparse) or in a fixed array of 26 slots (fast indexing, lowercase only, wasteful when most slots are empty).\n\nTries appear wherever prefixes matter: autocomplete, spell checkers, word games, longest common prefix, and IP routing, where a router must find the longest prefix in its table that matches a destination address. Many router implementations store their forwarding tables in tries over the address bits for exactly that lookup.",
+        "code": "# Words: car, card, care, cat\n#\n#   (root)\n#     c\n#     a\n#    / \\\n#   r*  t*        * marks the end of a word\n#  / \\\n# d*  e*\nclass TrieNode:\n    def __init__(self):\n        self.children = {}      # letter -> TrieNode\n        self.end = False        # does a word end here?\n\nclass Trie:\n    def __init__(self):\n        self.root = TrieNode()\n\n    def insert(self, word):\n        node = self.root\n        for ch in word:\n            if ch not in node.children:\n                node.children[ch] = TrieNode()\n            node = node.children[ch]\n        node.end = True\n\n    def _walk(self, text):\n        node = self.root\n        for ch in text:\n            node = node.children.get(ch)\n            if node is None:\n                return None\n        return node\n\n    def search(self, word):\n        node = self._walk(word)\n        return node is not None and node.end\n\n    def starts_with(self, prefix):\n        return self._walk(prefix) is not None\n\nt = Trie()\nfor w in [\"card\", \"care\", \"cat\"]:\n    t.insert(w)\nprint(t.search(\"car\"), t.starts_with(\"car\"))   # False True\nt.insert(\"car\")\nprint(t.search(\"car\"), t.search(\"ca\"))         # True False",
+        "language": "python",
+        "tip": "When you will need to report whole words later (autocomplete, grid search), store the word itself at its end node instead of a True flag. You avoid rebuilding strings from the path.",
+        "pitfall": "Forgetting the end flag. Without it, search(\"car\") returns True after inserting only \"card\", because the path c, a, r exists. search needs the walk to succeed and the flag to be set; startsWith only needs the walk.",
+        "activity": {
+          "type": "code-runner",
+          "title": "Count the nodes each word creates",
+          "prompt": "Run it and connect each number to the diagram: \"ten\" reuses the t and e nodes, so it adds only one. Then do the task and predict both new numbers before you run it.",
+          "props": {
+            "language": "python",
+            "code": "class TrieNode:\n    def __init__(self):\n        self.children = {}\n        self.end = False\n\ndef insert(root, word):\n    created = 0\n    node = root\n    for ch in word:\n        if ch not in node.children:\n            node.children[ch] = TrieNode()\n            created += 1\n        node = node.children[ch]\n    node.end = True\n    return created\n\nroot = TrieNode()\nfor word in [\"tea\", \"ten\", \"to\"]:\n    print(f\"{word}: created {insert(root, word)}\")\n",
+            "task": "Change the list to [\"tea\", \"ten\", \"to\", \"team\", \"tea\"]. How many nodes do \"team\" and the second \"tea\" create?",
+            "expectOutput": "tea: created 3\nten: created 1\nto: created 1\nteam: created 1\ntea: created 0"
+          }
+        },
+        "check": {
+          "question": "A trie holds only \"card\" and \"care\". What do search(\"car\") and startsWith(\"car\") return?",
+          "choices": [
+            "True and True",
+            "False and True",
+            "False and False",
+            "True and False"
+          ],
+          "answer": 1,
+          "explanation": "The walk c, a, r succeeds, so startsWith is True. No word ends at the r node, so its end flag is off and search is False. Inserting \"car\" itself would flip search to True."
+        }
+      },
+      {
+        "title": "Searching below a node: autocomplete, wildcards and word grids",
+        "body": "Once you can walk to a prefix's node, the subtree below it holds every completion of that prefix. Three classic problems build on that.\n\n**Autocomplete.** Walk to the prefix node, then run a depth-first search beneath it, adding the current path whenever you pass an end flag. Visiting children in sorted order produces the words alphabetically. The walk costs O(P) for a prefix of length P; collecting costs the size of the subtree, so stop as soon as you have the k suggestions you need. When one trie answers many queries, precompute instead: insert the words in sorted order and let each node keep the first three words that pass through it. Every keystroke is then one step down the trie and an O(1) read.\n\n**Wildcard search.** In a pattern such as `ca.e`, where `.` matches any one letter, letters walk normally and a dot branches into every child. Reaching the end of the pattern succeeds only on a node whose end flag is set, which also enforces the length. Each dot can multiply the branches by the alphabet size, but the trie prunes every branch that no stored word follows.\n\n**Many words in one grid.** To find which of thousands of words can be traced in a letter grid, a separate grid search per word repeats the same walks for words that share prefixes. Put the words in a trie and run one depth-first search from each cell, carrying the current trie node. Step to a neighbor only when the trie has a child for its letter, so a path dies the moment it stops being a prefix of any word. Mark cells as used on the current path and restore them on the way back, report a word when you reach its end node, and clear that mark so the word is reported once.\n\nIn an interview, also mention the simple alternative for a fixed word list: sort the words once, binary search for the first word that is at least the prefix, and read forward while words still start with it. It uses far less memory and is often good enough.",
+        "code": "class Node:\n    def __init__(self):\n        self.children = {}\n        self.end = False\n\ndef build(words):\n    root = Node()\n    for w in words:\n        node = root\n        for ch in w:\n            node = node.children.setdefault(ch, Node())\n        node.end = True\n    return root\n\ndef complete(root, prefix):\n    \"\"\"Every stored word that starts with prefix, in alphabetical order.\"\"\"\n    node = root\n    for ch in prefix:                       # 1. walk to the prefix's node\n        node = node.children.get(ch)\n        if node is None:\n            return []\n    out = []\n    def dfs(node, path):                    # 2. collect everything below it\n        if node.end:\n            out.append(path)\n        for ch in sorted(node.children):    # sorted children -> alphabetical words\n            dfs(node.children[ch], path + ch)\n    dfs(node, prefix)\n    return out\n\ndef matches(node, pattern, i=0):\n    \"\"\"True if some word matches pattern, where '.' is any one letter.\"\"\"\n    if i == len(pattern):\n        return node.end\n    if pattern[i] == \".\":\n        return any(matches(child, pattern, i + 1) for child in node.children.values())\n    child = node.children.get(pattern[i])\n    return child is not None and matches(child, pattern, i + 1)\n\nroot = build([\"car\", \"card\", \"care\", \"cart\", \"cat\", \"dog\"])\nprint(complete(root, \"car\"))    # ['car', 'card', 'care', 'cart']\nprint(complete(root, \"do\"))     # ['dog']\nprint(matches(root, \"ca.e\"))    # True  (care)\nprint(matches(root, \"c.g\"))     # False",
+        "language": "python",
+        "pitfall": "Reporting the same word twice in the grid search because it can be traced along two different paths. Remove the word's end mark as soon as you record it.",
+        "activity": {
+          "type": "challenge",
+          "title": "Autocomplete suggestions",
+          "prompt": "Insert the words in sorted order and let each node keep up to three of them, then walk the typed letters. Test a prefix that matches nothing before you submit: every later entry must be empty too.",
+          "props": {
+            "id": "autocomplete-suggestions"
+          }
+        },
+        "check": {
+          "question": "Why is one trie-guided search faster than running a separate grid search for each of thousands of words?",
+          "choices": [
+            "A trie stores the grid cells, so neighbors are found in O(1)",
+            "A trie sorts the words, so the grid can be binary searched",
+            "Words with a common prefix share one walk through the grid, and a path stops as soon as it is no word's prefix",
+            "A trie lets each cell be reused within a word, so fewer paths are needed"
+          ],
+          "answer": 2,
+          "explanation": "Shared prefixes are explored once, and the trie prunes dead paths immediately. The trie holds the words, not the grid, and cells still cannot be reused within one word."
+        }
+      },
+      {
+        "title": "Union-find: path compression and union by rank",
+        "body": "Picture a social network where friendships arrive one at a time and, between arrivals, you must answer \"are Ana and Raj in the same friend group?\" A fresh BFS for every question costs O(V + E) each time. A **union-find** structure, also called a disjoint set union (DSU), answers in nearly constant time.\n\nIt stores each group as a tree using one array, `parent`. A root points to itself and acts as the group's **representative**. **find(x)** follows parent pointers from x up to the root; two items are in the same group exactly when they have the same root. **union(a, b)** finds both roots and, if they differ, makes one root the parent of the other.\n\nDone naively, unions can build a long chain, and find degrades to O(n). Two tricks fix that:\n\n- **Union by rank.** Each root keeps a rank, an upper bound on its tree's height. Attach the root with the smaller rank under the one with the larger rank, so the height does not grow. Only when the ranks are equal does the surviving root's rank go up by one. Heights then stay O(log n). Union by size, which hangs the smaller group under the larger, works just as well.\n- **Path compression.** While find walks up to the root, point every node it passes directly at the root. The recursive version does it in one line: `parent[x] = find(parent[x])`. Path halving, which points each node at its grandparent inside a loop, gives the same guarantee without recursion.\n\nWith both tricks, any sequence of m operations on n items costs O(m α(n)), where α is the inverse Ackermann function. α(n) is at most 4 for any input that fits in a computer, so treat each operation as constant time.\n\nTrace the code: after seven unions the parent array is `[0, 0, 0, 2, 0, 4, 4, 6]`, so node 7 reaches its root through 6, 4 and 0. One call to find(7) repoints 7 and 6 straight at 0. Ranks only matter at roots. After compression they are upper bounds rather than exact heights, and that is all union by rank needs.",
+        "code": "class DSU:\n    def __init__(self, n):\n        self.parent = list(range(n))    # everyone starts as their own root\n        self.rank = [0] * n             # upper bound on each root's tree height\n\n    def find(self, x):\n        if self.parent[x] != x:\n            self.parent[x] = self.find(self.parent[x])   # path compression\n        return self.parent[x]\n\n    def union(self, a, b):\n        ra, rb = self.find(a), self.find(b)\n        if ra == rb:\n            return False                # already in the same group\n        if self.rank[ra] < self.rank[rb]:\n            ra, rb = rb, ra             # make ra the taller tree\n        self.parent[rb] = ra            # shorter tree goes under the taller one\n        if self.rank[ra] == self.rank[rb]:\n            self.rank[ra] += 1          # equal heights: the result is one taller\n        return True\n\nd = DSU(8)\nfor a, b in [(0, 1), (2, 3), (0, 2), (4, 5), (6, 7), (4, 6), (0, 4)]:\n    d.union(a, b)\nprint(d.parent)                     # [0, 0, 0, 2, 0, 4, 4, 6]\nprint(d.find(7))                    # 0, after following 7 -> 6 -> 4 -> 0\nprint(d.parent)                     # [0, 0, 0, 2, 0, 4, 0, 0]\nprint(d.union(3, 5))                # False: same group already",
+        "language": "python",
+        "tip": "In Python, a recursive find on a very long chain can hit the recursion limit before compression flattens it. Union by rank keeps trees O(log n) tall, or use the loop version with path halving.",
+        "pitfall": "Linking the items instead of their roots: `parent[b] = a` instead of `parent[find(b)] = find(a)`. It pulls b out of its old group and leaves the rest of that group behind.",
+        "activity": {
+          "type": "code-runner",
+          "title": "Watch ranks decide the root",
+          "prompt": "Run it and check the parent array against the unions: 0 and 2 both had rank 1, so 2 went under 0 and 0's rank became 2. Then do the task.",
+          "props": {
+            "language": "python",
+            "code": "parent = list(range(6))\nrank = [0] * 6\n\ndef find(x):\n    if parent[x] != x:\n        parent[x] = find(parent[x])     # path compression\n    return parent[x]\n\ndef union(a, b):\n    ra, rb = find(a), find(b)\n    if ra == rb:\n        return False\n    if rank[ra] < rank[rb]:\n        ra, rb = rb, ra\n    parent[rb] = ra\n    if rank[ra] == rank[rb]:\n        rank[ra] += 1\n    return True\n\nunion(0, 1)\nunion(2, 3)\nunion(1, 3)\nunion(4, 5)\nprint(\"parent:\", parent)\nprint(\"rank:  \", rank)\n",
+            "task": "Add union(5, 2) just before the two print lines. Predict which root ends up under which, and whether any rank changes, before you run it.",
+            "expectOutput": "parent: [0, 0, 0, 2, 0, 4]\nrank:   [2, 0, 1, 0, 1, 0]"
+          }
+        },
+        "check": {
+          "question": "Under union by rank, a root with rank 1 is united with a root with rank 2. What happens?",
+          "choices": [
+            "The rank-2 root goes under the rank-1 root",
+            "Both ranks increase by one",
+            "The rank-1 root goes under the rank-2 root, whose rank becomes 3",
+            "The rank-1 root goes under the rank-2 root, and no rank changes"
+          ],
+          "answer": 3,
+          "explanation": "The shorter tree hangs under the taller one, so the taller tree's height does not grow and its rank stays 2. A rank only increases when two roots of equal rank are joined."
+        }
+      },
+      {
+        "title": "Union-find at work: components, cycles and valid trees",
+        "body": "Most union-find interview problems are one of a handful of moves built on find and union.\n\n- **Count groups.** Start with n groups and subtract one for every union that actually merges two roots. Friend circles, provinces and connected computers all reduce to this.\n- **Detect a cycle in an undirected graph.** Add edges one by one. If an edge's two ends already share a root, that edge closes a cycle. \"Redundant connection\" asks for exactly that edge.\n- **Check for a valid tree.** A tree on n nodes has exactly n - 1 edges and no cycle. With that edge count, no failed union means the group count fell from n to 1, so the graph is also connected.\n- **Merge first, then check.** For constraints such as `a==b` and `b!=c`, union every equality first and only then test every inequality against the final groups. Checking an inequality before all equalities are merged can miss a contradiction. Merging user accounts that share an email address works the same way.\n- **Build a minimum spanning tree (Kruskal).** Sort edges by cost and keep each edge whose union succeeds. An edge whose ends are already connected would only close a cycle.\n- **Find when everyone became connected.** Sort events by time and stop when the group count reaches 1.\n\nKnow the limits too. Union-find tracks undirected connectivity only: a directed graph needs DFS with colors or Kahn's algorithm to find cycles. It cannot split a group, so deleting edges is out, and it knows nothing about path lengths, which is BFS or Dijkstra territory. For a single question on a fixed graph, a DFS is just as fast and more familiar. Union-find shines when edges keep arriving between questions.\n\nWhen you explain your plan, say the invariant out loud: each group is a tree, its root names the group, and union only ever links roots.",
+        "code": "def make_dsu(n):\n    parent = list(range(n))\n\n    def find(x):\n        while parent[x] != x:\n            parent[x] = parent[parent[x]]   # path halving\n            x = parent[x]\n        return x\n\n    def union(a, b):\n        ra, rb = find(a), find(b)\n        if ra == rb:\n            return False\n        parent[rb] = ra\n        return True\n\n    return find, union\n\n# 1. Count groups: start with n, subtract one per successful union\nfind, union = make_dsu(6)\ngroups = 6\nfor a, b in [(0, 1), (1, 2), (3, 4), (2, 0)]:\n    if union(a, b):\n        groups -= 1\n    else:\n        print(\"edge\", (a, b), \"closes a cycle\")   # edge (2, 0) closes a cycle\nprint(\"groups:\", groups)                           # groups: 3  ({0,1,2}, {3,4}, {5})\n\n# 2. Kruskal's minimum spanning tree: cheapest edges first, skip any that close a cycle\nedges = [(4, 0, 1), (1, 1, 2), (3, 0, 2), (2, 2, 3), (5, 1, 3)]   # (cost, a, b)\nfind, union = make_dsu(4)\ntotal, used = 0, []\nfor cost, a, b in sorted(edges):\n    if union(a, b):\n        total += cost\n        used.append((a, b))\nprint(used, total)                                 # [(1, 2), (2, 3), (0, 2)] 6",
+        "language": "python",
+        "pitfall": "Using union-find to find cycles in a directed graph. The edges 0 -> 1, 0 -> 2 and 1 -> 2 contain no directed cycle, but union-find reports one at the third edge because it ignores direction.",
+        "activity": {
+          "type": "challenge",
+          "title": "Redundant connection",
+          "prompt": "Process the cables in order and return the first one whose ends are already connected. Work out why that is also the last removable cable in the input, then try the hidden tests.",
+          "props": {
+            "id": "redundant-connection"
+          }
+        },
+        "check": {
+          "question": "Union-find processes the edges [[1, 2], [3, 4], [2, 3], [1, 4]] on nodes 1 to 4. Which edge is the first whose union fails?",
+          "choices": [
+            "[3, 4]",
+            "[2, 3]",
+            "[1, 4]",
+            "None of them"
+          ],
+          "answer": 2,
+          "explanation": "After [1, 2], [3, 4] and [2, 3] all four nodes share one root, so [1, 4] finds both ends already connected: it closes the cycle 1-2-3-4-1. [2, 3] still merged two separate groups."
+        }
+      },
+      {
+        "title": "Prefix sums and difference arrays",
+        "body": "A store keeps daily sales in a list, and a dashboard asks hundreds of times a second for \"total sales from day 3 to day 9\". Adding up the range each time is O(n) per question. **Prefix sums** answer each one in O(1) after a single O(n) pass.\n\nBuild `P` with one more slot than the data: `P[0] = 0` and `P[i + 1] = P[i] + nums[i]`, so `P[i]` is the sum of the first i values. The sum of `nums[left..right]` inclusive is then `P[right + 1] - P[left]`: everything up to right, minus everything before left. The leading zero is not decoration. It makes ranges that start at index 0 work without a special case, and it is where most off-by-one bugs are avoided.\n\nThe same idea works on a grid. Let `P[r + 1][c + 1]` hold the sum of the block from the top-left corner to (r, c). Each entry is its cell plus the block above plus the block to the left, minus their overlap, which was added twice: `P[r + 1][c + 1] = m[r][c] + P[r][c + 1] + P[r + 1][c] - P[r][c]`. A rectangle query runs the same inclusion and exclusion in reverse, four reads per query.\n\nA **difference array** is the reverse tool. When you must add a delta to every position in many ranges and only read the values at the end, record just the edges of each change: `diff[start] += delta` and `diff[end + 1] -= delta`. A running sum over `diff` rebuilds the values. Each update is O(1) and the final pass is O(n). With +1 at each meeting's start and -1 at its end, the running sum is the number of meetings in progress, and its maximum is the number of rooms you need.\n\nBoth tools assume the data stops changing while you query it. If updates and range queries interleave, the usual answer is a Fenwick tree or a segment tree, which do both in O(log n). Mention them if asked; internship interviews rarely expect you to code one.",
+        "code": "sales = [4, 2, 7, 1, 5, 3]\n\n# Prefix sums: P[i] = sum of the first i values, so P has one extra slot\nP = [0]\nfor x in sales:\n    P.append(P[-1] + x)\nprint(P)                        # [0, 4, 6, 13, 14, 19, 22]\n\ndef range_sum(left, right):     # inclusive indexes\n    return P[right + 1] - P[left]\n\nprint(range_sum(1, 3))          # 10  (2 + 7 + 1)\nprint(range_sum(0, 5))          # 22  (everything)\n\n# Difference array: many range updates, then one pass to read the result\nn = 6\ndiff = [0] * (n + 1)\nfor start, end, delta in [(0, 2, 5), (1, 4, 2), (3, 5, -1)]:\n    diff[start] += delta        # the change starts here\n    diff[end + 1] -= delta      # and stops after end\nvalues, running = [], 0\nfor i in range(n):\n    running += diff[i]\n    values.append(running)\nprint(values)                   # [5, 7, 7, 1, 1, -1]",
+        "language": "python",
+        "pitfall": "Off-by-one ranges. With the leading 0, the sum of nums[left..right] is P[right + 1] - P[left]. Writing P[right] - P[left] silently drops the last element of every range.",
+        "activity": {
+          "type": "code-runner",
+          "title": "Seat bookings with a difference array",
+          "prompt": "Each booking adds seats to a range of flights. Run it and check flight 2 by hand: it is inside all three bookings, 10 + 20 + 25 = 55. Then do the task.",
+          "props": {
+            "language": "python",
+            "code": "# Each booking reserves seats on a range of flights: (first, last, seats).\nflights = 5\nbookings = [(1, 2, 10), (2, 3, 20), (2, 5, 25)]\n\ndiff = [0] * (flights + 2)          # flights are numbered 1 to 5\nfor first, last, seats in bookings:\n    diff[first] += seats\n    diff[last + 1] -= seats\n\ntotal = 0\nfor flight in range(1, flights + 1):\n    total += diff[flight]\n    print(\"flight\", flight, \"seats\", total)\n",
+            "task": "Add the booking (4, 5, 5) to the list. Which two diff entries change, and what are the new totals for flights 4 and 5? Predict, then run.",
+            "expectOutput": "flight 1 seats 10\nflight 2 seats 55\nflight 3 seats 45\nflight 4 seats 30\nflight 5 seats 30"
+          }
+        },
+        "check": {
+          "question": "nums = [4, 2, 7, 1, 5, 3] gives P = [0, 4, 6, 13, 14, 19, 22]. What is the sum of nums[2..4] inclusive?",
+          "choices": [
+            "15",
+            "8",
+            "12",
+            "13"
+          ],
+          "answer": 3,
+          "explanation": "P[5] - P[2] = 19 - 6 = 13, which matches 7 + 1 + 5. P[5] - P[1] = 15 would include index 1, and P[4] - P[2] = 8 would drop index 4."
+        }
+      },
+      {
+        "title": "Subarray sum equals k: running totals meet a hash map",
+        "body": "Count the contiguous subarrays of `[2, -1, 1, 2]` that add up to 2. Trying every start and end is O(n^2). A sliding window does not work either: with negative numbers, adding an element can make the sum smaller, so you can never tell whether to grow or shrink the window.\n\nPrefix sums turn the question around. The subarray from i to j sums to `P[j + 1] - P[i]`, so a subarray ending at the current position sums to k exactly when some earlier running total equals `running - k`. Keep a map from each running total to how many times it has appeared, and each position needs one lookup. Trace it with k = 2:\n\n- Start with `{0: 1}`, the empty prefix, so that subarrays starting at index 0 can be counted.\n- 2: running 2, look for 0, found once ([2]). Record 2.\n- -1: running 1, look for -1, none. Record 1.\n- 1: running 2, look for 0, found once ([2, -1, 1]). Record 2 again.\n- 2: running 4, look for 2, found twice ([-1, 1, 2] and the final [2]). The total is 4.\n\nLook up before you record, or the current total could match itself and count an empty subarray when k is 0. The same skeleton solves a family of problems; only what the map stores changes:\n\n- **Longest subarray with sum k**: store the first index where each running total appeared and never overwrite it, because the earliest start gives the longest subarray. Seed the map with `{0: -1}`.\n- **Subarrays whose sum is divisible by k**: key on `running % k`. Two prefixes with the same remainder differ by a multiple of k. In JavaScript `%` can return a negative number, so normalize with `((running % k) + k) % k`.\n- **Longest stretch with as many 0s as 1s**: count each 0 as -1, then find the longest subarray with sum 0.\n\nAll of them run in O(n) time and O(n) space. When you spot one, name the pattern: a running total plus a map of earlier totals.",
+        "code": "def count_sum_k(nums, k):\n    seen = {0: 1}                   # running total -> how many times seen\n    running = count = 0\n    for x in nums:\n        running += x\n        count += seen.get(running - k, 0)   # look up first...\n        seen[running] = seen.get(running, 0) + 1   # ...then record\n    return count\n\ndef longest_sum_k(nums, k):\n    first = {0: -1}                 # running total -> FIRST index where it appeared\n    running = best = 0\n    for i, x in enumerate(nums):\n        running += x\n        if running - k in first:\n            best = max(best, i - first[running - k])\n        first.setdefault(running, i)        # never overwrite: earlier is longer\n    return best\n\ndef count_divisible(nums, k):\n    seen = {0: 1}                   # remainder of the running total -> count\n    running = count = 0\n    for x in nums:\n        running = (running + x) % k         # Python's % is never negative for k > 0\n        count += seen.get(running, 0)       # same remainder -> difference divisible by k\n        seen[running] = seen.get(running, 0) + 1\n    return count\n\nprint(count_sum_k([2, -1, 1, 2], 2))       # 4\nprint(longest_sum_k([2, -1, 1, 2], 2))     # 3  ([2, -1, 1])\nprint(count_divisible([4, 5, 0, -2, -3, 1], 5))   # 7",
+        "language": "python",
+        "pitfall": "Starting the map empty instead of {0: 1}. Subarrays that begin at index 0 are then never counted, so [3] with k = 3 returns 0 instead of 1.",
+        "activity": {
+          "type": "challenge",
+          "title": "Count subarrays that sum to k",
+          "prompt": "Use a running total and a map of earlier totals, seeded with {0: 1}. Before submitting, run [3, -3, 3, -3] with k = 0 on paper: the answer is 4.",
+          "props": {
+            "id": "subarray-sum-equals-k"
+          }
+        },
+        "check": {
+          "question": "Why does a sliding window fail for \"count subarrays with sum k\" when the list contains negative numbers?",
+          "choices": [
+            "Adding an element can lower the sum, so a window that is too big can become valid again",
+            "Sliding windows only work on sorted input",
+            "Negative numbers cannot be used as hash map keys",
+            "The window would need O(n) extra space"
+          ],
+          "answer": 0,
+          "explanation": "A window relies on the sum moving in one direction as it grows. Negative values break that, so shrinking or growing can both be right. Negative numbers are fine map keys, and sorting is not what windows need."
+        }
+      },
+      {
+        "title": "Monotonic stacks: next greater, next smaller, biggest rectangle",
+        "body": "The stacks and queues topic used a stack to answer \"how many days until a warmer day?\". That stack is **monotonic**: its values only increase, or only decrease, from bottom to top, because anything that would break the order is popped first. Every index is pushed once and popped at most once, so the scan is O(n) even though it has a loop inside a loop.\n\nFour questions come up again and again, each with a matching stack:\n\n- **Next greater** to the right: keep values decreasing. A bigger arrival is the answer for everything it pops.\n- **Next smaller** to the right: keep values increasing. A smaller arrival answers the bigger values it pops.\n- **Previous greater** or **previous smaller**: scan left to right, pop everything that can never be an answer again, then read the current element's answer from the new top before pushing it.\n\nChoose `<` or `<=` on purpose, depending on whether equal values should count. Store indexes rather than values, so you can compute distances and still read `nums[i]`. For a circular array, where the search may wrap past the end, loop over `2n` positions using `i % n` and push indexes only during the first pass.\n\nThe best-known hard problem in this family is the **largest rectangle in a histogram**. The best rectangle that uses bar j at its full height stretches left and right until it hits a shorter bar, so you need the previous smaller and next smaller bar of every index. One increasing stack finds both at once: when bar i pops bar j, bar i is j's next smaller bar, and whatever is left on top of the stack is j's previous smaller bar. A final height of 0 flushes every remaining bar. On `[2, 4, 3, 4, 1]`, the bar of height 1 pops the 3, whose rectangle spans from just after the 2 to just before the 1: height 3, width 3, area 9.\n\nReach for a monotonic stack when a problem asks about the next, previous or nearest larger or smaller value, a span, or how far something can extend.",
+        "code": "def previous_smaller(nums):\n    \"\"\"Index of the nearest smaller value to the left, or -1.\"\"\"\n    result = []\n    stack = []                              # indexes, values increasing bottom to top\n    for i, x in enumerate(nums):\n        while stack and nums[stack[-1]] >= x:\n            stack.pop()                     # can never be anyone's answer again\n        result.append(stack[-1] if stack else -1)\n        stack.append(i)\n    return result\n\ndef next_greater_circular(nums):\n    \"\"\"First larger value to the right, wrapping around the end; -1 if none.\"\"\"\n    n = len(nums)\n    result = [-1] * n\n    stack = []                              # indexes still waiting for an answer\n    for i in range(2 * n):                  # walk the array twice\n        x = nums[i % n]\n        while stack and nums[stack[-1]] < x:\n            result[stack.pop()] = x\n        if i < n:\n            stack.append(i)                 # only the first pass adds new waiters\n    return result\n\ndef largest_rectangle(heights):\n    stack, best = [], 0\n    for i, h in enumerate(heights + [0]):   # the 0 forces every bar out at the end\n        while stack and heights[stack[-1]] >= h:\n            height = heights[stack.pop()]\n            left = stack[-1] + 1 if stack else 0\n            best = max(best, height * (i - left))\n        stack.append(i)\n    return best\n\nprint(previous_smaller([3, 1, 4, 1, 5]))        # [-1, -1, 1, -1, 3]\nprint(next_greater_circular([3, 8, 4, 1]))      # [8, -1, 8, 3]\nprint(largest_rectangle([2, 4, 3, 4, 1]))       # 9",
+        "language": "python",
+        "pitfall": "Storing values instead of indexes. You lose the positions needed for widths and distances, and equal values become impossible to tell apart.",
+        "activity": {
+          "type": "challenge",
+          "title": "Largest rectangle in a histogram",
+          "prompt": "Keep an increasing stack of indexes. When a bar pops index j, compute j's rectangle from the new top of the stack. Remember the final 0 that flushes the stack, then test [1, 2, 3, 4, 5].",
+          "props": {
+            "id": "largest-rectangle-histogram"
+          }
+        },
+        "check": {
+          "question": "With heights [2, 4, 3, 4, 1], which bar pops the 3 off the increasing stack?",
+          "choices": [
+            "The 4 at index 3",
+            "The 1 at index 4",
+            "The 2 at index 0",
+            "The sentinel 0 added at the end"
+          ],
+          "answer": 1,
+          "explanation": "The 4 at index 3 is taller, so it is pushed on top of the 3. The 1 is the first shorter bar to the right of the 3, so it pops it, and the rectangle of height 3 covers indexes 1 to 3 for an area of 9."
+        }
+      },
+      {
+        "title": "Matrix patterns: spiral, rotate and grid BFS",
+        "body": "Grid problems test care more than cleverness. A small toolkit prevents most bugs:\n\n- Read `rows = len(grid)` and `cols = len(grid[0])` once, and keep a direction list such as `DIRS = [(1, 0), (-1, 0), (0, 1), (0, -1)]` instead of four copies of the same code.\n- Check bounds before reading a neighbor: `0 <= nr < rows and 0 <= nc < cols`.\n- Ask whether you may modify the input. Overwriting visited cells saves memory but destroys the caller's data; a `seen` set is the safe default.\n\n**Spiral order.** Keep four boundaries: `top`, `bottom`, `left` and `right`. Walk the top row and move `top` down, walk the right column and move `right` left, then the bottom row and the left column. Check `top <= bottom` before the bottom row and `left <= right` before the left column, or a single leftover row or column is listed twice.\n\n**Rotate 90 degrees clockwise in place.** Transpose (swap `m[r][c]` with `m[c][r]` above the diagonal only), then reverse every row. Counterclockwise is a transpose followed by reversing the order of the rows. Swapping over the whole grid instead of one triangle swaps every pair twice and undoes the transpose.\n\n**Set matrix zeroes.** Find first, write second. Zeros written during the scan look exactly like original ones and wipe out rows they should not.\n\n**Grid BFS.** A grid is a graph whose nodes are cells and whose edges join neighbors. Counting islands is counting connected components: start a BFS at every unvisited land cell, mark cells when you enqueue them, and count the starts. When something spreads from many places at once (rot, fire, distance to the nearest exit), put every source in the queue before you begin. This **multi-source BFS** makes each level of the queue one unit of time. When a question asks which cells can reach a border, search backward from the border once instead of forward from every cell.\n\nIn Python, prefer an iterative BFS or an explicit stack on big grids. A recursive DFS over a 1,000 by 1,000 grid can blow past the default recursion limit of 1,000 calls.",
+        "code": "from collections import deque\n\nDIRS = [(1, 0), (-1, 0), (0, 1), (0, -1)]     # down, up, right, left\n\ndef rotate_clockwise(m):\n    n = len(m)\n    for r in range(n):\n        for c in range(r + 1, n):                # transpose (only above the diagonal)\n            m[r][c], m[c][r] = m[c][r], m[r][c]\n    for row in m:\n        row.reverse()                            # then mirror each row\n    return m\n\ndef count_islands(grid):\n    rows, cols = len(grid), len(grid[0])\n    seen = set()\n    islands = 0\n    for r in range(rows):\n        for c in range(cols):\n            if grid[r][c] == 1 and (r, c) not in seen:\n                islands += 1                     # a new component starts here\n                seen.add((r, c))\n                queue = deque([(r, c)])\n                while queue:\n                    cr, cc = queue.popleft()\n                    for dr, dc in DIRS:\n                        nr, nc = cr + dr, cc + dc\n                        if 0 <= nr < rows and 0 <= nc < cols and grid[nr][nc] == 1 and (nr, nc) not in seen:\n                            seen.add((nr, nc))   # mark when you enqueue, not when you pop\n                            queue.append((nr, nc))\n    return islands\n\nprint(rotate_clockwise([[1, 2, 3], [4, 5, 6], [7, 8, 9]]))\n# [[7, 4, 1], [8, 5, 2], [9, 6, 3]]\nprint(count_islands([[1, 1, 0, 0],\n                     [0, 1, 0, 1],\n                     [1, 0, 0, 1]]))             # 3",
+        "language": "python",
+        "pitfall": "Marking a cell visited when you pop it instead of when you push it. The same cell can then sit in the queue many times, which wastes time and double counts in problems that measure steps.",
+        "activity": {
+          "type": "challenge",
+          "title": "Spiral order",
+          "prompt": "Keep four boundaries and move each one inward after walking its side. Before submitting, trace a single row and a single column: those are where a missing check lists values twice.",
+          "props": {
+            "id": "spiral-order"
+          }
+        },
+        "check": {
+          "question": "Which pair of in-place steps rotates a square matrix 90 degrees clockwise?",
+          "choices": [
+            "Transpose, then reverse the order of the rows",
+            "Reverse each row, then reverse the order of the rows",
+            "Transpose, then reverse each row",
+            "Transpose twice"
+          ],
+          "answer": 2,
+          "explanation": "Transposing sends (r, c) to (c, r), and reversing each row then sends it to (c, n - 1 - r), which is exactly a clockwise turn. Transpose plus reversing the row order turns it counterclockwise, reversing both ways is a 180 degree turn, and transposing twice changes nothing."
+        }
+      },
+      {
+        "title": "Designing a data structure: the LRU cache",
+        "body": "Design questions ask you to build a small data structure with given operations and time limits: an LRU cache, a min stack, a hit counter, a time-based key-value store, a set with insert, delete and getRandom in O(1). They reward a method more than memorized code:\n\n- Pin down the API and the required cost of each operation. Ask about capacity, missing keys and what counts as \"using\" an entry.\n- For each operation, say what it must find quickly.\n- Pick one structure per need, combine them, and keep every structure in sync on every operation.\n- Trace a few operations on a tiny example, before and after you code.\n\nThe **least recently used (LRU) cache** is the classic. `get(key)` and `put(key, value)` must both be O(1), and when the cache is full, a new key evicts the entry that has gone longest without being used. Two needs:\n\n- Find a key's entry fast: a hash map.\n- Keep entries ordered by recency, move any entry to the newest end, and remove the oldest, all in O(1): a **doubly linked list**. The map stores a pointer to each key's node, and because the node knows both neighbors, it can be unlinked in O(1). A singly linked list would have to walk from the head to find the previous node.\n\nTwo **sentinel** nodes, a head before the oldest entry and a tail after the newest, mean unlink and append never special-case an empty list. Store the key inside each node as well: when you evict `head.next`, you need its key to delete it from the map.\n\nPython's `collections.OrderedDict` packages this pair (`move_to_end` and `popitem(last=False)`), as the code shows, and `functools.lru_cache` applies the same policy to function results. A JavaScript `Map` remembers insertion order, so deleting and re-setting a key moves it to the newest end. Use these in real code. In an interview, mention the library version, then build the list by hand when asked, because that is usually the point of the question.\n\nThe recipe solves the others too. Insert, delete and getRandom in O(1) pair an array (for a random index) with a map from value to index, and deleting swaps the target with the last element before popping it.",
+        "code": "from collections import OrderedDict\n\nclass LRUCache:\n    def __init__(self, capacity):\n        self.capacity = capacity\n        self.data = OrderedDict()           # oldest first, newest last\n\n    def get(self, key):\n        if key not in self.data:\n            return -1\n        self.data.move_to_end(key)          # just used: now the newest\n        return self.data[key]\n\n    def put(self, key, value):\n        if key in self.data:\n            self.data.move_to_end(key)\n        elif len(self.data) == self.capacity:\n            self.data.popitem(last=False)   # evict the oldest\n        self.data[key] = value\n\ncache = LRUCache(2)\ncache.put(\"a\", 1)\ncache.put(\"b\", 2)\nprint(cache.get(\"a\"))                       # 1   (now \"b\" is the oldest)\ncache.put(\"c\", 3)                           # full: evicts \"b\"\nprint(cache.get(\"b\"), cache.get(\"c\"))       # -1 3\nprint(list(cache.data))                     # ['a', 'c']",
+        "language": "python",
+        "pitfall": "Forgetting that get also counts as a use. If get does not move the key to the newest end, the cache evicts entries that were just read.",
+        "activity": {
+          "type": "challenge",
+          "title": "LRU cache",
+          "prompt": "Build the hash map plus doubly linked list with head and tail sentinels. Trace the first example by hand before coding: which key does each eviction remove, and why?",
+          "props": {
+            "id": "lru-cache"
+          }
+        },
+        "check": {
+          "question": "Why does an O(1) LRU cache use a doubly linked list rather than a singly linked one?",
+          "choices": [
+            "Because a singly linked list cannot be stored in a hash map",
+            "To keep the keys in sorted order",
+            "Because doubly linked lists use less memory",
+            "To unlink a node found through the map without walking the list to find its predecessor"
+          ],
+          "answer": 3,
+          "explanation": "Moving or evicting a node means rewiring its predecessor. With a prev pointer that is O(1); a singly linked list needs an O(n) walk from the head. Recency order, not key order, is what the list keeps, and the extra pointer costs memory rather than saving it."
+        }
+      }
+    ],
+    "keyTerms": [
+      {
+        "term": "Trie",
+        "definition": "A tree of characters where each node is a prefix; words that share a beginning share a path."
+      },
+      {
+        "term": "End-of-word flag",
+        "definition": "A mark on a trie node meaning a complete word stops there, separating stored words from mere prefixes."
+      },
+      {
+        "term": "Union-find",
+        "definition": "A structure (disjoint set union) that keeps items in groups stored as trees, with find and union in nearly O(1)."
+      },
+      {
+        "term": "Path compression",
+        "definition": "Pointing the nodes visited by find directly at their root so later finds are shorter."
+      },
+      {
+        "term": "Union by rank",
+        "definition": "Attaching the root of the shorter tree under the taller one so tree heights stay O(log n)."
+      },
+      {
+        "term": "Prefix sum",
+        "definition": "P[i], the sum of the first i values; any range sum is a difference of two prefix sums."
+      },
+      {
+        "term": "Difference array",
+        "definition": "A list of changes between neighbors; a range update edits two entries and a running sum rebuilds the values."
+      },
+      {
+        "term": "Monotonic stack",
+        "definition": "A stack whose values only increase or only decrease, used to find the next or previous larger or smaller element in O(n)."
+      },
+      {
+        "term": "Multi-source BFS",
+        "definition": "Breadth-first search that starts with every source in the queue, so each level is one unit of distance from the nearest source."
+      },
+      {
+        "term": "Sentinel node",
+        "definition": "A dummy node at the start or end of a linked list that removes special cases for empty lists and edges."
+      }
+    ],
+    "summary": [
+      "A trie answers prefix questions in O(L) per word; the end flag separates stored words from prefixes.",
+      "Union-find keeps groups as trees; union by rank and path compression make find and union effectively O(1).",
+      "Prefix sums give O(1) range sums, and difference arrays give O(1) range updates read in one final pass.",
+      "A running total plus a map of earlier totals counts subarrays with sum k in O(n), negatives included.",
+      "Monotonic stacks find next and previous larger or smaller values in O(n); grids reward careful bounds, boundaries and multi-source BFS.",
+      "Design questions combine one structure per need: an LRU cache is a hash map plus a doubly linked list."
+    ],
+    "feynmanPrompt": "Explain to a friend how a trie finds every word starting with \"car\" without scanning the whole dictionary, how union-find decides whether two people are in the same group, and why a running total plus a hash map can count the subarrays that add up to k."
+  },
+  "questions": [
+    {
+      "id": "swe-advanced-structures-q01",
+      "type": "typed",
+      "difficulty": "easy",
+      "question": "A trie holds the words \"tea\", \"ten\" and \"to\". How many nodes does it have, counting the root?",
+      "answer": "6",
+      "explanation": "Root, t, te, tea, ten and to: six nodes. \"ten\" reuses t and e and adds only n, and \"to\" reuses t and adds o. Shared prefixes are stored once.",
+      "concept": "trie node count",
+      "section": 0
+    },
+    {
+      "id": "swe-advanced-structures-q02",
+      "type": "mcq",
+      "difficulty": "easy",
+      "question": "A trie holds n words. What does search(word) cost for a word of length L?",
+      "choices": [
+        "O(L)",
+        "O(n)",
+        "O(L log n)",
+        "O(n * L)"
+      ],
+      "answer": 0,
+      "explanation": "search walks one node per letter, so the cost depends only on the word's length. The number of stored words never enters it, which is the point of a trie.",
+      "concept": "trie operation cost",
+      "section": 0
+    },
+    {
+      "id": "swe-advanced-structures-q03",
+      "type": "code-fill",
+      "difficulty": "medium",
+      "question": "Fill the blank so search returns True only for whole inserted words.",
+      "code": "def search(self, word):\n    node = self._walk(word)\n    return node is not None and _____",
+      "language": "python",
+      "choices": [
+        "len(node.children) == 0",
+        "node.children",
+        "node is not self.root",
+        "node.end"
+      ],
+      "answer": 3,
+      "explanation": "The end flag records that a word stops at this node. Checking for a leaf fails for \"car\" when \"card\" is also stored, because the r node has a child, and node.children only says that longer words exist.",
+      "concept": "end-of-word flag",
+      "section": 0
+    },
+    {
+      "id": "swe-advanced-structures-q04",
+      "type": "debug",
+      "difficulty": "medium",
+      "question": "After t.insert(\"card\"), t.starts_with(\"car\") returns False. What is wrong?",
+      "code": "def starts_with(self, prefix):\n    node = self._walk(prefix)\n    return node is not None and node.end",
+      "language": "python",
+      "choices": [
+        "_walk should follow the letters from last to first",
+        "It checks the end flag, which only search needs; a prefix only needs the walk to succeed",
+        "The trie must be rebuilt after each insert",
+        "starts_with must compare the prefix with every stored word"
+      ],
+      "answer": 1,
+      "explanation": "\"car\" is a prefix of \"card\", so the walk succeeds, but no word ends at r. Dropping the node.end check fixes it. Comparing with every word would work but throws away the O(L) cost.",
+      "concept": "startsWith vs search",
+      "section": 0
+    },
+    {
+      "id": "swe-advanced-structures-q05",
+      "type": "multi",
+      "difficulty": "medium",
+      "question": "For which tasks is a trie a better fit than a hash set of words? Select all that apply.",
+      "choices": [
+        "Listing every stored word that starts with a given prefix",
+        "Checking whether any stored word starts with a prefix",
+        "Finding the longest common prefix of all the words",
+        "Checking whether one exact word is stored, using as little memory as possible",
+        "Counting how many times each word appears in a text"
+      ],
+      "answers": [
+        0,
+        1,
+        2
+      ],
+      "explanation": "Prefix questions are what tries are for. For exact membership with low memory, a hash set wins, and counting occurrences is a job for a counting map.",
+      "concept": "when to use a trie",
+      "section": 0
+    },
+    {
+      "id": "swe-advanced-structures-q06",
+      "type": "mcq",
+      "difficulty": "easy",
+      "question": "To list a prefix's completions in alphabetical order, how should the search below the prefix node work?",
+      "choices": [
+        "Breadth-first, level by level, which gives alphabetical order",
+        "Depth-first in the order the letters were inserted",
+        "Depth-first visiting children in sorted letter order, adding a word at every end flag",
+        "Deepest subtree first, so long words come first"
+      ],
+      "answer": 2,
+      "explanation": "A depth-first search that visits children in sorted order produces words in dictionary order. Breadth-first lists shorter words first, and insertion order is arbitrary.",
+      "concept": "alphabetical completions",
+      "section": 1
+    },
+    {
+      "id": "swe-advanced-structures-q07",
+      "type": "typed",
+      "difficulty": "easy",
+      "question": "A trie holds \"bad\", \"bat\", \"bed\" and \"bid\". How many stored words match the pattern \"b.d\", where \".\" is any one letter?",
+      "answer": "3",
+      "explanation": "bad, bed and bid match: b, any letter, d. \"bat\" ends in t. During the search the dot branches into the a, e and i children, and each branch then needs a d.",
+      "concept": "wildcard matching",
+      "section": 1
+    },
+    {
+      "id": "swe-advanced-structures-q08",
+      "type": "mcq",
+      "difficulty": "medium",
+      "question": "Each trie node keeps the first three words that pass through it during insertion. Why insert the words in sorted order?",
+      "choices": [
+        "So the first three words to reach a node are its three alphabetically smallest completions",
+        "Tries cannot store unsorted words",
+        "So that search runs in O(1)",
+        "To keep the trie balanced"
+      ],
+      "answer": 0,
+      "explanation": "Every word below a node passes through it on insertion. In sorted order the earliest three arrivals are the smallest three, so each node's list is exactly the answer for its prefix. Tries need no balancing.",
+      "concept": "precomputed suggestions",
+      "section": 1
+    },
+    {
+      "id": "swe-advanced-structures-q09",
+      "type": "order",
+      "difficulty": "medium",
+      "question": "Put the steps for finding many words in a letter grid in order.",
+      "items": [
+        "Insert every word into a trie",
+        "Start a depth-first search from each grid cell with the trie root",
+        "Step to a neighbor only if the current trie node has a child for its letter",
+        "Record a word on reaching its end node, then clear that mark",
+        "Restore the cell when backtracking out of it"
+      ],
+      "explanation": "Building the trie first lets one search follow every word at once. Pruning by trie children stops dead paths, clearing the mark prevents duplicates, and restoring cells lets other paths use them.",
+      "concept": "word search with a trie",
+      "section": 1
+    },
+    {
+      "id": "swe-advanced-structures-q10",
+      "type": "recall",
+      "difficulty": "medium",
+      "question": "What simpler approach handles autocomplete for a fixed word list without a trie, and what does it trade?",
+      "answer": "Sort the words once, binary search for the first word that is at least the prefix, and read forward while words still start with it. It uses far less memory than a trie, at the cost of an O(L log n) search per query instead of an O(L) walk.",
+      "explanation": "Offering this alternative shows you weigh memory against speed instead of reaching for the fanciest structure.",
+      "concept": "trie alternative",
+      "section": 1
+    },
+    {
+      "id": "swe-advanced-structures-q11",
+      "type": "typed",
+      "difficulty": "easy",
+      "question": "parent = [0, 0, 1, 2, 4]. What does find(3) return?",
+      "answer": "0",
+      "explanation": "3 points to 2, 2 points to 1, 1 points to 0, and 0 points to itself, so 0 is the root that names 3's group. Node 4 is a separate group of one.",
+      "concept": "find follows parents",
+      "section": 2
+    },
+    {
+      "id": "swe-advanced-structures-q12",
+      "type": "mcq",
+      "difficulty": "medium",
+      "question": "parent = [0, 0, 1, 2, 4]. After one call to find(3) with recursive path compression, what is parent?",
+      "choices": [
+        "[0, 0, 1, 2, 4]",
+        "[0, 0, 0, 2, 4]",
+        "[0, 0, 1, 0, 4]",
+        "[0, 0, 0, 0, 4]"
+      ],
+      "answer": 3,
+      "explanation": "Every node on the path from 3 to the root (3, 2 and 1) is pointed straight at 0 as the recursion unwinds. Node 4 was not on the path, so it is untouched.",
+      "concept": "path compression",
+      "section": 2
+    },
+    {
+      "id": "swe-advanced-structures-q13",
+      "type": "debug",
+      "difficulty": "medium",
+      "question": "After union(0, 1) and then union(2, 1), find(0) and find(1) differ, although 0 and 1 were joined. What is the bug?",
+      "code": "def union(a, b):\n    parent[b] = a",
+      "language": "python",
+      "choices": [
+        "It should set parent[a] = b instead",
+        "It links the items, not their roots; it should set parent[find(b)] = find(a)",
+        "It must reset rank[b] to 0",
+        "parent must be a dict, not a list"
+      ],
+      "answer": 1,
+      "explanation": "union(2, 1) repoints 1 at 2, pulling 1 out of the group it shared with 0. Linking the roots merges the whole groups and never detaches anyone. Swapping the direction has the same flaw.",
+      "concept": "union links roots",
+      "section": 2
+    },
+    {
+      "id": "swe-advanced-structures-q14",
+      "type": "match",
+      "difficulty": "easy",
+      "question": "Match each union-find term with its meaning.",
+      "pairs": [
+        {
+          "left": "Root",
+          "right": "A node whose parent is itself; it names the group"
+        },
+        {
+          "left": "Path compression",
+          "right": "Points the nodes on a find path straight at the root"
+        },
+        {
+          "left": "Union by rank",
+          "right": "Hangs the shorter tree under the taller one"
+        },
+        {
+          "left": "Rank",
+          "right": "An upper bound on the height of a root's tree"
+        },
+        {
+          "left": "α(n)",
+          "right": "Inverse Ackermann function, at most 4 in practice"
+        }
+      ],
+      "explanation": "Together, union by rank and path compression make each operation O(α(n)) amortized, which you can treat as constant.",
+      "concept": "union-find vocabulary",
+      "section": 2
+    },
+    {
+      "id": "swe-advanced-structures-q15",
+      "type": "mcq",
+      "difficulty": "medium",
+      "question": "With neither union by rank nor path compression, what is the worst-case cost of one find on n items?",
+      "choices": [
+        "O(1)",
+        "O(log n)",
+        "O(n)",
+        "O(α(n))"
+      ],
+      "answer": 2,
+      "explanation": "Unions such as union(1, 0), union(2, 1), union(3, 2) can build a chain, and find from the bottom walks all of it. Union by rank alone caps the height at O(log n); both tricks together give O(α(n)).",
+      "concept": "naive union-find cost",
+      "section": 2
+    },
+    {
+      "id": "swe-advanced-structures-q16",
+      "type": "typed",
+      "difficulty": "medium",
+      "question": "With the lesson's DSU (union by rank) on four items, you run union(0, 1), union(2, 3), then union(1, 3). What is the rank of the final root?",
+      "answer": "2",
+      "explanation": "The first two unions create roots 0 and 2, each with rank 1. union(1, 3) joins those two roots; their ranks are equal, so 2 goes under 0 and 0's rank rises to 2.",
+      "concept": "rank growth",
+      "section": 2
+    },
+    {
+      "id": "swe-advanced-structures-q17",
+      "type": "typed",
+      "difficulty": "easy",
+      "question": "Five nodes start as five groups. Union-find processes the edges (0, 1), (1, 2), (3, 4) and (0, 2). How many groups remain?",
+      "answer": "2",
+      "explanation": "The first three edges each merge two groups: 5 to 4 to 3 to 2. (0, 2) finds both ends in the same group, so it merges nothing and closes a cycle. The groups are {0, 1, 2} and {3, 4}.",
+      "concept": "counting groups",
+      "section": 3
+    },
+    {
+      "id": "swe-advanced-structures-q18",
+      "type": "mcq",
+      "difficulty": "medium",
+      "question": "n = 5 nodes and edges = [[0, 1], [1, 2], [2, 3]]. Is it a valid tree?",
+      "choices": [
+        "No: a tree on 5 nodes needs 4 edges, and node 4 is cut off",
+        "Yes: no edge closes a cycle",
+        "Yes: every union merged two groups",
+        "No: the edges form a cycle"
+      ],
+      "answer": 0,
+      "explanation": "No cycle is not enough. Three successful unions take five groups down to two, so the graph is disconnected. That is why the check requires exactly n - 1 edges as well as no failed union.",
+      "concept": "valid tree check",
+      "section": 3
+    },
+    {
+      "id": "swe-advanced-structures-q19",
+      "type": "multi",
+      "difficulty": "medium",
+      "question": "Which problems are a good fit for union-find? Select all that apply.",
+      "choices": [
+        "Counting connected components while edges keep arriving",
+        "Finding the edge that closes a cycle in an undirected graph",
+        "Building a minimum spanning tree with Kruskal's algorithm",
+        "Finding the shortest path in a weighted graph",
+        "Detecting a cycle in a directed dependency graph"
+      ],
+      "answers": [
+        0,
+        1,
+        2
+      ],
+      "explanation": "Union-find tracks undirected connectivity. Shortest paths need BFS or Dijkstra, and directed cycles need DFS with colors or Kahn's algorithm, because union-find ignores edge direction.",
+      "concept": "union-find fit",
+      "section": 3
+    },
+    {
+      "id": "swe-advanced-structures-q20",
+      "type": "debug",
+      "difficulty": "hard",
+      "question": "For [\"a!=c\", \"a==b\", \"b==c\"] this returns True, but the equations contradict each other. What is the fix?",
+      "code": "for eq in equations:\n    a, b = eq[0], eq[3]\n    if eq[1] == \"=\":\n        union(a, b)\n    elif find(a) == find(b):\n        return False\nreturn True",
+      "language": "python",
+      "choices": [
+        "Compare with find(a) != find(b) in the elif instead",
+        "Sort the equations alphabetically first",
+        "Use union by rank so that find gives the right root",
+        "Union every == equation in a first pass, then check every != in a second pass"
+      ],
+      "answer": 3,
+      "explanation": "\"a!=c\" is checked while a and c are still in different groups, and only later do a==b and b==c merge them. Checking inequalities after all merges sees the final groups. Sorting by text does not reliably put equalities first.",
+      "concept": "merge first then check",
+      "section": 3
+    },
+    {
+      "id": "swe-advanced-structures-q21",
+      "type": "recall",
+      "difficulty": "medium",
+      "question": "Why does Kruskal's algorithm skip an edge whose two ends already have the same root?",
+      "answer": "Its ends are already connected by cheaper edges chosen earlier, so the edge would only close a cycle and add cost without connecting anything new.",
+      "explanation": "Sorting by cost plus \"take it only if it joins two groups\" is the whole algorithm, and union-find makes the check nearly O(1).",
+      "concept": "Kruskal skips cycle edges",
+      "section": 3
+    },
+    {
+      "id": "swe-advanced-structures-q22",
+      "type": "typed",
+      "difficulty": "easy",
+      "question": "P = [0, 3, 5, 10, 11, 17] is the prefix array of some list nums, with P[0] = 0. What is the sum of nums[1..3] inclusive?",
+      "answer": "8",
+      "explanation": "P[4] - P[1] = 11 - 3 = 8. Reading nums back from P gives [3, 2, 5, 1, 6], and 2 + 5 + 1 = 8.",
+      "concept": "range sum from prefixes",
+      "section": 4
+    },
+    {
+      "id": "swe-advanced-structures-q23",
+      "type": "code-fill",
+      "difficulty": "easy",
+      "question": "Fill the blank so range_sum returns nums[left] + ... + nums[right], given P with a leading 0.",
+      "code": "def range_sum(left, right):\n    return P[_____] - P[left]",
+      "language": "python",
+      "choices": [
+        "right",
+        "right + 1",
+        "right - 1",
+        "left + 1"
+      ],
+      "answer": 1,
+      "explanation": "P[i] is the sum of the first i values, so the sum through index right is P[right + 1]. P[right] stops one element short.",
+      "concept": "prefix sum indexing",
+      "section": 4
+    },
+    {
+      "id": "swe-advanced-structures-q24",
+      "type": "mcq",
+      "difficulty": "medium",
+      "question": "n = 5 and the list starts as zeros. With a difference array you apply [1, 3, +4] and [0, 1, -1] (start, end inclusive, delta). What is the final list?",
+      "choices": [
+        "[-1, 3, 3, 4, 0]",
+        "[-1, 4, 1, 0, -4]",
+        "[-1, 3, 4, 4, 0]",
+        "[3, 3, 4, 4, 0]"
+      ],
+      "answer": 2,
+      "explanation": "diff becomes [-1, 4, 1, 0, -4, 0], and its running sum is [-1, 3, 4, 4, 0]. Index 1 gets both updates (4 - 1 = 3). [-1, 4, 1, 0, -4] is the raw diff before the running sum.",
+      "concept": "difference array result",
+      "section": 4
+    },
+    {
+      "id": "swe-advanced-structures-q25",
+      "type": "typed",
+      "difficulty": "medium",
+      "question": "For the grid [[1, 2, 3], [4, 5, 6], [7, 8, 9]], what is the sum of the rectangle from cell (1, 1) to cell (2, 2)?",
+      "answer": "28",
+      "explanation": "The cells are 5, 6, 8 and 9. With 2D prefix sums: P[3][3] - P[1][3] - P[3][1] + P[1][1] = 45 - 6 - 12 + 1 = 28.",
+      "concept": "2D prefix sums",
+      "section": 4
+    },
+    {
+      "id": "swe-advanced-structures-q26",
+      "type": "mcq",
+      "difficulty": "hard",
+      "question": "Thousands of point updates and range-sum queries arrive interleaved. Which structure fits best?",
+      "choices": [
+        "A Fenwick tree or segment tree, O(log n) for both",
+        "A prefix sum array rebuilt after every update",
+        "A difference array",
+        "A hash map from index to value"
+      ],
+      "answer": 0,
+      "explanation": "Prefix sums make queries O(1) but every update O(n) to rebuild. A difference array is built for range updates read at the end. Fenwick and segment trees keep both operations at O(log n).",
+      "concept": "static vs dynamic ranges",
+      "section": 4
+    },
+    {
+      "id": "swe-advanced-structures-q27",
+      "type": "debug",
+      "difficulty": "easy",
+      "question": "For nums = [5], range_sum(0, 0) returns 0 instead of 5. What is the fix?",
+      "code": "P = [0]\nfor x in nums:\n    P.append(P[-1] + x)\n\ndef range_sum(left, right):\n    return P[right] - P[left]",
+      "language": "python",
+      "choices": [
+        "Start P as an empty list instead of [0]",
+        "Return P[right] - P[left - 1]",
+        "Start the loop at the second element",
+        "Return P[right + 1] - P[left]; with the leading 0, P[right] stops one element short"
+      ],
+      "answer": 3,
+      "explanation": "P = [0, 5], and the sum of the first right + 1 values is P[right + 1] = 5. P[left - 1] would read P[-1] when left is 0, which in Python is the last entry.",
+      "concept": "off-by-one prefix",
+      "section": 4
+    },
+    {
+      "id": "swe-advanced-structures-q28",
+      "type": "typed",
+      "difficulty": "medium",
+      "question": "How many contiguous subarrays of [1, -1, 1, -1] sum to 0?",
+      "answer": "4",
+      "explanation": "[1, -1] twice, [-1, 1] once, and the whole list. In the running-total method, the totals 1, 0, 1, 0 match earlier totals 0, 1, 1 and 2 times, after seeding the map with {0: 1}.",
+      "concept": "counting zero-sum subarrays",
+      "section": 5
+    },
+    {
+      "id": "swe-advanced-structures-q29",
+      "type": "mcq",
+      "difficulty": "easy",
+      "question": "Why is the map of running totals seeded with {0: 1}?",
+      "choices": [
+        "It prevents a KeyError when k is 0",
+        "It represents the empty prefix, so subarrays that start at index 0 are counted",
+        "It counts the empty subarray as a valid answer",
+        "It keeps the map from ever being empty"
+      ],
+      "answer": 1,
+      "explanation": "A subarray starting at index 0 sums to running - 0, so it needs an earlier total of 0: the empty prefix. The empty subarray is never counted because the lookup happens before the current total is recorded.",
+      "concept": "seeding the map",
+      "section": 5
+    },
+    {
+      "id": "swe-advanced-structures-q30",
+      "type": "code-fill",
+      "difficulty": "hard",
+      "question": "Fill the blank so the function returns the length of the longest subarray that sums to k.",
+      "code": "first = {0: -1}\nrunning = best = 0\nfor i, x in enumerate(nums):\n    running += x\n    if running - k in first:\n        best = max(best, i - first[running - k])\n    _____",
+      "language": "python",
+      "choices": [
+        "first[running] = i",
+        "first[running - k] = i",
+        "first.setdefault(running, i)",
+        "first.pop(running, None)"
+      ],
+      "answer": 2,
+      "explanation": "setdefault records a total only the first time it appears, and the earliest start gives the longest subarray. first[running] = i would overwrite it with later indexes and find shorter subarrays.",
+      "concept": "longest subarray with sum k",
+      "section": 5
+    },
+    {
+      "id": "swe-advanced-structures-q31",
+      "type": "mcq",
+      "difficulty": "hard",
+      "question": "In JavaScript, -7 % 5 is -2. Why does that matter when counting subarrays whose sum is divisible by 5?",
+      "choices": [
+        "Remainders -2 and 3 mean the same thing mod 5 but become different map keys, so matching prefixes are missed",
+        "A JavaScript Map cannot use negative keys",
+        "The % operator is slower on negative numbers",
+        "It does not matter, because -2 and 3 are different remainders"
+      ],
+      "answer": 0,
+      "explanation": "Two prefixes whose difference is a multiple of 5 must share a key. Normalizing with ((running % k) + k) % k maps -2 to 3. Python's % already returns a non-negative result for a positive k.",
+      "concept": "negative remainders in JavaScript",
+      "section": 5
+    },
+    {
+      "id": "swe-advanced-structures-q32",
+      "type": "mcq",
+      "difficulty": "medium",
+      "question": "What is the next greater element (to the right, no wrapping, -1 if none) for each value of [2, 7, 3, 5, 4, 6, 1]?",
+      "choices": [
+        "[7, -1, 5, 6, 6, 7, 2]",
+        "[7, 3, 5, 4, 6, 1, -1]",
+        "[7, -1, 5, 5, 6, -1, -1]",
+        "[7, -1, 5, 6, 6, -1, -1]"
+      ],
+      "answer": 3,
+      "explanation": "3 waits for 5, and both 5 and 4 wait for 6. Nothing to the right of 7 or 6 is larger, and 1 is last. [7, -1, 5, 6, 6, 7, 2] is the circular answer, where 6 and 1 wrap around.",
+      "concept": "next greater element",
+      "section": 6
+    },
+    {
+      "id": "swe-advanced-structures-q33",
+      "type": "mcq",
+      "difficulty": "medium",
+      "question": "When you compute the next smaller element to the right, in what order are the values on the stack from bottom to top?",
+      "choices": [
+        "Decreasing",
+        "Increasing",
+        "Any order, because only the indexes matter",
+        "All equal"
+      ],
+      "answer": 1,
+      "explanation": "A smaller arrival pops every larger value above it, so whatever remains under each new push is smaller or equal: the stack increases from bottom to top. Next greater uses the opposite order.",
+      "concept": "stack order for next smaller",
+      "section": 6
+    },
+    {
+      "id": "swe-advanced-structures-q34",
+      "type": "typed",
+      "difficulty": "medium",
+      "question": "What is the area of the largest rectangle in the histogram [3, 1, 3, 2, 2]?",
+      "answer": "6",
+      "explanation": "Height 2 across the last three bars (3, 2, 2) gives 6. Height 1 across all five bars gives only 5, and a single bar of height 3 gives 3.",
+      "concept": "largest rectangle",
+      "section": 6
+    },
+    {
+      "id": "swe-advanced-structures-q35",
+      "type": "recall",
+      "difficulty": "hard",
+      "question": "How do you find the next greater element in a circular array with a monotonic stack?",
+      "answer": "Loop i from 0 to 2n - 1 and read nums[i % n], so values near the end can find answers that wrap around to the start. Push indexes only in the first pass (i < n), but keep popping in both passes.",
+      "explanation": "The second pass only answers elements still waiting; pushing again would give them a second, wrong answer.",
+      "concept": "circular next greater",
+      "section": 6
+    },
+    {
+      "id": "swe-advanced-structures-q36",
+      "type": "mcq",
+      "difficulty": "easy",
+      "question": "Why is a monotonic stack scan O(n) even though it has a while loop inside a for loop?",
+      "choices": [
+        "The while loop runs at most once per iteration",
+        "The stack never holds more than two items",
+        "Each index is pushed once and popped at most once, so the while loop runs at most n times in total",
+        "Python merges the nested loops into one"
+      ],
+      "answer": 2,
+      "explanation": "Count work across the whole scan, not per iteration: one iteration may pop many items, but every pop removes an index that can never return. The total is at most n pushes and n pops.",
+      "concept": "amortized O(n)",
+      "section": 6
+    },
+    {
+      "id": "swe-advanced-structures-q37",
+      "type": "mcq",
+      "difficulty": "medium",
+      "question": "A spiral order on the 3 x 4 grid of 1 to 12 returns [1, 2, 3, 4, 8, 12, 11, 10, 9, 5, 6, 7, 6]. Which check is missing?",
+      "choices": [
+        "top <= bottom before walking the bottom row",
+        "left <= right before walking the top row",
+        "rows == cols at the start",
+        "A visited set for the top row"
+      ],
+      "answer": 0,
+      "explanation": "On the second lap only the row 6, 7 is left. After it is walked, top passes bottom, so there is no bottom row, but without the check the code walks it anyway and lists 6 again.",
+      "concept": "spiral boundary checks",
+      "section": 7
+    },
+    {
+      "id": "swe-advanced-structures-q38",
+      "type": "order",
+      "difficulty": "medium",
+      "question": "Put the steps of the multi-source BFS for rotting oranges in order.",
+      "items": [
+        "Count the fresh oranges and put every rotten one in the queue",
+        "Process the queue one level at a time",
+        "Rot each fresh neighbor, lower the fresh count and enqueue it",
+        "Add one minute after each level",
+        "Return the minutes if no fresh orange remains, otherwise -1"
+      ],
+      "explanation": "Starting with every source in the queue makes level k the set of oranges that rot at minute k. The fresh count tells you at the end whether any orange was unreachable.",
+      "concept": "multi-source BFS",
+      "section": 7
+    },
+    {
+      "id": "swe-advanced-structures-q39",
+      "type": "debug",
+      "difficulty": "hard",
+      "question": "This island BFS gives the right count but is very slow on a large grid that is all land. Why?",
+      "code": "while queue:\n    r, c = queue.popleft()\n    seen.add((r, c))\n    for dr, dc in DIRS:\n        nr, nc = r + dr, c + dc\n        if in_bounds(nr, nc) and grid[nr][nc] == 1 and (nr, nc) not in seen:\n            queue.append((nr, nc))",
+      "language": "python",
+      "choices": [
+        "popleft is O(n) on a deque",
+        "The direction list should include diagonals",
+        "seen should be a list, not a set",
+        "Cells are marked when popped, so one cell can be queued many times before it is processed"
+      ],
+      "answer": 3,
+      "explanation": "Until a cell is popped, every neighbor that looks at it sees it as unvisited and enqueues it again. Adding to seen at the moment of appending makes each cell enter the queue once. deque.popleft is O(1).",
+      "concept": "mark on enqueue",
+      "section": 7
+    },
+    {
+      "id": "swe-advanced-structures-q40",
+      "type": "mcq",
+      "difficulty": "easy",
+      "question": "You transpose [[1, 2], [3, 4]] and then reverse each row. What is the result?",
+      "choices": [
+        "[[1, 3], [2, 4]]",
+        "[[3, 1], [4, 2]]",
+        "[[2, 4], [1, 3]]",
+        "[[4, 3], [2, 1]]"
+      ],
+      "answer": 1,
+      "explanation": "The transpose is [[1, 3], [2, 4]]; reversing each row gives [[3, 1], [4, 2]], the matrix turned 90 degrees clockwise. [[4, 3], [2, 1]] is a 180 degree turn.",
+      "concept": "rotate by transpose and reverse",
+      "section": 7
+    },
+    {
+      "id": "swe-advanced-structures-q41",
+      "type": "multi",
+      "difficulty": "medium",
+      "question": "In the hand-built LRU cache, what must get(key) do when the key is present? Select all that apply.",
+      "choices": [
+        "Look up the key's node in the map",
+        "Unlink the node from its current position",
+        "Append the node just before the tail sentinel",
+        "Remove the node at head.next",
+        "Create a new node for the key"
+      ],
+      "answers": [
+        0,
+        1,
+        2
+      ],
+      "explanation": "A successful get is a use, so the node moves to the newest end. Evicting head.next only happens in put when a new key arrives and the cache is full, and get never creates nodes.",
+      "concept": "LRU get steps",
+      "section": 8
+    },
+    {
+      "id": "swe-advanced-structures-q42",
+      "type": "typed",
+      "difficulty": "easy",
+      "question": "An LRU cache has capacity 2. You run put(1, 1), put(2, 2), get(1), put(3, 3), then get(2). What does the final get(2) return?",
+      "answer": "-1",
+      "explanation": "get(1) makes key 2 the least recently used, so put(3, 3) evicts key 2. Without the get, key 1 would have been evicted instead.",
+      "concept": "LRU trace",
+      "section": 8
+    },
+    {
+      "id": "swe-advanced-structures-q43",
+      "type": "match",
+      "difficulty": "medium",
+      "question": "Match each design problem with the structures that meet its time limits.",
+      "pairs": [
+        {
+          "left": "LRU cache",
+          "right": "Hash map plus doubly linked list"
+        },
+        {
+          "left": "Min stack",
+          "right": "Stack of (value, current minimum) pairs"
+        },
+        {
+          "left": "Insert, delete, getRandom in O(1)",
+          "right": "Array plus a map from value to index"
+        },
+        {
+          "left": "Running median",
+          "right": "Max-heap for the lower half, min-heap for the upper"
+        },
+        {
+          "left": "Time-based key-value store",
+          "right": "Map from key to a time-sorted list, binary searched"
+        }
+      ],
+      "explanation": "Each design pairs one structure per need: fast lookup by key, fast order or extreme value, or fast random access, kept in sync on every operation.",
+      "concept": "design building blocks",
+      "section": 8
+    },
+    {
+      "id": "swe-advanced-structures-q44",
+      "type": "mcq",
+      "difficulty": "medium",
+      "question": "Why does each node in the hand-built LRU list store its key as well as its value?",
+      "choices": [
+        "So the list can be kept sorted by key",
+        "Because the map stores only values",
+        "So that evicting head.next can also delete its entry from the map",
+        "To detect cycles in the list"
+      ],
+      "answer": 2,
+      "explanation": "Eviction starts from the list, not the map. The evicted node has to tell you which map entry to delete, and without its key you would have to search the map.",
+      "concept": "key stored in node",
+      "section": 8
+    },
+    {
+      "id": "swe-advanced-structures-q45",
+      "type": "recall",
+      "difficulty": "medium",
+      "question": "What steps would you follow to answer a \"design a data structure\" interview question?",
+      "answer": "Confirm the operations and the time each must take, list what each operation needs to find quickly, choose one structure per need and combine them, keep them in sync on every operation, then trace a small example.",
+      "explanation": "Saying these steps out loud shows structured thinking even before the code works, which is much of what the interviewer is assessing.",
+      "concept": "design question method",
+      "section": 8
+    }
+  ]
+}

@@ -53,7 +53,12 @@ function demoData() {
     'spanish-basics': { share: 0.8, daysAgo: 30, count: 4, missRate: 0.2, lesson: true },
     'algebra-essentials': { share: 0.7, daysAgo: 25, count: 4, missRate: 0.25, lesson: true },
     'learning-science': { share: 1, daysAgo: 45, count: 5, missRate: 0.1, lesson: true },
-    'networking-basics': { share: 0.5, daysAgo: 20, count: 3, missRate: 0.3, lesson: true },
+    'networking-basics': { share: 1, daysAgo: 30, count: 4, missRate: 0.15, lesson: true },
+    'ccna-network-components': { share: 0.9, daysAgo: 20, count: 4, missRate: 0.2, lesson: true },
+    'ccna-osi-tcp-udp': { share: 0.7, daysAgo: 12, count: 3, missRate: 0.25, lesson: true },
+    'ccna-ipv4-addressing': { share: 0.5, daysAgo: 8, count: 3, missRate: 0.3, lesson: true },
+    'swe-hash-maps': { share: 0.6, daysAgo: 10, count: 3, missRate: 0.25, lesson: true },
+    'big-o': { share: 0.8, daysAgo: 25, count: 4, missRate: 0.15, lesson: true },
     'world-geography': { share: 0.6, daysAgo: 15, count: 3, missRate: 0.2, lesson: false }
   }
   const progress = {}
@@ -67,7 +72,8 @@ function demoData() {
       if (card?.lapses && rand() < 0.4) mistakes[q.id] = { date: new Date(now.getTime() - rand() * 5 * 86400000).toISOString(), given: '', count: card.lapses }
     })
     const checks = Object.fromEntries((pack.lesson.sections || []).map((_, i) => [i, true]).filter(() => p.lesson))
-    progress[id] = { cards, mistakes, lessonRead: p.lesson, checks, feynman: [], lastStudied: new Date(now.getTime() - rand() * 2 * 86400000).toISOString() }
+    const activities = Object.fromEntries((pack.lesson.sections || []).map((s, i) => [i, s]).filter(([, s]) => s.activity && p.lesson && rand() < 0.6).map(([i]) => [i, { date: now.toISOString() }]))
+    progress[id] = { cards, mistakes, lessonRead: p.lesson, checks, activities, feynman: [], lastStudied: new Date(now.getTime() - rand() * 2 * 86400000).toISOString() }
   }
   const days = {}
   let totalReviews = 0
@@ -90,11 +96,25 @@ function demoData() {
     longestStreak: 31,
     lastStudyDay: dayKey(now),
     sessions: [],
-    achievements: ['First Blood', 'Centurion', 'Thousand', 'Streak Week', 'Iron Mind', 'Debugger', 'Memory Palace', 'Relearner', 'Scholar', 'Polyglot', 'Polymath', 'Feynman', 'Mastered'],
+    achievements: ['First Blood', 'Centurion', 'Thousand', 'Streak Week', 'Iron Mind', 'Debugger', 'Memory Palace', 'Relearner', 'Scholar', 'Polyglot', 'Polymath', 'Feynman', 'Mastered', 'Console', 'Hello'],
     feynmanCount: 4
   }
-  const user = { name: 'Sam', interests: ['programming', 'languages', 'math'], onboardingComplete: true, createdAt: now.toISOString() }
-  return { progress, stats, user }
+  const user = { name: 'Sam', interests: ['networking', 'swe', 'programming'], goals: ['ccna', 'swe-internship'], onboardingComplete: true, createdAt: now.toISOString(), approach: { quiz: { answers: [0, 0, 1, 1, 0, 0, 2, 1], totals: { builder: 14, visual: 6, challenger: 9, explainer: 4, balanced: 6 }, date: now.toISOString() } } }
+  const day = 86400000
+  const redo = (daysAgo) => schedule(null, Rating.Good, { now: new Date(now.getTime() - daysAgo * day), fuzz: false })
+  const practice = {
+    labs: {
+      'cl-d1-router-bringup': { solved: new Date(now.getTime() - 9 * day).toISOString(), count: 1, best: 1, card: redo(9) },
+      'cl-d1-ipv6': { solved: new Date(now.getTime() - 2 * day).toISOString(), count: 1, best: 0.85, card: redo(2) }
+    },
+    challenges: {
+      'two-sum': { solved: new Date(now.getTime() - 3 * day).toISOString(), count: 1, best: 1, languages: ['python'], card: redo(3) }
+    },
+    projects: { 'cli-task-manager': { status: 'active', milestones: { 0: true, 1: true }, started: new Date(now.getTime() - 6 * day).toISOString() } },
+    exams: [{ id: 'demo-exam', date: new Date(now.getTime() - 3 * day).toISOString(), mode: 'exam', pathId: 'ccna', title: 'CCNA 200-301', total: 40, correct: 31, score: 78, pass: 85, seconds: 2700, xp: 300, byGroup: [], answers: [] }],
+    activities: {}
+  }
+  return { progress, stats, user, practice }
 }
 
 // ---- Server --------------------------------------------------------------------
@@ -115,23 +135,24 @@ const browser = await chromium.launch()
 const data = demoData()
 
 async function open({ width = 1280, height = 820, theme = 'light', mobile = false } = {}) {
-  const context = await browser.newContext({ viewport: { width, height }, deviceScaleFactor: 2, isMobile: mobile, hasTouch: mobile, colorScheme: theme })
+  const context = await browser.newContext({ viewport: { width, height }, deviceScaleFactor: 2, isMobile: mobile, hasTouch: mobile, colorScheme: theme === 'dark' ? 'dark' : 'light' })
   await context.addInitScript(([d, t]) => {
     if (localStorage.getItem('recurse_version')) return
     localStorage.setItem('recurse_version', '2')
     localStorage.setItem('recurse_progress', JSON.stringify(d.progress))
     localStorage.setItem('recurse_stats', JSON.stringify(d.stats))
     localStorage.setItem('recurse_user', JSON.stringify(d.user))
-    localStorage.setItem('recurse_settings', JSON.stringify({ theme: t }))
+    localStorage.setItem('recurse_practice', JSON.stringify(d.practice))
+    localStorage.setItem('recurse_settings', JSON.stringify({ theme: t, sound: false }))
   }, [data, theme])
   const page = await context.newPage()
   page.on('pageerror', (e) => errors.push(`${page.url()}: ${e.message}`))
   return page
 }
 
-async function shot(page, name, { full = false } = {}) {
+async function shot(page, name, { full = false, wait = 400 } = {}) {
   await page.waitForLoadState('networkidle').catch(() => {})
-  await page.waitForTimeout(400)
+  await page.waitForTimeout(wait)
   await page.screenshot({ path: join(outDir, `${name}.png`), fullPage: full })
   console.log(`  ${name}.png`)
 }
@@ -168,6 +189,53 @@ await shot(page, 'progress')
 await page.goto(`${base}/create`)
 await page.fill('#p-name', 'Organic chemistry')
 await shot(page, 'create')
+await page.goto(`${base}/paths`)
+await shot(page, 'paths')
+await page.goto(`${base}/path/ccna`)
+await shot(page, 'path')
+await page.goto(`${base}/practice`)
+await shot(page, 'practice')
+await page.goto(`${base}/practice/challenge/two-sum`)
+await shot(page, 'challenge', { wait: 900 })
+await page.goto(`${base}/topic/ccna-subnetting/lesson`)
+await page.waitForTimeout(800)
+await page.locator('.activity').first().scrollIntoViewIfNeeded()
+await page.evaluate(() => window.scrollBy(0, -80))
+await shot(page, 'activity')
+await page.goto(`${base}/practice/activity/sort-visualizer`)
+await shot(page, 'simulator')
+await page.goto(`${base}/approach`)
+await shot(page, 'approach')
+await page.goto(`${base}/settings`)
+await page.locator('#s-appearance').scrollIntoViewIfNeeded()
+await shot(page, 'themes')
+await page.goto(`${base}/glossary`)
+await page.getByRole('button', { name: /CCNA/ }).first().click()
+await page.fill('input[type=search]', 'vlan')
+await shot(page, 'glossary', { wait: 600 })
+await page.goto(`${base}/practice/activity/wlc-gui`)
+await shot(page, 'wlc', { wait: 900 })
+await page.goto(`${base}/practice/interview`)
+await shot(page, 'interview', { wait: 700 })
+await page.context().close()
+
+page = await open({ theme: 'dark' })
+await page.goto(`${base}/practice/lab/cl-d2-vlans`)
+await page.waitForTimeout(800)
+const term = page.locator('.terminal input').first()
+for (const cmd of ['enable', 'conf t', 'vlan 10', 'name SALES', 'vlan 20', 'name ENG', 'int g0/1', 'sw mode access', 'sw acc vlan 10', 'end', 'sh vlan br']) {
+  await term.fill(cmd)
+  await term.press('Enter')
+  await page.waitForTimeout(80)
+}
+// Frame the console and the live checks together.
+await page.locator('.iosc-layout').evaluate((el) => window.scrollTo(0, el.getBoundingClientRect().top + window.scrollY - 96))
+await shot(page, 'lab', { wait: 700 })
+await page.context().close()
+
+page = await open({ theme: 'terminal' })
+await page.goto(`${base}/`)
+await shot(page, 'theme-terminal')
 await page.context().close()
 
 page = await open({ theme: 'dark' })

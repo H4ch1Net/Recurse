@@ -11,6 +11,7 @@ import { QUESTION_TYPE_LABELS } from '../lib/subjects'
 import { SESSION_KINDS } from '../lib/session'
 import { isChoiceType } from '../lib/packSchema'
 import { downloadProgressCard } from '../lib/share'
+import { modeOf } from '../lib/approaches'
 import { ForecastChart, ActivityHeatmap, BarList } from '../components/charts'
 import EmptyState from '../components/EmptyState'
 import Tile from '../components/Tile'
@@ -33,9 +34,11 @@ function Metric({ label, value, note }) {
   )
 }
 
+
+const count = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`
 export default function Stats() {
   useDocumentTitle('Progress')
-  const { packs, packMap, progress, stats, summaries, user, now, clearMistakes } = useApp()
+  const { packs, packMap, progress, stats, summaries, user, now, clearMistakes, practice, settings } = useApp()
   const [params, setParams] = useSearchParams()
   const tab = params.get('tab') || 'overview'
   const setTab = (id) => setParams(id === 'overview' ? {} : { tab: id }, { replace: true })
@@ -110,10 +113,28 @@ export default function Stats() {
             <div className="grid-stats">
               <Metric label="Reviews" value={stats.totalReviews.toLocaleString()} note={`${accuracy}% correct`} />
               <Metric label="Cards learned" value={learned} note={`${mature} mature`} />
-              <Metric label="Memory" value={memory === null ? '—' : `${Math.round(memory * 100)}%`} note={memory === null ? 'no cards yet' : MEMORY_TONE_LABELS[memoryTone(memory)]} />
+              <Metric label="Memory" value={memory === null ? 'n/a' : `${Math.round(memory * 100)}%`} note={memory === null ? 'no cards yet' : MEMORY_TONE_LABELS[memoryTone(memory)]} />
               <Metric label="Streak" value={`${streak}d`} note={`best ${stats.longestStreak || 0}d`} />
               <Metric label="Study time" value={formatDuration(stats.totalSeconds || 0)} note={`${(stats.sessions || []).length} sessions`} />
               <Metric label="Level" value={level.level} note={`${level.needed - level.into} XP to next`} />
+            </div>
+
+            <div className="grid-3 beyond-cards">
+              <Link to="/portfolio" className="card card-link stack-sm">
+                <span className="eyebrow">Hands-on</span>
+                <span className="list-title">{count(Object.keys(practice.labs || {}).length, 'lab')} · {count(Object.keys(practice.challenges || {}).length, 'challenge')} · {count(Object.values(practice.projects || {}).filter((p) => p.status === 'done').length, 'project')}</span>
+                <span className="xsmall subtle">Your portfolio and skills export</span>
+              </Link>
+              <Link to="/practice?tab=quizzes" className="card card-link stack-sm">
+                <span className="eyebrow">Quizzes and exams</span>
+                <span className="list-title">{practice.exams.length ? `${practice.exams.length} taken · best ${Math.max(...practice.exams.map((e) => e.score))}%` : 'None taken yet'}</span>
+                <span className="xsmall subtle">Timed exams measure readiness</span>
+              </Link>
+              <Link to="/approach" className="card card-link stack-sm">
+                <span className="eyebrow">How you learn</span>
+                <span className="list-title">{modeOf(settings).label}</span>
+                <span className="xsmall subtle">Compare approaches with your own data</span>
+              </Link>
             </div>
 
             <div className="grid-2">
@@ -255,8 +276,8 @@ export default function Stats() {
                       <td>{formatDate(s.date)}</td>
                       <td>{s.kind === 'feynman' ? 'Explanation' : SESSION_KINDS[s.kind] || s.kind}</td>
                       <td>{s.topicId ? packMap.get(s.topicId)?.name || s.topicId : 'Mixed'}</td>
-                      <td className="num">{s.cards ?? '—'}</td>
-                      <td className="num">{s.accuracy == null ? '—' : `${s.accuracy}%`}</td>
+                      <td className="num">{s.cards ?? 'n/a'}</td>
+                      <td className="num">{s.accuracy == null ? 'n/a' : `${s.accuracy}%`}</td>
                       <td className="num">{s.xp ?? 0}</td>
                       <td className="num">{formatDuration(s.seconds || 0)}</td>
                     </tr>

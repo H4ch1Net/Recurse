@@ -1,0 +1,741 @@
+{
+  "id": "swe-graphs",
+  "name": "Graphs: BFS, DFS and Beyond",
+  "version": "1.0.0",
+  "author": "Recurse",
+  "subject": "swe",
+  "level": "intermediate",
+  "description": "Adjacency lists, BFS and DFS templates, grids as graphs, cycle detection, topological sort and union-find for interviews.",
+  "icon": "Gr",
+  "language": "python",
+  "prereqs": [
+    "data-structures",
+    "algorithms",
+    "swe-trees",
+    "swe-stacks-queues",
+    "swe-hash-maps"
+  ],
+  "tags": [
+    "interviews",
+    "graphs",
+    "bfs",
+    "dfs",
+    "topological sort",
+    "union-find"
+  ],
+  "lesson": {
+    "estimatedMinutes": 32,
+    "intro": "Graphs model anything with connections: friends, roads, web pages, course prerequisites, cells in a maze. Interview graph problems often never say \"graph\"; they describe islands on a map, steps through a maze or tasks with dependencies. This pack teaches you to see the graph, store it, and run the two traversals (BFS and DFS) that solve most of these problems, plus topological sort and a short introduction to union-find.",
+    "objectives": [
+      "Build an adjacency list from an edge list and choose between a list and a matrix",
+      "Write BFS and DFS from memory with a visited set, and use BFS for shortest paths in unweighted graphs",
+      "Treat a grid as a graph to count islands, flood fill and find shortest paths",
+      "Detect cycles in directed graphs and produce a topological order with Kahn's algorithm",
+      "Explain when union-find fits and how path compression and union by size keep it fast"
+    ],
+    "sections": [
+      {
+        "title": "Seeing the graph and storing it",
+        "body": "Five friends: Ana knows Ben and Cy, Ben knows Dee, and Eve has just moved to town and knows nobody. Who can Ana reach through friends of friends? Before you can answer, you need a way to store \"who knows whom\".\n\nA **graph** is a set of **vertices** (nodes) and **edges** (connections between them). Edges are **undirected** (friendship goes both ways) or **directed** (you can follow someone who does not follow you back), and they may carry **weights** (the length of a road, the price of a flight). Problems usually hand you an **edge list**, pairs such as `[[0, 1], [0, 2], [1, 3]]`, and your first job is to turn it into something you can traverse.\n\nTwo standard representations:\n\n- **Adjacency list**: for each vertex, the list of its neighbors. Space O(V + E). Listing a vertex's neighbors is fast; checking whether one particular edge exists takes O(degree). This is the default in interviews.\n- **Adjacency matrix**: a V by V grid where `matrix[u][v]` is 1 (or the weight) when the edge exists. Space O(V^2). Checking one edge is O(1), but listing a vertex's neighbors is O(V), and a sparse graph with a million vertices would need a trillion cells.\n\nPick the list unless the graph is small and dense, or you need constant-time edge checks.\n\nTwo details matter when you build an adjacency list. For an undirected graph, add every edge in both directions. And make sure every vertex appears even if it has no edges, like Eve (vertex 4) below, or a loop over the graph will silently skip her. Creating one list per vertex up front, `[[] for _ in range(n)]`, takes care of that. When vertices have names instead of numbers 0 to n - 1, a `defaultdict(list)` is the usual choice.",
+        "code": "from collections import defaultdict\n\nn = 5\nedges = [[0, 1], [0, 2], [1, 3]]   # 0 Ana, 1 Ben, 2 Cy, 3 Dee, 4 Eve\n\n# Adjacency list (undirected: add both directions)\ngraph = [[] for _ in range(n)]\nfor u, v in edges:\n    graph[u].append(v)\n    graph[v].append(u)\nprint(graph)            # [[1, 2], [0, 3], [0], [1], []]\n\n# Vertices with names: use a dict of lists\nroads = defaultdict(list)\nfor a, b in [(\"Oslo\", \"Bergen\"), (\"Bergen\", \"Stavanger\")]:\n    roads[a].append(b)\n    roads[b].append(a)\nprint(roads[\"Bergen\"])  # ['Oslo', 'Stavanger']\n\n# Adjacency matrix: O(V^2) space, O(1) edge check\nmatrix = [[0] * n for _ in range(n)]\nfor u, v in edges:\n    matrix[u][v] = matrix[v][u] = 1\nprint(matrix[0][2], matrix[2][3])   # 1 0",
+        "pitfall": "Building the graph in a `defaultdict` and then looping over its keys skips vertices that have no edges at all. When vertices are numbered 0 to n - 1, loop over `range(n)`.",
+        "check": {
+          "question": "A social network has 10 million users, and each has about 200 friends. Why is an adjacency matrix a poor choice?",
+          "choices": [
+            "It cannot represent undirected friendships",
+            "Checking whether two users are friends would take O(V) time",
+            "It needs about 10^14 cells even though there are only about 10^9 edges",
+            "A matrix cannot be traversed with BFS"
+          ],
+          "answer": 2,
+          "explanation": "A matrix always uses V^2 cells: 10^7 squared is 10^14, almost all zeros. An adjacency list uses O(V + E), about a billion entries here. Matrices handle undirected edges fine (set both cells) and give O(1) edge checks."
+        }
+      },
+      {
+        "title": "BFS: exploring in rings",
+        "body": "Drop a stone in a pond and the ripple reaches everything 1 meter away before anything 2 meters away. **Breadth-first search** (BFS) explores a graph the same way, in rings of increasing distance from the start. That is why BFS finds the **shortest path in an unweighted graph**, measured in edges: the first time it reaches a vertex, it got there by a shortest route.\n\nThe template uses a queue and a visited set:\n\n- Put the start in the queue and mark it visited.\n- Pop a vertex from the front. For each neighbor that is not yet visited, mark it visited and push it to the back.\n- Repeat until the queue is empty, or until you pop the target.\n\nMark vertices visited **when you push them**, not when you pop them. If you wait until popping, several neighbors can push the same vertex before it is processed, which wastes time and memory on dense graphs and can blow up badly on grids.\n\nTo track distances, store `dist[neighbor] = dist[current] + 1` at push time, as in the code block (the `dist` dict doubles as the visited set), or process the queue one level at a time as you did with trees. To rebuild the actual path, record each vertex's `parent` when you push it and walk backward from the target.\n\nEvery vertex is pushed and popped once, and every edge is examined once from each end, so BFS runs in O(V + E) time and O(V) space.\n\nBFS only counts edges. If edges have different weights (minutes, kilometers, dollars), a path with more edges can be cheaper, and you need Dijkstra's algorithm, which replaces the queue with a heap keyed by distance.",
+        "code": "from collections import deque\n\ndef bfs_distances(graph, start):\n    dist = {start: 0}\n    queue = deque([start])\n    while queue:\n        node = queue.popleft()\n        for nxt in graph[node]:\n            if nxt not in dist:            # dist doubles as the visited set\n                dist[nxt] = dist[node] + 1\n                queue.append(nxt)\n    return dist\n\n#   0 --- 1 --- 3\n#   |           |\n#   2 --------- 4 --- 5\ngraph = {0: [1, 2], 1: [0, 3], 2: [0, 4], 3: [1, 4], 4: [2, 3, 5], 5: [4]}\nprint(bfs_distances(graph, 0))\n# {0: 0, 1: 1, 2: 1, 3: 2, 4: 2, 5: 3}\n# rings: {0} -> {1, 2} -> {3, 4} -> {5}",
+        "pitfall": "Using a Python list with `pop(0)` as the queue makes every pop O(n). Use `collections.deque` and `popleft()`.",
+        "activity": {
+          "type": "graph-search",
+          "title": "Rings versus corridors",
+          "prompt": "Draw a few walls, then run BFS and DFS from the same start. Notice how BFS spreads out in rings and always finds a shortest path, while DFS dives down one corridor and can return a much longer path.",
+          "props": {
+            "algorithm": "both"
+          }
+        },
+        "check": {
+          "question": "BFS from vertex A records `dist[T] = 4` in an unweighted graph. What does that guarantee?",
+          "choices": [
+            "T has exactly 4 neighbors",
+            "The shortest path from A to T has exactly 4 edges",
+            "Every path from A to T has 4 edges",
+            "T was the 4th vertex popped from the queue"
+          ],
+          "answer": 1,
+          "explanation": "BFS assigns distances ring by ring, so the first distance recorded for a vertex is the length of a shortest path. Longer paths to T may exist too, and the pop order counts vertices, not distance."
+        }
+      },
+      {
+        "title": "DFS: go deep, then back up",
+        "body": "Exploring a cave with a ball of string: you follow one passage as far as it goes, and at a dead end you walk back to the last fork and try the next passage. That is **depth-first search** (DFS). It uses a stack, usually the call stack through recursion.\n\nDFS does not find shortest paths, but it is the simplest tool for questions about reachability and structure:\n\n- Can I get from A to B at all?\n- How many separate groups (**connected components**) does the graph have?\n- Does the graph contain a cycle?\n- Visit every cell of a region (islands, flood fill).\n\n**Counting connected components** is the core pattern, and it shows up disguised as friend circles, provinces, computer networks and islands. Loop over every vertex. When you find one that is not yet visited, you have discovered a new component: add one to the count and run DFS (or BFS) from it to mark everything it can reach. Looping over every vertex is what guarantees isolated vertices get counted too.\n\nThe recursive version is the shortest to write. Mark a vertex visited **before** exploring its neighbors, so a cycle cannot lead you back into it. In Python, deep graphs (a path of 10,000 vertices, a large grid) can exceed the recursion limit, so also know the iterative version: push the start on a stack, pop, and push unvisited neighbors. It visits vertices in a slightly different order from the recursive version, but it reaches exactly the same set.\n\nTime is O(V + E), like BFS. Space is O(V) for the visited set plus the stack.",
+        "code": "def count_components(n, edges):\n    graph = [[] for _ in range(n)]\n    for u, v in edges:\n        graph[u].append(v)\n        graph[v].append(u)\n\n    visited = [False] * n\n\n    def dfs(node):\n        visited[node] = True          # mark first, then explore\n        for nxt in graph[node]:\n            if not visited[nxt]:\n                dfs(nxt)\n\n    count = 0\n    for node in range(n):             # every vertex, including isolated ones\n        if not visited[node]:\n            count += 1                # found a new component\n            dfs(node)\n    return count\n\ndef dfs_iterative(graph, start):\n    visited = {start}\n    stack = [start]\n    while stack:\n        node = stack.pop()\n        for nxt in graph[node]:\n            if nxt not in visited:\n                visited.add(nxt)\n                stack.append(nxt)\n    return visited\n\nprint(count_components(5, [[0, 1], [1, 2], [3, 4]]))   # 2\nprint(count_components(4, []))                         # 4",
+        "pitfall": "Marking a vertex visited only after its recursive call returns lets a cycle lead DFS straight back into it, over and over, until Python raises RecursionError. Mark first, then explore.",
+        "activity": {
+          "type": "code-runner",
+          "title": "Size of the largest group",
+          "prompt": "Complete `dfs` so it returns how many vertices it reached: 1 for the current vertex plus whatever each recursive call on an unvisited neighbor returns. The graph has groups of sizes 3, 2 and 2, so it should print 3. Then add the edge [2, 3] and predict the new answer before running.",
+          "props": {
+            "language": "python",
+            "code": "def largest_component(n, edges):\n    graph = [[] for _ in range(n)]\n    for u, v in edges:\n        graph[u].append(v)\n        graph[v].append(u)\n    visited = [False] * n\n\n    def dfs(node):\n        # Mark node visited, explore its unvisited neighbors,\n        # and return how many vertices this call reached.\n        visited[node] = True\n        size = 1\n        # your code here\n        return size\n\n    best = 0\n    for node in range(n):\n        if not visited[node]:\n            best = max(best, dfs(node))\n    return best\n\nprint(largest_component(7, [[0, 1], [1, 2], [3, 4], [5, 6], [2, 0]]))",
+            "task": "Make dfs return the size of the component so the program prints 3.",
+            "expectOutput": "3"
+          }
+        },
+        "check": {
+          "question": "What does `count_components(6, [[0, 1], [2, 3], [3, 4]])` return?",
+          "choices": [
+            "2",
+            "4",
+            "6",
+            "3"
+          ],
+          "answer": 3,
+          "explanation": "The groups are {0, 1}, {2, 3, 4} and the isolated vertex {5}. The outer loop over range(6) is what makes vertex 5 count as its own component."
+        }
+      },
+      {
+        "title": "Grids are graphs",
+        "body": "A map is a grid of land (1) and water (0). How many islands are there, where an island is a group of land cells connected up, down, left or right? There is no vertex or edge in sight, but this is a graph problem: each cell is a vertex, with an edge to each of its up to 4 neighbors that passes the rules (inside the grid, land, not yet visited).\n\nThe grid template:\n\n- Loop over every cell `(r, c)`.\n- Generate neighbors from a list of direction offsets, `[(1, 0), (-1, 0), (0, 1), (0, -1)]`.\n- Check bounds before reading the grid: `0 <= nr < rows and 0 <= nc < cols`.\n- Track visited cells with a set of `(r, c)` pairs, a separate grid of booleans, or by overwriting the cell (for example turning land into water). Overwriting is shortest but changes the caller's data; say so in an interview, or copy the grid first.\n\n**Number of islands** is connected components on a grid: every time the outer loop finds unvisited land, count an island and flood it. **Flood fill** (the paint bucket tool) is one DFS or BFS from a single cell, recoloring every connected cell of the same original color. **Shortest path in a maze** is BFS from the start cell, and the answer is the ring in which you first reach the exit.\n\nA grid with R rows and C columns has R * C vertices and at most 4 edges each, so all of these run in O(R * C) time. Diagonal moves are just four more offsets.\n\nTrace the island count on the grid in the code block: the outer loop finds land at (0, 0) and floods 4 cells, then finds new land at (2, 2) and floods 1 cell, then finds land at (3, 3) and floods 2 cells. Three islands.",
+        "code": "def num_islands(grid):\n    rows, cols = len(grid), len(grid[0])\n    seen = set()\n\n    def flood(r, c):\n        if not (0 <= r < rows and 0 <= c < cols):    # off the map\n            return\n        if grid[r][c] == 0 or (r, c) in seen:        # water, or done already\n            return\n        seen.add((r, c))\n        for dr, dc in [(1, 0), (-1, 0), (0, 1), (0, -1)]:\n            flood(r + dr, c + dc)\n\n    count = 0\n    for r in range(rows):\n        for c in range(cols):\n            if grid[r][c] == 1 and (r, c) not in seen:\n                count += 1                            # a new island\n                flood(r, c)\n    return count\n\ngrid = [\n    [1, 1, 0, 0, 0],\n    [1, 1, 0, 0, 0],\n    [0, 0, 1, 0, 0],\n    [0, 0, 0, 1, 1],\n]\nprint(num_islands(grid))   # 3",
+        "pitfall": "In flood fill, if the new color equals the old color, recoloring never changes anything, so a fill that uses \"has the old color\" as its not-visited test recurses forever. Return the image unchanged when the colors are equal.",
+        "activity": {
+          "type": "challenge",
+          "title": "Number of islands",
+          "prompt": "Use the grid template. Then check your code in your head against a grid that is all water and against one long, snake-shaped island.",
+          "props": {
+            "id": "number-of-islands"
+          }
+        },
+        "check": {
+          "question": "What is the time complexity of counting islands with DFS on a grid of R rows and C columns?",
+          "choices": [
+            "O((R * C)^2)",
+            "O(R * C)",
+            "O(R + C)",
+            "O(4^(R * C))"
+          ],
+          "answer": 1,
+          "explanation": "Every cell is visited by the outer loop once and flooded at most once, and each flood step checks 4 neighbors, so the total work is proportional to the number of cells. The visited set is what prevents the exponential blow-up."
+        }
+      },
+      {
+        "title": "Directed graphs: cycles and topological order",
+        "body": "You have courses with prerequisites: take 0 before 1, 1 before 2, and 0 before 3. Is there an order that respects every rule, and what is it? Draw an arrow from each prerequisite to the course it unlocks and you have a directed graph. A valid order exists exactly when the graph has no directed cycle, which makes it a **DAG** (directed acyclic graph). If course 1 required course 2 and course 2 required course 1, nobody could ever start either.\n\nA **topological order** lists every vertex so that every edge points forward. **Kahn's algorithm** builds one by repeatedly taking a vertex that nothing is still blocking:\n\n- Count each vertex's **in-degree**, the number of edges pointing into it.\n- Put every vertex with in-degree 0 in a queue: these can go first.\n- Pop a vertex, append it to the order, and \"remove\" its outgoing edges by decrementing each neighbor's in-degree. Any neighbor that drops to 0 joins the queue.\n- When the queue is empty, check the length. If the order contains all V vertices, it is a valid topological order. If not, the leftover vertices sit on a cycle or depend on one.\n\nThat final check is cycle detection for free: \"can all courses be finished?\" is just \"did Kahn's algorithm output every vertex?\". It runs in O(V + E).\n\nA DAG can have many valid orders. When a problem wants one specific answer, it adds a tie-break rule such as \"take the smallest available label first\", which you implement by replacing the queue with a min-heap.\n\nThe DFS alternative tracks three states: unvisited, **on the current path**, and finished. Reaching a vertex that is on the current path means you followed an edge back into your own path: a cycle. (Appending vertices as they finish, then reversing the list, gives a topological order.) A plain visited set is not enough in a directed graph: in a diamond with edges 0 to 1, 0 to 2, 1 to 3 and 2 to 3, vertex 3 is reached twice without any cycle.",
+        "code": "from collections import deque\n\ndef topo_order(n, edges):\n    \"\"\"edges[i] = [a, b] means a must come before b.\"\"\"\n    graph = [[] for _ in range(n)]\n    indegree = [0] * n\n    for a, b in edges:\n        graph[a].append(b)\n        indegree[b] += 1\n\n    queue = deque(v for v in range(n) if indegree[v] == 0)\n    order = []\n    while queue:\n        node = queue.popleft()\n        order.append(node)\n        for nxt in graph[node]:\n            indegree[nxt] -= 1\n            if indegree[nxt] == 0:\n                queue.append(nxt)\n    return order if len(order) == n else []   # [] means there is a cycle\n\n# Trace: n = 4, edges = [[0, 1], [1, 2], [0, 3]]\n# in-degrees  0:0  1:1  2:1  3:1            queue [0]\n# pop 0 -> order [0]; 1 and 3 drop to 0     queue [1, 3]\n# pop 1 -> order [0, 1]; 2 drops to 0       queue [3, 2]\n# pop 3 -> order [0, 1, 3]                  queue [2]\n# pop 2 -> order [0, 1, 3, 2]   all 4 placed, so no cycle\nprint(topo_order(4, [[0, 1], [1, 2], [0, 3]]))   # [0, 1, 3, 2]\nprint(topo_order(2, [[0, 1], [1, 0]]))           # []",
+        "pitfall": "Getting the edge direction backward. Decide once what `[a, b]` means (\"a before b\", or \"b is a prerequisite of a\"), write it in a comment, and build every edge the same way.",
+        "check": {
+          "question": "Kahn's algorithm finishes with 5 vertices in its order, but the graph has 7. What does that tell you?",
+          "choices": [
+            "Two vertices are isolated, with no edges at all",
+            "The queue was implemented wrongly, because Kahn's always outputs every vertex",
+            "The graph has a cycle, and the 2 missing vertices are on it or blocked behind it",
+            "The graph is actually undirected"
+          ],
+          "answer": 2,
+          "explanation": "A vertex only enters the queue when its in-degree reaches 0. Vertices on a cycle keep each other above 0 forever, and so do vertices that depend on them. Isolated vertices have in-degree 0 and are output right away."
+        }
+      },
+      {
+        "title": "Union-find: merging groups fast",
+        "body": "Edges arrive one at a time: \"users 3 and 7 are now friends\", \"users 5 and 3 are now friends\". After each one you must answer questions like \"are 7 and 5 in the same group?\" Rerunning BFS after every edge costs O(V + E) per question. **Union-find**, also called a disjoint set union (DSU), answers in nearly constant time.\n\nEach group is stored as a tree, and the tree's root is the group's representative. You only keep one array, `parent`, where each vertex points toward its root.\n\n- **find(x)**: follow parent pointers up to the root. With **path compression**, the vertices you pass get pointed closer to the root, so later finds take fewer steps. The code uses path halving, a one-loop form of path compression that points each vertex at its grandparent.\n- **union(a, b)**: find both roots. If they are the same, a and b were already connected, and in an undirected graph this edge closes a cycle. Otherwise attach the smaller tree under the larger one (**union by size**) so the trees stay shallow.\n\nWith both tricks, each operation costs O(α(n)) amortized time, where α is the inverse Ackermann function. It is at most 4 for any input that fits in our universe, so treat it as constant.\n\nChoose union-find over BFS or DFS when:\n\n- Edges keep arriving and you answer connectivity questions in between (dynamic connectivity).\n- You count components from an edge list: start with n groups and subtract one for every successful union.\n- You detect a cycle in an undirected graph, as in \"find the redundant connection\".\n- You build a minimum spanning tree with Kruskal's algorithm.\n\nIt cannot find shortest paths, and it does not support deleting edges. For a single traversal of a fixed graph, BFS or DFS is just as fast and more familiar to most interviewers.",
+        "code": "class UnionFind:\n    def __init__(self, n):\n        self.parent = list(range(n))   # everyone starts as their own root\n        self.size = [1] * n\n        self.groups = n\n\n    def find(self, x):\n        while self.parent[x] != x:\n            self.parent[x] = self.parent[self.parent[x]]   # path halving\n            x = self.parent[x]\n        return x\n\n    def union(self, a, b):\n        ra, rb = self.find(a), self.find(b)\n        if ra == rb:\n            return False                   # already connected\n        if self.size[ra] < self.size[rb]:\n            ra, rb = rb, ra\n        self.parent[rb] = ra               # attach the smaller tree under the larger\n        self.size[ra] += self.size[rb]\n        self.groups -= 1\n        return True\n\nuf = UnionFind(5)\nuf.union(0, 1)\nuf.union(3, 4)\nprint(uf.groups)                  # 3   ({0, 1}, {2}, {3, 4})\nprint(uf.find(1) == uf.find(0))   # True\nprint(uf.union(1, 0))             # False: same group, so this edge closes a cycle",
+        "pitfall": "Linking the raw vertices (`parent[a] = b`) instead of their roots skips the find step. It can cut a vertex out of its old group and tangle the trees. Always union the two roots.",
+        "check": {
+          "question": "You create a UnionFind with 6 vertices and make 4 successful unions, each joining two different groups. How many groups remain?",
+          "choices": [
+            "4",
+            "6",
+            "It depends on the order of the unions",
+            "2"
+          ],
+          "answer": 3,
+          "explanation": "Every successful union merges two groups into one, reducing the count by exactly one, whatever the order: 6 - 4 = 2. A union of two vertices already in the same group would not change the count."
+        }
+      },
+      {
+        "title": "Practice: recognizing graph problems",
+        "body": "The hardest part of a graph problem is noticing that it is one. Translate the wording:\n\n- \"Minimum number of steps, moves, jumps or transformations\", where each step costs the same: BFS from the start. Think word ladders, knight moves and maze exits.\n- \"Islands\", \"regions\", \"groups\", \"provinces\", \"connected\": count components with DFS, BFS or union-find.\n- \"Fill\", \"spread\", \"infect\", \"rot\": BFS or DFS from a source. When the spread starts from many cells at once, put all of them in the queue first (multi-source BFS).\n- \"Prerequisites\", \"dependencies\", \"build order\", \"can all tasks finish\": a directed graph, Kahn's algorithm and its cycle check.\n- \"Edges arrive over time\", \"are these two connected now\", \"redundant connection\": union-find.\n- \"Cheapest\" or \"fastest\" when edges have different costs: Dijkstra's algorithm with a heap, not plain BFS.\n\nThen settle three questions before writing code:\n\n- What are the vertices, and what are the edges? Cells and their neighbors, words that differ by one letter, tasks and dependencies.\n- Is the graph directed or undirected? Weighted or unweighted?\n- How will you mark vertices visited, and when?\n\nState the complexity as O(V + E) for an adjacency list or O(R * C) for a grid, and mention the space for the visited set and the queue or stack. Finally, test the cases graphs love to break on: a single vertex, no edges at all, a disconnected graph, a cycle, and a start that is blocked.",
+        "activity": {
+          "type": "challenge",
+          "title": "Course schedule",
+          "prompt": "Build the graph with in-degrees and run Kahn's algorithm. Read the prompt carefully to get the edge direction right, and remember that a course can never be its own prerequisite in a finishable schedule.",
+          "props": {
+            "id": "course-schedule"
+          }
+        },
+        "check": {
+          "question": "\"Each minute, every fresh orange next to a rotten one becomes rotten. How many minutes until no fresh orange is left?\" Which approach fits?",
+          "choices": [
+            "DFS from the first rotten orange found",
+            "Kahn's algorithm on the grid",
+            "Union-find over all the oranges",
+            "Multi-source BFS from all rotten oranges at once, counting levels"
+          ],
+          "answer": 3,
+          "explanation": "The rot spreads one ring per minute from every rotten orange at the same time, which is exactly BFS with all sources in the queue at the start. The number of levels processed is the number of minutes. DFS from one source would get the timing wrong."
+        }
+      }
+    ],
+    "keyTerms": [
+      {
+        "term": "vertex and edge",
+        "definition": "A vertex (node) is a thing; an edge connects two vertices and may be directed or weighted."
+      },
+      {
+        "term": "adjacency list",
+        "definition": "For each vertex, the list of its neighbors. O(V + E) space; the default representation in interviews."
+      },
+      {
+        "term": "adjacency matrix",
+        "definition": "A V by V table where cell [u][v] marks an edge. O(V^2) space with O(1) edge checks."
+      },
+      {
+        "term": "breadth-first search",
+        "definition": "Traversal in rings of increasing distance using a queue; finds fewest-edge paths in unweighted graphs."
+      },
+      {
+        "term": "depth-first search",
+        "definition": "Traversal that follows one path as deep as possible before backing up, using recursion or a stack."
+      },
+      {
+        "term": "visited set",
+        "definition": "The record of vertices already reached, which stops a traversal from looping forever on cycles."
+      },
+      {
+        "term": "connected component",
+        "definition": "A maximal group of vertices that can all reach each other."
+      },
+      {
+        "term": "DAG",
+        "definition": "Directed acyclic graph: a directed graph with no cycles. Exactly the graphs that have a topological order."
+      },
+      {
+        "term": "topological order",
+        "definition": "An ordering of a DAG's vertices in which every edge points from an earlier vertex to a later one."
+      },
+      {
+        "term": "in-degree",
+        "definition": "The number of edges pointing into a vertex. Kahn's algorithm starts with vertices whose in-degree is 0."
+      },
+      {
+        "term": "union-find",
+        "definition": "A structure that tracks groups with parent pointers, merging groups (union) and finding a vertex's group root (find) in near constant time."
+      },
+      {
+        "term": "path compression",
+        "definition": "A union-find optimization that points vertices closer to their root during find, keeping later finds short."
+      }
+    ],
+    "summary": [
+      "Store graphs as adjacency lists (O(V + E) space); add both directions for undirected edges and include isolated vertices.",
+      "BFS explores in rings with a queue and finds fewest-edge paths; mark vertices visited when you enqueue them.",
+      "DFS goes deep with recursion or a stack; loop over every vertex to count connected components.",
+      "A grid is a graph: cells are vertices, 4 direction offsets give the edges, and bounds checks come first.",
+      "Kahn's algorithm produces a topological order and detects cycles: if not every vertex is output, there is a cycle.",
+      "Union-find with path compression and union by size answers dynamic connectivity questions in near constant time."
+    ],
+    "feynmanPrompt": "Explain to a friend how Kahn's algorithm decides whether a list of course prerequisites can all be completed, and why a cycle in the prerequisites makes it get stuck."
+  },
+  "questions": [
+    {
+      "id": "swe-graphs-q01",
+      "type": "mcq",
+      "difficulty": "easy",
+      "question": "For n = 3 and the undirected edge list `[[0, 1], [1, 2]]`, which adjacency list do you build?",
+      "choices": [
+        "[[1], [2], []]",
+        "[[1], [0, 2], [1]]",
+        "[[0, 1], [1, 2], []]",
+        "[[1, 2], [0], [0]]"
+      ],
+      "answer": 1,
+      "explanation": "Each undirected edge goes in both directions: 0 and 1 list each other, and 1 and 2 list each other, so vertex 1 has two neighbors. [[1], [2], []] would treat the edges as directed.",
+      "concept": "building an adjacency list",
+      "section": 0
+    },
+    {
+      "id": "swe-graphs-q02",
+      "type": "mcq",
+      "difficulty": "easy",
+      "question": "A graph has V vertices and E edges. How much space do an adjacency list and an adjacency matrix use?",
+      "choices": [
+        "List O(V^2), matrix O(V + E)",
+        "Both O(V + E)",
+        "List O(V + E), matrix O(V^2)",
+        "List O(E), matrix O(E^2)"
+      ],
+      "answer": 2,
+      "explanation": "A list stores one entry per vertex plus one per edge endpoint, O(V + E). A matrix stores a cell for every pair of vertices, O(V^2), whether or not the edge exists.",
+      "concept": "representation space",
+      "section": 0
+    },
+    {
+      "id": "swe-graphs-q03",
+      "type": "debug",
+      "difficulty": "medium",
+      "question": "`count_components(4, [[0, 1]])` returns 1, but the correct answer is 3. Why?",
+      "code": "def build(n, edges):\n    graph = {}\n    for u, v in edges:\n        graph.setdefault(u, []).append(v)\n        graph.setdefault(v, []).append(u)\n    return graph\n\ndef count_components(n, edges):\n    graph = build(n, edges)\n    seen, count = set(), 0\n    for node in graph:\n        if node not in seen:\n            count += 1\n            stack = [node]\n            seen.add(node)\n            while stack:\n                cur = stack.pop()\n                for nxt in graph[cur]:\n                    if nxt not in seen:\n                        seen.add(nxt)\n                        stack.append(nxt)\n    return count",
+      "choices": [
+        "Vertices 2 and 3 have no edges, so they are never keys and the loop skips them",
+        "A stack cannot be used for counting components; it needs a queue",
+        "seen.add(node) must happen after the while loop",
+        "setdefault replaces the neighbor list on every call"
+      ],
+      "answer": 0,
+      "explanation": "build only creates keys for vertices that appear in an edge, so 2 and 3 never become keys, and `for node in graph` never visits them. Looping over range(n) (and creating a list for every vertex) fixes it. Using a stack instead of a queue is fine for counting components.",
+      "concept": "isolated vertices",
+      "section": 0
+    },
+    {
+      "id": "swe-graphs-q04",
+      "type": "mcq",
+      "difficulty": "easy",
+      "question": "Which problem does plain BFS solve directly?",
+      "choices": [
+        "The fewest edges between two vertices in an unweighted graph",
+        "The cheapest route when roads have different lengths",
+        "A topological order of tasks",
+        "A minimum spanning tree"
+      ],
+      "answer": 0,
+      "explanation": "BFS reaches vertices in order of edge count, so it finds fewest-edge paths in unweighted graphs. Weighted cheapest routes need Dijkstra, task ordering needs a topological sort, and spanning trees need Kruskal or Prim.",
+      "concept": "what BFS solves",
+      "section": 1
+    },
+    {
+      "id": "swe-graphs-q05",
+      "type": "typed",
+      "difficulty": "medium",
+      "question": "Using `bfs_distances` from this section, what does this print?",
+      "code": "graph = {0: [1, 2], 1: [0, 3], 2: [0, 4], 3: [1, 4], 4: [2, 3, 5], 5: [4]}\nprint(bfs_distances(graph, 1)[5])",
+      "answer": "3",
+      "explanation": "From vertex 1, ring 1 is {0, 3}, ring 2 is {2, 4}, and vertex 5 hangs off 4, so it is in ring 3.",
+      "concept": "BFS distances",
+      "section": 1
+    },
+    {
+      "id": "swe-graphs-q06",
+      "type": "mcq",
+      "difficulty": "medium",
+      "question": "Why does BFS mark a vertex visited when it is pushed onto the queue, rather than when it is popped?",
+      "choices": [
+        "Python sets cannot be changed while a deque is in use",
+        "Otherwise several neighbors can push the same vertex before it is popped, creating duplicate work",
+        "Marking on pop always gives wrong distances",
+        "A vertex must be marked before its neighbors are created"
+      ],
+      "answer": 1,
+      "explanation": "If marking waits until the pop, every neighbor that sees the vertex before it is processed pushes another copy, so the queue fills with duplicates. Marking at push time guarantees each vertex enters the queue once.",
+      "concept": "mark on enqueue",
+      "section": 1
+    },
+    {
+      "id": "swe-graphs-q07",
+      "type": "mcq",
+      "difficulty": "hard",
+      "question": "Roads: A to B takes 1 minute, B to C takes 1 minute, A to C takes 5 minutes. BFS from A reports C at distance 1 and suggests the direct road. What went wrong?",
+      "choices": [
+        "C should have been marked visited on pop instead of on push",
+        "The graph should have been stored as a matrix",
+        "BFS counts edges, not minutes; weighted edges need Dijkstra's algorithm",
+        "BFS should have been started from C instead"
+      ],
+      "answer": 2,
+      "explanation": "BFS counts edges, and the direct road is one edge, so BFS prefers it even though A to B to C takes 2 minutes. With weighted edges you need Dijkstra's algorithm, which processes vertices in order of total weight using a heap.",
+      "concept": "BFS ignores weights",
+      "section": 1
+    },
+    {
+      "id": "swe-graphs-q08",
+      "type": "order",
+      "difficulty": "easy",
+      "question": "Put the steps of BFS in order.",
+      "items": [
+        "Push the start vertex and mark it visited",
+        "Pop the vertex at the front of the queue",
+        "Look at each of its neighbors and skip the visited ones",
+        "Mark each new neighbor visited and push it to the back",
+        "Repeat from the pop until the queue is empty"
+      ],
+      "explanation": "The start is marked when it is pushed, and so is every new neighbor, so nothing enters the queue twice. The pop, check, mark and push cycle repeats until the queue is empty.",
+      "concept": "BFS steps",
+      "section": 1
+    },
+    {
+      "id": "swe-graphs-q09",
+      "type": "typed",
+      "difficulty": "medium",
+      "question": "What does `count_components(8, [[0, 1], [1, 2], [3, 4], [5, 6], [6, 5]])` return?",
+      "answer": "4",
+      "explanation": "The groups are {0, 1, 2}, {3, 4}, {5, 6} (the repeated edge changes nothing) and the isolated vertex {7}. That makes 4.",
+      "concept": "counting components",
+      "section": 2
+    },
+    {
+      "id": "swe-graphs-q10",
+      "type": "mcq",
+      "difficulty": "medium",
+      "question": "A recursive DFS crashes in Python on a 300 by 300 grid that is all land, while a BFS version works. Why?",
+      "choices": [
+        "DFS visits every cell 4 times, which is too slow",
+        "The recursion can nest tens of thousands of calls, past Python's default limit of about 1000",
+        "BFS uses less memory than DFS on every input",
+        "Python cannot recurse inside a nested function"
+      ],
+      "answer": 1,
+      "explanation": "The recursion can nest one call per cell along a long winding path, up to about 90,000 frames deep, far past Python's default limit of about 1000. BFS keeps its frontier in a deque on the heap instead of the call stack.",
+      "concept": "recursion depth on grids",
+      "section": 2
+    },
+    {
+      "id": "swe-graphs-q11",
+      "type": "code-fill",
+      "difficulty": "medium",
+      "question": "Complete `has_path` so it returns True when `dst` is reachable from `src`.",
+      "code": "def has_path(graph, src, dst, seen=None):\n    if seen is None:\n        seen = set()\n    if src == dst:\n        return True\n    seen.add(src)\n    for nxt in graph[src]:\n        if nxt not in seen and _____:\n            return True\n    return False",
+      "choices": [
+        "has_path(graph, src, nxt, seen)",
+        "nxt == dst",
+        "has_path(graph, nxt, dst, seen)",
+        "has_path(graph, nxt, dst, set())"
+      ],
+      "answer": 2,
+      "explanation": "Recurse from the neighbor toward the same destination and share the seen set. Passing a fresh set() forgets what was visited, so a cycle loops forever, and checking only nxt == dst misses targets more than one edge away.",
+      "concept": "recursive path check",
+      "section": 2
+    },
+    {
+      "id": "swe-graphs-q12",
+      "type": "mcq",
+      "difficulty": "medium",
+      "question": "`dfs_iterative` pops from a stack, while the recursive `dfs` calls itself. On the same graph and start, which statement is true?",
+      "choices": [
+        "They always visit the vertices in the same order",
+        "The iterative version can miss vertices that lie on cycles",
+        "Only the recursive version runs in O(V + E)",
+        "Both reach exactly the same set of vertices, possibly in a different order"
+      ],
+      "answer": 3,
+      "explanation": "Both mark vertices so each is processed once, and both explore everything reachable from the start, so they reach the same set. The iterative version pushes neighbors and pops the last one, so the visiting order can differ.",
+      "concept": "iterative vs recursive DFS",
+      "section": 2
+    },
+    {
+      "id": "swe-graphs-q13",
+      "type": "mcq",
+      "difficulty": "medium",
+      "question": "In a Python grid search, what is the main danger of reading `grid[nr][nc]` before checking `0 <= nr < rows and 0 <= nc < cols`?",
+      "choices": [
+        "It makes the search O(R * C) instead of O(1)",
+        "It marks the cell as visited too early",
+        "It only matters when diagonal moves are allowed",
+        "Out-of-range indexes either crash or, for -1, silently wrap to the last row or column"
+      ],
+      "answer": 3,
+      "explanation": "An index past the end raises IndexError, but -1 is a valid Python index, so a neighbor above row 0 silently reads the last row. That bug produces wrong answers with no error at all.",
+      "concept": "grid bounds",
+      "section": 3
+    },
+    {
+      "id": "swe-graphs-q14",
+      "type": "typed",
+      "difficulty": "medium",
+      "question": "How many islands (4-directional) does this grid contain?",
+      "code": "1 0 1 0\n1 0 0 1\n0 0 1 1\n1 0 0 0",
+      "language": "plaintext",
+      "answer": "4",
+      "explanation": "The islands are {(0,0), (1,0)}, {(0,2)}, {(1,3), (2,3), (2,2)} and {(3,0)}. Cells that only touch diagonally, such as (0,2) and (1,3), are separate islands.",
+      "concept": "counting islands",
+      "section": 3
+    },
+    {
+      "id": "swe-graphs-q15",
+      "type": "debug",
+      "difficulty": "medium",
+      "question": "This flood fill raises RecursionError when `color` equals the starting cell's color. Why?",
+      "code": "def flood_fill(image, r, c, color):\n    old = image[r][c]\n\n    def fill(r, c):\n        if r < 0 or r >= len(image) or c < 0 or c >= len(image[0]):\n            return\n        if image[r][c] != old:\n            return\n        image[r][c] = color\n        fill(r + 1, c)\n        fill(r - 1, c)\n        fill(r, c + 1)\n        fill(r, c - 1)\n\n    fill(r, c)\n    return image",
+      "choices": [
+        "The bounds check is wrong for the last row",
+        "old must be read inside fill, not outside it",
+        "Recoloring to the same color leaves cells equal to old, so neighbors revisit each other forever",
+        "Python cannot modify a list from inside a nested function"
+      ],
+      "answer": 2,
+      "explanation": "The only \"already done\" test is image[r][c] != old. Recoloring to the same color leaves every cell equal to old, so neighbors keep calling each other forever. Return early when color == old (or keep a visited set).",
+      "concept": "flood fill with the same color",
+      "section": 3
+    },
+    {
+      "id": "swe-graphs-q16",
+      "type": "mcq",
+      "difficulty": "medium",
+      "question": "You want the fewest moves from the top-left to the bottom-right of a grid maze (4 directions). Why does BFS give the right answer, while DFS that stops at its first arrival might not?",
+      "choices": [
+        "BFS reaches cells in order of distance, so its first arrival uses the fewest moves",
+        "DFS cannot run on grids, only on adjacency lists",
+        "BFS also checks diagonal moves",
+        "DFS visits each cell several times, so its count is too high"
+      ],
+      "answer": 0,
+      "explanation": "BFS reaches cells in order of distance, so its first arrival at the exit uses the fewest moves. DFS commits to one corridor and can reach the exit by a long detour first.",
+      "concept": "BFS for mazes",
+      "section": 3
+    },
+    {
+      "id": "swe-graphs-q17",
+      "type": "mcq",
+      "difficulty": "hard",
+      "question": "A grid has many exits, and you need every open cell's distance to its nearest exit. What is the efficient approach?",
+      "choices": [
+        "Run a separate BFS from every open cell",
+        "Run a separate BFS from every exit and keep the minimum",
+        "Run DFS from the top-left cell",
+        "Push every exit into the queue first at distance 0, then run one BFS"
+      ],
+      "answer": 3,
+      "explanation": "Pushing every exit at distance 0 lets one BFS spread from all of them at once, and each cell is reached first by its nearest exit: O(R * C) total. A BFS per exit or per cell repeats that work many times.",
+      "concept": "multi-source BFS",
+      "section": 3
+    },
+    {
+      "id": "swe-graphs-q18",
+      "type": "mcq",
+      "difficulty": "easy",
+      "question": "What does the in-degree of a vertex count in a directed graph?",
+      "choices": [
+        "The number of edges leaving it",
+        "The number of edges pointing into it",
+        "The length of the longest path ending at it",
+        "The number of vertices reachable from it"
+      ],
+      "answer": 1,
+      "explanation": "In-degree counts edges coming in; out-degree counts edges going out. Kahn's algorithm starts with the vertices whose in-degree is 0, because nothing has to come before them.",
+      "concept": "in-degree",
+      "section": 4
+    },
+    {
+      "id": "swe-graphs-q19",
+      "type": "typed",
+      "difficulty": "hard",
+      "question": "Using `topo_order` from this section (a plain first-in, first-out queue), what order does it return for n = 4 and edges `[[2, 0], [2, 1], [0, 3], [1, 3]]`? Type it as a Python list.",
+      "answer": "[2, 0, 1, 3]",
+      "accept": [
+        "[2,0,1,3]",
+        "2, 0, 1, 3",
+        "2 0 1 3",
+        "2,0,1,3"
+      ],
+      "explanation": "Only 2 starts at in-degree 0. Popping 2 frees 0 and 1 (queued in that order). Popping 0 lowers 3 to 1, and popping 1 lowers 3 to 0, so 3 comes last: [2, 0, 1, 3].",
+      "concept": "tracing Kahn",
+      "section": 4
+    },
+    {
+      "id": "swe-graphs-q20",
+      "type": "mcq",
+      "difficulty": "easy",
+      "question": "Can all courses be finished? n = 3, and each pair [a, b] means a must come before b: `[[0, 1], [1, 2], [2, 0]]`.",
+      "choices": [
+        "Yes, in the order 0, 1, 2",
+        "Yes, in the order 2, 1, 0",
+        "No: 0, 1 and 2 form a cycle, so none ever reaches in-degree 0",
+        "No, because course 0 has no prerequisites"
+      ],
+      "answer": 2,
+      "explanation": "The rules form a cycle 0 to 1 to 2 to 0, so every course waits on another and no in-degree ever reaches 0. Kahn's algorithm outputs nothing, which signals the cycle.",
+      "concept": "cycle means no order",
+      "section": 4
+    },
+    {
+      "id": "swe-graphs-q21",
+      "type": "debug",
+      "difficulty": "hard",
+      "question": "`has_cycle(4, [[0, 1], [0, 2], [1, 3], [2, 3]])` returns True, but this graph has no cycle. What is the fix?",
+      "code": "def has_cycle(n, edges):\n    graph = [[] for _ in range(n)]\n    for a, b in edges:\n        graph[a].append(b)\n    visited = set()\n\n    def dfs(node):\n        if node in visited:\n            return True          # seen before: a cycle?\n        visited.add(node)\n        return any(dfs(nxt) for nxt in graph[node])\n\n    return any(dfs(v) for v in range(n))",
+      "choices": [
+        "Track \"on the current path\" separately from \"finished\"; only reaching an on-path vertex is a cycle",
+        "Use BFS instead, because DFS cannot detect cycles",
+        "Add every edge in both directions",
+        "Start the DFS only from vertex 0"
+      ],
+      "answer": 0,
+      "explanation": "The diamond reaches vertex 3 twice, through 1 and through 2, and a single visited set treats the second arrival as a cycle. Track vertices on the current path separately from finished ones: only an edge to a vertex still on the path is a cycle, and finished vertices can be skipped.",
+      "concept": "directed cycle detection",
+      "section": 4
+    },
+    {
+      "id": "swe-graphs-q22",
+      "type": "multi",
+      "difficulty": "medium",
+      "question": "Which statements about topological order are true? Select all that apply.",
+      "choices": [
+        "It exists only if the directed graph has no cycle",
+        "A DAG can have more than one valid topological order",
+        "Every edge goes from an earlier vertex to a later one in the order",
+        "It can be computed for an undirected graph by adding both directions",
+        "Kahn's algorithm requires the vertices to be sorted first"
+      ],
+      "answers": [
+        0,
+        1,
+        2
+      ],
+      "explanation": "A topological order exists only for a DAG, a DAG can have several valid orders, and in any valid order every edge points forward. It is not defined for undirected graphs, and Kahn's algorithm needs no sorting up front.",
+      "concept": "topological order facts",
+      "section": 4
+    },
+    {
+      "id": "swe-graphs-q23",
+      "type": "mcq",
+      "difficulty": "easy",
+      "question": "In union-find, what does `find(x)` return?",
+      "choices": [
+        "The number of vertices in x's group",
+        "x's immediate parent only",
+        "A list of every vertex in x's group",
+        "The root (representative) of x's group"
+      ],
+      "answer": 3,
+      "explanation": "find follows parent pointers to the root, which represents x's whole group. Two vertices are in the same group exactly when their finds return the same root.",
+      "concept": "what find returns",
+      "section": 5
+    },
+    {
+      "id": "swe-graphs-q24",
+      "type": "mcq",
+      "difficulty": "medium",
+      "question": "Union-find processes the edges of an undirected graph one at a time. `union(a, b)` returns False because a and b already share a root. What does that edge do?",
+      "choices": [
+        "It closes a cycle, because a and b were already connected",
+        "It splits their group in two",
+        "It must be a self-loop from a vertex to itself",
+        "It joins two components and lowers the count"
+      ],
+      "answer": 0,
+      "explanation": "a and b were already connected through other edges, so adding this edge creates a second route between them: a cycle. This is how \"find the redundant connection\" problems are solved.",
+      "concept": "failed union",
+      "section": 5
+    },
+    {
+      "id": "swe-graphs-q25",
+      "type": "mcq",
+      "difficulty": "medium",
+      "question": "Why does union-find attach the smaller tree under the larger one?",
+      "choices": [
+        "It makes all groups the same size",
+        "It guarantees the root has the smallest label",
+        "It keeps the trees shallow, so find follows few parent pointers",
+        "Path compression is incorrect without it"
+      ],
+      "answer": 2,
+      "explanation": "Hanging the smaller tree under the larger keeps the trees shallow, so find follows few parent pointers. Path compression works without it, but the two together give the near-constant bound.",
+      "concept": "union by size",
+      "section": 5
+    },
+    {
+      "id": "swe-graphs-q26",
+      "type": "typed",
+      "difficulty": "medium",
+      "question": "Starting from `UnionFind(6)`, you call `union(0, 1)`, `union(2, 3)`, `union(1, 3)`, `union(4, 5)` and `union(0, 2)`. How many groups remain?",
+      "answer": "2",
+      "explanation": "The first four unions all succeed: 6 groups drop to 2, namely {0, 1, 2, 3} and {4, 5}. union(0, 2) finds the same root for both and returns False, so the count stays at 2.",
+      "concept": "tracing union-find",
+      "section": 5
+    },
+    {
+      "id": "swe-graphs-q27",
+      "type": "recall",
+      "difficulty": "medium",
+      "question": "When would you choose union-find over BFS or DFS for a connectivity problem?",
+      "answer": "When edges arrive over time and you must answer \"are these connected?\" between them, or to spot the edge that closes a cycle in an undirected graph (redundant connection), or in Kruskal's algorithm. Each operation is nearly O(1) amortized, while rerunning BFS costs O(V + E) per question.",
+      "explanation": "Think about edges that arrive over time, and about cycle checks on undirected edge lists.",
+      "concept": "when to use union-find",
+      "section": 5
+    },
+    {
+      "id": "swe-graphs-q28",
+      "type": "match",
+      "difficulty": "easy",
+      "question": "Match each problem with the technique that fits it.",
+      "pairs": [
+        {
+          "left": "Fewest moves for a knight to reach a square",
+          "right": "BFS"
+        },
+        {
+          "left": "Order to build packages with dependencies",
+          "right": "Topological sort"
+        },
+        {
+          "left": "Count separate friend groups",
+          "right": "Connected components"
+        },
+        {
+          "left": "Cheapest flight route with different prices",
+          "right": "Dijkstra's algorithm"
+        }
+      ],
+      "explanation": "Knight moves have equal cost per step (BFS), dependencies need an order (topological sort), friend groups are components, and prices make edges weighted (Dijkstra).",
+      "concept": "problem to technique",
+      "section": 6
+    },
+    {
+      "id": "swe-graphs-q29",
+      "type": "mcq",
+      "difficulty": "medium",
+      "question": "Turn COLD into WARM by changing one letter at a time, where every step must be a real word, in as few steps as possible. How do you model it?",
+      "choices": [
+        "Each letter is a vertex, and DFS finds the path",
+        "Words are vertices, words one letter apart share an edge, and BFS finds the fewest steps",
+        "Sort the dictionary and binary search for WARM",
+        "Use union-find to merge words that share a first letter"
+      ],
+      "answer": 1,
+      "explanation": "Each word is a vertex and words one letter apart are connected. Every step costs the same, so BFS from COLD finds the fewest steps to WARM.",
+      "concept": "modeling word ladder",
+      "section": 6
+    },
+    {
+      "id": "swe-graphs-q30",
+      "type": "order",
+      "difficulty": "hard",
+      "question": "Put these steps for tackling a graph problem in an interview in a sensible order.",
+      "items": [
+        "Identify what the vertices and edges are",
+        "Decide whether edges are directed and whether they are weighted",
+        "Choose BFS, DFS, Kahn's algorithm or union-find from what is asked",
+        "Decide how and when to mark vertices visited",
+        "Write the code, then test a single vertex, a disconnected graph and a cycle"
+      ],
+      "explanation": "You cannot pick a traversal until you know what the vertices and edges are and whether they are directed or weighted. Visited handling comes with the chosen traversal, and testing comes last.",
+      "concept": "approaching a graph problem",
+      "section": 6
+    },
+    {
+      "id": "swe-graphs-q31",
+      "type": "mcq",
+      "difficulty": "hard",
+      "question": "BFS finds the shortest path through an R by C grid. What are its worst-case time and space?",
+      "choices": [
+        "O(R + C) time and O(1) space",
+        "O((R * C) log(R * C)) time and O(R) space",
+        "O(4^(R * C)) time and O(R * C) space",
+        "O(R * C) time and O(R * C) space"
+      ],
+      "answer": 3,
+      "explanation": "Each cell enters the queue at most once and checks 4 neighbors, so time is O(R * C). The visited set (and in the worst case the queue) can hold every cell, so space is also O(R * C).",
+      "concept": "grid BFS complexity",
+      "section": 6
+    }
+  ]
+}

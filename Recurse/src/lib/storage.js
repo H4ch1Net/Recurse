@@ -12,7 +12,8 @@ export const KEYS = {
   ai: 'recurse_ai',
   settings: 'recurse_settings',
   communityPacks: 'recurse_community_packs',
-  lastSession: 'recurse_last_session'
+  lastSession: 'recurse_last_session',
+  practice: 'recurse_practice'
 }
 
 const LEGACY_PREFIX = 'syntaxiq_'
@@ -33,7 +34,7 @@ export const DEFAULTS = {
     achievements: [],
     feynmanCount: 0
   },
-  user: { name: '', interests: [], onboardingComplete: false, createdAt: null },
+  user: { name: '', interests: [], goals: [], onboardingComplete: false, createdAt: null, approach: null },
   ai: { provider: 'anthropic', apiKey: '', model: '' },
   settings: {
     theme: 'system',
@@ -44,10 +45,20 @@ export const DEFAULTS = {
     showTimer: true,
     focusTimer: false,
     focusMinutes: 25,
-    breakMinutes: 5
+    breakMinutes: 5,
+    accent: 'theme',
+    sound: true,
+    soundVolume: 0.6,
+    effects: 'full',
+    learningMode: 'balanced',
+    popQuiz: 'sometimes',
+    warmups: true
   },
   communityPacks: [],
-  lastSession: null
+  lastSession: null,
+  // Labs, coding challenges, projects and exams. Labs and challenges carry an FSRS card
+  // so they come back for a redo on a spaced schedule, like question cards.
+  practice: { labs: {}, challenges: {}, projects: {}, exams: [], activities: {}, interviews: [] }
 }
 
 const clone = (value) => JSON.parse(JSON.stringify(value))
@@ -122,6 +133,15 @@ export function loadCommunityPacks() {
   return Array.isArray(value) ? value.filter((p) => p && typeof p === 'object') : []
 }
 
+export function loadPractice() {
+  const value = read(KEYS.practice)
+  const practice = { ...clone(DEFAULTS.practice), ...(isObject(value) ? value : {}) }
+  for (const key of ['labs', 'challenges', 'projects', 'activities']) if (!isObject(practice[key])) practice[key] = {}
+  if (!Array.isArray(practice.exams)) practice.exams = []
+  if (!Array.isArray(practice.interviews)) practice.interviews = []
+  return practice
+}
+
 export function loadLastSession() {
   const value = read(KEYS.lastSession)
   return isObject(value) ? value : null
@@ -134,7 +154,8 @@ export const save = {
   ai: (v) => write(KEYS.ai, v),
   settings: (v) => write(KEYS.settings, v),
   communityPacks: (v) => write(KEYS.communityPacks, v),
-  lastSession: (v) => write(KEYS.lastSession, v)
+  lastSession: (v) => write(KEYS.lastSession, v),
+  practice: (v) => write(KEYS.practice, v)
 }
 
 export function loadAll() {
@@ -145,7 +166,8 @@ export function loadAll() {
     ai: loadAI(),
     settings: loadSettings(),
     communityPacks: loadCommunityPacks(),
-    lastSession: loadLastSession()
+    lastSession: loadLastSession(),
+    practice: loadPractice()
   }
 }
 
@@ -288,5 +310,12 @@ export function resetStorage() {
   const store = storage()
   if (!store) return
   for (const key of Object.values(KEYS)) store.removeItem(key)
+  // Code drafts, the theme cache and other per-feature keys all share the prefix.
+  const extra = []
+  for (let i = 0; i < store.length; i++) {
+    const key = store.key(i)
+    if (key?.startsWith('recurse_')) extra.push(key)
+  }
+  extra.forEach((key) => store.removeItem(key))
   write(KEYS.version, STORAGE_VERSION)
 }

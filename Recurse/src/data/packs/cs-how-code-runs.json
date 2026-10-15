@@ -1,0 +1,813 @@
+{
+  "id": "cs-how-code-runs",
+  "name": "How Code Runs",
+  "version": "1.0.0",
+  "author": "Recurse",
+  "subject": "cs",
+  "level": "intermediate",
+  "description": "Compilers, interpreters and JIT, bytecode, the call stack and heap, references, garbage collection, closures and crashes.",
+  "icon": "Run",
+  "language": "python",
+  "prereqs": [
+    "cs-computer-architecture",
+    "loops-functions"
+  ],
+  "tags": [
+    "compilers",
+    "interpreters",
+    "bytecode",
+    "call stack",
+    "memory",
+    "garbage collection",
+    "closures"
+  ],
+  "lesson": {
+    "estimatedMinutes": 32,
+    "intro": "Between the code you write and the instructions the CPU runs sit compilers, interpreters and runtimes that decide where every variable lives and when memory is freed. This pack explains that machinery for Python and JavaScript: bytecode, the call stack, the heap, references, garbage collection and closures, plus what is really happening when you hit a stack overflow or a segfault.",
+    "objectives": [
+      "Compare compilers, interpreters and JIT compilers, and explain where bytecode fits",
+      "Describe how the call stack and stack frames track function calls, and read a traceback",
+      "Predict how assignment and argument passing behave with mutable and immutable objects in Python and JavaScript",
+      "Explain how garbage collectors decide what to free, and how leaks still happen",
+      "Explain closures, and what causes stack overflows and segmentation faults"
+    ],
+    "sections": [
+      {
+        "title": "Compilers, interpreters and JIT compilers",
+        "body": "You save `hello.c`, `hello.py` and `hello.js`, each printing the same message. The C file has to be compiled before it can run, while the Python and JavaScript files just run. Underneath, all three end up as machine instructions on the same CPU. What differs is **when** and **how** the translation happens.\n\nA **compiler** translates the whole program ahead of time into another form, usually machine code for a specific CPU and operating system. C, C++, Rust and Go work this way: `gcc hello.c -o hello` produces an executable, and running it involves no translator at all.\n\n- It runs fast, because the compiler had time to optimize and no translation is left to do.\n- Many errors (type mismatches, misspelled names) are caught before the program ever runs.\n- You need a build step, and the executable only runs on the platform it was built for.\n\nAn **interpreter** is a program that reads your code and carries it out directly, without producing a standalone executable.\n\n- Start-up is instant, the edit-run loop is easy, and the same source runs anywhere the interpreter runs.\n- It is slower, because the work of understanding each operation is repeated every time it executes.\n- Many errors only appear when the faulty line actually runs.\n\nMost modern languages are hybrids. CPython compiles your source to **bytecode**, a compact instruction set for a virtual machine, and then interprets that bytecode. Java compiles to JVM bytecode ahead of time with `javac`, and the JVM runs it. JavaScript engines such as V8 start by interpreting, then use a **just-in-time (JIT) compiler**: they watch which functions run often (\"hot\" code), compile those to optimized machine code while the program runs, and fall back if their assumptions (say, that a variable always holds an integer) stop being true. JIT gives near-compiled speed for long-running programs, at the cost of warm-up time and memory. PyPy is a JIT for Python, and CPython 3.13 added an experimental JIT that is off by default.\n\nSo \"compiled language\" and \"interpreted language\" really describe typical implementations, not languages. What matters in practice is when errors show up, how fast the code runs and what you have to ship.",
+        "code": "               Compiled (AOT)       Interpreted          JIT-compiled\n               C, C++, Rust, Go     CPython, Ruby, bash  V8, JVM, PyPy\n-------------  -------------------  -------------------  ---------------------\nTranslation    before running       every time it runs   hot code, at run time\nStart-up       instant              instant              needs warm-up\nPeak speed     fastest              slowest              close to compiled\nYou ship       machine code for     source or bytecode   source or bytecode\n               each platform        plus interpreter     plus runtime\nErrors found   many before running  when the line runs   when the line runs",
+        "language": "plaintext",
+        "tip": "Static type checkers blur the line: TypeScript, Java's javac and mypy for Python catch type errors before running, whatever runs the code afterward.",
+        "pitfall": "Believing Python is never compiled. CPython compiles every module to bytecode first (cached as .pyc files in __pycache__), and that bytecode is what gets interpreted. That is why a syntax error anywhere in a file stops it before any line runs.",
+        "check": {
+          "question": "What does a JIT compiler do?",
+          "choices": [
+            "Compiles the whole program before it starts",
+            "Translates code from one programming language into another",
+            "Compiles frequently run code to machine code while the program is running",
+            "Checks types without running the code"
+          ],
+          "answer": 2,
+          "explanation": "A JIT watches the running program and compiles the hot parts on the fly, often using what it has observed (such as the actual types) to optimize. Compiling everything beforehand is ahead-of-time compilation."
+        }
+      },
+      {
+        "title": "Bytecode and virtual machines",
+        "body": "Python and Java promise that the same program runs everywhere, yet machine code only runs on the instruction set it was built for. The trick is a layer in between: **bytecode** for a **virtual machine (VM)**.\n\nBytecode is an instruction set designed for software rather than hardware. It looks like machine code (small numbered operations, one after another), but it is executed by a program, the VM, which has itself been compiled for each real CPU. Ship the same bytecode, and the x86 build of the VM and the ARM build both run it.\n\nCPython's VM is a **stack machine**: instructions push values onto an evaluation stack and pop them off to compute. Python's `dis` module shows the bytecode of any function. The listing for `price * qty + tax` below shows the whole idea: push two values, multiply, push a third, add, return.\n\nAt its core the VM is a loop that looks a lot like a CPU's fetch-decode-execute cycle: fetch the next bytecode instruction, look up what it means, do it, repeat. Each bytecode instruction does more work than a machine instruction (checking operand types at run time, creating result objects), and the dispatch itself costs time. That is a big part of why a tight loop in pure Python runs tens of times slower than the same loop in C, and why the heavy lifting in libraries such as NumPy and pandas happens in compiled C: one Python call hands an entire array to native code.\n\nCPython caches compiled bytecode in `__pycache__` folders as `.pyc` files so the next run can skip compilation. Java ships `.class` files of bytecode, usually bundled into `.jar` files, and the JVM JIT-compiles the hot paths. Bytecode formats are implementation details: CPython's changes between versions, which is why each `.pyc` file is tagged with the Python version that made it.",
+        "code": ">>> import dis\n>>> def total(price, qty, tax):\n...     return price * qty + tax\n...\n>>> dis.dis(total)          # Python 3.13; details change between versions\n  RESUME                   0\n  LOAD_FAST_LOAD_FAST      1 (price, qty)   push price, push qty\n  BINARY_OP                5 (*)            pop two, push their product\n  LOAD_FAST                2 (tax)          push tax\n  BINARY_OP                0 (+)            pop two, push their sum\n  RETURN_VALUE                              pop the result and return it",
+        "language": "python",
+        "pitfall": "Assuming a line of Python costs about one machine instruction. `x = a + b` runs several bytecode instructions, each dispatched by the VM and checking types at run time. For heavy loops, lean on built-ins (sum, sorted) and libraries written in C.",
+        "check": {
+          "question": "How does the same Python bytecode run on both x86 and ARM computers?",
+          "choices": [
+            "The bytecode is converted to x86 and ARM machine code before it is shipped",
+            "Each platform has its own build of the Python VM, and that VM executes the same bytecode",
+            "Bytecode runs directly on any CPU",
+            "Python bytecode only runs on x86"
+          ],
+          "answer": 1,
+          "explanation": "The VM is the part compiled per platform. Bytecode is input data to it, the same everywhere a given Python version runs."
+        }
+      },
+      {
+        "title": "The call stack and stack frames",
+        "body": "When an error message starts with `Traceback (most recent call last)` and lists several functions, you are looking at the **call stack**: the chain of function calls that were in progress when things went wrong.\n\nEvery time a function is called, the runtime creates a **stack frame** (also called an activation record) holding:\n\n- the function's **arguments** and **local variables**,\n- the **return address**: where to continue in the caller when this call finishes,\n- bookkeeping, such as a link to the caller's frame.\n\nFrames are pushed on call and popped on return, last in, first out. The function whose frame is on top is the one running right now; every frame below it is paused, waiting for the call above it to return. That is why local variables vanish when a function returns (its frame is gone), and why every call of a recursive function gets its own separate copy of its locals.\n\nCompiled languages put frames on the thread's machine stack, the memory region from the operating systems pack, so creating a frame is little more than moving the stack pointer. CPython manages its own frame objects for Python functions, but the logic is identical, and so is the limit: the stack can only grow so deep.\n\nReading a traceback means reading the stack from bottom to top of the program's journey. The first entry is the outermost call (often your script's top level); the last entry, right above the error message, is the innermost frame, where the exception was raised. Debuggers show the same stack as a list you can click through, inspecting each frame's local variables. Reading it fluently is one of the most valuable debugging skills there is.",
+        "code": "def area(w, h):\n    return w * h\n\ndef describe(w, h):\n    a = area(w, h)              # describe's frame waits here\n    return f\"{w}x{h} = {a}\"\n\nprint(describe(3, 4))           # 3x4 = 12\n\n# The call stack while area() is running:\n#\n#   | area      w=3  h=4            |  <- top: running now\n#   | describe  w=3  h=4  a=?       |  paused, waiting for area\n#   | <module>  (top-level script)  |  paused, waiting for describe\n#   +-------------------------------+\n#\n# area returns 12, its frame is popped, and describe resumes with a = 12",
+        "language": "python",
+        "activity": {
+          "type": "recursion-tree",
+          "title": "Frames in and out",
+          "prompt": "Step through factorial(5) and watch the call stack panel: every call pushes a frame holding its own n, the stack peaks at five frames, and the frames pop in reverse order as the multiplications happen on the way back up. Then switch to fib and see how the stack's height stays small even when the number of calls explodes.",
+          "props": {
+            "fn": "factorial",
+            "n": 5
+          }
+        },
+        "pitfall": "Reading a Python traceback from the top and stopping there. The top shows where the chain of calls began; the line that actually failed is at the bottom, just above the error message.",
+        "check": {
+          "question": "In a Python traceback, which entry shows the line where the exception was actually raised?",
+          "choices": [
+            "The first entry, right after \"Traceback (most recent call last)\"",
+            "The last entry, just above the error message",
+            "The entry for the top-level script",
+            "Tracebacks do not show that line"
+          ],
+          "answer": 1,
+          "explanation": "Python lists frames from the outermost call to the innermost, so the most recent call, where the error happened, is last. The heading 'most recent call last' says exactly that."
+        }
+      },
+      {
+        "title": "The heap: where objects live",
+        "body": "`make_user()` builds a dictionary and returns it, and the caller keeps using it long after `make_user`'s frame has been popped. So the dictionary cannot live in that frame. It lives on the **heap**, the region of memory for data whose lifetime is not tied to a single call.\n\nIn Python and JavaScript the rule is simple: **objects live on the heap, and variables hold references to them**. A **reference** is, conceptually, the object's address. When you write `user = {\"name\": \"Ana\"}`, the dictionary is created on the heap, and the local variable `user`, stored in the current frame, refers to it. Returning `user` returns the reference; the object itself never moves.\n\nSeveral consequences follow:\n\n- Many variables, list slots and object fields can refer to the **same** object.\n- An object outlives the frame that created it for as long as something still refers to it.\n- Something has to free heap objects that nothing refers to any more. In Python, JavaScript, Java and Go that is the **garbage collector**; in C it is you, by calling `free`.\n\nEvery Python object also carries bookkeeping on the heap: its type, its reference count and its value. That is why even a small Python integer takes 28 bytes rather than 8, and why a list of a million numbers uses far more memory than a C array of the same numbers: the list holds a million references to separate integer objects. `id(x)` reports an object's identity (its address, in CPython), and `a is b` checks whether two names refer to the same object.\n\nJavaScript engines work the same way for objects and arrays. Small values such as numbers and booleans are **primitives**, which engines can store directly without a separate heap object, but you only ever notice the difference through how assignment behaves, which is the next section.",
+        "code": "def make_user(name):\n    user = {\"name\": name, \"tags\": []}   # the dict is created on the heap\n    return user                          # return the reference; the frame is popped\n\na = make_user(\"Ana\")\nb = a                                    # a second reference to the same dict\nprint(a is b, id(a) == id(b))            # True True\n\n#  frame (module level)        heap\n#  a ----------+\n#              +------------>  {\"name\": \"Ana\", \"tags\": []}\n#  b ----------+",
+        "language": "python",
+        "pitfall": "Storing huge amounts of numeric data in plain Python lists. Each element is a separate heap object with its own overhead. For large numeric data use the array module or NumPy, which store raw values side by side.",
+        "check": {
+          "question": "A function creates a list and returns it. Why is the list still usable after the function's frame is popped?",
+          "choices": [
+            "Python copies the list byte by byte into the caller's frame",
+            "Lists are stored in CPU registers",
+            "The frame stays alive forever once it creates a list",
+            "The list was created on the heap; the frame held only a reference, and now the caller holds it"
+          ],
+          "answer": 3,
+          "explanation": "Popping a frame discards its local variables, which are only references. The object on the heap survives as long as some reference to it exists."
+        }
+      },
+      {
+        "title": "References vs values in Python and JavaScript",
+        "body": "Predict the output: `a = [1, 2]`, then `b = a`, then `b.append(3)`, then `print(a)`. If you said `[1, 2]`, you are in good company, and wrong: it prints `[1, 2, 3]`. Understanding why prevents a whole family of bugs.\n\nPython has one rule: **assignment binds a name to an object; it never copies**. After `b = a`, both names refer to the same list, so a change made through either name is visible through both. The two names are **aliases**.\n\nWhether aliasing matters depends on whether the object can change:\n\n- **Immutable** objects (int, float, str, tuple, frozenset) cannot be modified in place. `x += 1` on an int creates a new int and rebinds x, while any other name still refers to the old one. Immutable objects therefore behave like values.\n- **Mutable** objects (list, dict, set, most class instances) can be changed in place by `append`, item assignment, attribute assignment and so on, and every alias sees the change.\n\nFunction arguments follow the same rule, often called **pass by object reference** (or call by sharing). The parameter becomes another name for the caller's object. Mutating it inside the function changes the caller's object; rebinding the parameter (`items = []`) only changes the local name.\n\nJavaScript behaves the same way for objects and arrays: `const b = a` creates an alias, and a function that pushes onto an array argument changes the caller's array. JavaScript **primitives** (number, string, boolean, null, undefined, bigint, symbol) are immutable, so they act like values. And `const` only stops the variable from being rebound; the object it refers to can still be mutated.\n\nCopies must be explicit, and they come in two depths:\n\n- A **shallow copy** makes a new outer container that still refers to the same inner objects: `a.copy()`, `list(a)`, `a[:]` or `dict(d)` in Python; `[...a]` or `{...obj}` in JavaScript.\n- A **deep copy** recursively copies everything inside: `copy.deepcopy(a)` in Python, `structuredClone(obj)` in JavaScript.\n\nEquality has two meanings as well. Python's `==` compares values, while `is` checks whether two names refer to the very same object. In JavaScript, `===` on objects compares identity, so `[1] === [1]` is false.",
+        "code": "const a = [1, 2]\nconst b = a                     // alias, exactly as in Python\nb.push(3)\nconsole.log(a)                  // [ 1, 2, 3 ]\n\nconst c = [...a]                // shallow copy: a new array\nc.push(4)\nconsole.log(a.length, c.length) // 3 4\n\nconst user = { name: \"Ana\", tags: [\"admin\"] }\nconst shallow = { ...user }\nshallow.tags.push(\"beta\")       // the inner array is still shared\nconsole.log(user.tags)          // [ 'admin', 'beta' ]\n\nconst deep = structuredClone(user)   // copies everything\ndeep.tags.push(\"x\")\nconsole.log(user.tags.length, [1] === [1])   // 2 false",
+        "language": "javascript",
+        "activity": {
+          "type": "code-runner",
+          "title": "Predict, then fix",
+          "prompt": "Predict all four printed lines before you run this. The grid line surprises almost everyone: [[0] * 2] * 2 repeats a reference to one inner list. Fix it so that only the first row changes.",
+          "props": {
+            "language": "python",
+            "code": "a = [1, 2]\nb = a              # alias: the same list\nb.append(3)\nprint(a)\n\ndef add_item(items):\n    items.append(\"x\")      # mutates the caller's list\n    items = [\"new\"]        # only rebinds the local name\n\nc = []\nadd_item(c)\nprint(c)\n\ngrid = [[0] * 2] * 2       # careful: two references to ONE inner list\ngrid[0][0] = 9\nprint(grid)\n\nn = 5\nm = n\nm += 1                     # ints are immutable: m now names a new int\nprint(n, m)",
+            "task": "Change the grid line to build two separate rows, for example with a list comprehension, so it prints [[9, 0], [0, 0]].",
+            "expectOutput": "[1, 2, 3]\n['x']\n[[9, 0], [0, 0]]\n5 6"
+          }
+        },
+        "pitfall": "Using a mutable default argument in Python. In `def add(item, items=[])` the list is created once, when the function is defined, so every call that omits items shares and grows the same list. Default to None and create a new list inside the function.",
+        "check": {
+          "question": "After a = [1, 2]; b = a[:]; b.append(3), what is a?",
+          "choices": [
+            "[1, 2, 3]",
+            "[1, 2]",
+            "[3]",
+            "An error, because slices are read-only"
+          ],
+          "answer": 1,
+          "explanation": "a[:] makes a shallow copy, a new list with the same elements, so appending to b leaves a alone. With b = a instead, both names would show [1, 2, 3]."
+        }
+      },
+      {
+        "title": "Garbage collection",
+        "body": "A web server creates millions of short-lived objects every minute (request objects, strings, temporary lists) and never calls `free` once. Something must reclaim that memory, or the server would run out within hours. That something is the **garbage collector** (GC).\n\nThe key idea is **reachability**. An object is alive if the program can still get to it, starting from the **roots**: global variables, the local variables of every active stack frame, and CPU registers. Follow every reference from the roots, then every reference from those objects, and so on; whatever you reach is live. Everything else is **garbage**, because no code can ever use it again, so its memory can be reused.\n\nThere are two main strategies:\n\n- **Reference counting**, CPython's main method: every object counts the references pointing at it, and when the count drops to zero the object is freed immediately. It is simple and prompt, but blind to **cycles**: two objects that refer to each other keep each other's counts above zero even when nothing else can reach them. CPython adds a periodic cycle collector to find those.\n- **Tracing collection**, used by JavaScript engines, the JVM, Go and .NET: periodically start from the roots, mark everything reachable, then sweep away or compact the rest (**mark and sweep**). Most tracing collectors are **generational**, because most objects die young: new objects are collected often and cheaply, and survivors are promoted and checked less often.\n\nGarbage collection rules out whole classes of bugs: forgetting to free memory, freeing it twice, and using it after it has been freed. The costs are some extra memory and CPU time, plus pauses, usually milliseconds, since modern collectors do most of their work alongside the program.\n\nGC does not prevent **memory leaks** in the everyday sense. If your code keeps a reference, the object stays alive. Classic leaks in garbage-collected languages are a module-level cache or list that only ever grows, event listeners that are never removed, and closures that hold on to large objects. The fix is always to find what still refers to the object and drop that reference.\n\nLanguages without a GC take other routes. C and C++ make you free memory yourself (C++ smart pointers automate much of it), and Rust's **ownership** rules let the compiler insert each free at exactly the right place, checked at compile time.",
+        "code": "import gc\nimport sys\n\ndata = [0] * 1000\nalias = data\nprint(sys.getrefcount(data))   # 3 here: data, alias and getrefcount's argument\n\ndel alias                      # one reference fewer\ndata = None                    # the last name is gone: the list is freed now\n\nclass Node:\n    def __init__(self):\n        self.other = None\n\nx, y = Node(), Node()\nx.other, y.other = y, x        # a cycle: each keeps the other's count at 1\nx = y = None                   # unreachable, but the counts are not zero\nprint(gc.collect() >= 2)       # True: the cycle collector found and freed them",
+        "language": "python",
+        "pitfall": "Assuming garbage collection means you cannot leak memory. A module-level dict used as a cache, or a list you append to forever, keeps every object in it reachable. Bound your caches (for example functools.lru_cache(maxsize=1000)) and remove listeners you no longer need.",
+        "check": {
+          "question": "When does a garbage collector consider an object to be garbage?",
+          "choices": [
+            "When it has not been used for a minute",
+            "When the function that created it returns",
+            "When the program runs low on memory",
+            "When it can no longer be reached from any root (globals, active stack frames, registers)"
+          ],
+          "answer": 3,
+          "explanation": "Reachability is the test: if no chain of references leads to an object from a root, no code can ever use it again. An object created in a function stays alive after the return if something still refers to it."
+        }
+      },
+      {
+        "title": "Scope and closures",
+        "body": "A function returns another function, and that inner function still remembers a variable from the call that created it, even though that call finished long ago. That is a **closure**, and it rests on two ideas you already have: scope and the heap.\n\n**Scope** is the region of code where a name is visible. Python looks names up in four places, in order: **L**ocal (the current function), **E**nclosing (any function the current one is nested inside), **G**lobal (the module) and **B**uilt-in (`len`, `print`), known as the **LEGB** rule. Assigning to a name inside a function makes it local to that function, unless you declare it `global` or `nonlocal`. JavaScript is similar, except that `let` and `const` are scoped to the nearest block `{ }`, while the older `var` is scoped to the whole function.\n\nScoping is **lexical**: what a name refers to is decided by where the code is written, not by where it is called from. So an inner function can always see the variables of the function it was written inside.\n\nA **closure** is a function bundled with the variables it uses from enclosing scopes. When `make_counter` returns `increment`, the variable `count` cannot simply disappear with `make_counter`'s frame, because `increment` still needs it. So the runtime keeps it alive on the heap, in a cell (Python) or a context object (JavaScript engines), shared by the closure. Every call to `make_counter` creates a fresh `count`, which is why two counters stay independent.\n\nClosures are everywhere in real code: callbacks and event handlers, Python decorators, React hooks, functions that configure other functions, and private state without writing a class.\n\nOne subtle point: closures capture **variables, not values**. If the variable changes later, the closure sees the new value. That causes a classic bug in which functions created inside a loop all see the loop variable's final value.",
+        "code": "def make_counter():\n    count = 0                 # lives on after make_counter returns\n    def increment():\n        nonlocal count        # assign to the enclosing variable, not a new local\n        count += 1\n        return count\n    return increment\n\na = make_counter()\nb = make_counter()            # a separate count\nprint(a(), a(), a(), b())     # 1 2 3 1\n\n# Closures capture variables, not values:\nfuncs = [lambda: i for i in range(3)]\nprint([f() for f in funcs])   # [2, 2, 2]: every lambda sees the final i\n\nfuncs = [lambda i=i: i for i in range(3)]   # bind the current value now\nprint([f() for f in funcs])   # [0, 1, 2]",
+        "language": "python",
+        "pitfall": "Forgetting `nonlocal` (or `global`). Without it, `count += 1` inside the inner function makes `count` a new local variable, and Python raises UnboundLocalError because it is read before anything is assigned to it.",
+        "check": {
+          "question": "Why does count survive after make_counter() returns?",
+          "choices": [
+            "The returned function is a closure that still refers to it, so the runtime keeps it alive on the heap",
+            "Python copies it into a global variable",
+            "make_counter's stack frame stays on the stack until the program ends",
+            "Integers are never freed in Python"
+          ],
+          "answer": 0,
+          "explanation": "A captured variable lives as long as some closure refers to it, the same reachability rule the garbage collector uses. The frame itself is gone; only the captured variable is kept."
+        }
+      },
+      {
+        "title": "When things crash: stack overflows and segfaults",
+        "body": "Two crash messages every developer meets: `RecursionError: maximum recursion depth exceeded` (or `RangeError: Maximum call stack size exceeded` in JavaScript) and, in C or C++, `Segmentation fault (core dumped)`. Both are about memory, and both make sense once you know about frames and pages.\n\nA **stack overflow** happens when calls nest so deeply that the stack runs out of room. Every pending call holds a frame, and the stack has a fixed size. The usual cause is recursion with a missing or unreachable base case, so the calls never stop. Sometimes it is legitimate recursion that is simply too deep for the data, such as walking a million-node linked list recursively. Python guards itself with a depth limit (1,000 by default, adjustable with `sys.setrecursionlimit`) and raises RecursionError; JavaScript engines throw a RangeError. The fixes are to correct the base case or to turn deep recursion into a loop with an explicit stack.\n\nA **segmentation fault** (segfault) happens when a program touches memory it is not allowed to: an address that is not mapped in its address space, or a page whose permissions forbid the access, such as writing to read-only code. The MMU raises a fault and the operating system kills the process with the SIGSEGV signal. In C and C++ the usual causes are:\n\n- dereferencing a **null pointer** (address 0 is deliberately left unmapped),\n- **use after free**: following a pointer to memory that was already freed,\n- reading or writing **past the end of an array**,\n- a stack overflow in native code, which runs into an unmapped guard page.\n\nWorse than a segfault is the bug that does not crash: an out-of-bounds write that lands on valid memory silently corrupts other data, and attackers have exploited exactly that for decades. Avoiding it is what **memory safety** means.\n\nPython, JavaScript, Java and Go are memory safe in normal use. They check array bounds (raising IndexError, or returning undefined in JavaScript), have no pointer arithmetic, and use garbage collection, so use after free cannot happen. A bad access becomes an exception with a traceback rather than a crash or silent corruption. When a Python program does segfault, the culprit is almost always a C extension or native library underneath it.",
+        "code": "#include <stdlib.h>\n\nint main(void) {\n    int *p = NULL;\n    int x = *p;            // read address 0: unmapped, so a segfault\n\n    int *nums = malloc(3 * sizeof(int));\n    free(nums);\n    nums[0] = 42;          // use after free: undefined behavior,\n                           // may crash or silently corrupt memory\n\n    int arr[3] = {1, 2, 3};\n    arr[10] = 7;           // out of bounds: C does not check\n    return x;\n}\n\n// Python turns the same mistakes into exceptions:\n//   None.value       -> AttributeError\n//   [1, 2, 3][10]    -> IndexError: list index out of range",
+        "language": "cpp",
+        "pitfall": "Raising the recursion limit to make RecursionError go away. If the base case is wrong, the recursion still never ends; if it is right but the data is deep, a huge limit can overflow the interpreter's real stack and crash it outright. Fix the base case, or rewrite the recursion as a loop.",
+        "check": {
+          "question": "A C program crashes with \"Segmentation fault\". What happened?",
+          "choices": [
+            "It ran out of disk space",
+            "An unhandled exception reached the top of the program",
+            "It accessed memory it is not allowed to touch, such as address 0 or freed memory, and the OS killed it",
+            "It used too much CPU time"
+          ],
+          "answer": 2,
+          "explanation": "The MMU found no valid mapping (or permission) for the address, raised a fault, and the kernel sent SIGSEGV. C has no exceptions for this; the process simply dies."
+        }
+      }
+    ],
+    "keyTerms": [
+      {
+        "term": "compiler",
+        "definition": "A program that translates source code ahead of time into another form, usually machine code."
+      },
+      {
+        "term": "interpreter",
+        "definition": "A program that executes code directly as it reads it, without producing a standalone executable."
+      },
+      {
+        "term": "JIT compilation",
+        "definition": "Compiling frequently run code to machine code while the program runs, as V8 and the JVM do."
+      },
+      {
+        "term": "bytecode",
+        "definition": "A compact instruction set for a virtual machine, such as CPython's VM or the JVM, executed by software."
+      },
+      {
+        "term": "stack frame",
+        "definition": "The record for one function call: arguments, locals and return address. Pushed on call, popped on return."
+      },
+      {
+        "term": "heap",
+        "definition": "The memory region where objects live independently of any single call. Python and JavaScript objects all live here."
+      },
+      {
+        "term": "reference",
+        "definition": "A value that points to an object on the heap. Variables in Python and JavaScript hold references, so assignment never copies objects."
+      },
+      {
+        "term": "immutable",
+        "definition": "Unable to change after creation, like int, str and tuple. Operations that seem to change it create a new object."
+      },
+      {
+        "term": "shallow copy",
+        "definition": "A new outer container that still shares its inner objects with the original. A deep copy duplicates everything."
+      },
+      {
+        "term": "garbage collector",
+        "definition": "The runtime component that frees objects no longer reachable from the roots, by reference counting, tracing or both."
+      },
+      {
+        "term": "closure",
+        "definition": "A function together with the variables it captured from enclosing scopes, kept alive as long as the function is."
+      },
+      {
+        "term": "segmentation fault",
+        "definition": "A crash caused by accessing memory the process may not touch, reported with the SIGSEGV signal."
+      }
+    ],
+    "summary": [
+      "Compilers translate ahead of time, interpreters translate as they go, and JIT compilers compile hot code during the run; Python and Java run bytecode on a virtual machine.",
+      "Every call pushes a stack frame with its arguments, locals and return address, and a traceback lists those frames with the innermost call last.",
+      "Objects live on the heap and variables hold references, so assignment and argument passing share objects instead of copying them.",
+      "Changes to a shared mutable object show through every alias, immutable objects behave like values, and copies, shallow or deep, must be explicit.",
+      "Garbage collectors free objects that cannot be reached from the roots, but references you keep around still leak memory.",
+      "Closures keep captured variables alive; stack overflows come from calls nested too deep, and segfaults from illegal memory access in unsafe languages."
+    ],
+    "feynmanPrompt": "Explain to a friend what happens between typing python app.py and seeing output: how the code becomes something the CPU can run, where function calls and objects live in memory, and why changing a list through one variable can change it through another."
+  },
+  "questions": [
+    {
+      "id": "cs-how-code-runs-q01",
+      "type": "mcq",
+      "difficulty": "easy",
+      "question": "What is the job of a compiler?",
+      "choices": [
+        "To run source code one statement at a time",
+        "To free memory that is no longer used",
+        "To translate a program into another form, often machine code, before it runs",
+        "To schedule programs on CPU cores"
+      ],
+      "answer": 2,
+      "explanation": "A compiler does its translation ahead of time and hands you the result, such as an executable. Running code statement by statement is what an interpreter does.",
+      "concept": "compilers",
+      "section": 0
+    },
+    {
+      "id": "cs-how-code-runs-q02",
+      "type": "match",
+      "difficulty": "medium",
+      "question": "Match each tool with how it runs code.",
+      "pairs": [
+        {
+          "left": "gcc compiling C",
+          "right": "Ahead-of-time compilation to machine code"
+        },
+        {
+          "left": "CPython running a .py file",
+          "right": "Compile to bytecode, then interpret the bytecode"
+        },
+        {
+          "left": "V8 running JavaScript",
+          "right": "Interpret first, then JIT-compile the hot functions"
+        },
+        {
+          "left": "javac followed by java",
+          "right": "Compile to JVM bytecode first, JIT-compile at run time"
+        },
+        {
+          "left": "bash running a script",
+          "right": "Interpret each command as it is read"
+        }
+      ],
+      "explanation": "Pure compilation and pure interpretation are the two ends; most popular runtimes sit in between, with bytecode and often a JIT.",
+      "concept": "execution models",
+      "section": 0
+    },
+    {
+      "id": "cs-how-code-runs-q03",
+      "type": "mcq",
+      "difficulty": "medium",
+      "question": "A Python function that only runs on Fridays misspells a variable name (totl instead of total). When is the mistake reported?",
+      "choices": [
+        "When the file is compiled to bytecode, before anything runs",
+        "Only when that line actually runs, as a NameError",
+        "When the file is saved",
+        "Never: Python treats unknown names as None"
+      ],
+      "answer": 1,
+      "explanation": "A misspelled name is still valid syntax, so compiling to bytecode succeeds, and Python looks names up only when the line executes. Syntax errors, by contrast, are caught at compile time. Linters and type checkers can catch this earlier.",
+      "concept": "when errors appear",
+      "section": 0
+    },
+    {
+      "id": "cs-how-code-runs-q04",
+      "type": "multi",
+      "difficulty": "medium",
+      "question": "Which are typical advantages of ahead-of-time compiled languages such as C or Rust? Select all that apply.",
+      "choices": [
+        "Fast execution with no translator at run time",
+        "Many errors are caught before the program runs",
+        "The same executable runs on any CPU and operating system",
+        "No build step is needed",
+        "The compiler can optimize the whole program in advance"
+      ],
+      "answers": [
+        0,
+        1,
+        4
+      ],
+      "explanation": "Compiling ahead of time buys speed, early error detection and room for optimization. The price is a build step and executables tied to one platform, which is the opposite of the two wrong choices.",
+      "concept": "compiled trade-offs",
+      "section": 0
+    },
+    {
+      "id": "cs-how-code-runs-q05",
+      "type": "mcq",
+      "difficulty": "easy",
+      "question": "What is bytecode?",
+      "choices": [
+        "Instructions for a virtual machine, executed by a program rather than directly by the CPU",
+        "Machine code for x86 processors",
+        "Source code with the comments removed",
+        "The binary form of an image file"
+      ],
+      "answer": 0,
+      "explanation": "Bytecode looks like machine code but targets a software VM such as CPython's or the JVM. The VM, compiled for each real CPU, executes it.",
+      "concept": "bytecode",
+      "section": 1
+    },
+    {
+      "id": "cs-how-code-runs-q06",
+      "type": "mcq",
+      "difficulty": "medium",
+      "question": "In CPython's stack-based VM, what does the BINARY_OP (*) instruction do?",
+      "choices": [
+        "Multiplies two registers in the CPU",
+        "Pushes the multiplication operator onto the stack",
+        "Calls a Python function named multiply",
+        "Pops the top two values off the evaluation stack, multiplies them and pushes the result"
+      ],
+      "answer": 3,
+      "explanation": "A stack machine takes its operands from the evaluation stack and pushes results back, which is why the listing loads price and qty before the multiply. CPython's VM has no CPU-style registers.",
+      "concept": "stack-based VM",
+      "section": 1
+    },
+    {
+      "id": "cs-how-code-runs-q07",
+      "type": "typed",
+      "difficulty": "easy",
+      "question": "Which Python standard library module disassembles a function to show its bytecode?",
+      "answer": "dis",
+      "accept": [
+        "dis.dis",
+        "import dis"
+      ],
+      "explanation": "dis.dis(func) prints the bytecode instructions with their arguments. It is a handy way to see that one line of Python becomes several VM instructions.",
+      "concept": "dis module",
+      "section": 1
+    },
+    {
+      "id": "cs-how-code-runs-q08",
+      "type": "mcq",
+      "difficulty": "hard",
+      "question": "Why is a tight numeric loop in pure Python often 10 to 100 times slower than the same loop in C?",
+      "choices": [
+        "Python stores numbers in decimal rather than binary",
+        "Python re-reads the source file on every iteration",
+        "Each Python operation runs several bytecode instructions through the VM, with type checks and new objects at each step, while C compiles to a few machine instructions",
+        "Python can only use one CPU register"
+      ],
+      "answer": 2,
+      "explanation": "Dispatching bytecode, checking types at run time and allocating result objects add up to a lot of work per addition. Compiled C knows the types in advance and emits a handful of instructions, which is why numeric libraries push loops down into C.",
+      "concept": "interpreter overhead",
+      "section": 1
+    },
+    {
+      "id": "cs-how-code-runs-q09",
+      "type": "order",
+      "difficulty": "medium",
+      "question": "main() calls f(), which calls g(). Put the stack events in order.",
+      "items": [
+        "main's frame is on the stack",
+        "Calling f pushes f's frame",
+        "Calling g pushes g's frame on top",
+        "g returns and its frame is popped",
+        "f resumes, returns, and its frame is popped"
+      ],
+      "explanation": "Frames are last in, first out: the most recent call, g, must finish before f can continue, and f before main.",
+      "concept": "call stack order",
+      "section": 2
+    },
+    {
+      "id": "cs-how-code-runs-q10",
+      "type": "typed",
+      "difficulty": "medium",
+      "question": "factorial(n) returns 1 when n <= 1 and otherwise returns n * factorial(n - 1). While factorial(5) is at its deepest point, how many factorial frames are on the stack?",
+      "answer": "5",
+      "explanation": "factorial(5), (4), (3), (2) and (1) are all active at once, because each waits for the next. factorial(1) hits the base case and the five frames then pop in reverse order.",
+      "concept": "recursion depth",
+      "section": 2
+    },
+    {
+      "id": "cs-how-code-runs-q11",
+      "type": "mcq",
+      "difficulty": "easy",
+      "question": "What does a stack frame hold?",
+      "choices": [
+        "Every object the program has created",
+        "The function's arguments, local variables and return address",
+        "The compiled bytecode of the whole program",
+        "The list of open files"
+      ],
+      "answer": 1,
+      "explanation": "A frame is the per-call workspace: inputs, locals and where to go back to. Objects created during the call live on the heap; the frame only holds references to them.",
+      "concept": "stack frames",
+      "section": 2
+    },
+    {
+      "id": "cs-how-code-runs-q12",
+      "type": "debug",
+      "difficulty": "medium",
+      "question": "Read this traceback. What does it tell you?",
+      "code": "Traceback (most recent call last):\n  File \"app.py\", line 12, in <module>\n    report(orders)\n  File \"app.py\", line 8, in report\n    avg = average(totals)\n  File \"app.py\", line 3, in average\n    return sum(values) / len(values)\nZeroDivisionError: division by zero",
+      "language": "plaintext",
+      "choices": [
+        "average divided by zero on line 3; it was called from report on line 8 with an empty totals list",
+        "Line 12 caused the error, because it is listed first",
+        "Three separate errors happened, one per file entry",
+        "Python's built-in sum function has a bug"
+      ],
+      "answer": 0,
+      "explanation": "The last entry is the innermost frame, where the exception was raised: len(values) was 0. The entries above show the path that led there, so the real question is why report passed an empty list.",
+      "concept": "reading a traceback",
+      "section": 2
+    },
+    {
+      "id": "cs-how-code-runs-q13",
+      "type": "mcq",
+      "difficulty": "medium",
+      "question": "Where does a dict created inside a Python function live?",
+      "choices": [
+        "Inside the function's stack frame, and it is destroyed on return",
+        "In a CPU register",
+        "In the bytecode of the function",
+        "On the heap; the function's local variable only holds a reference to it"
+      ],
+      "answer": 3,
+      "explanation": "All Python objects live on the heap. The frame holds names that refer to them, which is why a returned dict keeps working after the frame is gone.",
+      "concept": "objects on the heap",
+      "section": 3
+    },
+    {
+      "id": "cs-how-code-runs-q14",
+      "type": "typed",
+      "difficulty": "medium",
+      "question": "What does this print? Type the three values separated by spaces.",
+      "code": "a = {\"n\": 1}\nb = a\nprint(a is b, a == {\"n\": 1}, a is {\"n\": 1})",
+      "language": "python",
+      "answer": "True True False",
+      "accept": [
+        "True, True, False",
+        "true true false"
+      ],
+      "explanation": "b refers to the same dict, so a is b. A new dict with the same contents is equal (==) but is a different object, so the last is check is False.",
+      "concept": "is vs ==",
+      "section": 3
+    },
+    {
+      "id": "cs-how-code-runs-q15",
+      "type": "mcq",
+      "difficulty": "medium",
+      "question": "A Python list of 1,000,000 small integers uses far more memory than a C array of 1,000,000 ints. Why?",
+      "choices": [
+        "Python stores every integer as text",
+        "Python lists keep a full copy of themselves for undo",
+        "The list holds a million references to separate int objects, each with its own type and reference count overhead",
+        "Python integers are always 64 bytes"
+      ],
+      "answer": 2,
+      "explanation": "A C array stores raw 4-byte values side by side. A Python list stores 8-byte references, and each points to a heap object of about 28 bytes. The array module or NumPy stores raw values instead.",
+      "concept": "object overhead",
+      "section": 3
+    },
+    {
+      "id": "cs-how-code-runs-q16",
+      "type": "typed",
+      "difficulty": "hard",
+      "question": "What does this print?",
+      "code": "a = [1, 2]\nb = a\nb += [3]\nprint(a)",
+      "language": "python",
+      "answer": "[1, 2, 3]",
+      "accept": [
+        "[1,2,3]"
+      ],
+      "explanation": "For lists, += extends the existing list in place, and a and b are the same list. Writing b = b + [3] instead would build a new list and leave a as [1, 2]. For immutable types such as ints and tuples, += always rebinds.",
+      "concept": "in-place += on lists",
+      "section": 4
+    },
+    {
+      "id": "cs-how-code-runs-q17",
+      "type": "debug",
+      "difficulty": "medium",
+      "question": "The second call prints ['a', 'b'] instead of ['b']. What is the bug?",
+      "code": "def add_tag(tag, tags=[]):\n    tags.append(tag)\n    return tags\n\nprint(add_tag(\"a\"))   # ['a']\nprint(add_tag(\"b\"))   # expected ['b']",
+      "language": "python",
+      "choices": [
+        "The default list is created once, when the function is defined, so every call shares it; default to None and create the list inside",
+        "append returns None, so the list is lost",
+        "Strings cannot be added to lists",
+        "The function needs a global statement for tags"
+      ],
+      "answer": 0,
+      "explanation": "Default values are evaluated a single time, at def time, and the same list object is reused by every call that omits tags. The fix is tags=None, then if tags is None: tags = [].",
+      "concept": "mutable default argument",
+      "section": 4
+    },
+    {
+      "id": "cs-how-code-runs-q18",
+      "type": "mcq",
+      "difficulty": "hard",
+      "question": "What does this JavaScript print?",
+      "code": "const user = { name: \"Ana\", tags: [\"admin\"] }\nconst copy = { ...user }\ncopy.name = \"Bo\"\ncopy.tags.push(\"beta\")\nconsole.log(user.name, user.tags.length)",
+      "language": "javascript",
+      "choices": [
+        "Ana 1",
+        "Ana 2",
+        "Bo 2",
+        "Bo 1"
+      ],
+      "answer": 1,
+      "explanation": "Spread makes a shallow copy: name is a separate string slot, so renaming the copy leaves user alone, but tags is a reference to the same array, so the push shows up in user.tags. structuredClone would copy the array too.",
+      "concept": "shallow copy",
+      "section": 4
+    },
+    {
+      "id": "cs-how-code-runs-q19",
+      "type": "code-fill",
+      "difficulty": "medium",
+      "question": "Fill the blank so changes to clone can never affect original, however deeply nested.",
+      "code": "import copy\n\noriginal = {\"user\": {\"tags\": [\"admin\"]}}\nclone = copy._____(original)\nclone[\"user\"][\"tags\"].append(\"beta\")\nprint(original[\"user\"][\"tags\"])   # ['admin']",
+      "language": "python",
+      "choices": [
+        "deepcopy",
+        "copy",
+        "clone",
+        "shallow"
+      ],
+      "answer": 0,
+      "explanation": "copy.deepcopy recursively copies the inner dict and list. copy.copy is shallow: the new outer dict would still share the inner dict, so the append would show up in original. The module has no clone or shallow function.",
+      "concept": "deep copy",
+      "section": 4
+    },
+    {
+      "id": "cs-how-code-runs-q20",
+      "type": "multi",
+      "difficulty": "easy",
+      "question": "Which of these Python types are immutable? Select all that apply.",
+      "choices": [
+        "int",
+        "str",
+        "tuple",
+        "list",
+        "dict",
+        "set"
+      ],
+      "answers": [
+        0,
+        1,
+        2
+      ],
+      "explanation": "Ints, strings and tuples cannot change after creation, so any operation that looks like a change makes a new object. Lists, dicts and sets change in place, so aliases see each other's changes.",
+      "concept": "mutable vs immutable",
+      "section": 4
+    },
+    {
+      "id": "cs-how-code-runs-q21",
+      "type": "mcq",
+      "difficulty": "medium",
+      "question": "In JavaScript, const items = [] is declared. What does const prevent?",
+      "choices": [
+        "Adding elements with items.push()",
+        "Changing any element of the array",
+        "Reading the array from another function",
+        "Assigning a different value to items, such as items = []"
+      ],
+      "answer": 3,
+      "explanation": "const makes the binding constant, not the object. The array it refers to can still be mutated. Object.freeze(items) would stop changes to the array itself.",
+      "concept": "const vs immutability",
+      "section": 4
+    },
+    {
+      "id": "cs-how-code-runs-q22",
+      "type": "mcq",
+      "difficulty": "easy",
+      "question": "In CPython, when is an ordinary (non-cyclic) object freed?",
+      "choices": [
+        "Only when the program exits",
+        "When the garbage collector runs once a minute",
+        "As soon as its reference count drops to zero",
+        "When the function that created it returns"
+      ],
+      "answer": 2,
+      "explanation": "Reference counting frees an object the moment the last reference disappears. The cycle collector exists only for groups of objects that refer to each other.",
+      "concept": "reference counting",
+      "section": 5
+    },
+    {
+      "id": "cs-how-code-runs-q23",
+      "type": "mcq",
+      "difficulty": "hard",
+      "question": "Two objects refer only to each other, and nothing else refers to either. What happens to them in CPython?",
+      "choices": [
+        "They are freed immediately, because no variable names them",
+        "They can never be freed, so this is a permanent leak",
+        "Python raises a ReferenceError",
+        "Their reference counts stay at 1, so reference counting cannot free them; the cycle collector finds and frees them later"
+      ],
+      "answer": 3,
+      "explanation": "Each object holds a reference to the other, so neither count reaches zero. CPython's cycle collector periodically looks for groups that are unreachable from outside and frees them. Tracing collectors handle cycles naturally.",
+      "concept": "reference cycles",
+      "section": 5
+    },
+    {
+      "id": "cs-how-code-runs-q24",
+      "type": "multi",
+      "difficulty": "medium",
+      "question": "Which of these can still leak memory in a garbage-collected language? Select all that apply.",
+      "choices": [
+        "A module-level cache dict that is never cleared",
+        "Event listeners that are added but never removed",
+        "Local variables of a function that has returned",
+        "A list the program appends to forever",
+        "Temporary strings created inside a loop"
+      ],
+      "answers": [
+        0,
+        1,
+        3
+      ],
+      "explanation": "A leak in a GC language is a reference you forgot about: caches, listeners and ever-growing lists keep their objects reachable. Locals of a finished call and loop temporaries become unreachable and are collected.",
+      "concept": "leaks with a GC",
+      "section": 5
+    },
+    {
+      "id": "cs-how-code-runs-q25",
+      "type": "recall",
+      "difficulty": "medium",
+      "question": "What is the difference between reference counting and tracing garbage collection?",
+      "answer": "Reference counting tracks how many references point at each object and frees it the moment the count hits zero, but it cannot free cycles on its own. Tracing collection periodically starts from the roots, marks everything reachable and frees the rest, which handles cycles naturally.",
+      "explanation": "CPython uses reference counting plus a cycle collector; JavaScript engines and the JVM use generational tracing collectors.",
+      "concept": "GC strategies",
+      "section": 5
+    },
+    {
+      "id": "cs-how-code-runs-q26",
+      "type": "typed",
+      "difficulty": "medium",
+      "question": "What does this print?",
+      "code": "def make_adder(n):\n    def add(x):\n        return x + n\n    return add\n\nadd5 = make_adder(5)\nadd10 = make_adder(10)\nprint(add5(1) + add10(1))",
+      "language": "python",
+      "answer": "17",
+      "explanation": "Each call to make_adder creates a separate n captured by its own closure: add5(1) is 6 and add10(1) is 11, so the sum is 17.",
+      "concept": "closures",
+      "section": 6
+    },
+    {
+      "id": "cs-how-code-runs-q27",
+      "type": "mcq",
+      "difficulty": "hard",
+      "question": "What does this JavaScript print?",
+      "code": "var fns = []\nfor (var i = 0; i < 3; i++) {\n  fns.push(() => i)\n}\nconsole.log(fns.map(f => f()))",
+      "language": "javascript",
+      "choices": [
+        "[ 0, 1, 2 ]",
+        "[ 3, 3, 3 ]",
+        "[ 2, 2, 2 ]",
+        "[ undefined, undefined, undefined ]"
+      ],
+      "answer": 1,
+      "explanation": "var is function-scoped, so all three arrow functions capture the same i, which is 3 once the loop ends. With let, each iteration gets its own i and the output is [ 0, 1, 2 ].",
+      "concept": "closures capture variables",
+      "section": 6
+    },
+    {
+      "id": "cs-how-code-runs-q28",
+      "type": "debug",
+      "difficulty": "medium",
+      "question": "Calling add(5) raises UnboundLocalError. Why?",
+      "code": "total = 0\n\ndef add(amount):\n    total += amount\n    return total",
+      "language": "python",
+      "choices": [
+        "Assigning to total inside add makes it local to add, so it is read before it has a value; declare global total, or better, pass and return the value",
+        "Global variables cannot hold integers",
+        "+= does not work on integers",
+        "total must be defined after the function"
+      ],
+      "answer": 0,
+      "explanation": "Python decides scope at compile time: any assignment in a function makes the name local throughout that function. total += amount reads the local before assigning it. Returning new values instead of mutating globals is usually the cleaner fix.",
+      "concept": "scope rules",
+      "section": 6
+    },
+    {
+      "id": "cs-how-code-runs-q29",
+      "type": "order",
+      "difficulty": "easy",
+      "question": "Put the scopes in the order Python searches them when it looks up a name.",
+      "items": [
+        "Local",
+        "Enclosing",
+        "Global",
+        "Built-in"
+      ],
+      "explanation": "The LEGB rule: the current function first, then any enclosing functions, then the module, then Python's built-ins. The first match wins, which is why a local variable named len hides the built-in.",
+      "concept": "LEGB rule",
+      "section": 6
+    },
+    {
+      "id": "cs-how-code-runs-q30",
+      "type": "mcq",
+      "difficulty": "easy",
+      "question": "What usually causes a RecursionError in Python?",
+      "choices": [
+        "A loop that runs too many times",
+        "Using too much heap memory",
+        "A missing or unreachable base case, so the recursive calls never stop",
+        "Calling a function from inside a class"
+      ],
+      "answer": 2,
+      "explanation": "Each call adds a frame, and without a base case the frames pile up until Python's depth limit (1,000 by default) stops them. Loops do not add frames, so they never cause this.",
+      "concept": "stack overflow",
+      "section": 7
+    },
+    {
+      "id": "cs-how-code-runs-q31",
+      "type": "mcq",
+      "difficulty": "medium",
+      "question": "Which mistake raises a clear exception in Python but, in C, can crash with a segfault or silently read garbage?",
+      "choices": [
+        "Dividing an integer by a float",
+        "Printing a very long string",
+        "Calling the same function twice",
+        "Reading index 10 of a 3-element array"
+      ],
+      "answer": 3,
+      "explanation": "Python checks bounds and raises IndexError. C does not check, so the read lands wherever index 10 happens to be: an unmapped page (segfault) or, worse, other valid data.",
+      "concept": "memory safety",
+      "section": 7
+    },
+    {
+      "id": "cs-how-code-runs-q32",
+      "type": "mcq",
+      "difficulty": "hard",
+      "question": "Why is raising sys.setrecursionlimit to 1,000,000 a risky fix for RecursionError?",
+      "choices": [
+        "Python ignores any limit above 10,000",
+        "If the recursion is endless it still fails, and if it is just deep it can overflow the interpreter's real stack and crash instead of raising an exception",
+        "It slows down every function call in the program",
+        "It disables the garbage collector"
+      ],
+      "answer": 1,
+      "explanation": "The limit exists to raise a clean exception before the real stack overflows. Lifting it far beyond what the stack can hold trades a readable error for a hard crash. Fix the base case or convert the recursion to a loop.",
+      "concept": "recursion limit",
+      "section": 7
+    },
+    {
+      "id": "cs-how-code-runs-q33",
+      "type": "typed",
+      "difficulty": "easy",
+      "question": "What is the Unix name of the signal that kills a process with a segmentation fault?",
+      "answer": "SIGSEGV",
+      "accept": [
+        "SEGV",
+        "signal 11",
+        "11"
+      ],
+      "explanation": "SIGSEGV (signal 11 on Linux) is sent when the MMU reports an invalid memory access. Shells report it as 'Segmentation fault'.",
+      "concept": "SIGSEGV",
+      "section": 7
+    }
+  ]
+}

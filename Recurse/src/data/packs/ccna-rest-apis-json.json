@@ -1,0 +1,1192 @@
+{
+  "id": "ccna-rest-apis-json",
+  "name": "REST APIs and JSON",
+  "version": "1.1.0",
+  "author": "Recurse",
+  "subject": "networking",
+  "level": "intermediate",
+  "description": "Read and reason about REST API calls: verbs, URIs, status codes, authentication, data encodings and the JSON devices send back.",
+  "icon": "API",
+  "language": "json",
+  "prereqs": [
+    "ccna-automation-sdn"
+  ],
+  "tags": [
+    "ccna",
+    "6.5",
+    "6.7",
+    "api",
+    "rest",
+    "json",
+    "xml",
+    "yaml",
+    "http",
+    "restconf",
+    "automation"
+  ],
+  "resources": [
+    {
+      "title": "Introducing JSON (json.org)",
+      "url": "https://www.json.org/json-en.html",
+      "kind": "docs",
+      "note": "The whole JSON grammar on one page, with syntax diagrams."
+    },
+    {
+      "title": "HTTP response status codes (MDN)",
+      "url": "https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Status",
+      "kind": "docs",
+      "note": "Every status code explained, with when servers send each one."
+    },
+    {
+      "title": "HTTP request methods (MDN)",
+      "url": "https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Methods",
+      "kind": "docs",
+      "note": "GET, POST, PUT, PATCH and DELETE, with which are safe and idempotent."
+    },
+    {
+      "title": "Cisco DevNet learning labs",
+      "url": "https://developer.cisco.com/learning/",
+      "kind": "practice",
+      "note": "Free guided labs that call real Cisco REST APIs, including always-on sandboxes."
+    },
+    {
+      "title": "RFC 8040: RESTCONF protocol",
+      "url": "https://www.rfc-editor.org/rfc/rfc8040",
+      "kind": "docs",
+      "note": "The standard behind /restconf/data URIs and the yang-data media types."
+    },
+    {
+      "title": "Free CCNA 200-301 complete course (Jeremy's IT Lab)",
+      "url": "https://www.youtube.com/playlist?list=PLxbwE86jKRgMpuZuLBivzlM8s2Dk5lXBQ",
+      "kind": "video",
+      "note": "The REST API and JSON videos match this exam topic closely."
+    }
+  ],
+  "lesson": {
+    "estimatedMinutes": 36,
+    "intro": "Every controller, cloud dashboard and modern network device exposes a REST API, and the data comes back as JSON. The CCNA asks you to recognize how REST works and to read JSON with confidence; a software job asks the same on day one. This lesson covers both at a depth a programmer would respect, using real network examples.",
+    "objectives": [
+      "Map CRUD actions to HTTP verbs and predict which requests are safe and idempotent",
+      "Break a REST request into method, URI, query parameters, headers and body, and interpret the status code that comes back",
+      "Compare basic, API key, bearer token and OAuth 2.0 authentication",
+      "Recognize JSON, XML and YAML encodings of the same data, and identify objects, arrays, key/value pairs and value types in JSON",
+      "Navigate a nested device API response, by hand and in Python, to find and count specific values"
+    ],
+    "sections": [
+      {
+        "title": "What makes an API RESTful",
+        "body": "You need the software version of 300 switches. One way: SSH to each, run `show version`, and pull the version out of a screen of text with a regular expression that breaks the next time the output format changes. The other way: ask the controller's API for the device list and read the `softwareVersion` field of each entry. The second way is what APIs are for.\n\nAn **API** (application programming interface) is a contract for how one program asks another for data or actions. **REST** (Representational State Transfer) is an architectural style for APIs, described by Roy Fielding in 2000. It is not a protocol or a single standard; an API is called RESTful when it follows these constraints:\n\n- **Client-server**: the client (your script) and the server (a controller or device) are separate. The client asks, the server answers.\n- **Stateless**: the server keeps no session memory between requests. Every request carries everything needed to process it, including credentials or a token.\n- **Cacheable**: responses say whether they may be cached, and for how long.\n- **Uniform interface**: resources are identified by URIs and manipulated through a small, standard set of methods, with data sent as representations such as JSON.\n- **Layered system**: the client cannot tell whether it talks to the server directly or through proxies and load balancers.\n- **Code on demand** (optional): the server may send code for the client to run.\n\nThe first three are the ones exam questions lean on. Nearly every REST API in networking runs over **HTTP** (in practice HTTPS), because HTTP already behaves this way: client-server, stateless, with cache headers and verbs. Strictly speaking, though, HTTP is not required for an API to be RESTful, and exam answers sometimes test exactly that.\n\nWhat a REST API exposes are **resources**: a device, an interface, a VLAN, the list of all devices. Each resource has a URI, and you act on it with a verb. Stateless does not mean the server stores nothing; it stores the resources. It just does not remember your previous request.",
+        "code": "Same question, two interfaces\n\nCLI, built for humans:\nSW1# show version\n(dozens of lines of text; your script must find the version inside them)\n\nREST API, built for programs:\nGET https://catc.example.com/dna/intent/api/v1/network-device?hostname=SW1\n\n{\"response\": [{\"hostname\": \"SW1\", \"softwareVersion\": \"17.9.4\"}], \"version\": \"1.0\"}",
+        "language": "plaintext",
+        "tip": "If a question asks which properties REST requires, pick client-server, stateless and cacheable. Do not pick \"must use HTTP\" or \"must use JSON\".",
+        "pitfall": "REST is a style, not a protocol, and JSON is not part of its definition. HTTP is the usual transport and JSON (or XML) the usual data format.",
+        "check": {
+          "question": "What does it mean that REST APIs are stateless?",
+          "choices": [
+            "The server cannot store any data at all",
+            "Each request carries everything the server needs, such as the auth token, because the server keeps no session between requests",
+            "The API only supports GET requests",
+            "Responses can never be cached by the client"
+          ],
+          "answer": 1,
+          "explanation": "Statelessness is about requests, not storage. The server still holds resources, but it does not remember earlier requests, so each one must be complete on its own, credentials included."
+        }
+      },
+      {
+        "title": "Anatomy of a REST call",
+        "body": "Below is a realistic request to Catalyst Center asking for one device, and its reply. Every REST call you will meet has the same parts.\n\nThe **URI** (uniform resource identifier) names the resource:\n\n- `https` is the scheme: HTTP inside TLS.\n- `catc.example.com` is the host, the API server. A hostname needs DNS; an IP address works too.\n- `/dna/intent/api/v1/network-device` is the **path**, which identifies the resource. The `v1` is an API version, so the vendor can ship v2 without breaking your scripts.\n- `?managementIpAddress=10.10.22.66` is the **query string**: **parameters** that filter or shape the result. Several parameters are joined with `&`.\n\nPaths usually name a **collection** (`/api/v1/vlans`, every VLAN) or one **member** of it (`/api/v1/vlans/30`). If the API does not listen on the default port 443, the port follows the host: `https://10.10.20.48:8443/...`.\n\nThe **method** (or verb) says what to do with the resource: GET, POST, PUT, PATCH or DELETE.\n\n**Headers** carry metadata as `Name: value` lines. The ones you will use constantly:\n\n- `Accept`: the format the client wants back, such as `application/json`.\n- `Content-Type`: the format of the body being sent (requests with a body, and most responses).\n- Authentication, such as `Authorization` or a vendor header like Catalyst Center's `X-Auth-Token`.\n\nThe **body** carries data for POST, PUT and PATCH. GET and DELETE requests normally have none.\n\nThe response comes back with a **status code** (200 means OK), its own headers and usually a JSON body. That body is a **representation** of the resource: the server sends a copy of its current state as text, not the object itself.\n\nUnder the hood this is plain HTTP inside TCP inside IP, the same protocol your browser uses. A REST call is just an HTTP request whose answer is read by a program instead of rendered on a screen.\n\nUse the explorer to try it: build requests against a mock API and watch how the method, path, headers and body change the answer.",
+        "code": "GET /dna/intent/api/v1/network-device?managementIpAddress=10.10.22.66 HTTP/1.1\nHost: catc.example.com\nAccept: application/json\nX-Auth-Token: eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9...\n\nHTTP/1.1 200 OK\nContent-Type: application/json\n\n{\n  \"response\": [\n    {\n      \"hostname\": \"cat9k-access-1\",\n      \"managementIpAddress\": \"10.10.22.66\",\n      \"role\": \"ACCESS\",\n      \"softwareVersion\": \"17.9.4\"\n    }\n  ],\n  \"version\": \"1.0\"\n}\n\nThe URI, taken apart:\nscheme   https://\nhost     catc.example.com\npath     /dna/intent/api/v1/network-device\nquery    ?managementIpAddress=10.10.22.66",
+        "language": "plaintext",
+        "activity": {
+          "type": "http-explorer",
+          "title": "Talk to a mock REST API",
+          "prompt": "Read the collection with GET, create an item with POST, then read, change and delete it. Compare the status codes you get for a read, a create and a delete. Then request a path that does not exist, or use a method the resource does not support, and read the error the server sends back.",
+          "props": {
+            "scenario": "rest-basics"
+          }
+        },
+        "tip": "Read API documentation like a menu: each resource lists its path, the methods it supports, the parameters it accepts and an example response.",
+        "pitfall": "Forgetting `Content-Type: application/json` on a POST or PUT is a classic bug. The server may reject the body with 415 Unsupported Media Type or misread it.",
+        "check": {
+          "question": "In `https://catc.example.com/dna/intent/api/v1/network-device?hostname=SW1`, which part identifies the resource?",
+          "choices": [
+            "https://",
+            "catc.example.com",
+            "/dna/intent/api/v1/network-device",
+            "hostname=SW1"
+          ],
+          "answer": 2,
+          "explanation": "The path identifies the resource, here the network device list. The host names the server, and hostname=SW1 is a query parameter that filters the result."
+        }
+      },
+      {
+        "title": "CRUD, HTTP verbs and idempotence",
+        "body": "Almost everything a program does with data is one of four actions, remembered as **CRUD**: Create, Read, Update and Delete. HTTP verbs map onto them as in the table below.\n\nPUT and PATCH both update, but differently. **PUT replaces** the whole resource with the representation you send. **PATCH modifies** only the fields you send. Send a PUT for an interface containing only a new description and a strict server replaces the interface with exactly that, so settings you left out can be reset or removed. The mapping is a convention, not a law: in some APIs POST, PUT and PATCH can each be used to create, so read the documentation.\n\nTwo properties matter as soon as your automation retries requests:\n\n- **Safe** methods do not change anything on the server. GET is safe, and so are HEAD and OPTIONS.\n- **Idempotent** methods have the same effect on the server whether you send them once or ten times. GET, PUT and DELETE are idempotent. PUT the same VLAN 30 definition five times and VLAN 30 exists once, exactly as described. DELETE it twice and it is still gone; the second call may return 404, but the server's state is the same.\n- **POST is not idempotent.** POST to a collection usually creates a new member each time, so a script that retries a POST after a timeout can create duplicates. **PATCH** is not idempotent either in general: a patch such as \"add this address to the list\" applied twice adds it twice.\n\nWhy this matters: networks drop packets and servers time out, and good automation retries. Retrying a GET, PUT or DELETE is harmless. Retrying a POST needs care, such as first checking whether the original request succeeded.",
+        "code": "CRUD     Verb     Example                                      Safe   Idempotent\n-------  -------  -------------------------------------------  -----  ----------\nCreate   POST     POST   /api/v1/vlans     {\"id\": 30, ...}     no     no\nRead     GET      GET    /api/v1/vlans/30                      yes    yes\nUpdate   PUT      PUT    /api/v1/vlans/30  full replacement    no     yes\nUpdate   PATCH    PATCH  /api/v1/vlans/30  {\"name\": \"VOICE\"}   no     no\nDelete   DELETE   DELETE /api/v1/vlans/30                      no     yes",
+        "language": "plaintext",
+        "tip": "Exam shortcut: POST creates, GET reads, PUT and PATCH update, DELETE deletes.",
+        "pitfall": "Do not map POST to update or PUT to read on the exam. In code, never blindly retry a POST; you may create the same object twice.",
+        "check": {
+          "question": "A script times out waiting for the reply to `POST /api/v1/vlans` and sends the same request again. What risk does this create?",
+          "choices": [
+            "None, because POST is idempotent",
+            "The first VLAN is deleted and replaced by the second",
+            "The server returns 304 Not Modified and ignores the request",
+            "The VLAN may be created twice, because POST is not idempotent"
+          ],
+          "answer": 3,
+          "explanation": "The first POST may have succeeded even though the reply was lost. Because POST creates a new resource each time, the retry can create a duplicate. A PUT to a specific URI would be safe to repeat."
+        }
+      },
+      {
+        "title": "Status codes: reading the reply",
+        "body": "Your script sent a request. Before you touch the body, read the three-digit status code, because it tells you which branch of your code should run. The first digit gives the class:\n\n- **2xx success**: 200 OK (here is what you asked for), 201 Created (a POST made a new resource; the `Location` header often gives its URI), 202 Accepted (the work was queued and will finish later), 204 No Content (it worked and there is no body, common after DELETE or PUT).\n- **3xx redirection**: the resource is elsewhere (301 Moved Permanently) or unchanged since your cached copy (304 Not Modified).\n- **4xx client error**, so fix the request before retrying: 400 Bad Request (malformed JSON or invalid values), 401 Unauthorized (no valid credentials), 403 Forbidden (you are authenticated but not allowed), 404 Not Found (no such resource), 405 Method Not Allowed (the resource exists but not with that verb), 409 Conflict (clashes with current state, such as creating something that already exists), 415 Unsupported Media Type (the body's `Content-Type` is wrong), 429 Too Many Requests (you are being rate limited).\n- **5xx server error**, so the server failed, not your request: 500 Internal Server Error, 502 Bad Gateway, 503 Service Unavailable (often temporary).\n\nThe 401 versus 403 distinction is a favorite. Despite its name, 401 is about authentication (who you are), and 403 is about authorization (what you may do).\n\nGood automation habits follow from the classes: treat 2xx as success, never retry a 4xx without changing something, and retry 429, 502 and 503 after a wait that grows each time (exponential backoff).",
+        "code": "Replies from a day of automation\n\nPOST   /api/v1/vlans        201 Created      Location: /api/v1/vlans/30\nGET    /api/v1/vlans/30     200 OK           {\"id\": 30, \"name\": \"VOICE\"}\nGET    /api/v1/vlans/31     404 Not Found\nDELETE /api/v1/vlans/40     204 No Content\nGET    /api/v1/devices      401 Unauthorized         token missing or expired\nPUT    /api/v1/vlans/30     403 Forbidden            read-only account\nPOST   /api/v1/vlans        400 Bad Request          body was not valid JSON\nGET    /api/v1/devices      503 Service Unavailable  retry later",
+        "language": "plaintext",
+        "activity": {
+          "type": "http-explorer",
+          "title": "Break it on purpose",
+          "prompt": "Trigger each error deliberately: post broken JSON or leave out a required field (400), ask for a task id that does not exist (404), use a method the path does not support such as DELETE on the whole collection (405), and send a body without the Content-Type: application/json header (415). Read the status line and the error body each time; real APIs explain themselves the same way.",
+          "props": {
+            "scenario": "errors"
+          }
+        },
+        "tip": "Memory hook: 2xx you did it, 4xx you got the request wrong, 5xx the server got it wrong.",
+        "pitfall": "A 2xx does not always mean the work is finished. Catalyst Center answers many changes with 202 Accepted and a task ID that you poll until the task completes, and some APIs report errors inside a 200 body. Read the body too.",
+        "check": {
+          "question": "A script with a valid token for a read-only account sends a DELETE request. Which status code fits best?",
+          "choices": [
+            "401 Unauthorized",
+            "404 Not Found",
+            "403 Forbidden",
+            "500 Internal Server Error"
+          ],
+          "answer": 2,
+          "explanation": "The server knows who the client is (valid token) but that account may not delete, so 403 Forbidden fits. 401 would mean the credentials were missing or invalid."
+        }
+      },
+      {
+        "title": "Authentication: basic, API keys, bearer tokens and OAuth",
+        "body": "Because REST is stateless, the server forgets you after every request, so every request must prove who you are. Three methods cover nearly everything you will see.\n\n**Basic authentication** sends a username and password in the `Authorization` header, joined with a colon and Base64-encoded: `admin:secret` becomes `YWRtaW46c2VjcmV0`. Base64 is an encoding, not encryption; anyone who captures the header can decode it in a second. Basic auth is only acceptable over HTTPS, and many APIs use it just once, to obtain a token.\n\n**API key** authentication uses a long random secret issued to an application or user, sent in a header such as `X-API-Key` or sometimes in the query string (worse, because URLs end up in logs and browser history). Keys tend to be long-lived, so they must be stored as secrets, rotated, and revoked when they leak or someone leaves.\n\n**Bearer token** authentication sends `Authorization: Bearer <token>`. Bearer means whoever holds the token may use it, like cash. Tokens are usually issued by a login or OAuth 2.0 flow, expire after a set time and can be limited in scope. When a token expires, calls start returning 401 and the client logs in again for a fresh one.\n\n**OAuth 2.0** is the usual framework for issuing those tokens. An authorization server checks who the client is (and may ask a user to approve access), then issues a short-lived **access token** limited to a scope, such as read-only access to one organization. The client presents it as a bearer token, and the API never sees the user's password.\n\nReal examples from Cisco platforms:\n\n- **Catalyst Center**: POST to `/dna/system/api/v1/auth/token` with basic auth, receive a token, then send it on every later call in an `X-Auth-Token` header.\n- **Meraki Dashboard API**: an API key generated in the dashboard and sent as a bearer token, `Authorization: Bearer <API key>`.\n- **RESTCONF on IOS XE**: basic authentication over HTTPS on each request.\n\nWhatever the method, keep secrets out of scripts and out of source control. Load them from environment variables or a secrets vault, and use HTTPS everywhere.",
+        "code": "# 1. Basic auth once, to get a token (Catalyst Center)\nPOST /dna/system/api/v1/auth/token HTTP/1.1\nHost: catc.example.com\nAuthorization: Basic bmV0b3BzOkNpc2NvMTIz\n\nHTTP/1.1 200 OK\nContent-Type: application/json\n\n{\"Token\": \"eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9...\"}\n\n# 2. Send the token on every later request\nGET /dna/intent/api/v1/network-device HTTP/1.1\nHost: catc.example.com\nX-Auth-Token: eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9...\n\n# Bearer style (Meraki and many other APIs)\nGET /api/v1/organizations HTTP/1.1\nHost: api.meraki.com\nAuthorization: Bearer 0123456789abcdef0123456789abcdef01234567",
+        "language": "plaintext",
+        "activity": {
+          "type": "http-explorer",
+          "title": "Prove who you are",
+          "prompt": "Call GET /api/me with no credentials and read the status code. Log in to get a token, add it as Authorization: Bearer <token>, and repeat the call. You have to send it on every request, because the server keeps no session for you. Finally use the same token on the admin endpoint and compare that 403 with the earlier 401.",
+          "props": {
+            "scenario": "auth"
+          }
+        },
+        "tip": "If a question says captured traffic reveals the password, think basic auth without TLS: Base64 is reversible.",
+        "pitfall": "A token or API key committed to a Git repository is a leaked credential, even if you delete the commit later. Revoke it and issue a new one.",
+        "check": {
+          "question": "Why must basic authentication only be used over HTTPS?",
+          "choices": [
+            "The credentials are only Base64-encoded, so anyone who captures the request can decode them",
+            "Basic authentication only works on TCP port 443",
+            "HTTPS turns the password into a bearer token automatically",
+            "Plain HTTP cannot carry an Authorization header"
+          ],
+          "answer": 0,
+          "explanation": "Base64 is a reversible encoding with no key. Over plain HTTP the username and password cross the network readable by anyone who captures them; TLS encrypts the whole request, header included."
+        }
+      },
+      {
+        "title": "Data encoding: JSON, XML and YAML",
+        "body": "A Python script and a Java controller store data in memory in completely different ways, so they cannot just copy bytes to each other. They agree on a text format instead: the sender **serializes** its data into text, and the receiver **parses** (deserializes) the text back into its own variables. Choosing that format is what the blueprint calls **data encoding**, and three formats cover networking:\n\n- **JSON** (JavaScript Object Notation, RFC 8259): the default for REST APIs. Compact, readable, and it maps directly onto dictionaries and lists in most languages.\n- **XML** (Extensible Markup Language): data wrapped in matching start and end tags, such as `<name>GigabitEthernet1</name>`, all inside one root element. Older and more verbose, it is what NETCONF uses, and many APIs, RESTCONF included, offer it as an alternative to JSON.\n- **YAML** (YAML Ain't Markup Language): the most human-friendly, with indentation and dashes instead of brackets and tags. Ansible playbooks and many configuration files use it; APIs rarely return it.\n\nThe example shows the same interface all three ways. Learn to recognize each at a glance, because exam questions show a snippet and ask which format it is:\n\n- Curly braces, square brackets and `\"key\": value` pairs: **JSON**.\n- Angle-bracket tags that open and close, such as `<enabled>true</enabled>`: **XML**.\n- No brackets at all, `key: value` lines, nesting by indentation and `- ` for list items: **YAML**.\n\nHeaders say which format is in play. `Content-Type` labels the body being sent, and `Accept` asks for a format back: `application/json` or `application/xml` for ordinary APIs, `application/yang-data+json` or `application/yang-data+xml` for RESTCONF. Ask a RESTCONF server for XML instead of JSON and you get the same data, from the same YANG model, in a different encoding.\n\nKeep the data model and the encoding apart. YANG, or an API's documented schema, defines what the data is; JSON, XML or YAML is only how it is written down for the trip.",
+        "code": "JSON\n{\n  \"interface\": {\n    \"name\": \"GigabitEthernet1\",\n    \"enabled\": true,\n    \"mtu\": 1500,\n    \"address\": [\"10.1.1.1\", \"10.1.2.1\"]\n  }\n}\n\nXML\n<interface>\n  <name>GigabitEthernet1</name>\n  <enabled>true</enabled>\n  <mtu>1500</mtu>\n  <address>10.1.1.1</address>\n  <address>10.1.2.1</address>\n</interface>\n\nYAML\ninterface:\n  name: GigabitEthernet1\n  enabled: true\n  mtu: 1500\n  address:\n    - 10.1.1.1\n    - 10.1.2.1",
+        "language": "plaintext",
+        "tip": "Braces and brackets mean JSON, opening and closing tags mean XML, and indentation with no brackets means YAML.",
+        "pitfall": "XML has no separate syntax for numbers or booleans: `<mtu>1500</mtu>` is just text until a schema such as a YANG model says it is a number. In JSON the quotes decide: `1500` is a number, `\"1500\"` is a string.",
+        "check": {
+          "question": "A RESTCONF client changes its Accept header from application/yang-data+json to application/yang-data+xml. What changes in the reply?",
+          "choices": [
+            "The server returns different data from a different YANG model",
+            "The same data, from the same YANG model, comes back encoded as XML instead of JSON",
+            "The request is now sent over NETCONF on port 830",
+            "Nothing, because Accept only affects requests that have a body"
+          ],
+          "answer": 1,
+          "explanation": "Accept chooses the encoding of the response. The YANG model defines the data either way, so only the format changes. NETCONF is a separate protocol, and Accept matters most on GET requests, which have no body."
+        }
+      },
+      {
+        "title": "JSON building blocks and syntax rules",
+        "body": "JSON is small enough to learn completely. JSON has only a handful of value types, and the CCNA wants you to recognize each:\n\n- **Object**: an unordered set of key/value pairs in curly braces `{ }`. Keys are always strings in double quotes. Each pair is written `\"key\": value`, and pairs are separated by commas.\n- **Array**: an ordered list of values in square brackets `[ ]`, separated by commas. Values may be of mixed types.\n- **String**: text in double quotes, such as `\"GigabitEthernet1\"`.\n- **Number**: no quotes, such as `1500`, `-3` or `2.5`, with no leading zeros and no hex.\n- **Boolean**: `true` or `false`, lowercase, no quotes.\n- **null**: lowercase, no quotes, meaning no value.\n\nObjects and arrays nest inside each other to any depth, which is how JSON describes a device with a list of interfaces, each with a list of addresses. Whitespace between elements is ignored, so pretty-printed (beautified) and minified JSON carry the same data.\n\nThe rules that make JSON invalid are worth memorizing, because exam questions show you snippets and ask which one works: no single quotes, no unquoted keys, no trailing comma after the last item, no comments, and `True`, `NULL` or `None` are not JSON.",
+        "code": "Valid JSON with every value type:\n{\n  \"hostname\": \"SW1\",\n  \"vlanCount\": 12,\n  \"stpEnabled\": true,\n  \"location\": null,\n  \"uplinks\": [\"Gi1/0/47\", \"Gi1/0/48\"],\n  \"mgmt\": {\n    \"ip\": \"10.1.1.2\",\n    \"mask\": \"255.255.255.0\"\n  }\n}\n\nInvalid JSON, and why:\n{'hostname': 'SW1'}           single quotes\n{hostname: \"SW1\"}             key not in double quotes\n{\"vlans\": [10, 20, 30,]}      trailing comma\n{\"enabled\": True}             True is Python; JSON uses true\n{\"mtu\": 1500 /* jumbo */}     comments are not allowed",
+        "language": "plaintext",
+        "tip": "Each colon outside a string marks exactly one key/value pair, so counting colons counts the pairs. Watch for colons inside strings, such as times or IPv6 addresses.",
+        "pitfall": "`\"42\"` and `42` are different types: a string and a number. `\"true\"` in quotes is a string, not a boolean. APIs are not always consistent, so check the quotes instead of assuming.",
+        "check": {
+          "question": "Which of these is valid JSON?",
+          "choices": [
+            "{'vlan': 10, 'name': 'USERS'}",
+            "{\"vlan\": 10, \"name\": \"USERS\",}",
+            "{vlan: 10, name: \"USERS\"}",
+            "{\"vlan\": 10, \"name\": \"USERS\", \"active\": true}"
+          ],
+          "answer": 3,
+          "explanation": "Keys and strings need double quotes, booleans are lowercase and unquoted, and there is no comma after the last pair. The other options break one of those rules."
+        }
+      },
+      {
+        "title": "Reading a device API response",
+        "body": "The code below is a trimmed RESTCONF reply from an IOS XE router to `GET https://10.10.20.48/restconf/data/ietf-interfaces:interfaces` with `Accept: application/yang-data+json`. Its structure comes from a YANG model, a standard schema for interface data. Do not read it top to bottom; take it apart from the outside in:\n\n1. The outermost `{ }` is one object with one key, `\"ietf-interfaces:interfaces\"`. RESTCONF prefixes top-level keys with the YANG module name.\n2. Its value is an object with one key, `\"interface\"`, whose value is an **array** with one element per interface.\n3. Each element is an object describing one interface: `name` and `type` (strings), `enabled` (a boolean) and `\"ietf-ip:ipv4\"` (a nested object).\n4. Inside `ipv4`, `address` is again an array, because an interface can have several addresses, and each address is an object with `ip` and `netmask`.\n\nProgrammers write the path to a value like this: `[\"ietf-interfaces:interfaces\"][\"interface\"][0][\"ietf-ip:ipv4\"][\"address\"][0][\"ip\"]`. Arrays are indexed from 0, objects by key. In Python, `json.loads()` turns objects into dicts, arrays into lists, `true` and `false` into `True` and `False`, and `null` into `None`, so that path becomes ordinary indexing.\n\nThe URI follows a fixed pattern: `/restconf/data/` then the YANG module and its top-level container (`ietf-interfaces:interfaces`), then list entries selected by key. RESTCONF is off by default on IOS XE: enable the HTTPS server and the service with `ip http secure-server` and `restconf`, with AAA and a privilege 15 user for logins.\n\nTo ask for one interface, add it to the path: `.../interface=GigabitEthernet1`. Names containing slashes must be URL-encoded, so `GigabitEthernet1/0/1` becomes `GigabitEthernet1%2F0%2F1`.\n\nTwo traps from real APIs:\n\n- **Numbers in quotes**: Catalyst Center returns `\"interfaceCount\": \"41\"`, a string. RESTCONF's JSON encoding (RFC 7951) also sends 64-bit values, such as interface byte counters, as strings, because many JSON parsers cannot hold 64-bit integers exactly.\n- **Empty, missing and null are different**: `\"description\": \"\"` (an empty string), no `description` key at all (as on GigabitEthernet2 here), and `\"description\": null` each need different handling, and code that expects one will crash on another.\n\nUse the explorer to practice on this same response: expand the tree, check the type of each value, and find the path to specific facts.",
+        "code": "{\n  \"ietf-interfaces:interfaces\": {\n    \"interface\": [\n      {\n        \"name\": \"GigabitEthernet1\",\n        \"description\": \"Uplink to core\",\n        \"type\": \"iana-if-type:ethernetCsmacd\",\n        \"enabled\": true,\n        \"ietf-ip:ipv4\": {\n          \"mtu\": 1500,\n          \"address\": [\n            {\n              \"ip\": \"10.10.20.48\",\n              \"netmask\": \"255.255.255.0\"\n            }\n          ]\n        }\n      },\n      {\n        \"name\": \"GigabitEthernet2\",\n        \"type\": \"iana-if-type:ethernetCsmacd\",\n        \"enabled\": false,\n        \"ietf-ip:ipv4\": {}\n      },\n      {\n        \"name\": \"Loopback0\",\n        \"description\": \"Router ID\",\n        \"type\": \"iana-if-type:softwareLoopback\",\n        \"enabled\": true,\n        \"ietf-ip:ipv4\": {\n          \"address\": [\n            {\n              \"ip\": \"1.1.1.1\",\n              \"netmask\": \"255.255.255.255\"\n            }\n          ]\n        }\n      }\n    ]\n  }\n}",
+        "language": "json",
+        "activity": {
+          "type": "json-explorer",
+          "title": "Take apart a RESTCONF reply",
+          "prompt": "Expand the tree and answer: how many interfaces are listed, which one is disabled, and what is the full path to Loopback0's IP address? Notice which values are strings, which are booleans and which is a number, and that address is an array even when it holds a single entry.",
+          "props": {
+            "json": "{\n  \"ietf-interfaces:interfaces\": {\n    \"interface\": [\n      {\n        \"name\": \"GigabitEthernet1\",\n        \"description\": \"Uplink to core\",\n        \"type\": \"iana-if-type:ethernetCsmacd\",\n        \"enabled\": true,\n        \"ietf-ip:ipv4\": {\n          \"mtu\": 1500,\n          \"address\": [\n            {\n              \"ip\": \"10.10.20.48\",\n              \"netmask\": \"255.255.255.0\"\n            }\n          ]\n        }\n      },\n      {\n        \"name\": \"GigabitEthernet2\",\n        \"type\": \"iana-if-type:ethernetCsmacd\",\n        \"enabled\": false,\n        \"ietf-ip:ipv4\": {}\n      },\n      {\n        \"name\": \"Loopback0\",\n        \"description\": \"Router ID\",\n        \"type\": \"iana-if-type:softwareLoopback\",\n        \"enabled\": true,\n        \"ietf-ip:ipv4\": {\n          \"address\": [\n            {\n              \"ip\": \"1.1.1.1\",\n              \"netmask\": \"255.255.255.255\"\n            }\n          ]\n        }\n      }\n    ]\n  }\n}"
+          }
+        },
+        "tip": "To count objects, arrays or key/value pairs in an exam snippet, count `{`, `[` and `:` characters that are outside strings.",
+        "pitfall": "Arrays start at index 0. The first interface is `interface[0]`, so `interface[1]` is the second one.",
+        "check": {
+          "question": "In this response, what is the value of `[\"ietf-interfaces:interfaces\"][\"interface\"][1][\"enabled\"]`?",
+          "choices": [
+            "true",
+            "\"GigabitEthernet2\"",
+            "false",
+            "null"
+          ],
+          "answer": 2,
+          "explanation": "Index 1 is the second element of the interface array, GigabitEthernet2, and its enabled value is the boolean false."
+        }
+      },
+      {
+        "title": "JSON drills: count it, path it, code it",
+        "body": "Exam items about JSON are mostly reading drills: how many objects, arrays or key/value pairs, what is the value at a path, which snippet is valid. A method beats staring.\n\n**Counting.** Count characters that are outside strings:\n\n- Each `{` opens one object, so the number of `{` is the number of objects.\n- Each `[` opens one array.\n- Each `:` separates one key from its value, so it marks exactly one key/value pair. Skip colons inside strings, such as times (`03:12:44`) and IPv6 addresses.\n\nPairs belong to the object they sit in. In the example, the outer object has two pairs (`hostname` and `interfaces`) and each interface object has two more, so the document holds six pairs in three objects, plus one array.\n\n**Paths.** Read from the outside in, one step per level: a key for each object, an index from 0 for each array. `[\"interfaces\"][1][\"name\"]` is the name of the second interface. Skip a level, or index an object by number, and the path fails.\n\n**Types.** Check the quotes: `\"30\"` is a string, `30` a number, `true` a boolean, and `null` means no value.\n\n**In code**, the same reading becomes indexing. Python's `json.loads()` turns the text into dictionaries and lists, so a script walks the response with exactly the paths you write by hand. A typical automation task looks like the playground: parse the reply, loop over a list, and pull out the facts you need, such as every interface that is disabled and every switch on an old software version. Predict each line of output before you run it.",
+        "code": "{\n  \"hostname\": \"SW1\",\n  \"interfaces\": [\n    {\"name\": \"Gi1/0/1\", \"vlan\": 10},\n    {\"name\": \"Gi1/0/2\", \"vlan\": 20}\n  ]\n}\n\nObjects   count {   3   the outer object and two interface objects\nArrays    count [   1   interfaces\nPairs     count :   6   hostname, interfaces, then name and vlan twice\nPath to \"Gi1/0/2\":     [\"interfaces\"][1][\"name\"]",
+        "language": "plaintext",
+        "activity": {
+          "type": "code-runner",
+          "title": "Walk an API response in Python",
+          "prompt": "Run it. json.loads() turns the reply into a dict holding a list, and the loop reads each device the way you would by hand. Before you change anything, predict what the path on the acc-sw7 line returns, then check.",
+          "props": {
+            "language": "python",
+            "code": "import json\n\nreply = \"\"\"{\n  \"response\": [\n    {\"hostname\": \"core-sw1\", \"softwareVersion\": \"17.9.4\", \"reachable\": true,\n     \"interfaces\": [{\"name\": \"Te1/0/1\", \"enabled\": true},\n                    {\"name\": \"Te1/0/2\", \"enabled\": false}]},\n    {\"hostname\": \"acc-sw7\", \"softwareVersion\": \"17.6.5\", \"reachable\": true,\n     \"interfaces\": [{\"name\": \"Gi1/0/1\", \"enabled\": true},\n                    {\"name\": \"Gi1/0/48\", \"enabled\": false}]},\n    {\"hostname\": \"acc-sw8\", \"softwareVersion\": \"17.9.4\", \"reachable\": false,\n     \"interfaces\": []}\n  ],\n  \"version\": \"1.0\"\n}\"\"\"\n\ndata = json.loads(reply)  # JSON text becomes Python dicts and lists\nprint(type(data).__name__, \"holding\", type(data[\"response\"]).__name__)\n\ndevices = data[\"response\"]\nprint(\"Devices:\", len(devices))\nprint(\"First hostname:\", devices[0][\"hostname\"])\nprint(\"acc-sw7 second interface:\", data[\"response\"][1][\"interfaces\"][1][\"name\"])\n\nfor dev in devices:\n    down = [i[\"name\"] for i in dev[\"interfaces\"] if not i[\"enabled\"]]\n    flag = \"\" if dev[\"reachable\"] else \"  UNREACHABLE\"\n    print(f'{dev[\"hostname\"]:9} {dev[\"softwareVersion\"]:7} down: {down}{flag}')\n\nold = [d[\"hostname\"] for d in devices if d[\"softwareVersion\"] != \"17.9.4\"]\nprint(\"Needs upgrade:\", old)",
+            "task": "Add a fourth device to the response list (remember the comma between objects) and predict the output first. Then print the path that reaches core-sw1's first interface name."
+          }
+        },
+        "tip": "For any JSON exhibit: count { for objects, [ for arrays, and colons outside strings for key/value pairs.",
+        "pitfall": "The whole document is usually one object, so count the outermost `{` too. And an empty array `[]` still counts as an array, even with nothing in it.",
+        "check": {
+          "question": "How many key/value pairs does `{\"vlan\": 10, \"ports\": [\"Gi1/0/1\", \"Gi1/0/2\"], \"voice\": {\"vlan\": 30}}` contain?",
+          "choices": [
+            "3",
+            "4",
+            "5",
+            "6"
+          ],
+          "answer": 1,
+          "explanation": "The outer object has three pairs (vlan, ports and voice), and the nested voice object has one more (vlan), so there are four colons outside strings and four pairs. The array holds values, not pairs."
+        }
+      }
+    ],
+    "keyTerms": [
+      {
+        "term": "REST",
+        "definition": "An architectural style for APIs: client-server, stateless, cacheable, with resources identified by URIs and a uniform interface."
+      },
+      {
+        "term": "Stateless",
+        "definition": "The server keeps no session between requests, so each request carries everything needed, including credentials."
+      },
+      {
+        "term": "URI",
+        "definition": "The identifier of a resource: scheme, host, path and an optional query string with parameters."
+      },
+      {
+        "term": "CRUD",
+        "definition": "Create, Read, Update, Delete: the four basic data actions, mapped to POST, GET, PUT or PATCH, and DELETE."
+      },
+      {
+        "term": "Idempotent",
+        "definition": "Having the same effect whether a request is sent once or many times. GET, PUT and DELETE are idempotent; POST is not."
+      },
+      {
+        "term": "Status code",
+        "definition": "The three-digit result of an HTTP request: 2xx success, 3xx redirection, 4xx client error, 5xx server error."
+      },
+      {
+        "term": "Basic authentication",
+        "definition": "Username and password sent Base64-encoded in the Authorization header; safe only over HTTPS."
+      },
+      {
+        "term": "Bearer token",
+        "definition": "A credential sent as Authorization: Bearer <token> that grants access to whoever holds it, usually short-lived."
+      },
+      {
+        "term": "API key",
+        "definition": "A long-lived secret issued to an application or user and sent with each request."
+      },
+      {
+        "term": "Serialization",
+        "definition": "Converting in-memory data into a text format such as JSON or XML so another program can parse it."
+      },
+      {
+        "term": "JSON object",
+        "definition": "Key/value pairs inside curly braces, with keys as double-quoted strings."
+      },
+      {
+        "term": "JSON array",
+        "definition": "An ordered list of values inside square brackets."
+      },
+      {
+        "term": "HTTP verb",
+        "definition": "The method of a request, such as GET, POST, PUT, PATCH or DELETE, saying what to do with the resource."
+      },
+      {
+        "term": "OAuth 2.0",
+        "definition": "A framework in which an authorization server issues scoped, short-lived access tokens that clients present as bearer tokens."
+      },
+      {
+        "term": "Data encoding",
+        "definition": "The text format used to serialize data for transfer, such as JSON, XML or YAML."
+      },
+      {
+        "term": "XML",
+        "definition": "A tag-based encoding with matching start and end tags inside one root element; used by NETCONF."
+      },
+      {
+        "term": "YAML",
+        "definition": "An indentation-based encoding with key: value lines and dash list items; used by Ansible."
+      },
+      {
+        "term": "RESTCONF",
+        "definition": "A REST-style HTTPS API for YANG-modeled device data, carrying JSON or XML; enabled on IOS XE with restconf."
+      }
+    ],
+    "summary": [
+      "REST is an architectural style: client-server, stateless and cacheable, with resources named by URIs and nearly always carried over HTTPS.",
+      "POST creates, GET reads, PUT replaces, PATCH modifies and DELETE deletes; GET, PUT and DELETE are idempotent, POST is not.",
+      "2xx means success, 4xx means fix your request (401 not authenticated, 403 not allowed, 404 not found, 405 wrong verb, 415 wrong Content-Type), 5xx means the server failed.",
+      "Basic auth is Base64 (encoding, not encryption), API keys are long-lived secrets, and bearer tokens, often issued through OAuth 2.0, are short-lived credentials anyone holding them can use.",
+      "JSON uses braces and brackets, XML uses tags, YAML uses indentation; in JSON, objects are { }, arrays are [ ], and keys are always double-quoted strings.",
+      "Count { for objects, [ for arrays and colons outside strings for pairs, and read nested JSON from the outside in, the same way code indexes it."
+    ],
+    "feynmanPrompt": "Explain to a network engineer who has only used the CLI how a script gets the device list from a controller's REST API: the request it sends, how it authenticates, what the status code tells it, and how to find a device's IP address in the JSON that comes back."
+  },
+  "questions": [
+    {
+      "id": "ccna-rest-apis-json-q01",
+      "type": "mcq",
+      "difficulty": "easy",
+      "question": "Which HTTP verb maps to the CRUD Read action?",
+      "choices": [
+        "POST",
+        "GET",
+        "PUT",
+        "PATCH"
+      ],
+      "answer": 1,
+      "explanation": "GET retrieves a representation of a resource without changing it. POST creates, PUT and PATCH update.",
+      "concept": "GET is read",
+      "section": 2
+    },
+    {
+      "id": "ccna-rest-apis-json-q02",
+      "type": "match",
+      "difficulty": "easy",
+      "question": "Match each CRUD action to the HTTP verb conventionally used for it.",
+      "pairs": [
+        {
+          "left": "Create",
+          "right": "POST"
+        },
+        {
+          "left": "Read",
+          "right": "GET"
+        },
+        {
+          "left": "Update by replacing the whole resource",
+          "right": "PUT"
+        },
+        {
+          "left": "Update by changing only some fields",
+          "right": "PATCH"
+        },
+        {
+          "left": "Delete",
+          "right": "DELETE"
+        }
+      ],
+      "explanation": "POST creates, GET reads, PUT replaces, PATCH modifies part of a resource and DELETE removes it. Some APIs bend the convention, so documentation has the final word.",
+      "concept": "CRUD to HTTP verbs",
+      "section": 2
+    },
+    {
+      "id": "ccna-rest-apis-json-q03",
+      "type": "multi",
+      "difficulty": "medium",
+      "question": "Which two are constraints of a REST API? Choose two.",
+      "choices": [
+        "Client-server architecture",
+        "Stateless operation",
+        "Must use HTTP as the transport",
+        "Must encode all data as XML",
+        "The server keeps a session for each client"
+      ],
+      "answers": [
+        0,
+        1
+      ],
+      "explanation": "Client-server and stateless are core REST constraints (along with cacheable, uniform interface and layered system). HTTP is the usual transport but not a requirement, any data format may be used, and keeping per-client sessions contradicts statelessness.",
+      "concept": "REST constraints",
+      "section": 0
+    },
+    {
+      "id": "ccna-rest-apis-json-q04",
+      "type": "mcq",
+      "difficulty": "medium",
+      "question": "A client authenticated successfully one second ago, then sends a GET with no credentials or token. What does a stateless REST server do?",
+      "choices": [
+        "Accepts it, because it remembers the earlier login",
+        "Rejects it, because it treats every request on its own and needs credentials on each one",
+        "Queues it until the client reconnects",
+        "Accepts it, because GET requests never need authentication"
+      ],
+      "answer": 1,
+      "explanation": "A stateless server keeps no session between requests, so each request must carry its own credentials or token. That is why tokens are sent in a header on every call.",
+      "concept": "statelessness and auth",
+      "section": 0
+    },
+    {
+      "id": "ccna-rest-apis-json-q05",
+      "type": "typed",
+      "difficulty": "medium",
+      "question": "Type the path (resource) part of this URI.",
+      "code": "https://catc.example.com/dna/intent/api/v1/network-device?hostname=SW1&role=ACCESS",
+      "language": "plaintext",
+      "answer": "/dna/intent/api/v1/network-device",
+      "accept": [
+        "dna/intent/api/v1/network-device"
+      ],
+      "explanation": "The path runs from the first / after the host up to the ?. Everything after the ? is the query string with its parameters.",
+      "concept": "URI path",
+      "section": 1
+    },
+    {
+      "id": "ccna-rest-apis-json-q06",
+      "type": "mcq",
+      "difficulty": "easy",
+      "question": "What is the job of `?hostname=SW1&role=ACCESS` in this request?",
+      "code": "GET https://catc.example.com/dna/intent/api/v1/network-device?hostname=SW1&role=ACCESS",
+      "language": "plaintext",
+      "choices": [
+        "It is the query string, passing two parameters that filter the results",
+        "It is the path that identifies a resource named SW1",
+        "It is a header that authenticates the client",
+        "It is the JSON request body"
+      ],
+      "answer": 0,
+      "explanation": "Text after the ? is the query string. Parameters are name=value pairs joined by &, and here they narrow the device list to access switches named SW1.",
+      "concept": "query parameters",
+      "section": 1
+    },
+    {
+      "id": "ccna-rest-apis-json-q07",
+      "type": "mcq",
+      "difficulty": "easy",
+      "question": "A POST that creates a new VLAN succeeds. Which status code is the most specific success code for this result?",
+      "choices": [
+        "200 OK",
+        "201 Created",
+        "204 No Content",
+        "301 Moved Permanently"
+      ],
+      "answer": 1,
+      "explanation": "201 Created says a new resource now exists, and the Location header often gives its URI. 200 is a generic success, and 204 means success with no body.",
+      "concept": "201 Created",
+      "section": 3
+    },
+    {
+      "id": "ccna-rest-apis-json-q08",
+      "type": "match",
+      "difficulty": "medium",
+      "question": "Match each status code to its meaning.",
+      "pairs": [
+        {
+          "left": "200",
+          "right": "Success, and the body holds the result"
+        },
+        {
+          "left": "204",
+          "right": "Success, with no body to return"
+        },
+        {
+          "left": "400",
+          "right": "The request is malformed, such as invalid JSON"
+        },
+        {
+          "left": "404",
+          "right": "The requested resource does not exist"
+        },
+        {
+          "left": "503",
+          "right": "The server is temporarily unable to handle requests"
+        }
+      ],
+      "explanation": "2xx codes are successes, 4xx codes mean the client's request is at fault, and 5xx codes mean the server failed. 503 is often temporary, so a later retry can work.",
+      "concept": "status codes",
+      "section": 3
+    },
+    {
+      "id": "ccna-rest-apis-json-q09",
+      "type": "mcq",
+      "difficulty": "medium",
+      "question": "A script's API token expired an hour ago. Which status code will its next call most likely get?",
+      "choices": [
+        "401 Unauthorized",
+        "403 Forbidden",
+        "404 Not Found",
+        "500 Internal Server Error"
+      ],
+      "answer": 0,
+      "explanation": "An expired token means the client is no longer authenticated, which is 401. The fix is to obtain a fresh token and retry. 403 would mean the server knows who you are but you lack permission.",
+      "concept": "401 vs 403",
+      "section": 3
+    },
+    {
+      "id": "ccna-rest-apis-json-q10",
+      "type": "mcq",
+      "difficulty": "hard",
+      "question": "The server answers this request with 415 Unsupported Media Type. What should the engineer fix?",
+      "code": "POST /api/v1/vlans HTTP/1.1\nHost: sw-api.example.com\nAuthorization: Bearer 9f2c41d07a...\nContent-Type: text/plain\n\n{\"id\": 40, \"name\": \"CAMERAS\"}",
+      "language": "plaintext",
+      "choices": [
+        "Change the method to GET",
+        "Remove the Authorization header",
+        "Change Content-Type to application/json so it describes the body",
+        "Wrap the body in square brackets"
+      ],
+      "answer": 2,
+      "explanation": "415 means the server will not accept the body's declared media type. The body is JSON but is labeled text/plain, so the header must say application/json. The token and the JSON itself are fine.",
+      "concept": "415 and Content-Type",
+      "section": 3
+    },
+    {
+      "id": "ccna-rest-apis-json-q11",
+      "type": "mcq",
+      "difficulty": "medium",
+      "question": "A capture of an API call sent over plain HTTP shows this request. What can an attacker who captured it do?",
+      "code": "GET /api/v1/devices HTTP/1.1\nHost: 10.1.1.50\nAuthorization: Basic YWRtaW46c2VjcmV0",
+      "language": "plaintext",
+      "choices": [
+        "Nothing, because Base64 encrypts the password",
+        "Decode the header to the username and password (admin:secret) and reuse them",
+        "Only replay this one request, because the value expires in seconds",
+        "Nothing, unless they also have the server's private key"
+      ],
+      "answer": 1,
+      "explanation": "Basic auth is just username:password in Base64, which anyone can decode without a key. Over plain HTTP the credentials are exposed and reusable until the password changes. HTTPS would have encrypted the header.",
+      "concept": "basic auth exposure",
+      "section": 4
+    },
+    {
+      "id": "ccna-rest-apis-json-q12",
+      "type": "mcq",
+      "difficulty": "medium",
+      "question": "What does the word bearer in `Authorization: Bearer <token>` imply?",
+      "choices": [
+        "The token is bound to one IP address and useless anywhere else",
+        "The token carries the user's password in encrypted form",
+        "The token is valid for a single request only",
+        "Whoever presents the token gets its access, so it must be protected like a password"
+      ],
+      "answer": 3,
+      "explanation": "A bearer token works for anyone who holds it, like cash. That is why tokens travel only over HTTPS, expire, and must never be logged or committed to source control.",
+      "concept": "bearer tokens",
+      "section": 4
+    },
+    {
+      "id": "ccna-rest-apis-json-q13",
+      "type": "order",
+      "difficulty": "hard",
+      "question": "Put the steps of a token-based session with Catalyst Center in order.",
+      "items": [
+        "The script sends a POST to the token endpoint using basic authentication",
+        "Catalyst Center returns a token in a JSON body",
+        "The script sends a GET with the token in the X-Auth-Token header",
+        "Catalyst Center validates the token and returns 200 with the device list",
+        "The token expires and calls start returning 401",
+        "The script requests a new token and carries on"
+      ],
+      "explanation": "Basic authentication is used once to get a token, which then rides on every request because the API is stateless. When it expires the server answers 401 and the client must log in again.",
+      "concept": "token workflow",
+      "section": 4
+    },
+    {
+      "id": "ccna-rest-apis-json-q14",
+      "type": "mcq",
+      "difficulty": "medium",
+      "question": "Which statement best compares an API key with a token from a login flow?",
+      "choices": [
+        "API keys are always encrypted, while tokens are always sent in plain text",
+        "API keys only work with GET, while tokens work with every verb",
+        "API keys are usually long-lived secrets tied to an app or user, while login tokens usually expire after a set time",
+        "API keys need no protection because they are not passwords"
+      ],
+      "answer": 2,
+      "explanation": "API keys tend to live until someone revokes or rotates them, so a leaked key stays dangerous. Login tokens are short-lived by design. Both are secrets and both can be sent as bearer credentials.",
+      "concept": "API key vs token",
+      "section": 4
+    },
+    {
+      "id": "ccna-rest-apis-json-q15",
+      "type": "mcq",
+      "difficulty": "easy",
+      "question": "Which HTTP method is not idempotent?",
+      "choices": [
+        "GET",
+        "PUT",
+        "DELETE",
+        "POST"
+      ],
+      "answer": 3,
+      "explanation": "Sending the same POST twice usually creates two resources. GET, PUT and DELETE leave the server in the same state however many times you repeat them.",
+      "concept": "POST not idempotent",
+      "section": 2
+    },
+    {
+      "id": "ccna-rest-apis-json-q16",
+      "type": "multi",
+      "difficulty": "medium",
+      "question": "Which three HTTP methods are idempotent? Choose three.",
+      "choices": [
+        "GET",
+        "PUT",
+        "DELETE",
+        "POST",
+        "PATCH"
+      ],
+      "answers": [
+        0,
+        1,
+        2
+      ],
+      "explanation": "GET changes nothing, PUT sets a resource to the same full state every time, and DELETE leaves it deleted. POST creates a new resource per call, and PATCH is not guaranteed to be idempotent.",
+      "concept": "idempotent methods",
+      "section": 2
+    },
+    {
+      "id": "ccna-rest-apis-json-q17",
+      "type": "mcq",
+      "difficulty": "hard",
+      "question": "GigabitEthernet2 currently has a description and an IPv4 address. The engineer only wants to change the description and sends this request. What is the risk?",
+      "code": "PUT /restconf/data/ietf-interfaces:interfaces/interface=GigabitEthernet2\nContent-Type: application/yang-data+json\n\n{\n  \"ietf-interfaces:interface\": {\n    \"name\": \"GigabitEthernet2\",\n    \"type\": \"iana-if-type:ethernetCsmacd\",\n    \"description\": \"To branch 7\"\n  }\n}",
+      "language": "plaintext",
+      "choices": [
+        "PUT replaces the whole resource, so the IPv4 address, which is not in the body, can be removed",
+        "PUT merges fields, so there is no risk",
+        "RESTCONF does not support PUT",
+        "PUT creates a second GigabitEthernet2 interface"
+      ],
+      "answer": 0,
+      "explanation": "PUT means replace the target with exactly this representation, so anything left out can be deleted. PATCH would merge just the new description into the existing interface.",
+      "concept": "PUT replaces",
+      "section": 2
+    },
+    {
+      "id": "ccna-rest-apis-json-q18",
+      "type": "mcq",
+      "difficulty": "medium",
+      "question": "A script needs to change only the description of an existing resource and leave every other field alone. Which method fits best?",
+      "choices": [
+        "PUT",
+        "POST",
+        "PATCH",
+        "GET"
+      ],
+      "answer": 2,
+      "explanation": "PATCH applies a partial modification, changing only the fields in the body. PUT would replace the whole resource, and POST normally creates a new one.",
+      "concept": "PATCH partial update",
+      "section": 2
+    },
+    {
+      "id": "ccna-rest-apis-json-q19",
+      "type": "mcq",
+      "difficulty": "easy",
+      "question": "In JSON, what do square brackets `[ ]` contain?",
+      "choices": [
+        "An object of key/value pairs",
+        "An ordered list of values (an array)",
+        "A comment",
+        "A single string"
+      ],
+      "answer": 1,
+      "explanation": "Square brackets hold an array, an ordered list of values. Curly braces hold an object of key/value pairs, and JSON has no comments.",
+      "concept": "JSON arrays",
+      "section": 6
+    },
+    {
+      "id": "ccna-rest-apis-json-q20",
+      "type": "mcq",
+      "difficulty": "easy",
+      "question": "Which of these is a JSON boolean?",
+      "choices": [
+        "\"true\" (in double quotes)",
+        "true (lowercase, no quotes)",
+        "True (capital T, no quotes)",
+        "'true' (in single quotes)"
+      ],
+      "answer": 1,
+      "explanation": "JSON booleans are the lowercase, unquoted words true and false. \"true\" in double quotes is a string, True is Python syntax, and single quotes are never valid in JSON.",
+      "concept": "JSON booleans",
+      "section": 6
+    },
+    {
+      "id": "ccna-rest-apis-json-q21",
+      "type": "debug",
+      "difficulty": "medium",
+      "question": "A JSON parser rejects this document. What is wrong?",
+      "code": "{\n  \"hostname\": \"R1\",\n  \"interfaces\": [\n    \"GigabitEthernet0/0\",\n    \"GigabitEthernet0/1\",\n  ],\n  \"ospf\": true\n}",
+      "language": "json",
+      "choices": [
+        "Booleans must be in quotes",
+        "Keys cannot contain uppercase letters",
+        "Arrays cannot hold strings",
+        "There is a trailing comma after the last array element"
+      ],
+      "answer": 3,
+      "explanation": "JSON does not allow a comma after the last element of an array or the last pair of an object. Booleans are correctly unquoted, and keys and array values may be any strings.",
+      "concept": "trailing comma",
+      "section": 6
+    },
+    {
+      "id": "ccna-rest-apis-json-q22",
+      "type": "mcq",
+      "difficulty": "medium",
+      "question": "Which description of this JSON is correct?",
+      "code": "{ \"myvariable\": [1, 2, 3] }",
+      "language": "json",
+      "choices": [
+        "One object with one key/value pair whose value is an array",
+        "One object with three key/value pairs",
+        "An array that contains one object",
+        "One object whose value is a second object"
+      ],
+      "answer": 0,
+      "explanation": "The outer braces make one object, and the single colon means one key/value pair. Its value, in square brackets, is an array of three numbers.",
+      "concept": "objects vs arrays",
+      "section": 6
+    },
+    {
+      "id": "ccna-rest-apis-json-q23",
+      "type": "multi",
+      "difficulty": "medium",
+      "question": "Which two of these are values, not keys? Choose two.",
+      "code": "{\n  \"response\": {\n    \"type\": \"Cisco Catalyst 9300 Switch\",\n    \"role\": \"ACCESS\",\n    \"managementIpAddress\": \"10.10.22.66\"\n  }\n}",
+      "language": "json",
+      "choices": [
+        "\"response\"",
+        "\"type\"",
+        "\"ACCESS\"",
+        "\"10.10.22.66\"",
+        "\"managementIpAddress\""
+      ],
+      "answers": [
+        2,
+        3
+      ],
+      "explanation": "Keys sit before a colon and values after it. \"ACCESS\" and \"10.10.22.66\" follow colons, while response, type and managementIpAddress are keys.",
+      "concept": "keys vs values",
+      "section": 7
+    },
+    {
+      "id": "ccna-rest-apis-json-q24",
+      "type": "typed",
+      "difficulty": "medium",
+      "question": "What is the JSON data type of the value of interfaceCount?",
+      "code": "{\"hostname\": \"cat9k-access-1\", \"interfaceCount\": \"41\", \"reachable\": true}",
+      "language": "json",
+      "answer": "string",
+      "accept": [
+        "a string",
+        "str"
+      ],
+      "explanation": "The value is in double quotes, so it is a string even though it looks like a number. Code that does arithmetic on it must convert it first.",
+      "concept": "quoted numbers",
+      "section": 7
+    },
+    {
+      "id": "ccna-rest-apis-json-q25",
+      "type": "mcq",
+      "difficulty": "hard",
+      "question": "Which path returns \"10.10.21.48\"?",
+      "code": "{\n  \"ietf-interfaces:interfaces\": {\n    \"interface\": [\n      {\n        \"name\": \"GigabitEthernet1\",\n        \"enabled\": true,\n        \"ietf-ip:ipv4\": {\n          \"address\": [\n            {\"ip\": \"10.10.20.48\", \"netmask\": \"255.255.255.0\"},\n            {\"ip\": \"10.10.21.48\", \"netmask\": \"255.255.255.0\"}\n          ]\n        }\n      },\n      {\n        \"name\": \"Loopback0\",\n        \"enabled\": true,\n        \"ietf-ip:ipv4\": {\n          \"address\": [\n            {\"ip\": \"1.1.1.1\", \"netmask\": \"255.255.255.255\"}\n          ]\n        }\n      }\n    ]\n  }\n}",
+      "language": "json",
+      "choices": [
+        "[\"ietf-interfaces:interfaces\"][\"interface\"][1][\"ietf-ip:ipv4\"][\"address\"][0][\"ip\"]",
+        "[\"ietf-interfaces:interfaces\"][\"interface\"][0][\"ietf-ip:ipv4\"][\"address\"][\"ip\"][1]",
+        "[\"ietf-interfaces:interfaces\"][\"interface\"][0][\"ietf-ip:ipv4\"][\"address\"][1][\"ip\"]",
+        "[\"interface\"][0][\"address\"][1][\"ip\"]"
+      ],
+      "answer": 2,
+      "explanation": "10.10.21.48 is the second address (index 1) of the first interface (index 0). Arrays are indexed by position before you can use a key, and you cannot skip levels of nesting.",
+      "concept": "JSON paths",
+      "section": 7
+    },
+    {
+      "id": "ccna-rest-apis-json-q26",
+      "type": "match",
+      "difficulty": "medium",
+      "question": "Match each JSON value to its type.",
+      "pairs": [
+        {
+          "left": "\"Gi1/0/1\"",
+          "right": "String"
+        },
+        {
+          "left": "1500",
+          "right": "Number"
+        },
+        {
+          "left": "false",
+          "right": "Boolean"
+        },
+        {
+          "left": "null",
+          "right": "Null"
+        },
+        {
+          "left": "[10, 20, 30]",
+          "right": "Array"
+        },
+        {
+          "left": "{\"vlan\": 10}",
+          "right": "Object"
+        }
+      ],
+      "explanation": "Double quotes make a string, bare digits a number, true or false a boolean, null the absence of a value, square brackets an array and curly braces an object.",
+      "concept": "JSON value types",
+      "section": 6
+    },
+    {
+      "id": "ccna-rest-apis-json-q27",
+      "type": "mcq",
+      "difficulty": "medium",
+      "question": "What Python types does `data` contain after this line runs?",
+      "code": "import json\ndata = json.loads(reply_text)   # reply_text holds a JSON object containing an array",
+      "language": "python",
+      "choices": [
+        "A list containing a tuple",
+        "A dict containing a list",
+        "One long str, because JSON is text",
+        "A set containing a dict"
+      ],
+      "answer": 1,
+      "explanation": "Python's json module maps JSON objects to dicts and arrays to lists (and true, false and null to True, False and None), so you navigate the result with normal indexing.",
+      "concept": "JSON in Python",
+      "section": 8
+    },
+    {
+      "id": "ccna-rest-apis-json-q28",
+      "type": "mcq",
+      "difficulty": "easy",
+      "question": "What is the difference between the Accept and Content-Type headers in a REST request?",
+      "choices": [
+        "Accept carries credentials; Content-Type carries the URI",
+        "Accept says which format the client wants back; Content-Type says which format the body is in",
+        "They are two names for the same header",
+        "Accept is set by the server; Content-Type only appears in responses"
+      ],
+      "answer": 1,
+      "explanation": "Accept negotiates the response format, for example application/json. Content-Type labels the body actually being sent, in requests that have a body and in most responses.",
+      "concept": "Accept vs Content-Type",
+      "section": 1
+    },
+    {
+      "id": "ccna-rest-apis-json-q29",
+      "type": "multi",
+      "difficulty": "easy",
+      "question": "Which two data formats do REST APIs used for network automation most commonly return? Choose two.",
+      "choices": [
+        "JSON",
+        "XML",
+        "YAML",
+        "JavaScript",
+        "CSV"
+      ],
+      "answers": [
+        0,
+        1
+      ],
+      "explanation": "JSON is the default, and many APIs (RESTCONF among them) also offer XML. YAML is common for configuration files such as Ansible playbooks but rarely as an API response, and JavaScript is a programming language, not a data format.",
+      "concept": "data encoding formats",
+      "section": 5
+    },
+    {
+      "id": "ccna-rest-apis-json-q30",
+      "type": "mcq",
+      "difficulty": "hard",
+      "question": "`GET /restconf/data/ietf-interfaces:interfaces/interface=GigabitEthernet1` works, but the same request for `interface=GigabitEthernet1/0/1` on a switch returns an error. What is the most likely fix?",
+      "choices": [
+        "Change the method to POST",
+        "Put the interface name in the request body instead",
+        "Ask for XML instead of JSON in the Accept header",
+        "URL-encode the slashes in the interface name as %2F"
+      ],
+      "answer": 3,
+      "explanation": "A / in the name is read as a path separator, so the server looks for the wrong resource. Encoding it as GigabitEthernet1%2F0%2F1 keeps the name as one value.",
+      "concept": "URL encoding keys",
+      "section": 7
+    },
+    {
+      "id": "ccna-rest-apis-json-q31",
+      "type": "recall",
+      "difficulty": "medium",
+      "question": "What does it mean for a REST API to be stateless, and what does that mean for authentication?",
+      "answer": "The server keeps no session memory between requests, so each request must carry everything needed to process it. Credentials or a token therefore have to be sent with every request.",
+      "explanation": "This is why APIs use headers like Authorization or X-Auth-Token on each call instead of a login session.",
+      "concept": "stateless REST",
+      "section": 0
+    },
+    {
+      "id": "ccna-rest-apis-json-q32",
+      "type": "mcq",
+      "difficulty": "easy",
+      "question": "Which data encoding is this?",
+      "code": "<vlan>\n  <id>30</id>\n  <name>VOICE</name>\n</vlan>",
+      "language": "html",
+      "choices": [
+        "JSON",
+        "YAML",
+        "XML",
+        "HCL"
+      ],
+      "answer": 2,
+      "explanation": "Matching start and end tags in angle brackets mark XML. JSON uses braces and quoted keys, and YAML uses indented key: value lines with no brackets.",
+      "concept": "recognize XML",
+      "section": 5
+    },
+    {
+      "id": "ccna-rest-apis-json-q33",
+      "type": "match",
+      "difficulty": "medium",
+      "question": "Match each format or language to where you usually meet it.",
+      "pairs": [
+        {
+          "left": "JSON",
+          "right": "Default body format of REST APIs"
+        },
+        {
+          "left": "XML",
+          "right": "The encoding NETCONF uses"
+        },
+        {
+          "left": "YAML",
+          "right": "Ansible playbooks and variables files"
+        },
+        {
+          "left": "YANG",
+          "right": "Defines the data model, whatever the encoding"
+        }
+      ],
+      "explanation": "JSON dominates REST, NETCONF speaks XML, and Ansible is written in YAML. YANG is not an encoding at all; it models the data that JSON or XML then carry.",
+      "concept": "formats and where used",
+      "section": 5
+    },
+    {
+      "id": "ccna-rest-apis-json-q34",
+      "type": "mcq",
+      "difficulty": "medium",
+      "question": "A script wants a RESTCONF server to reply in XML. Which header should it send?",
+      "choices": [
+        "Content-Type: application/json",
+        "Authorization: application/xml",
+        "Accept: text/html",
+        "Accept: application/yang-data+xml"
+      ],
+      "answer": 3,
+      "explanation": "Accept tells the server which format the client wants back, and RESTCONF uses the yang-data media types. Content-Type describes a body the client is sending, and Authorization carries credentials.",
+      "concept": "Accept header",
+      "section": 5
+    },
+    {
+      "id": "ccna-rest-apis-json-q35",
+      "type": "multi",
+      "difficulty": "medium",
+      "question": "Which two statements about data serialization are true? Choose two.",
+      "choices": [
+        "The sender serializes its in-memory data into text such as JSON or XML",
+        "The receiver parses that text back into its own data structures",
+        "JSON can only be parsed by programs written in JavaScript",
+        "Serializing data to JSON encrypts it",
+        "XML and JSON cannot represent the same data"
+      ],
+      "answers": [
+        0,
+        1
+      ],
+      "explanation": "Serialization turns data into a shared text format and parsing turns it back, which lets programs in different languages exchange data. Every major language parses JSON, encoding is not encryption, and the same data can be written in either XML or JSON.",
+      "concept": "serialization",
+      "section": 5
+    },
+    {
+      "id": "ccna-rest-apis-json-q36",
+      "type": "cli",
+      "shell": "ios",
+      "difficulty": "medium",
+      "question": "The HTTPS server is already enabled on an IOS XE router. Type the global configuration command that enables the RESTCONF service.",
+      "answer": "restconf",
+      "explanation": "restconf turns on the RESTCONF API, served by the HTTPS server that ip http secure-server enables. Logins also need AAA and a privilege 15 user.",
+      "concept": "enable RESTCONF",
+      "section": 7
+    },
+    {
+      "id": "ccna-rest-apis-json-q37",
+      "type": "mcq",
+      "difficulty": "hard",
+      "question": "An engineer applied this configuration, but every RESTCONF request to R1 fails with connection refused on TCP port 443. What is missing?",
+      "code": "! Configuration applied to R1\naaa new-model\naaa authentication login default local\naaa authorization exec default local\nusername api privilege 15 secret Str0ngPa55\nno ip http secure-server\nrestconf",
+      "language": "cisco",
+      "choices": [
+        "Replace restconf with netconf-yang",
+        "Enable ip http secure-server, because RESTCONF is served by the HTTPS server",
+        "Lower the api user to privilege 1",
+        "Add ip http server, because RESTCONF uses plain HTTP on port 80"
+      ],
+      "answer": 1,
+      "explanation": "RESTCONF runs inside the device HTTPS server, and no ip http secure-server turns that server off, so nothing listens on 443. netconf-yang enables a different protocol, privilege 15 is what RESTCONF logins need, and RESTCONF should never run over plain HTTP.",
+      "concept": "RESTCONF prerequisites",
+      "section": 7
+    },
+    {
+      "id": "ccna-rest-apis-json-q38",
+      "type": "mcq",
+      "difficulty": "hard",
+      "question": "In `https://10.10.20.48/restconf/data/ietf-interfaces:interfaces/interface=Loopback0`, what does `ietf-interfaces:interfaces` identify?",
+      "choices": [
+        "The YANG module (ietf-interfaces) and its top-level container (interfaces)",
+        "A username and password separated by a colon",
+        "The TCP port the API listens on",
+        "A query parameter that filters interfaces"
+      ],
+      "answer": 0,
+      "explanation": "RESTCONF data URIs name the YANG module, a colon, then the node inside it. interface=Loopback0 then selects one list entry by its key. Credentials go in headers, the port would follow the host, and query parameters come after a ?.",
+      "concept": "RESTCONF URI structure",
+      "section": 7
+    },
+    {
+      "id": "ccna-rest-apis-json-q39",
+      "type": "typed",
+      "difficulty": "hard",
+      "question": "How many JSON objects are in this document?",
+      "code": "{\n  \"device\": {\n    \"hostname\": \"R1\",\n    \"interfaces\": [\n      {\"name\": \"Gi0/0\", \"ip\": \"10.1.1.1\", \"enabled\": true},\n      {\"name\": \"Gi0/1\", \"ip\": \"10.1.2.1\", \"enabled\": false}\n    ],\n    \"ntp\": [\"10.0.0.10\", \"10.0.0.11\"]\n  }\n}",
+      "language": "json",
+      "answer": "4",
+      "accept": [
+        "four"
+      ],
+      "explanation": "Count the { characters: the outermost object, the device object and the two interface objects make four. The two arrays (interfaces and ntp) are not objects.",
+      "concept": "counting objects",
+      "section": 8
+    },
+    {
+      "id": "ccna-rest-apis-json-q40",
+      "type": "typed",
+      "difficulty": "hard",
+      "question": "How many key/value pairs are in this document?",
+      "code": "{\n  \"hostname\": \"core-sw1\",\n  \"uptime\": \"41 days, 03:12:44\",\n  \"mgmt\": {\"ip\": \"10.10.22.70\", \"vlan\": 99},\n  \"uplinks\": [\"Te1/1/1\", \"Te1/1/2\"]\n}",
+      "language": "json",
+      "answer": "6",
+      "accept": [
+        "six"
+      ],
+      "explanation": "The outer object has four pairs (hostname, uptime, mgmt and uplinks) and mgmt has two (ip and vlan). There are eight colons, but the two inside the uptime string are text, not separators.",
+      "concept": "counting pairs",
+      "section": 8
+    },
+    {
+      "id": "ccna-rest-apis-json-q41",
+      "type": "mcq",
+      "difficulty": "medium",
+      "question": "After `data = json.loads(reply)` runs on this reply, which expression returns \"acc-sw7\"?",
+      "code": "{\n  \"response\": [\n    {\"hostname\": \"core-sw1\", \"softwareVersion\": \"17.9.4\"},\n    {\"hostname\": \"acc-sw7\", \"softwareVersion\": \"17.6.5\"},\n    {\"hostname\": \"acc-sw8\", \"softwareVersion\": \"17.9.4\"}\n  ],\n  \"version\": \"1.0\"\n}",
+      "language": "json",
+      "choices": [
+        "data[\"response\"][\"hostname\"][1]",
+        "data[1][\"hostname\"]",
+        "data[\"response\"][2][\"hostname\"]",
+        "data[\"response\"][1][\"hostname\"]"
+      ],
+      "answer": 3,
+      "explanation": "data is a dict; data[\"response\"] is the list of devices; index 1 is the second device, acc-sw7; and [\"hostname\"] reads its name. A list must be indexed by position before a key can be used, and data itself is not a list.",
+      "concept": "JSON paths in Python",
+      "section": 8
+    },
+    {
+      "id": "ccna-rest-apis-json-q42",
+      "type": "mcq",
+      "difficulty": "hard",
+      "question": "Which description of this JSON is correct?",
+      "code": "{\"vlans\": [{\"id\": 10}, {\"id\": 20}], \"trunk\": true}",
+      "language": "json",
+      "choices": [
+        "3 objects, 1 array and 4 key/value pairs",
+        "1 object, 1 array and 2 key/value pairs",
+        "3 objects, 2 arrays and 4 key/value pairs",
+        "2 objects, 1 array and 3 key/value pairs"
+      ],
+      "answer": 0,
+      "explanation": "There are three { (the outer object and two VLAN objects), one [ (vlans), and four colons outside strings: vlans, id, id and trunk. The inner objects count too.",
+      "concept": "counting JSON parts",
+      "section": 8
+    },
+    {
+      "id": "ccna-rest-apis-json-q43",
+      "type": "debug",
+      "difficulty": "medium",
+      "question": "A JSON parser rejects this document. What is wrong?",
+      "code": "{\n  \"hostname\": \"R2\"\n  \"loopback\": \"2.2.2.2\",\n  \"ospf\": true\n}",
+      "language": "json",
+      "choices": [
+        "The IP address must be a number, not a string",
+        "There is no comma after \"R2\", between the first and second pairs",
+        "Booleans must be written in quotes",
+        "Keys cannot contain lowercase letters"
+      ],
+      "answer": 1,
+      "explanation": "Pairs in an object are separated by commas, and the first pair is missing its comma. Addresses are normally strings, true is correctly unquoted, and any string can be a key.",
+      "concept": "missing comma",
+      "section": 6
+    },
+    {
+      "id": "ccna-rest-apis-json-q44",
+      "type": "mcq",
+      "difficulty": "medium",
+      "question": "In OAuth 2.0, what does the client send to the API on each request?",
+      "choices": [
+        "The user's username and password in Base64",
+        "A client certificate and nothing else",
+        "An access token issued by an authorization server, usually as a bearer token",
+        "Nothing, because the API keeps a session after the first login"
+      ],
+      "answer": 2,
+      "explanation": "OAuth 2.0 separates login from API access: an authorization server issues a short-lived, scoped access token, and the client presents it as Authorization: Bearer <token>. The API never sees the password, and REST APIs keep no session.",
+      "concept": "OAuth 2.0 tokens",
+      "section": 4
+    },
+    {
+      "id": "ccna-rest-apis-json-q45",
+      "type": "mcq",
+      "difficulty": "easy",
+      "question": "A script sends DELETE /api/v1/devices and gets 405 Method Not Allowed. What does that tell it?",
+      "choices": [
+        "The resource exists, but it does not support the DELETE method",
+        "The token has expired",
+        "The JSON body is malformed",
+        "The server crashed"
+      ],
+      "answer": 0,
+      "explanation": "405 means the path is valid but not for that verb; the API refuses to delete the whole device collection. An expired token gives 401, a malformed body 400, and a server failure 5xx.",
+      "concept": "405 Method Not Allowed",
+      "section": 3
+    }
+  ]
+}

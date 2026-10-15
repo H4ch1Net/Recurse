@@ -1,0 +1,1072 @@
+{
+  "id": "ccna-stp",
+  "name": "Spanning Tree",
+  "version": "1.1.0",
+  "author": "Recurse",
+  "subject": "networking",
+  "level": "intermediate",
+  "description": "Elect the root, assign Rapid PVST+ roles, read show spanning-tree and place PortFast, BPDU guard and filter, root and loop guard.",
+  "icon": "STP",
+  "language": "cisco",
+  "prereqs": [
+    "ccna-vlans",
+    "ccna-trunking"
+  ],
+  "tags": [
+    "ccna",
+    "2.5",
+    "stp",
+    "rapid-pvst",
+    "switching",
+    "bpdu-guard"
+  ],
+  "resources": [
+    {
+      "title": "Free CCNA course (Jeremy's IT Lab)",
+      "url": "https://www.youtube.com/playlist?list=PLxbwE86jKRgMpuZuLBivzlM8s2Dk5lXBQ",
+      "kind": "video",
+      "note": "Free video course; the STP and RSTP days include election practice."
+    },
+    {
+      "title": "Understand Rapid Spanning Tree Protocol (802.1w)",
+      "url": "https://www.cisco.com/c/en/us/support/docs/lan-switching/spanning-tree-protocol/24062-146.html",
+      "kind": "docs",
+      "note": "Cisco tech note on RSTP roles, states and proposal/agreement."
+    },
+    {
+      "title": "Understand PortFast and BPDU Guard",
+      "url": "https://www.cisco.com/c/en/us/support/docs/lan-switching/spanning-tree-protocol/10586-65.html",
+      "kind": "docs",
+      "note": "How PortFast and BPDU guard behave, with sample output."
+    },
+    {
+      "title": "Enhance STP with Root Guard",
+      "url": "https://www.cisco.com/c/en/us/support/docs/lan-switching/spanning-tree-protocol/10588-74.html",
+      "kind": "docs",
+      "note": "Where root guard belongs and what root-inconsistent looks like."
+    },
+    {
+      "title": "Understand STP Loop Guard and UDLD",
+      "url": "https://www.cisco.com/c/en/us/support/docs/lan-switching/spanning-tree-protocol/10596-84.html",
+      "kind": "docs",
+      "note": "Unidirectional links and how loop guard stops the resulting loops."
+    },
+    {
+      "title": "CCNA 200-301 Official Cert Guide, Volume 1",
+      "url": "https://www.ciscopress.com/store/ccna-200-301-official-cert-guide-volume-1-9780138229634",
+      "kind": "book",
+      "note": "Odom's two STP chapters: concepts, then RSTP configuration."
+    }
+  ],
+  "lesson": {
+    "estimatedMinutes": 40,
+    "intro": "Redundant links between switches keep the network up when a cable or switch fails, but without spanning tree they would bring the network down in seconds. Spanning Tree Protocol finds the loops and blocks just enough ports to break them, then unblocks a backup when something fails. The CCNA asks you to interpret Rapid PVST+: which switch becomes root and why, what role each port plays, how PortFast speeds up edge ports, and which protection feature (BPDU guard, BPDU filter, root guard, loop guard) belongs where.",
+    "objectives": [
+      "Explain the three problems a Layer 2 loop causes and how STP prevents them",
+      "Elect the root bridge from bridge IDs, set primary and secondary roots per VLAN, and choose root, designated and alternate ports using path cost",
+      "Describe Rapid PVST+ port roles, states and link types and interpret show spanning-tree output",
+      "Configure PortFast and BPDU guard and choose between BPDU guard, BPDU filter, root guard and loop guard for a given port",
+      "Recognize err-disabled and inconsistent ports in show command output and recover them correctly"
+    ],
+    "sections": [
+      {
+        "title": "Why a loop takes the network down",
+        "body": "Three switches are cabled in a triangle so that any one link can fail without cutting anyone off. A PC sends a single broadcast, an ARP request. SW1 floods it out every port except the one it arrived on, including toward SW2 and SW3. They flood it too, back toward each other and toward SW1. The copies circle forever and multiply at every switch, because an Ethernet frame has no TTL field to make it expire. Within seconds the links are saturated and the switch CPUs are busy with junk.\n\nThe official guide names three problems in a redundant LAN without STP:\n\n- **Broadcast storms**: frames forwarded around the loop again and again, eating link capacity.\n- **MAC table instability**: copies of a frame arrive from different directions, so switches keep relearning the same source MAC on different ports and forward unicast frames the wrong way.\n- **Multiple frame transmission**: hosts receive several copies of the same frame, which confuses applications.\n\n**Spanning Tree Protocol** (STP, originally IEEE 802.1D) prevents this by putting each port into a forwarding or a blocking state so that exactly one active path exists between any two points: a loop-free tree. A blocked port stays physically up and keeps listening to STP messages, so if an active link fails, STP can unblock it and restore connectivity. You keep the redundancy without the loop.",
+        "code": "                SW1 (root)\n          Gi0/1            Gi0/2\n            |                |\n          Gi0/2            Gi0/1\n           SW2 Gi0/1 ---- Gi0/2 SW3\n                  ^\n           blocked by STP\n\nThe triangle becomes a tree: each switch reaches SW1 directly,\nand the SW2-SW3 link stands by. If SW1-SW2 fails, STP unblocks\nSW2 Gi0/1 and SW2 reaches the root through SW3.",
+        "language": "plaintext",
+        "pitfall": "Treating STP as optional because 'we have no redundant links'. A user plugging both ends of a patch cable into wall jacks, or a cheap unmanaged switch, can create a loop in seconds. Never disable spanning tree.",
+        "check": {
+          "question": "Why does a broadcast frame circle a switched loop indefinitely, while a looping IP packet eventually dies?",
+          "choices": [
+            "Switches cache broadcasts and resend them every second",
+            "IP packets are smaller than Ethernet frames",
+            "Ethernet frames have no TTL field; routers decrement the IP TTL until the packet is dropped",
+            "TCP retransmits each packet only once"
+          ],
+          "answer": 2,
+          "explanation": "Nothing in an Ethernet header limits how many times a switch can forward a frame. IP's TTL is decremented at every router hop, so a routing loop eventually discards the packet."
+        }
+      },
+      {
+        "title": "Electing the root bridge",
+        "body": "STP's first step is choosing one switch as the reference point for the whole tree: the **root bridge** (or root switch). Every other switch then finds its best path to the root.\n\nSwitches exchange **BPDUs** (bridge protocol data units). A Hello BPDU carries the bridge ID of the switch the sender believes is root, the sender's own bridge ID, the sender's cost to reach the root, and timer values. At first every switch claims to be root. When a switch hears a **superior** (lower) root bridge ID, it stops claiming and starts advertising the better root. The switch with the **lowest bridge ID** wins.\n\nThe **bridge ID** (BID) is 8 bytes:\n\n- **Priority**: 4 bits, configured as a multiple of 4096 (0 to 61440). Default 32768.\n- **Extended system ID**: 12 bits holding the VLAN number, because Rapid PVST+ runs one tree per VLAN.\n- **MAC address**: 48 bits, the switch's base MAC, which makes every BID unique.\n\nThe priority shown in show commands is the configured priority plus the VLAN, so a default switch in VLAN 10 shows 32778. Priorities are compared first; only when they tie does the lowest MAC win. With every switch at the default, the oldest switch (often the one with the lowest MAC) becomes root, which is rarely the switch you want in the middle of your network.\n\nWhy the odd multiples of 4096? The priority field was originally a 16-bit number (0 to 65535). When per-VLAN trees arrived, the IEEE carved the low 12 bits off for the VLAN ID, leaving 4 bits of real priority. The command still takes the old 16-bit decimal value, so only values whose low 12 bits are zero are legal: 0, 4096, 8192 and so on up to 61440. To read a shown priority, subtract the VLAN number: 24586 in VLAN 10 means a configured 24576.\n\nThe election never really ends. If a switch with a better bridge ID is plugged in later, it starts claiming to be root, its BPDUs are superior, and every switch recalculates. That is why the root should be chosen on purpose rather than left to MAC addresses, and why the root guard feature later in this lesson exists.",
+        "code": "Bridge ID = priority (4 bits) + extended system ID (12 bits) + MAC (48 bits)\n\nSwitch  Configured priority  VLAN  Shown priority  MAC\nSW1     24576                10    24586           0019.e859.5380\nSW2     32768 (default)      10    32778           0019.e86a.6f80\nSW3     32768 (default)      10    32778           0019.e811.0a00\n\nRoot for VLAN 10: SW1 (lowest priority, so MACs are never compared)\nIf SW1 were also 32768: SW3 would win (lowest MAC, 0019.e811...)",
+        "language": "plaintext",
+        "pitfall": "Trying to set a priority that is not a multiple of 4096, such as 10000. IOS rejects it, because the low 12 bits of the field belong to the VLAN ID.",
+        "activity": {
+          "type": "stp-election",
+          "title": "Who becomes root?",
+          "prompt": "Before changing anything, predict the root bridge from the priorities and MAC addresses. Then lower a different switch's priority to 4096 and predict the new root ports and the blocked port before you apply it. Finally, raise the cost of one link and watch which port blocks."
+        },
+        "check": {
+          "question": "Three switches use default STP settings in VLAN 1. Which one becomes the root bridge?",
+          "choices": [
+            "The one with the highest MAC address",
+            "The one with the most ports",
+            "The one that booted first",
+            "The one with the lowest MAC address"
+          ],
+          "answer": 3,
+          "explanation": "With equal priorities (32769 in VLAN 1), the lowest MAC address breaks the tie. Boot order and port count do not matter, because the election continues whenever a better BID appears."
+        }
+      },
+      {
+        "title": "Choosing the root: primary, secondary and per-VLAN load sharing",
+        "body": "Pick the root on purpose, per VLAN, with one of three global commands:\n\n- `spanning-tree vlan 10 priority 4096` sets an explicit value.\n- `spanning-tree vlan 10 root primary` makes the switch choose **24576**, or **4096 less than the current root's priority** if the current root is already at 24576 or lower.\n- `spanning-tree vlan 10 root secondary` always sets **28672**: lower than every default switch (32768), higher than the primary, so this switch takes over if the primary root fails.\n\nBoth root commands are macros: the running configuration stores the resulting `spanning-tree vlan 10 priority` value, not the words root primary. One command can cover a list, as in `spanning-tree vlan 1,10,20 root primary`.\n\nBecause Rapid PVST+ runs a separate tree per VLAN, you can split the work. In the classic design two distribution switches share the VLANs: DSW1 is primary root for VLANs 10 and 30 and secondary for 20 and 40, and DSW2 is the reverse. Each access switch's uplink to DSW1 forwards for VLANs 10 and 30 and is an alternate (discarding) port for 20 and 40, while its uplink to DSW2 does the opposite. Both uplinks carry traffic, and if either distribution switch fails, the secondary root takes over its VLANs.\n\nThat per-VLAN behavior shows up in the BPDUs too. Rapid PVST+ sends one set of BPDUs per VLAN, inside that VLAN (tagged on trunks), to Cisco's multicast MAC 0100.0CCC.CCCD, with an extra field naming the VLAN. Standard IEEE RSTP sends a single set of untagged BPDUs to 0180.C200.0000 and builds one tree for all VLANs.",
+        "code": "! Load sharing between two distribution switches\nDSW1(config)# spanning-tree vlan 10,30 root primary\nDSW1(config)# spanning-tree vlan 20,40 root secondary\n\nDSW2(config)# spanning-tree vlan 20,40 root primary\nDSW2(config)# spanning-tree vlan 10,30 root secondary\n\n! What DSW1 actually stores (no current root was below 24576)\nDSW1# show running-config | include spanning-tree vlan\nspanning-tree vlan 10,30 priority 24576\nspanning-tree vlan 20,40 priority 28672",
+        "tip": "Exam shortcut: root primary = 24576 (or 4096 below the current root), root secondary = 28672, default = 32768. Add the VLAN number to get what show spanning-tree prints.",
+        "pitfall": "Expecting root primary to keep tracking the network. It is a one-time calculation stored as a fixed priority; if a switch with 20480 appears later, your \"primary\" loses.",
+        "check": {
+          "question": "SW2 is currently root for VLAN 10 with priority 24576. You enter spanning-tree vlan 10 root primary on SW1. Which priority does SW1 configure?",
+          "choices": [
+            "24576",
+            "20480",
+            "28672",
+            "0"
+          ],
+          "answer": 1,
+          "explanation": "root primary chooses 24576 unless the current root is already at 24576 or lower; then it picks 4096 less than the current root, here 20480, so SW1 wins outright. 28672 is the root secondary value."
+        }
+      },
+      {
+        "title": "Root ports, designated ports and cost",
+        "body": "With the root chosen, each port gets a role based on **cost**, an integer per port per VLAN. Cisco's defaults come from the speed the port is running at (the original IEEE short values):\n\n- 10 Mbps: 100\n- 100 Mbps: 19\n- 1 Gbps: 4\n- 10 Gbps: 2\n\n(The global command `spanning-tree pathcost method long` switches to the newer 32-bit values, such as 20,000 for 1 Gbps.) Cost follows the operating speed, so a gigabit port that negotiated 100 Mbps costs 19.\n\nThe root sends Hellos with a root cost of 0. A switch adds the cost of the port where a Hello arrives to the cost listed in it; that total is its **root cost** through that port. Then three rules decide every role:\n\n1. **Root port (RP)**: on every non-root switch, the one port with the lowest root cost. Ties are broken by the lowest neighbor bridge ID, then the lowest neighbor port priority, then the lowest neighbor port number.\n2. **Designated port (DP)**: on every link, the port on the switch that advertises the lowest root cost onto that link; a tie goes to the lower bridge ID. All working ports on the root bridge are designated.\n3. Every other port is not needed and discards. In Rapid PVST+ it is called an **alternate port**: a ready-made backup path to the root.\n\nYou can steer these choices with two interface commands: `spanning-tree [vlan 10] cost 2` overrides a port's cost (for all VLANs or one), and `spanning-tree [vlan 10] port-priority 64` changes the port priority a neighbor uses as a tiebreaker. Lowering cost on the path you prefer is the usual tool.\n\nWork the triangle with the BIDs from the bridge ID section, every link 1 Gbps (cost 4). SW2 and SW3 each reach the root directly for cost 4, so their ports facing SW1 are root ports, and SW1's ports are designated. On the SW2 to SW3 link both switches advertise a root cost of 4, a tie, so the lower bridge ID wins. The priorities are equal, and SW3 has the lower MAC, so SW3's Gi0/2 is designated and SW2's Gi0/1 becomes the alternate port and discards.",
+        "code": "                SW1 (root)  24586:0019.e859.5380\n          DP Gi0/1                 DP Gi0/2\n              |  cost 4                |  cost 4\n          RP Gi0/2                 RP Gi0/1\n SW2  32778:0019.e86a.6f80   SW3  32778:0019.e811.0a00\n          ALT Gi0/1 ----------------- Gi0/2 DP\n          (discarding)",
+        "language": "plaintext",
+        "pitfall": "Choosing the root port by the cost of the local link alone. Root cost is the whole path: the cost in the received Hello plus the cost of the port it arrived on.",
+        "check": {
+          "question": "SW3 can reach the root through Gi0/1 (received root cost 0, port cost 19) or Gi0/2 (received root cost 4, port cost 4). Which is SW3's root port?",
+          "choices": [
+            "Gi0/1, because it connects directly to the root",
+            "Gi0/2, with a root cost of 8",
+            "Gi0/1, with a root cost of 19",
+            "Neither; the paths tie"
+          ],
+          "answer": 1,
+          "explanation": "Gi0/1 totals 0 + 19 = 19, and Gi0/2 totals 4 + 4 = 8. The lower total wins, so Gi0/2 is the root port even though Gi0/1 is the direct link to the root."
+        }
+      },
+      {
+        "title": "Rapid PVST+: roles, states and speed",
+        "body": "The original 802.1D STP was slow. When a switch stopped hearing Hellos on its root port, it waited up to the **MaxAge** timer (20 seconds), then spent the **forward delay** (15 seconds) in the listening state and another 15 seconds in learning before forwarding: up to 50 seconds of outage. Its states were blocking, listening, learning, forwarding and disabled, and its root sent a Hello every 2 seconds.\n\n**Rapid STP** (RSTP, IEEE 802.1w) uses exactly the same election rules but usually converges in a second or two. Neighbors on point-to-point links agree on roles with a quick proposal and agreement exchange instead of waiting on timers, every switch sends its own Hellos, and a neighbor is considered lost after three missed Hellos (about 6 seconds). Best of all, when a root port fails, a switch can turn its **alternate port** into the new root port and start forwarding immediately, because that port already hears the same root.\n\nRSTP has three port states:\n\n- **Discarding**: no forwarding, no MAC learning (it replaces blocking, listening and disabled).\n- **Learning**: learning MACs, not forwarding yet.\n- **Forwarding**: forwarding and learning.\n\nAnd five roles: **root**, **designated**, **alternate** (a backup path to the root), **backup** (a second port on the same switch connected to the same shared segment, which needs a hub and is rare today) and **disabled**. RSTP also classifies each port's link type: **point-to-point** (full duplex, the normal switch-to-switch case), **shared** (half duplex) and **edge** (a PortFast port to an end device).\n\nCisco switches run one spanning tree **per VLAN**. **PVST+** is per-VLAN 802.1D; **Rapid PVST+** is per-VLAN RSTP and the mode the CCNA expects (`spanning-tree mode rapid-pvst`). Per-VLAN trees let you make SW1 root for VLAN 10 and SW2 root for VLAN 20, so each uplink forwards for some VLANs instead of one uplink sitting idle. **MSTP** (802.1s) maps many VLANs onto a few instances.\n\nWhat happens when something breaks? If a switch's root port fails, it promotes its alternate port to root port and forwards at once. If a new link comes up between two switches, the designated side sends a proposal, the other side briefly blocks its other non-edge ports and answers with an agreement, and the link forwards in well under a second. In both cases the switch that changed sends a topology change notice so other switches flush the MAC addresses they learned on affected ports and relearn them on the new path. Edge (PortFast) ports going up and down cause no topology change at all, which is one more reason to configure PortFast on every end-device port.",
+        "code": "802.1D state   Forwards?  Learns MACs?   RSTP state\nDisabled       No         No             Discarding\nBlocking       No         No             Discarding\nListening      No         No             (not used)\nLearning       No         Yes            Learning\nForwarding     Yes        Yes            Forwarding\n\nDefault timers: Hello 2 s, MaxAge 20 s, Forward delay 15 s\n\nspanning-tree mode   Name          Based on   Trees\npvst                 PVST+         802.1D     one per VLAN\nrapid-pvst           Rapid PVST+   802.1w     one per VLAN\nmst                  MSTP          802.1s     one per instance",
+        "language": "plaintext",
+        "pitfall": "Confusing alternate and backup ports. Alternate: a different path to the root, the one you will meet constantly. Backup: a second port on the same shared segment, which only happens with hubs.",
+        "check": {
+          "question": "In Rapid PVST+, a port receives Hellos from the root bridge but offers a worse path than the root port, so it is discarding. What is its role?",
+          "choices": [
+            "Alternate",
+            "Backup",
+            "Designated",
+            "Disabled"
+          ],
+          "answer": 0,
+          "explanation": "An alternate port is a backup path to the root through another switch, kept discarding until the root port fails. A backup port backs up a designated port on a shared segment."
+        }
+      },
+      {
+        "title": "Reading show spanning-tree",
+        "body": "show spanning-tree vlan 10 answers nearly every STP question in three blocks.\n\n- **Root ID**: the root bridge's priority and MAC address. If this switch is the root, you see 'This bridge is the root'. Otherwise you see this switch's root cost and its root port.\n- **Bridge ID**: this switch's own priority (shown as the total plus the breakdown, priority and sys-id-ext) and MAC address, plus timers.\n- **Interface table**: one line per port: Role (Root, Desg, Altn, Back), Sts (FWD, BLK for discarding, LRN), Cost, Prio.Nbr (port priority, default 128, and port number) and Type (P2p, Shr, plus Edge for PortFast ports).\n\nIn the exhibit SW2 is not the root. The root's priority is 24586 (24576 plus VLAN 10) and its MAC belongs to SW1. SW2's root cost is 4 through Gi0/2, its root port. Gi0/1 is the alternate port, discarding (shown as BLK). Fa0/11 is a designated port of type Edge, so PortFast is enabled on it.\n\nTo find the root in a multi-switch exhibit, compare each switch's Root ID with its Bridge ID: the switch where they match (and that says 'This bridge is the root') is the root. Then, on every other switch, the Port line under Root ID names the root port.",
+        "code": "SW2# show spanning-tree vlan 10\n\nVLAN0010\n  Spanning tree enabled protocol rstp\n  Root ID    Priority    24586\n             Address     0019.e859.5380\n             Cost        4\n             Port        26 (GigabitEthernet0/2)\n             Hello Time   2 sec  Max Age 20 sec  Forward Delay 15 sec\n\n  Bridge ID  Priority    32778  (priority 32768 sys-id-ext 10)\n             Address     0019.e86a.6f80\n             Hello Time   2 sec  Max Age 20 sec  Forward Delay 15 sec\n             Aging Time  300 sec\n\nInterface           Role Sts Cost      Prio.Nbr Type\n------------------- ---- --- --------- -------- --------------------------------\nGi0/1               Altn BLK 4         128.25   P2p\nGi0/2               Root FWD 4         128.26   P2p\nFa0/11              Desg FWD 19        128.11   P2p Edge",
+        "pitfall": "Reading BLK in Rapid PVST+ output as the old 802.1D blocking state. IOS still prints BLK for a discarding port; the Role column (Altn or Back) tells you why it discards.",
+        "check": {
+          "question": "show spanning-tree vlan 10 on a switch says 'This bridge is the root'. What role do this switch's working ports have in VLAN 10?",
+          "choices": [
+            "Root",
+            "Alternate",
+            "Designated",
+            "Backup"
+          ],
+          "answer": 2,
+          "explanation": "The root bridge has no root port; every working port on it is designated and forwarding. Root ports exist only on non-root switches."
+        }
+      },
+      {
+        "title": "PortFast: edge ports skip the wait",
+        "body": "A user plugs in a laptop. Without help, the port must go through spanning tree's checks before forwarding; with classic 802.1D that is 30 seconds of listening and learning, long enough for the laptop's DHCP request to time out. A port connected to a single end device can never create a loop, so the wait is pointless.\n\n**PortFast** moves such a port straight to forwarding as soon as the link comes up. In Rapid PVST+, a PortFast port is an **edge port** (Type shows Edge). If an edge port ever receives a BPDU, it loses its edge status and behaves like a normal spanning tree port.\n\nEnable it on one port with `spanning-tree portfast`, or for every access port with the global command `spanning-tree portfast default` (it applies only to ports operating as access ports; disable it on a single port with `spanning-tree portfast disable`). IOS prints a warning, because PortFast toward a switch can cause a temporary loop. For a trunk to a server or to a router doing router on a stick, `spanning-tree portfast trunk` enables it on that trunk. Newer IOS releases add the keyword edge (`spanning-tree portfast edge`), with the same meaning.\n\nRemember that on Catalyst switches, configuring a voice VLAN on a port turns PortFast on automatically, since an IP phone is an end device.\n\nPortFast is a speed feature, not a safety feature. That is why it is almost always paired with BPDU guard, next.",
+        "code": "SW1(config)# interface fastethernet0/11\nSW1(config-if)# spanning-tree portfast\n%Warning: portfast should only be enabled on ports connected to a single\n host. Connecting hubs, concentrators, switches, bridges, etc... to this\n interface  when portfast is enabled, can cause temporary bridging loops.\n Use with CAUTION\n\n%Portfast has been configured on FastEthernet0/11 but will only\n have effect when the interface is in a non-trunking mode.\n\n! Or for every access port at once:\nSW1(config)# spanning-tree portfast default",
+        "pitfall": "Enabling PortFast on a link to another switch. You skip the checks that prevent loops; keep PortFast for end devices (and the special trunk case of servers and routers).",
+        "check": {
+          "question": "What does PortFast change on an access port?",
+          "choices": [
+            "It disables spanning tree on the port completely",
+            "It moves the port to forwarding immediately instead of waiting through listening and learning",
+            "It raises the port to its maximum speed",
+            "It makes the port the switch's root port"
+          ],
+          "answer": 1,
+          "explanation": "PortFast skips the transitional states so the end device gets connectivity at once. STP still runs on the port: if a BPDU arrives, the port stops being an edge port."
+        }
+      },
+      {
+        "title": "BPDU guard and BPDU filter",
+        "body": "End devices never send BPDUs; only switches and bridges do. So a BPDU arriving on a PortFast port means something is wrong: a user plugged in a small switch, or an attacker connected a device with a low priority to become root and see traffic.\n\n**BPDU guard** reacts by putting the port into the **err-disabled** state the moment any BPDU arrives. The port shuts down and stays down until someone deals with it. The official guide lists the threats it blocks: an attacker who plugs in a switch with a low priority to become root and see traffic, and an innocent user who adds a cheap switch that could create a loop.\n\n- Per interface: `spanning-tree bpduguard enable`.\n- Globally: `spanning-tree portfast bpduguard default`, which applies BPDU guard to every PortFast port.\n- Recovery: remove the offending device, then enter `shutdown` and `no shutdown` on the port, or configure `errdisable recovery cause bpduguard` so the switch retries automatically after the recovery interval (300 seconds by default).\n- Where: access ports facing end devices, together with PortFast.\n\n**BPDU filter** does something different: it suppresses BPDUs. It has two forms that behave very differently:\n\n- Global `spanning-tree portfast bpdufilter default`: PortFast ports stop sending BPDUs after a few at link-up. If a BPDU is received, the port loses PortFast and filtering and runs normal spanning tree. Fairly safe.\n- Interface `spanning-tree bpdufilter enable`: the port neither sends nor processes BPDUs, which effectively turns STP off on that port. Plug a switch into it and you can build a loop that STP cannot see.\n\nUse BPDU filter rarely, only where you must not send BPDUs (for example toward a network you do not control) and you are sure no loop can form. For user ports, BPDU guard is the right tool.",
+        "code": "SW1(config)# interface range fastethernet0/1 - 24\nSW1(config-if-range)# spanning-tree portfast\nSW1(config-if-range)# spanning-tree bpduguard enable\n\n! Later, a switch is plugged into Fa0/5:\n%SPANTREE-2-BLOCK_BPDUGUARD: Received BPDU on port Fa0/5 with BPDU Guard enabled. Disabling port.\n%PM-4-ERR_DISABLE: bpduguard error detected on Fa0/5, putting Fa0/5 in err-disable state\n\nSW1# show interfaces status err-disabled\n\nPort      Name               Status       Reason               Err-disabled Vlans\nFa0/5                        err-disabled bpduguard",
+        "pitfall": "Enabling interface-level BPDU filter on user ports to stop BPDU guard from shutting them down. It removes loop protection entirely. Find and remove the device that is sending BPDUs instead.",
+        "activity": {
+          "type": "ios-console",
+          "title": "Set the root and harden an edge port",
+          "prompt": "Make SW1 the primary root for VLANs 1, 10 and 20 with a single command, then enable PortFast and BPDU guard on access port G0/1. Afterward, run show spanning-tree vlan 10 and predict the Bridge ID priority before you look: why should it be 24586 rather than 24576?",
+          "props": {
+            "lab": "cl-d2-stp"
+          }
+        },
+        "check": {
+          "question": "A user plugs a small switch into an access port configured with PortFast and BPDU guard. The small switch sends BPDUs. What happens?",
+          "choices": [
+            "The small switch becomes the root bridge",
+            "The port loses PortFast but keeps forwarding",
+            "The BPDUs are silently dropped and the port keeps forwarding",
+            "The access port is err-disabled"
+          ],
+          "answer": 3,
+          "explanation": "BPDU guard err-disables the port on the first BPDU. Without BPDU guard, the port would simply lose edge status and run normal STP; with interface BPDU filter, the BPDUs would be ignored."
+        }
+      },
+      {
+        "title": "Root guard and loop guard",
+        "body": "Two more features protect the shape of the tree rather than edge ports.\n\n**Root guard** (`spanning-tree guard root`) stops a port from ever becoming a root port. You put it on **designated ports** that face switches that must never become root: typically a distribution switch's downlinks to access switches, or a link to a network you do not manage. If a **superior BPDU** (one advertising a better root) arrives, the port moves to the **root-inconsistent** state: it discards traffic and the existing root stays root. When the superior BPDUs stop, the port recovers on its own. Nothing is err-disabled.\n\n**Loop guard** (`spanning-tree guard loop`, or globally `spanning-tree loopguard default`) protects ports that are supposed to keep receiving BPDUs: **root and alternate ports** on switch-to-switch links. Normally, if an alternate port stops hearing BPDUs, STP assumes the far side is gone and moves the port to designated and forwarding. If the BPDUs stopped because of a **unidirectional link** (say one fiber strand failed, so frames flow only one way), that move creates a loop. With loop guard, a port that stops receiving BPDUs goes **loop-inconsistent** (discarding) instead, and recovers automatically when BPDUs return.\n\nRoot guard and loop guard are set with the same guard command, so a port has one or the other, never both. Side by side, the four protection features look like this:",
+        "code": "BPDU guard   spanning-tree bpduguard enable\n  Trigger:   any BPDU arrives\n  Action:    err-disable the port (manual or errdisable recovery)\n  Where:     PortFast access ports facing end devices\n\nBPDU filter  spanning-tree bpdufilter enable (interface form)\n  Trigger:   none; it suppresses BPDUs\n  Action:    port neither sends nor processes BPDUs (STP is off there)\n  Where:     rarely, where BPDUs must not be sent\n\nRoot guard   spanning-tree guard root\n  Trigger:   a superior BPDU arrives\n  Action:    root-inconsistent: discard, recovers when it stops\n  Where:     designated ports toward switches that must never be root\n\nLoop guard   spanning-tree guard loop\n  Trigger:   expected BPDUs stop arriving\n  Action:    loop-inconsistent: discard, recovers when BPDUs return\n  Where:     root and alternate ports on switch-to-switch links",
+        "language": "plaintext",
+        "pitfall": "Putting root guard on a switch's root port. Root guard blocks any port that hears a better root, so on the port that leads to the real root it would cut the switch off. Use it on designated ports facing downstream.",
+        "check": {
+          "question": "A distribution switch should never accept an access switch as the root bridge. Which feature belongs on its downlinks to the access switches?",
+          "choices": [
+            "Loop guard",
+            "Root guard",
+            "PortFast",
+            "BPDU filter"
+          ],
+          "answer": 1,
+          "explanation": "Root guard on those designated ports blocks them (root-inconsistent) if an access switch advertises a superior BPDU, so the intended root keeps its place. Loop guard protects against BPDUs disappearing, not against a better root appearing."
+        }
+      },
+      {
+        "title": "Verifying PortFast and the guard features",
+        "body": "Configuring protection is only half the job; you also need to recognize it working in exhibits.\n\n- **show spanning-tree summary** shows the global state: the mode (rapid-pvst), the VLANs this switch is root for, EtherChannel misconfig guard, and the global defaults for PortFast, PortFast BPDU Guard, PortFast BPDU Filter and Loopguard.\n- **show spanning-tree interface gi0/1 detail** shows one port, including lines such as The port is in the portfast mode, Bpdu guard is enabled, Root guard is enabled on the port or Loop guard is enabled on the port, and the count of BPDUs sent and received. Received 0 is exactly what an edge port should show.\n- **show spanning-tree vlan 10** marks a port that a guard is blocking with BKN* in the Sts column and the reason in the Type column: *ROOT_Inc (root guard heard a superior BPDU), *LOOP_Inc (loop guard stopped hearing BPDUs) or *PVID_Inc (the native VLANs on the trunk differ). **show spanning-tree inconsistentports** lists every such port in one place.\n- **show interfaces status err-disabled** lists ports shut down by BPDU guard (reason bpduguard) or other err-disable causes, and **show errdisable recovery** shows whether automatic recovery is configured.\n\nKeep the two recovery models straight. Root guard, loop guard and the native VLAN check only block the port while the problem lasts and unblock it automatically. BPDU guard err-disables the port, which stays down until you bounce it with shutdown and no shutdown or errdisable recovery brings it back.",
+        "code": "SW1# show spanning-tree summary\nSwitch is in rapid-pvst mode\nRoot bridge for: VLAN0010, VLAN0030\nEtherChannel misconfig guard            is enabled\nExtended system ID                      is enabled\nPortfast Default                        is enabled\nPortFast BPDU Guard Default             is enabled\nPortfast BPDU Filter Default            is disabled\nLoopguard Default                       is disabled\n! counters omitted\n\nSW1# show spanning-tree vlan 10 | begin Interface\nInterface           Role Sts Cost      Prio.Nbr Type\n------------------- ---- --- --------- -------- --------------------------------\nGi0/1               Desg BKN*4         128.1    P2p *ROOT_Inc\nGi0/2               Desg FWD 4         128.2    P2p\nFa0/11              Desg FWD 19        128.11   P2p Edge\n\nSW1# show spanning-tree inconsistentports\n\nName                 Interface                Inconsistency\n-------------------- ------------------------ ------------------\nVLAN0010             GigabitEthernet0/1       Root Inconsistent\n\nNumber of inconsistent ports (segments) in the system : 1",
+        "pitfall": "Bouncing a root-inconsistent or loop-inconsistent port with shutdown and no shutdown. It is not err-disabled; it recovers by itself once the cause is gone, so fix the cause (the rogue root or the one-way link) instead.",
+        "check": {
+          "question": "show spanning-tree vlan 10 shows Gi0/1 with Sts BKN* and Type *ROOT_Inc. What happened?",
+          "choices": [
+            "BPDU guard err-disabled the port",
+            "Root guard blocked the port because it received a superior BPDU",
+            "Loop guard blocked the port because BPDUs stopped arriving",
+            "The port is a PortFast edge port waiting to forward"
+          ],
+          "answer": 1,
+          "explanation": "ROOT_Inc means root inconsistent: root guard heard a BPDU claiming a better root on that port and blocks it until those BPDUs stop. Loop guard would show LOOP_Inc, and BPDU guard err-disables the port instead of marking it inconsistent."
+        }
+      }
+    ],
+    "keyTerms": [
+      {
+        "term": "Root bridge",
+        "definition": "The switch with the lowest bridge ID; the reference point of the spanning tree. All its working ports are designated."
+      },
+      {
+        "term": "Bridge ID",
+        "definition": "8-byte switch identifier: 4-bit priority (multiples of 4096), 12-bit extended system ID (the VLAN) and 48-bit MAC."
+      },
+      {
+        "term": "BPDU",
+        "definition": "Bridge protocol data unit: the STP message carrying root ID, sender ID, root cost and timers."
+      },
+      {
+        "term": "Root cost",
+        "definition": "The total STP cost from a switch to the root: the cost in the received Hello plus the receiving port's cost."
+      },
+      {
+        "term": "Root port",
+        "definition": "On a non-root switch, the single port with the lowest root cost toward the root bridge."
+      },
+      {
+        "term": "Designated port",
+        "definition": "On each link, the port of the switch advertising the lowest root cost onto that link; it forwards."
+      },
+      {
+        "term": "Alternate port",
+        "definition": "An RSTP role: a discarding port that offers a backup path to the root and can take over quickly."
+      },
+      {
+        "term": "Rapid PVST+",
+        "definition": "Cisco's per-VLAN version of RSTP (802.1w), set with spanning-tree mode rapid-pvst."
+      },
+      {
+        "term": "PortFast",
+        "definition": "Moves an edge port straight to forwarding; for ports connected to end devices."
+      },
+      {
+        "term": "BPDU guard",
+        "definition": "Err-disables a port as soon as it receives any BPDU; pairs with PortFast on access ports."
+      },
+      {
+        "term": "Root guard",
+        "definition": "Puts a port in root-inconsistent state if it receives a superior BPDU, protecting the chosen root."
+      },
+      {
+        "term": "Loop guard",
+        "definition": "Puts a root or alternate port in loop-inconsistent state if its BPDUs stop, preventing loops from unidirectional links."
+      },
+      {
+        "term": "Extended system ID",
+        "definition": "The 12 bits of the bridge ID priority field that hold the VLAN number, so shown priority = configured priority + VLAN."
+      },
+      {
+        "term": "root primary / root secondary",
+        "definition": "Macros that set priority 24576 (or 4096 below the current root) and 28672; stored as a numeric priority."
+      },
+      {
+        "term": "BPDU filter",
+        "definition": "Suppresses BPDUs: globally on PortFast ports (reverts on a received BPDU), or per interface where it effectively disables STP."
+      },
+      {
+        "term": "Root-inconsistent",
+        "definition": "Blocking state set by root guard while superior BPDUs arrive; shown as *ROOT_Inc and cleared automatically."
+      },
+      {
+        "term": "Loop-inconsistent",
+        "definition": "Blocking state set by loop guard when expected BPDUs stop; shown as *LOOP_Inc and cleared when BPDUs return."
+      },
+      {
+        "term": "Err-disabled",
+        "definition": "A port shut down by the switch (for example by BPDU guard); it stays down until bounced or errdisable recovery acts."
+      }
+    ],
+    "summary": [
+      "Loops cause broadcast storms, MAC table instability and duplicate frames; STP blocks ports so one active path remains.",
+      "The lowest bridge ID (priority plus VLAN, then MAC) becomes root; root primary sets 24576 (or 4096 below the root), root secondary 28672.",
+      "Per-VLAN trees let two distribution switches each be root for half the VLANs so both uplinks carry traffic.",
+      "Each non-root switch picks one root port by lowest root cost; each link gets one designated port; the rest are alternate and discard.",
+      "Rapid PVST+ runs RSTP per VLAN with states discarding, learning and forwarding, converging in about a second.",
+      "show spanning-tree shows Root ID, Bridge ID and each port's role, state, cost and type (Edge means PortFast; BKN* with ROOT_Inc or LOOP_Inc means a guard is blocking).",
+      "PortFast plus BPDU guard on access ports, root guard on designated ports facing downstream, loop guard on root and alternate ports; avoid interface BPDU filter."
+    ],
+    "feynmanPrompt": "Explain to a colleague how three switches in a triangle decide which switch is root and which single port blocks, using bridge ID and root cost, then explain where you would put PortFast, BPDU guard, root guard and loop guard and what each one prevents."
+  },
+  "questions": [
+    {
+      "id": "ccna-stp-q01",
+      "type": "multi",
+      "difficulty": "medium",
+      "question": "Which three problems can a redundant switched network suffer without STP? (Choose three.)",
+      "choices": [
+        "Broadcast storms",
+        "Routing loops between routers",
+        "MAC address table instability",
+        "Duplicate IP address conflicts",
+        "Hosts receiving multiple copies of the same frame"
+      ],
+      "answers": [
+        0,
+        2,
+        4
+      ],
+      "explanation": "The official guide lists broadcast storms, MAC table instability and multiple frame transmission. Routing loops are a Layer 3 problem, and duplicate IPs are an addressing mistake, not a loop symptom.",
+      "concept": "loop problems",
+      "section": 0
+    },
+    {
+      "id": "ccna-stp-q02",
+      "type": "mcq",
+      "difficulty": "easy",
+      "question": "How does STP remove loops from a redundant switched network?",
+      "choices": [
+        "It disables the redundant cables at the physical layer",
+        "It places some ports in a blocking (discarding) state so one active path remains",
+        "It adds a TTL field to Ethernet frames",
+        "It routes frames between VLANs instead of switching them"
+      ],
+      "answer": 1,
+      "explanation": "STP builds a loop-free tree by blocking selected ports. Blocked ports stay up and keep receiving BPDUs, so they can forward again if the active path fails.",
+      "concept": "how STP works",
+      "section": 0
+    },
+    {
+      "id": "ccna-stp-q03",
+      "type": "typed",
+      "difficulty": "easy",
+      "question": "What is the default STP bridge priority on a Cisco switch, before the VLAN ID is added?",
+      "answer": "32768",
+      "explanation": "The default priority is 32768. Show commands display it plus the VLAN ID, for example 32769 in VLAN 1.",
+      "concept": "default priority",
+      "section": 1
+    },
+    {
+      "id": "ccna-stp-q04",
+      "type": "typed",
+      "difficulty": "medium",
+      "question": "A switch uses the default priority. What priority value does show spanning-tree vlan 20 display in its Bridge ID?",
+      "answer": "32788",
+      "explanation": "The extended system ID adds the VLAN number to the configured priority: 32768 + 20 = 32788.",
+      "concept": "extended system ID",
+      "section": 1
+    },
+    {
+      "id": "ccna-stp-q05",
+      "type": "mcq",
+      "difficulty": "medium",
+      "question": "Which switch becomes the root bridge for VLAN 1?",
+      "code": "Switch   Bridge ID priority   MAC address\nSW1      32769                0000.0c11.2222\nSW2      28673                00aa.bbbb.cccc\nSW3      32769                0000.0c00.1111",
+      "language": "plaintext",
+      "choices": [
+        "SW1",
+        "SW3, because it has the lowest MAC address",
+        "SW2, because it has the lowest priority",
+        "No root is elected until priorities match"
+      ],
+      "answer": 2,
+      "explanation": "Priority is compared first, and SW2's 28673 is lowest, so its MAC is never compared. SW3's lower MAC would only matter if the priorities tied.",
+      "concept": "root election",
+      "section": 1
+    },
+    {
+      "id": "ccna-stp-q06",
+      "type": "mcq",
+      "difficulty": "medium",
+      "question": "Which value is accepted by spanning-tree vlan 10 priority?",
+      "choices": [
+        "10000",
+        "8192",
+        "32769",
+        "4095"
+      ],
+      "answer": 1,
+      "explanation": "The priority must be a multiple of 4096 from 0 to 61440, because the low 12 bits hold the VLAN ID. 8192 is 2 x 4096; the others are not multiples of 4096.",
+      "concept": "priority increments",
+      "section": 1
+    },
+    {
+      "id": "ccna-stp-q07",
+      "type": "cli",
+      "shell": "ios",
+      "difficulty": "medium",
+      "question": "Type the global command that makes this switch the root bridge for VLAN 10 using Cisco's macro rather than a numeric priority.",
+      "answer": "spanning-tree vlan 10 root primary",
+      "explanation": "root primary picks 24576, or 4096 less than the current root's priority if needed, and stores the result as spanning-tree vlan 10 priority.",
+      "concept": "root primary",
+      "section": 2
+    },
+    {
+      "id": "ccna-stp-q08",
+      "type": "mcq",
+      "difficulty": "medium",
+      "question": "After spanning-tree vlan 30 root secondary, which priority does the switch use for VLAN 30 (before adding the VLAN ID)?",
+      "choices": [
+        "24576",
+        "4096",
+        "32768",
+        "28672"
+      ],
+      "answer": 3,
+      "explanation": "root secondary always sets 28672: lower than the default 32768 so it wins if the primary fails, but higher than the 24576 typically set by root primary.",
+      "concept": "root secondary",
+      "section": 2
+    },
+    {
+      "id": "ccna-stp-q09",
+      "type": "match",
+      "difficulty": "medium",
+      "question": "Match each link speed to its default Cisco STP port cost (short method).",
+      "pairs": [
+        {
+          "left": "10 Mbps",
+          "right": "100"
+        },
+        {
+          "left": "100 Mbps",
+          "right": "19"
+        },
+        {
+          "left": "1 Gbps",
+          "right": "4"
+        },
+        {
+          "left": "10 Gbps",
+          "right": "2"
+        }
+      ],
+      "explanation": "These are the original IEEE values that Cisco uses by default. The cost follows the speed the port is actually running at.",
+      "concept": "default port costs",
+      "section": 3
+    },
+    {
+      "id": "ccna-stp-q10",
+      "type": "mcq",
+      "difficulty": "hard",
+      "question": "SW4 receives Hellos on two ports. On Gi0/1 (port cost 4) the Hello lists a root cost of 8. On Fa0/1 (port cost 19) the Hello comes straight from the root with a root cost of 0. Which is SW4's root port, and what is its root cost?",
+      "choices": [
+        "Fa0/1, root cost 19",
+        "Fa0/1, because it hears the root directly",
+        "Gi0/1, root cost 12",
+        "Gi0/1, root cost 4"
+      ],
+      "answer": 2,
+      "explanation": "Gi0/1 totals 8 + 4 = 12 and Fa0/1 totals 0 + 19 = 19, so Gi0/1 wins with root cost 12. A direct link to the root is not automatically best; the lowest total cost is.",
+      "concept": "root cost calculation",
+      "section": 3
+    },
+    {
+      "id": "ccna-stp-q11",
+      "type": "order",
+      "difficulty": "hard",
+      "question": "Put the criteria a switch uses to choose its root port in order, from first to last tiebreaker.",
+      "items": [
+        "Lowest root cost",
+        "Lowest neighbor bridge ID",
+        "Lowest neighbor port priority",
+        "Lowest neighbor port number"
+      ],
+      "explanation": "Root cost decides almost every case. If two paths tie, the switch prefers the neighbor with the lower bridge ID, and only parallel links to the same neighbor need the port priority and port number tiebreakers.",
+      "concept": "root port tiebreakers",
+      "section": 3
+    },
+    {
+      "id": "ccna-stp-q12",
+      "type": "mcq",
+      "difficulty": "medium",
+      "question": "Two non-root switches share a link, and both advertise the same root cost onto it. Which port becomes the designated port for that link?",
+      "choices": [
+        "The port on the switch with the lower bridge ID",
+        "The port on the switch with the higher MAC address",
+        "Both ports become designated",
+        "The port with the lower port number, on either switch"
+      ],
+      "answer": 0,
+      "explanation": "The designated port is chosen by lowest advertised root cost, and a tie goes to the lower bridge ID. The other switch's port becomes an alternate port.",
+      "concept": "designated port tiebreak",
+      "section": 3
+    },
+    {
+      "id": "ccna-stp-q13",
+      "type": "multi",
+      "difficulty": "medium",
+      "question": "Which three are RSTP port states? (Choose three.)",
+      "choices": [
+        "Discarding",
+        "Listening",
+        "Learning",
+        "Blocking",
+        "Forwarding"
+      ],
+      "answers": [
+        0,
+        2,
+        4
+      ],
+      "explanation": "RSTP uses discarding, learning and forwarding. Listening and blocking are 802.1D states; RSTP folds blocking (and disabled) into discarding and drops listening.",
+      "concept": "RSTP states",
+      "section": 4
+    },
+    {
+      "id": "ccna-stp-q14",
+      "type": "match",
+      "difficulty": "medium",
+      "question": "Match each Rapid PVST+ port role or type to its description.",
+      "pairs": [
+        {
+          "left": "Root port",
+          "right": "Best path from a non-root switch to the root"
+        },
+        {
+          "left": "Designated port",
+          "right": "The forwarding port for a link"
+        },
+        {
+          "left": "Alternate port",
+          "right": "Discarding backup path to the root"
+        },
+        {
+          "left": "Backup port",
+          "right": "Backup for a designated port on a shared segment"
+        },
+        {
+          "left": "Edge port",
+          "right": "PortFast port facing an end device"
+        }
+      ],
+      "explanation": "Root and designated ports forward. Alternate and backup ports discard but are ready to take over, and edge ports skip straight to forwarding.",
+      "concept": "port roles",
+      "section": 4
+    },
+    {
+      "id": "ccna-stp-q15",
+      "type": "cli",
+      "shell": "ios",
+      "difficulty": "easy",
+      "question": "Type the global command that sets a switch to run Rapid PVST+.",
+      "answer": "spanning-tree mode rapid-pvst",
+      "explanation": "spanning-tree mode accepts pvst, rapid-pvst and mst. rapid-pvst runs RSTP separately for each VLAN.",
+      "concept": "enable Rapid PVST+",
+      "section": 4
+    },
+    {
+      "id": "ccna-stp-q16",
+      "type": "typed",
+      "difficulty": "easy",
+      "question": "With default timers, how many seconds is the 802.1D forward delay?",
+      "answer": "15",
+      "accept": [
+        "15 seconds"
+      ],
+      "explanation": "Forward delay is 15 seconds, spent once in listening and once in learning. Hello is 2 seconds and MaxAge is 20 seconds.",
+      "concept": "STP timers",
+      "section": 4
+    },
+    {
+      "id": "ccna-stp-q17",
+      "type": "mcq",
+      "difficulty": "hard",
+      "question": "Why can Rapid PVST+ move an alternate port to forwarding almost immediately when the root port fails?",
+      "choices": [
+        "RSTP sets the forward delay to zero on every port",
+        "The alternate port was already forwarding traffic",
+        "RSTP disables MAC learning during convergence",
+        "The alternate port already receives Hellos from the same root, so RSTP knows it is a loop-free replacement path"
+      ],
+      "answer": 3,
+      "explanation": "An alternate port hears the same root as the root port, so taking it over cannot create a loop and RSTP can move it straight to forwarding without timers. It was discarding until then.",
+      "concept": "RSTP fast convergence",
+      "section": 4
+    },
+    {
+      "id": "ccna-stp-q18",
+      "type": "mcq",
+      "difficulty": "medium",
+      "question": "What is a benefit of running a separate spanning tree per VLAN with Rapid PVST+?",
+      "choices": [
+        "Different VLANs can have different root bridges, so redundant uplinks each forward for some VLANs",
+        "It removes the need for BPDUs on trunks",
+        "Per-VLAN trees never need a root bridge",
+        "It allows loops in VLANs with few hosts"
+      ],
+      "answer": 0,
+      "explanation": "With one tree per VLAN you can make SW1 root for some VLANs and SW2 root for others, so a link that blocks in one VLAN forwards in another and both uplinks carry traffic.",
+      "concept": "per-VLAN load sharing",
+      "section": 2
+    },
+    {
+      "id": "ccna-stp-q19",
+      "type": "mcq",
+      "difficulty": "hard",
+      "question": "Based on this output from SW3, which statement is correct?",
+      "code": "SW3# show spanning-tree vlan 10\n\nVLAN0010\n  Spanning tree enabled protocol rstp\n  Root ID    Priority    24586\n             Address     0019.e859.5380\n             Cost        19\n             Port        1 (FastEthernet0/1)\n             Hello Time   2 sec  Max Age 20 sec  Forward Delay 15 sec\n\n  Bridge ID  Priority    28682  (priority 28672 sys-id-ext 10)\n             Address     0019.e811.0a00\n! lines omitted\n\nInterface           Role Sts Cost      Prio.Nbr Type\n------------------- ---- --- --------- -------- --------------------------------\nFa0/1               Root FWD 19        128.1    P2p\nGi0/1               Desg FWD 4         128.25   P2p\nGi0/2               Altn BLK 4         128.26   P2p",
+      "language": "cisco",
+      "choices": [
+        "SW3 is the root bridge for VLAN 10",
+        "SW3 is not the root; it reaches the root through Fa0/1 with cost 19 and is likely configured as root secondary",
+        "Gi0/2 is a backup port that forwards traffic",
+        "SW3's priority was configured as 28682"
+      ],
+      "answer": 1,
+      "explanation": "The Root ID MAC differs from SW3's own MAC and lists a cost and root port, so SW3 is not root. Its configured priority is 28672 (28682 minus VLAN 10), the value root secondary sets. Gi0/2 is an alternate port that discards.",
+      "concept": "interpreting show spanning-tree",
+      "section": 5
+    },
+    {
+      "id": "ccna-stp-q20",
+      "type": "typed",
+      "difficulty": "easy",
+      "question": "In show spanning-tree, a port line reads 'Gi0/2  Altn BLK 4  128.26  P2p'. What is the port priority? (Number only.)",
+      "answer": "128",
+      "explanation": "Prio.Nbr shows port priority, then port number. 128 is the default port priority and 26 is the port number.",
+      "concept": "port priority field",
+      "section": 5
+    },
+    {
+      "id": "ccna-stp-q21",
+      "type": "cli",
+      "shell": "ios",
+      "difficulty": "easy",
+      "question": "Type the command that shows the spanning tree for VLAN 10 only.",
+      "answer": "show spanning-tree vlan 10",
+      "explanation": "show spanning-tree vlan 10 lists the Root ID, Bridge ID and every port's role, state, cost and type in that VLAN's tree.",
+      "concept": "show spanning-tree vlan",
+      "section": 5
+    },
+    {
+      "id": "ccna-stp-q22",
+      "type": "mcq",
+      "difficulty": "easy",
+      "question": "Where should PortFast be enabled?",
+      "choices": [
+        "On trunks between distribution switches",
+        "On the root bridge's uplinks",
+        "On access ports connected to end devices such as PCs and printers",
+        "On every port, to speed up convergence"
+      ],
+      "answer": 2,
+      "explanation": "PortFast is for ports that cannot create a loop because they connect a single end device. On switch-to-switch links it bypasses the checks that prevent loops.",
+      "concept": "where to use PortFast",
+      "section": 6
+    },
+    {
+      "id": "ccna-stp-q23",
+      "type": "cli",
+      "shell": "ios",
+      "difficulty": "medium",
+      "question": "Type the interface command that enables PortFast on an access port.",
+      "answer": "spanning-tree portfast",
+      "accept": [
+        "spanning-tree portfast edge"
+      ],
+      "explanation": "spanning-tree portfast (spanning-tree portfast edge on newer IOS) makes the port an edge port that forwards immediately.",
+      "concept": "configure PortFast",
+      "section": 6
+    },
+    {
+      "id": "ccna-stp-q24",
+      "type": "mcq",
+      "difficulty": "medium",
+      "question": "spanning-tree portfast default is configured globally. Which ports use PortFast?",
+      "choices": [
+        "Every port, including trunks",
+        "Only ports that also have spanning-tree portfast configured",
+        "All ports operating as access ports, unless disabled per port",
+        "Only ports in VLAN 1"
+      ],
+      "answer": 2,
+      "explanation": "The global default applies to non-trunking (access) ports. A port can opt out with spanning-tree portfast disable, and trunks need spanning-tree portfast trunk explicitly.",
+      "concept": "global PortFast",
+      "section": 6
+    },
+    {
+      "id": "ccna-stp-q25",
+      "type": "cli",
+      "shell": "ios",
+      "difficulty": "medium",
+      "question": "Type the interface command that enables BPDU guard on a port.",
+      "answer": "spanning-tree bpduguard enable",
+      "explanation": "spanning-tree bpduguard enable err-disables the port as soon as a BPDU arrives. It is the usual partner of PortFast on access ports.",
+      "concept": "configure BPDU guard",
+      "section": 7
+    },
+    {
+      "id": "ccna-stp-q26",
+      "type": "mcq",
+      "difficulty": "medium",
+      "question": "Fa0/5 was err-disabled by BPDU guard, and the rogue switch has been removed. No errdisable recovery is configured. What brings the port back?",
+      "code": "%PM-4-ERR_DISABLE: bpduguard error detected on Fa0/5, putting Fa0/5 in err-disable state",
+      "language": "cisco",
+      "choices": [
+        "Entering shutdown and then no shutdown on Fa0/5",
+        "Waiting for the BPDU holdtime to expire",
+        "Entering spanning-tree portfast on Fa0/5 again",
+        "Clearing the MAC address table"
+      ],
+      "answer": 0,
+      "explanation": "An err-disabled port stays down until bounced manually, or until errdisable recovery cause bpduguard brings it back after the recovery interval (300 seconds by default).",
+      "concept": "err-disabled recovery",
+      "section": 7
+    },
+    {
+      "id": "ccna-stp-q27",
+      "type": "mcq",
+      "difficulty": "hard",
+      "question": "What is the effect of spanning-tree bpdufilter enable configured on an interface?",
+      "choices": [
+        "The port err-disables when it receives a BPDU",
+        "The port loses PortFast when it receives a BPDU",
+        "The port accepts BPDUs only from the root bridge",
+        "The port stops sending and ignores received BPDUs, effectively disabling STP on it"
+      ],
+      "answer": 3,
+      "explanation": "Interface-level BPDU filter suppresses BPDUs in both directions, so STP cannot detect a loop through that port. Losing PortFast on a received BPDU describes the global bpdufilter default form, and err-disabling describes BPDU guard.",
+      "concept": "BPDU filter",
+      "section": 7
+    },
+    {
+      "id": "ccna-stp-q28",
+      "type": "cli",
+      "shell": "ios",
+      "difficulty": "medium",
+      "question": "Type the global command that enables BPDU guard on every PortFast-enabled port.",
+      "answer": "spanning-tree portfast bpduguard default",
+      "accept": [
+        "spanning-tree portfast edge bpduguard default"
+      ],
+      "explanation": "The global form applies BPDU guard to all ports operating as PortFast edge ports, which saves configuring it on every access port.",
+      "concept": "global BPDU guard",
+      "section": 7
+    },
+    {
+      "id": "ccna-stp-q29",
+      "type": "multi",
+      "difficulty": "hard",
+      "question": "Which two statements about root guard are true? (Choose two.)",
+      "choices": [
+        "It puts the port in a root-inconsistent state when a superior BPDU arrives",
+        "It err-disables the port until an administrator intervenes",
+        "It recovers automatically when the superior BPDUs stop",
+        "It belongs on the switch's root port",
+        "It is enabled with spanning-tree bpduguard enable"
+      ],
+      "answers": [
+        0,
+        2
+      ],
+      "explanation": "Root guard blocks the port (root-inconsistent) only while superior BPDUs keep arriving and then recovers on its own. It goes on designated ports facing downstream, and it is configured with spanning-tree guard root.",
+      "concept": "root guard behavior",
+      "section": 8
+    },
+    {
+      "id": "ccna-stp-q30",
+      "type": "mcq",
+      "difficulty": "hard",
+      "question": "A fiber link between SW1 and SW2 fails so that frames flow only from SW2 to SW1. SW2's alternate port on that link stops receiving BPDUs. Which feature prevents SW2 from moving that port to forwarding and creating a loop?",
+      "choices": [
+        "Root guard",
+        "BPDU guard",
+        "Loop guard",
+        "PortFast"
+      ],
+      "answer": 2,
+      "explanation": "Loop guard watches root and alternate ports. When their BPDUs stop, it puts the port in loop-inconsistent (discarding) state instead of letting STP make it designated and forwarding.",
+      "concept": "loop guard",
+      "section": 8
+    },
+    {
+      "id": "ccna-stp-q31",
+      "type": "match",
+      "difficulty": "medium",
+      "question": "Match each feature to where it is normally configured.",
+      "pairs": [
+        {
+          "left": "BPDU guard",
+          "right": "PortFast access ports facing end devices"
+        },
+        {
+          "left": "Root guard",
+          "right": "Designated ports toward switches that must never be root"
+        },
+        {
+          "left": "Loop guard",
+          "right": "Root and alternate ports on switch-to-switch links"
+        },
+        {
+          "left": "PortFast",
+          "right": "Ports to single hosts that should forward immediately"
+        }
+      ],
+      "explanation": "Edge features (PortFast, BPDU guard) go on host ports. Root guard protects the root's position from downstream, and loop guard protects ports that must keep hearing BPDUs.",
+      "concept": "feature placement",
+      "section": 8
+    },
+    {
+      "id": "ccna-stp-q32",
+      "type": "cli",
+      "shell": "ios",
+      "difficulty": "medium",
+      "question": "Type the interface command that enables root guard.",
+      "answer": "spanning-tree guard root",
+      "explanation": "spanning-tree guard root enables root guard on the interface. The same guard command with the loop keyword enables loop guard instead, so a port has one or the other.",
+      "concept": "configure root guard",
+      "section": 8
+    },
+    {
+      "id": "ccna-stp-q33",
+      "type": "debug",
+      "difficulty": "hard",
+      "question": "Right after this change, the uplink to the distribution switch went err-disabled. Why?",
+      "code": "interface GigabitEthernet0/1\n description Uplink to DSW1\n switchport mode trunk\n spanning-tree portfast trunk\n spanning-tree bpduguard enable",
+      "language": "cisco",
+      "choices": [
+        "spanning-tree portfast trunk is not a valid command",
+        "Trunks cannot run spanning tree",
+        "BPDU guard err-disabled the port because the distribution switch sends BPDUs on it",
+        "The description is too long for a trunk"
+      ],
+      "answer": 2,
+      "explanation": "Switch-to-switch links always carry BPDUs, so BPDU guard trips at once. PortFast and BPDU guard belong on edge ports; remove both from this uplink.",
+      "concept": "misplaced BPDU guard",
+      "section": 7
+    },
+    {
+      "id": "ccna-stp-q34",
+      "type": "mcq",
+      "difficulty": "medium",
+      "question": "All switches use default priorities for VLAN 20 except SW3, which is root with priority 16384. What priority does spanning-tree vlan 20 root primary set on SW1?",
+      "choices": [
+        "24576",
+        "12288",
+        "28672",
+        "16384"
+      ],
+      "answer": 1,
+      "explanation": "The current root is already below 24576, so root primary picks 4096 less than the root: 16384 minus 4096 is 12288. 24576 would lose to SW3, and 28672 is root secondary.",
+      "concept": "root primary calculation",
+      "section": 2
+    },
+    {
+      "id": "ccna-stp-q35",
+      "type": "typed",
+      "difficulty": "medium",
+      "question": "show spanning-tree vlan 30 lists this switch's Bridge ID priority as 24606. What priority was configured for VLAN 30? (Number only.)",
+      "answer": "24576",
+      "explanation": "The displayed priority is the configured priority plus the extended system ID (the VLAN number): 24606 minus 30 is 24576, the value root primary usually sets.",
+      "concept": "subtracting the system ID",
+      "section": 1
+    },
+    {
+      "id": "ccna-stp-q36",
+      "type": "mcq",
+      "difficulty": "medium",
+      "question": "DSW1 is root primary for VLAN 10 and root secondary for VLAN 20; DSW2 is the reverse. DSW1 loses power. Which switch becomes root for VLAN 10?",
+      "choices": [
+        "DSW2",
+        "The access switch with the lowest MAC address",
+        "No switch until DSW1 returns",
+        "Every switch becomes root for its own VLAN 10"
+      ],
+      "answer": 0,
+      "explanation": "DSW2 holds 28672 for VLAN 10 (root secondary), lower than every default switch at 32768, so it wins the new election. It was already root for VLAN 20.",
+      "concept": "secondary root takeover",
+      "section": 2
+    },
+    {
+      "id": "ccna-stp-q37",
+      "type": "multi",
+      "difficulty": "hard",
+      "question": "Which three statements describe Rapid PVST+ BPDUs? (Choose three.)",
+      "choices": [
+        "One set of BPDUs is sent for each VLAN",
+        "All VLANs share a single set of untagged BPDUs",
+        "BPDUs for a VLAN travel inside that VLAN, tagged on trunks",
+        "They are sent to the IEEE address 0180.C200.0000 only",
+        "The VLAN ID appears in the bridge ID's system ID extension"
+      ],
+      "answers": [
+        0,
+        2,
+        4
+      ],
+      "explanation": "Rapid PVST+ runs a separate instance per VLAN, so it sends BPDUs per VLAN, tagged with that VLAN on trunks, to Cisco multicast 0100.0CCC.CCCD, with the VLAN ID in the system ID extension. A single untagged set to 0180.C200.0000 describes standard IEEE RSTP.",
+      "concept": "PVST+ BPDUs",
+      "section": 2
+    },
+    {
+      "id": "ccna-stp-q38",
+      "type": "mcq",
+      "difficulty": "hard",
+      "question": "DSW1 is the intended root for VLAN 10. Based on this output from DSW1, what happened on Gi0/1?",
+      "code": "DSW1# show spanning-tree vlan 10 | begin Interface\nInterface           Role Sts Cost      Prio.Nbr Type\n------------------- ---- --- --------- -------- --------------------------------\nGi0/1               Desg BKN*4         128.1    P2p *ROOT_Inc\nGi0/2               Desg FWD 4         128.2    P2p\n\n%SPANTREE-2-ROOTGUARD_BLOCK: Root guard blocking port GigabitEthernet0/1 on VLAN0010.",
+      "language": "cisco",
+      "choices": [
+        "BPDU guard err-disabled Gi0/1 because a host sent BPDUs",
+        "Loop guard blocked Gi0/1 because BPDUs stopped arriving",
+        "Root guard blocked Gi0/1 because a device behind it claimed to be a better root",
+        "Gi0/1 is an alternate port waiting to become root port"
+      ],
+      "answer": 2,
+      "explanation": "BKN* with *ROOT_Inc means root guard on Gi0/1 received a BPDU advertising a better root, probably from a newly connected switch with a low priority, and is blocking the port to protect the current root. The port recovers on its own when the superior BPDUs stop.",
+      "concept": "root-inconsistent port",
+      "section": 9
+    },
+    {
+      "id": "ccna-stp-q39",
+      "type": "mcq",
+      "difficulty": "easy",
+      "question": "Based on this output, which statement is true?",
+      "code": "SW1# show spanning-tree summary\nSwitch is in rapid-pvst mode\nRoot bridge for: none\nEtherChannel misconfig guard            is enabled\nExtended system ID                      is enabled\nPortfast Default                        is enabled\nPortFast BPDU Guard Default             is enabled\nPortfast BPDU Filter Default            is disabled\nLoopguard Default                       is disabled",
+      "language": "cisco",
+      "choices": [
+        "Loop guard protects every port by default",
+        "PortFast ports err-disable if they receive a BPDU",
+        "BPDU filter is enabled globally on PortFast ports",
+        "SW1 is the root bridge for every VLAN"
+      ],
+      "answer": 1,
+      "explanation": "The summary shows PortFast enabled by default on access ports and BPDU guard enabled by default on PortFast ports, while BPDU filter and loop guard defaults are off. The switch runs Rapid PVST+.",
+      "concept": "show spanning-tree summary",
+      "section": 9
+    },
+    {
+      "id": "ccna-stp-q40",
+      "type": "cli",
+      "difficulty": "medium",
+      "question": "Type the global command that enables loop guard on all point-to-point ports by default.",
+      "shell": "ios",
+      "answer": "spanning-tree loopguard default",
+      "explanation": "spanning-tree loopguard default turns loop guard on globally; spanning-tree guard loop does the same on one interface.",
+      "concept": "global loop guard",
+      "section": 8
+    },
+    {
+      "id": "ccna-stp-q41",
+      "type": "order",
+      "difficulty": "easy",
+      "question": "A user plugs a small switch into a PortFast port that has BPDU guard. Put the events in order.",
+      "items": [
+        "The small switch sends a BPDU into the access port",
+        "BPDU guard sees the BPDU on the PortFast port",
+        "The switch err-disables the port and logs the event",
+        "An administrator removes the small switch",
+        "The administrator enters shutdown and no shutdown on the port"
+      ],
+      "explanation": "BPDU guard acts on the first BPDU, err-disables the port and logs it. The port stays down until someone removes the cause and bounces the port (or errdisable recovery does it).",
+      "concept": "BPDU guard sequence",
+      "section": 7
+    },
+    {
+      "id": "ccna-stp-q42",
+      "type": "mcq",
+      "difficulty": "hard",
+      "question": "SW2's Gi0/2 is normally an alternate port toward SW1. One strand of the fiber between them failed. Based on the output, which statement is correct?",
+      "code": "SW2# show spanning-tree vlan 10 | begin Interface\nInterface           Role Sts Cost      Prio.Nbr Type\n------------------- ---- --- --------- -------- --------------------------------\nGi0/1               Root FWD 4         128.1    P2p\nGi0/2               Altn BKN*4         128.2    P2p *LOOP_Inc\n\n%SPANTREE-2-LOOPGUARD_BLOCK: Loop guard blocking port GigabitEthernet0/2 on VLAN0010.",
+      "language": "cisco",
+      "choices": [
+        "Loop guard is keeping Gi0/2 blocked because its BPDUs stopped; it recovers when BPDUs return",
+        "Gi0/2 is err-disabled and must be bounced manually",
+        "Root guard blocked Gi0/2 because SW1 became root",
+        "Gi0/2 lost PortFast because it received a BPDU"
+      ],
+      "answer": 0,
+      "explanation": "LOOP_Inc means loop guard noticed BPDUs stopped arriving on this alternate port and kept it blocking instead of letting it become designated and forwarding, which would create a loop over the one-way link. It unblocks automatically when BPDUs return.",
+      "concept": "loop-inconsistent port",
+      "section": 9
+    },
+    {
+      "id": "ccna-stp-q43",
+      "type": "match",
+      "difficulty": "medium",
+      "question": "Match each spanning tree state or message to its cause.",
+      "pairs": [
+        {
+          "left": "*ROOT_Inc",
+          "right": "Superior BPDU on a root guard port"
+        },
+        {
+          "left": "*LOOP_Inc",
+          "right": "BPDUs stopped on a loop guard port"
+        },
+        {
+          "left": "*PVID_Inc",
+          "right": "Native VLAN differs on the two trunk ends"
+        },
+        {
+          "left": "err-disabled, reason bpduguard",
+          "right": "Any BPDU on a BPDU guard port"
+        }
+      ],
+      "explanation": "Root guard and loop guard mark ports inconsistent and recover automatically; the PVID check catches native VLAN mismatches; BPDU guard err-disables.",
+      "concept": "inconsistent states",
+      "section": 9
+    },
+    {
+      "id": "ccna-stp-q44",
+      "type": "mcq",
+      "difficulty": "easy",
+      "question": "In show spanning-tree output, a port's Type column reads P2p Edge. What does Edge mean?",
+      "choices": [
+        "The port connects to the root bridge",
+        "The port is blocked at the edge of the tree",
+        "The port uses half duplex",
+        "PortFast is enabled, so it is an edge port to an end device"
+      ],
+      "answer": 3,
+      "explanation": "Edge marks an RSTP edge port, which on Cisco switches means PortFast is enabled: the port connects an end device and moves straight to forwarding. P2p means a full-duplex point-to-point link.",
+      "concept": "edge port",
+      "section": 6
+    }
+  ]
+}

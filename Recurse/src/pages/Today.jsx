@@ -1,6 +1,6 @@
 import { useMemo } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
-import { ArrowRight, BookOpen, Play, TriangleAlert } from 'lucide-react'
+import { ArrowRight, BookOpen, ClipboardList, Code, FlaskConical, Play, Repeat, Route, Shuffle, Terminal, Timer, TriangleAlert } from 'lucide-react'
 import { useApp } from '../state/context'
 import { useHotkeys } from '../hooks/useHotkeys'
 import { useDocumentTitle } from '../hooks/useDocumentTitle'
@@ -13,6 +13,39 @@ import MemoryRing from '../components/MemoryRing'
 import TopicCard from '../components/TopicCard'
 import Tile from '../components/Tile'
 import Illustration from '../components/Illustration'
+import PathIcon from '../components/PathIcon'
+import ModeIcon from '../components/ModeIcon'
+import { COLLECTIONS, nextTopic } from '../lib/collections'
+import { duePractice, pathExams, readiness } from '../lib/practice'
+import { modeOf } from '../lib/approaches'
+
+/** Today's plan: a short, ordered list of the most useful things to do next. */
+function TodayPlan({ items }) {
+  if (!items.length) return null
+  return (
+    <section style={{ marginTop: 'var(--s-8)' }} aria-labelledby="plan-title">
+      <div className="section-head">
+        <h2 className="section-title" id="plan-title">Today's plan</h2>
+        <span className="callno">{items.length} {items.length === 1 ? 'step' : 'steps'}</span>
+      </div>
+      <ol className="plan-list">
+        {items.map((item, i) => (
+          <li key={item.key}>
+            <Link to={item.to} className={`plan-item${i === 0 ? ' first' : ''}`}>
+              <span className="plan-num">{i + 1}</span>
+              <span className="plan-icon" aria-hidden="true">{item.icon}</span>
+              <span className="grow">
+                <span className="list-title">{item.title}</span>
+                <span className="xsmall subtle">{item.note}</span>
+              </span>
+              <ArrowRight size={16} className="subtle" />
+            </Link>
+          </li>
+        ))}
+      </ol>
+    </section>
+  )
+}
 
 function MiniForecast({ counts, now }) {
   if (!counts.some(Boolean)) return <p className="xsmall subtle">Nothing scheduled yet. Reviews appear here once you study.</p>
@@ -34,7 +67,7 @@ function MiniForecast({ counts, now }) {
 
 export default function Today() {
   useDocumentTitle('Today')
-  const { user, packs, packMap, progress, settings, stats, summaries, now } = useApp()
+  const { user, packs, packMap, progress, settings, stats, summaries, now, practice } = useApp()
   const navigate = useNavigate()
   const due = useMemo(() => dueSummary(packs, progress, settings, stats, now), [packs, progress, settings, stats, now])
   const forecast = useMemo(() => reviewForecast(packs, progress, 7, now), [packs, progress, now])
@@ -58,6 +91,48 @@ export default function Today() {
   const goalRatio = Math.min(1, today.reviews / Math.max(1, settings.dailyGoal))
 
   const dateLabel = now.toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric' })
+
+  // Paths: your goals first, then any you have started.
+  const goals = new Set(user.goals || [])
+  const activePaths = COLLECTIONS
+    .filter((c) => goals.has(c.id) || c.packIds.some((id) => summaries.get(id)?.started))
+    .map((c) => ({ collection: c, next: nextTopic(c, packMap, summaries), ready: readiness(c, { packMap, summaries, practice }) }))
+    .sort((a, b) => Number(goals.has(b.collection.id)) - Number(goals.has(a.collection.id)))
+  const practiceDue = duePractice(practice, now)
+  const mode = modeOf(settings)
+  const plan = []
+  if (canReview) plan.push({ key: 'review', to: '/study/review', icon: <Repeat size={16} />, title: `Daily review · ${sessionCards} cards`, note: 'Due cards first, mixed across topics, plus a few new ones.' })
+  for (const item of practiceDue.slice(0, 2)) {
+    plan.push({ key: `${item.kind}:${item.id}`, to: item.to, icon: item.kind === 'lab' ? <Terminal size={16} /> : <Code size={16} />, title: `Redo: ${item.title}`, note: `${item.kind === 'lab' ? 'Console lab' : 'Coding challenge'} due for a spaced redo. Try it from memory.` })
+  }
+  for (const { collection, next } of activePaths.slice(0, 2)) {
+    if (!next) continue
+    const lessonFirst = next.pack.lesson && !summaries.get(next.pack.id)?.lessonRead
+    plan.push({
+      key: `path:${collection.id}`,
+      to: lessonFirst ? `/topic/${next.pack.id}/lesson` : `/study/topic/${next.pack.id}`,
+      icon: <Route size={16} />,
+      title: `${lessonFirst ? 'Learn' : 'Practice'} ${next.pack.name}`,
+      note: `Next in ${collection.name}, stage: ${next.stage.title}.`
+    })
+  }
+  const experiment = user.approach?.experiment
+  if (experiment?.immediate && !experiment.delayed && now - new Date(experiment.date) > 12 * 3600000) {
+    plan.push({ key: 'experiment', to: '/approach/experiment?check=delayed', icon: <FlaskConical size={16} />, title: 'One-day check for your recall experiment', note: 'Two minutes. What you remember a day later is what you really learned.' })
+  }
+  for (const { collection, ready } of activePaths) {
+    if (!collection.exam || ready.coverage < 0.5) continue
+    const last = pathExams(practice, collection.id)[0]
+    if (last && now - new Date(last.date) < 7 * 86400000) continue
+    plan.push({ key: `exam:${collection.id}`, to: `/quiz/run?path=${collection.id}&mode=exam&n=${collection.exam.questions}&minutes=${collection.exam.minutes}`, icon: <Timer size={16} />, title: `Take a ${collection.short} practice exam`, note: last ? 'A week since your last one. Check that your readiness holds.' : 'You have covered half the path. Measure where you stand.' })
+    break
+  }
+  if (inProgress.length >= 2 && (mode.id === 'challenger' || !canReview)) {
+    plan.push({ key: 'roulette', to: '/study/roulette', icon: <Shuffle size={16} />, title: 'Recall roulette', note: 'Random cards you have seen before, from every topic. Keeps old topics alive.' })
+  }
+  if (!user.approach?.quiz && !user.approach?.experiment) {
+    plan.push({ key: 'approach', to: '/approach', icon: <ClipboardList size={16} />, title: 'Find how you learn best', note: 'A two-minute quiz and a five-minute experiment to tune Recurse to you.' })
+  }
 
   return (
     <div className="page">
@@ -161,6 +236,36 @@ export default function Today() {
           </div>
         </section>
       </div>
+
+      <TodayPlan items={plan.slice(0, 6)} />
+
+      {activePaths.length > 0 && (
+        <section style={{ marginTop: 'var(--s-8)' }} aria-labelledby="paths-title">
+          <div className="section-head">
+            <h2 className="section-title" id="paths-title">Your paths</h2>
+            <Link to="/paths" className="small">All paths</Link>
+          </div>
+          <div className="today-paths">
+            {activePaths.slice(0, 3).map(({ collection, next, ready }) => (
+              <Link key={collection.id} to={`/path/${collection.id}`} className="card card-link today-path" style={{ '--hue': collection.hue }}>
+                <PathIcon collection={collection} />
+                <div className="grow stack-sm">
+                  <div className="row between"><span className="list-title">{collection.name}</span><span className="xsmall tabular subtle">{ready.score}% ready</span></div>
+                  <div className="path-stages" aria-hidden="true">
+                    {ready.reports.map((r) => <span key={r.stage.id} className="path-stage-bar"><span style={{ width: `${Math.round(r.progress * 100)}%` }} /></span>)}
+                  </div>
+                  <span className="xsmall subtle clamp-1">{next ? `Next: ${next.pack.name}` : 'Every topic practiced. Keep reviewing.'}</span>
+                </div>
+              </Link>
+            ))}
+          </div>
+          <Link to="/approach" className="mode-banner small" style={{ marginTop: 'var(--s-4)' }}>
+            <span className="mode-icon sm"><ModeIcon mode={mode} size={14} /></span>
+            <span className="grow">Learning approach: <strong>{mode.label}</strong>. {mode.tagline}</span>
+            <span className="xsmall subtle">Change</span>
+          </Link>
+        </section>
+      )}
 
       {(fading.length > 0 || mistakes > 0) && (
         <section style={{ marginTop: 'var(--s-8)' }} aria-labelledby="attention-title">

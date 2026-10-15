@@ -8,6 +8,10 @@ import '@fontsource/instrument-serif/400-italic.css'
 import '@fontsource-variable/jetbrains-mono/wght.css'
 import './styles/app.css'
 import './styles/pages.css'
+import './styles/activities.css'
+import './styles/themes.css'
+import './styles/features.css'
+import './styles/interview.css'
 
 createRoot(document.getElementById('root')).render(
   <StrictMode>

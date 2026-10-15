@@ -6,7 +6,7 @@ export default function MemoryRing({ value, size = 120, stroke = 8, label = 'mem
   const tone = toneOverride || memoryTone(value)
   const r = (size - stroke) / 2 - (size >= 90 ? 9 : 0)
   const c = 2 * Math.PI * r
-  const text = value === null || value === undefined ? '—' : `${Math.round(ratio * 100)}%`
+  const text = value === null || value === undefined ? 'n/a' : `${Math.round(ratio * 100)}%`
   return (
     <svg className={`mem-${tone}`} width={size} height={size} viewBox={`0 0 ${size} ${size}`} role="img" aria-label={`${label} ${text}`}>
       <circle cx={size / 2} cy={size / 2} r={r} fill="none" stroke="var(--card-3)" strokeWidth={stroke} />

@@ -1,24 +1,62 @@
 {
   "id": "sql-basics",
   "name": "SQL Basics",
-  "version": "2.0.0",
+  "version": "3.1.0",
   "author": "Recurse",
   "subject": "programming",
   "level": "beginner",
-  "description": "Query, group, join and change relational data, and avoid the classic NULL and missing-WHERE traps.",
+  "description": "Query, group and join tables, handle NULL and subqueries, change data safely and design tables with constraints.",
   "icon": "SQL",
   "language": "sql",
   "prereqs": [],
-  "tags": ["sql", "databases", "joins", "queries"],
+  "tags": ["sql", "databases", "joins", "queries", "constraints"],
   "lesson": {
-    "estimatedMinutes": 14,
-    "intro": "SQL is the language for asking questions of relational databases, which store data in tables of rows and columns. A few clauses cover most everyday work: picking and sorting rows, summarizing them, combining tables, and changing data safely.",
+    "estimatedMinutes": 36,
+    "intro": "Almost every application keeps its data in a relational database, and SQL is how you ask it questions and make changes. This lesson covers the queries you'll write every week as a developer: selecting, filtering and sorting, grouping with aggregates, joining tables, the strange behavior of NULL, subqueries, changing data safely, and defining tables with constraints and indexes.",
+    "objectives": [
+      "Write SELECT queries that filter, sort and limit results, and predict how AND and OR combine",
+      "Summarize data with aggregate functions, GROUP BY and HAVING",
+      "Explain and write INNER and LEFT JOINs, including finding rows that have no match",
+      "Handle NULL correctly and use subqueries for questions that need two steps",
+      "Change data safely with transactions, and define tables with constraints and indexes"
+    ],
     "sections": [
       {
-        "title": "SELECT, WHERE, ORDER BY and LIMIT",
-        "body": "SQL describes which rows you want, not how to find them. A basic query reads like a sentence:\n\n- `SELECT` lists the columns to return (`*` means all of them).\n- `FROM` names the table.\n- `WHERE` keeps only rows where the condition is true. Text values go in single quotes: `city = 'Paris'`.\n- `ORDER BY` sorts the result, ascending by default; add `DESC` for largest first.\n- `LIMIT n` keeps the first n rows of the sorted result.\n\nThe clauses must appear in that order. Without `ORDER BY` the database may return rows in any order, so `LIMIT` alone does not mean \"the first rows added\".\n\nCombine conditions with `AND` and `OR`. `AND` binds tighter than `OR`, so use parentheses when you mix them. `LIKE` matches patterns: `%` stands for any run of characters and `_` for exactly one.",
-        "code": "SELECT name, price\nFROM products\nWHERE category = 'books' AND price < 20\nORDER BY price DESC\nLIMIT 5;",
-        "tip": "Some databases (SQL Server) use SELECT TOP 5 instead of LIMIT 5.",
+        "title": "Tables, rows and SELECT",
+        "body": "A spreadsheet with one tab per kind of thing is a decent first picture of a relational database. Each **table** holds one kind of thing (customers, orders, products), each **row** is one of them, and each **column** is one attribute with a declared type. What a database adds is rules (every order must belong to a real customer), a query language, and the ability to stay fast and correct with millions of rows and many users at once.\n\n**SQL** (Structured Query Language) is that language. It's **declarative**: you describe the result you want, and the database's query planner decides how to fetch it, which indexes to use and in what order to read the tables. You never write the loops.\n\nEvery read starts with `SELECT columns FROM table`:\n- List the columns you need. `SELECT *` (all columns) is handy for exploring, but in application code name the columns, so a column added later can't break or slow your code.\n- Compute new columns with expressions, such as `price * 1.2`.\n- Rename output columns with `AS`: `SELECT price * 1.2 AS gross`.\n- `SELECT DISTINCT city` removes duplicate result rows.\n\nKeywords aren't case sensitive, but writing them in uppercase is the common convention. Text values go in single quotes, `'Paris'`; double quotes are for identifiers such as column names. Statements end with a semicolon.\n\nIt helps to know the order in which a query is logically evaluated, because it explains many errors: FROM (with any JOINs) picks the rows, WHERE filters them, GROUP BY groups them, HAVING filters the groups, SELECT computes the output columns, ORDER BY sorts and LIMIT cuts. That's why most databases reject an alias from SELECT inside WHERE, while ORDER BY can use it.\n\nThe examples use a small shop: `customers(id, name, city)`, `orders(id, customer_id, total, status)` and `products(id, name, category, price)`. They run in SQLite and PostgreSQL, and nearly unchanged in MySQL.",
+        "code": "SELECT name, city\nFROM customers;\n\nSELECT name, price, price * 1.2 AS price_with_tax\nFROM products;\n\nSELECT DISTINCT city\nFROM customers;\n\n-- Logical order of evaluation:\n-- FROM -> WHERE -> GROUP BY -> HAVING -> SELECT -> ORDER BY -> LIMIT",
+        "pitfall": "Using double quotes for text. In standard SQL and PostgreSQL, `\"Paris\"` means a column named Paris; text values take single quotes.",
+        "activity": {
+          "type": "sql-lab",
+          "title": "Your first real queries",
+          "prompt": "This is a real SQLite database running in your browser, filled with a small online store. Open a table to see its columns and rows, write each query, press Run to see what comes back, then Check it.",
+          "goal": "Solve both queries.",
+          "props": { "set": "basics", "exercises": ["select-columns", "distinct"] }
+        },
+        "check": {
+          "question": "SQL is declarative. What does that mean when you write a SELECT?",
+          "choices": [
+            "You write the loops that scan each table",
+            "You describe the result you want, and the database decides how to compute it",
+            "Rows always come back in the order they were inserted",
+            "Every query must list columns in the order the table defines them"
+          ],
+          "answer": 1,
+          "explanation": "The query planner chooses indexes, join order and scanning strategy. That's also why row order is not guaranteed unless you ask for it with ORDER BY."
+        }
+      },
+      {
+        "title": "Filtering and sorting: WHERE, ORDER BY and LIMIT",
+        "body": "\"The five cheapest books under $20\" is a filter, a sort and a cut, and those three clauses appear in more queries than any others.\n\n`WHERE` keeps only the rows for which its condition is true. Conditions use `=`, `<>` (not equal; most databases also accept `!=`), `<`, `<=`, `>` and `>=`, combined with `AND`, `OR` and `NOT`. A few shortcuts keep them readable:\n- `city IN ('Paris', 'Lyon')` instead of a chain of ORs.\n- `price BETWEEN 10 AND 20`, which includes both ends.\n- `name LIKE 'Pro%'` for patterns: `%` matches any run of characters and `_` exactly one.\n\n`AND` binds tighter than `OR`, just as multiplication binds tighter than addition. `a OR b AND c` means `a OR (b AND c)`. Whenever you mix them, add parentheses; it's one of the most common query bugs.\n\n`ORDER BY` sorts the result, ascending by default; add `DESC` for descending. You can sort by several columns: `ORDER BY category, price DESC` sorts by category, then by price within each category. Without ORDER BY the database may return rows in any order, and that order can change between runs, so never rely on it.\n\n`LIMIT n` keeps the first n rows of the sorted result, and `OFFSET m` skips m rows first, which is how simple pagination works: page 3 at 10 rows per page is `LIMIT 10 OFFSET 20`. LIMIT always comes last. SQL Server spells it differently (`SELECT TOP 5 ...`, or `OFFSET ... FETCH NEXT ...`), but the idea is the same.\n\nLIKE is case sensitive in PostgreSQL but not for plain letters in SQLite or MySQL's default setup. PostgreSQL offers `ILIKE` for case-insensitive matching, and comparing lowercased values, `WHERE LOWER(name) LIKE 'pro%'`, works everywhere.",
+        "code": "SELECT name, price\nFROM products\nWHERE category = 'books' AND price < 20\nORDER BY price\nLIMIT 5;\n\nSELECT name, city\nFROM customers\nWHERE (city = 'Paris' OR city = 'Lyon') AND name LIKE 'A%'\nORDER BY city, name;\n\n-- Page 3 of a product list, 10 per page\nSELECT name\nFROM products\nORDER BY name\nLIMIT 10 OFFSET 20;",
+        "pitfall": "Mixing AND and OR without parentheses. `WHERE a OR b AND c` means `a OR (b AND c)`, which is rarely what was meant.",
+        "activity": {
+          "type": "sql-lab",
+          "title": "Filter, sort and cut",
+          "prompt": "Four requests from the store team, each one a WHERE, an ORDER BY with LIMIT, or a pattern. When row order matters, the exercise says so and Check compares the order too.",
+          "goal": "Solve all four queries.",
+          "props": { "set": "basics", "exercises": ["where-and", "order-limit", "like", "in-between"] }
+        },
         "check": {
           "question": "A query ends with ORDER BY price and no DESC. Which product comes first?",
           "choices": ["The most expensive", "The cheapest", "The one added first", "A random one"],
@@ -28,8 +66,20 @@
       },
       {
         "title": "Aggregates, GROUP BY and HAVING",
-        "body": "Aggregate functions turn many rows into one value: `COUNT`, `SUM`, `AVG`, `MIN` and `MAX`.\n\n- `COUNT(*)` counts rows. `COUNT(column)` counts only rows where that column is not NULL.\n- `SUM`, `AVG`, `MIN` and `MAX` also skip NULLs.\n\n`GROUP BY` splits the rows into groups that share a value and computes the aggregates once per group. Every column in the `SELECT` list must either appear in `GROUP BY` or sit inside an aggregate; otherwise there is no single value to show for the group.\n\n`WHERE` filters rows before grouping, so it cannot use aggregates. `HAVING` filters groups after they are formed, so it can. The full clause order is `SELECT`, `FROM`, `WHERE`, `GROUP BY`, `HAVING`, `ORDER BY`, `LIMIT`.",
-        "code": "-- Customers with at least 2 orders over 10, most orders first\nSELECT customer_id, COUNT(*) AS n\nFROM orders\nWHERE total > 10            -- filters rows\nGROUP BY customer_id\nHAVING COUNT(*) >= 2        -- filters groups\nORDER BY n DESC;",
+        "body": "\"How many orders did each customer place?\" \"What's the average price per category?\" Questions about counts, totals and averages need **aggregate functions**, which fold many rows into one value.\n\nThe five you'll use constantly are `COUNT`, `SUM`, `AVG`, `MIN` and `MAX`. On their own they summarize the whole table (after WHERE), so `SELECT COUNT(*), AVG(price) FROM products` returns one row. Two details matter:\n- `COUNT(*)` counts rows. `COUNT(column)` counts only rows where that column is not NULL, and `COUNT(DISTINCT column)` counts distinct non-NULL values.\n- `SUM`, `AVG`, `MIN` and `MAX` skip NULLs too.\n\n`GROUP BY` splits the rows into groups that share a value and computes the aggregates per group, giving one output row per group. `GROUP BY customer_id` with `COUNT(*)` gives each customer's order count.\n\nThe rule that trips everyone: in a grouped query, every column in SELECT must either appear in GROUP BY or sit inside an aggregate. Asking for `name` when grouping by `city` makes no sense, because one city has many names. Most databases reject it; SQLite runs it and picks an arbitrary row's value, which hides the bug.\n\n`WHERE` filters rows before grouping, so it can't use aggregates. `HAVING` filters groups after grouping, so it can: `HAVING COUNT(*) >= 2`. Put every condition that doesn't need an aggregate in WHERE, because removing rows early is faster and makes the intent clearer.\n\nGrouping by several columns, as in `GROUP BY city, status`, makes a group for each combination that appears. Add ORDER BY on the aggregate (`ORDER BY n DESC`) to get rankings like \"top customers by order count\".",
+        "code": "-- Customers with at least 2 orders over 10, most orders first\nSELECT customer_id, COUNT(*) AS n, SUM(total) AS spent\nFROM orders\nWHERE total > 10            -- filters rows\nGROUP BY customer_id\nHAVING COUNT(*) >= 2        -- filters groups\nORDER BY n DESC;\n\n-- Price summary per category\nSELECT category, COUNT(*) AS products, MIN(price), MAX(price), AVG(price)\nFROM products\nGROUP BY category;",
+        "pitfall": "Selecting a column that is neither grouped nor aggregated. Most databases reject it, and SQLite silently picks an arbitrary value.",
+        "activity": {
+          "type": "code-runner",
+          "title": "GROUP BY by hand",
+          "prompt": "The playground runs Python, not SQL, so this program does what the database does for SELECT customer_id, COUNT(*), SUM(total) FROM orders GROUP BY customer_id. Run it, then add the HAVING step: a condition that keeps only groups whose sum is over 50.",
+          "props": {
+            "language": "python",
+            "code": "orders = [\n    {\"customer_id\": 1, \"total\": 30},\n    {\"customer_id\": 2, \"total\": 45},\n    {\"customer_id\": 1, \"total\": 25},\n    {\"customer_id\": 3, \"total\": 20},\n    {\"customer_id\": 2, \"total\": 10},\n]\n\n# GROUP BY customer_id: one entry per customer\ngroups = {}\nfor row in orders:\n    key = row[\"customer_id\"]\n    if key not in groups:\n        groups[key] = {\"count\": 0, \"sum\": 0}\n    groups[key][\"count\"] += 1\n    groups[key][\"sum\"] += row[\"total\"]\n\nfor key, g in groups.items():\n    print(key, g[\"count\"], g[\"sum\"])\n",
+            "task": "Add HAVING SUM(total) > 50 so only customers 1 and 2 are printed: 1 2 55, then 2 2 55.",
+            "expectOutput": "1 2 55\n2 2 55"
+          }
+        },
         "check": {
           "question": "orders has 6 rows placed by 3 different customers. How many rows does SELECT customer_id, COUNT(*) FROM orders GROUP BY customer_id; return?",
           "choices": ["6", "1", "2", "3"],
@@ -38,10 +88,106 @@
         }
       },
       {
-        "title": "Keys and JOINs",
-        "body": "A primary key uniquely identifies each row in a table. Its values must be unique and not NULL, and each table has one primary key (it may span several columns).\n\nA foreign key is a column that refers to the primary key of another table, such as `orders.customer_id` pointing to `customers.id`. The database then rejects an order for a customer who does not exist, and by default blocks deleting a customer who still has orders.\n\nA JOIN combines rows from two tables using a condition in `ON`, usually foreign key = primary key.\n\n- `INNER JOIN` (or just `JOIN`) keeps only pairs that match. Customers without orders disappear.\n- `LEFT JOIN` keeps every row from the left table. Where there is no match, the right table's columns are NULL.\n\nA customer with three orders appears three times in a join result, once per matching order.",
-        "code": "CREATE TABLE customers (\n  id   INTEGER PRIMARY KEY,\n  name TEXT NOT NULL\n);\nCREATE TABLE orders (\n  id          INTEGER PRIMARY KEY,\n  customer_id INTEGER REFERENCES customers(id),\n  total       REAL\n);\n\n-- Every customer, with their orders if they have any\nSELECT c.name, o.total\nFROM customers c\nLEFT JOIN orders o ON o.customer_id = c.id;",
-        "tip": "SQLite only enforces foreign keys after PRAGMA foreign_keys = ON.",
+        "title": "INNER JOIN and LEFT JOIN, visually",
+        "body": "Orders store a `customer_id`, not the customer's name. That's deliberate: each fact lives in one place, so renaming a customer is one update, not thousands. The price is that \"show each order with its customer's name\" means combining tables, which is what a **JOIN** does.\n\nA **primary key** uniquely identifies each row of a table (`customers.id`). A **foreign key** is a column holding another table's primary key (`orders.customer_id`), and it's how rows are linked. The condition after `ON` says how to match rows, almost always foreign key equals primary key: `ON o.customer_id = c.id`. Short **table aliases** such as `customers c` keep this readable.\n\nPicture a join as the database pairing every row of the left table with every row of the right table, then keeping the pairs where the ON condition is true:\n- **INNER JOIN** (plain `JOIN`) keeps only matched pairs. A customer with no orders produces no pairs, so they vanish from the result.\n- **LEFT JOIN** keeps every row of the left table. When a left row has no match, it appears once, with NULL in all of the right table's columns.\n\nLook at the example. Ada has two orders, so she appears twice: joins repeat rows on the \"one\" side of a one-to-many relationship. That's correct, but it means you must be careful when counting or summing after a join. Cy has no orders, so the inner join drops her and the left join keeps her with NULLs.\n\nThose NULLs are useful. \"Customers who have never ordered\" is a LEFT JOIN followed by `WHERE o.id IS NULL`, a pattern called an anti-join.\n\nTwo more you'll meet: `RIGHT JOIN` is a LEFT JOIN with the tables swapped (most people just swap the tables), and `FULL OUTER JOIN` keeps unmatched rows from both sides. A missing or wrong ON condition can produce a **cross join**, every row paired with every row: 1,000 customers and 10,000 orders become 10 million rows.",
+        "code": "-- customers             orders\n-- id | name             id | customer_id | total\n--  1 | Ada              10 | 1           | 30\n--  2 | Bo               11 | 1           | 15\n--  3 | Cy               12 | 2           | 45\n\nSELECT c.name, o.id AS order_id, o.total\nFROM customers c\nINNER JOIN orders o ON o.customer_id = c.id\nORDER BY c.name, o.id;\n-- Ada | 10 | 30\n-- Ada | 11 | 15\n-- Bo  | 12 | 45         (Cy has no orders, so Cy is dropped)\n\nSELECT c.name, o.id AS order_id, o.total\nFROM customers c\nLEFT JOIN orders o ON o.customer_id = c.id\nORDER BY c.name, o.id;\n-- Ada | 10   | 30\n-- Ada | 11   | 15\n-- Bo  | 12   | 45\n-- Cy  | NULL | NULL     (every customer kept, NULLs where nothing matched)",
+        "pitfall": "Filtering the right table of a LEFT JOIN in WHERE, such as `WHERE o.status = 'paid'`. Rows with NULLs fail that test, so the LEFT JOIN quietly becomes an INNER JOIN; move the condition into the ON clause.",
+        "activity": {
+          "type": "code-runner",
+          "title": "A join is a nested loop",
+          "prompt": "This Python program pairs every customer with every order and keeps the matches, which is an INNER JOIN. Turn it into a LEFT JOIN: track whether a customer matched any order, and if not, print the name with None for the order columns.",
+          "props": {
+            "language": "python",
+            "code": "customers = [(1, \"Ada\"), (2, \"Bo\"), (3, \"Cy\")]\norders = [(10, 1, 30), (11, 1, 15), (12, 2, 45)]   # (id, customer_id, total)\n\nfor cid, name in customers:\n    for oid, customer_id, total in orders:\n        if customer_id == cid:\n            print(name, oid, total)\n",
+            "task": "Make the output end with an extra line for Cy: Cy None None.",
+            "expectOutput": "Ada 10 30\nAda 11 15\nBo 12 45\nCy None None"
+          }
+        },
+        "check": {
+          "question": "One customer has no orders. Which join keeps that customer in the result?",
+          "choices": [
+            "INNER JOIN between customers and orders",
+            "LEFT JOIN with customers as the left table",
+            "LEFT JOIN with orders as the left table",
+            "Any join, as long as WHERE is left out"
+          ],
+          "answer": 1,
+          "explanation": "A LEFT JOIN keeps every row of the left table, so customers must be on the left. With orders on the left, only customers who appear in orders can show up, and an inner join drops unmatched rows on both sides."
+        }
+      },
+      {
+        "title": "NULL means unknown",
+        "body": "A user who hasn't entered a phone number doesn't have the phone number `''` or 0. They have no value at all, and SQL represents that with **NULL**, meaning unknown or missing. NULL behaves differently from every other value, and that difference causes a steady stream of real bugs.\n\nAny comparison with NULL is neither true nor false but unknown, which is itself shown as NULL. `NULL = NULL` is unknown, `NULL <> 5` is unknown, and `5 + NULL` is NULL. SQL uses three-valued logic: true, false and unknown. **WHERE keeps only rows where the condition is true**, so rows where it's unknown disappear silently. That's why:\n- `WHERE email = NULL` never matches anything. Use `WHERE email IS NULL` or `IS NOT NULL`.\n- `WHERE email <> 'ada@example.com'` also skips every row whose email is NULL, which is easy to forget when counting.\n\nAggregates skip NULLs: `COUNT(email)` counts only non-NULL emails and `AVG(score)` averages only known scores. Whether that's right depends on the meaning; if a missing score should count as zero, say so explicitly with COALESCE.\n\n`COALESCE(a, b, ...)` returns its first non-NULL argument, the standard way to supply a default: `COALESCE(phone, 'no phone')`. `NULLIF(a, b)` returns NULL when a equals b, which is a neat way to avoid dividing by zero: `revenue / NULLIF(visits, 0)`.\n\nDecide at design time which columns may be NULL. Mark everything that must always have a value `NOT NULL` (covered in the last section), so the database rejects missing data instead of letting NULL leak into reports. Sorting also differs: PostgreSQL treats NULL as larger than any value, while SQLite and MySQL treat it as smaller, so write `NULLS LAST` (PostgreSQL and SQLite) when the position matters.",
+        "code": "SELECT name, COALESCE(phone, 'no phone') AS phone\nFROM users\nWHERE email IS NULL;           -- not: email = NULL\n\nSELECT NULL = NULL;            -- NULL (unknown), not true\nSELECT 5 + NULL;               -- NULL\n\n-- With emails 'a@x.com', NULL, 'c@x.com':\nSELECT COUNT(*), COUNT(email) FROM users;   -- 3 | 2\n\nSELECT revenue / NULLIF(visits, 0) AS per_visit\nFROM daily_stats;              -- NULL instead of a division error",
+        "pitfall": "Writing `= NULL` or `<> NULL`. Both are never true; use `IS NULL` and `IS NOT NULL`.",
+        "activity": {
+          "type": "code-runner",
+          "title": "AVG skips NULL",
+          "prompt": "Python's None plays the role of NULL here. SQL's AVG ignores NULLs completely: they count neither in the total nor in the number of values. Skip the None values and divide by the number of known scores.",
+          "props": {
+            "language": "python",
+            "code": "scores = [10, 20, None, 30]\n\ntotal = 0\nfor s in scores:\n    total += s\nprint(total / len(scores))\n",
+            "task": "Make the program behave like SELECT AVG(score) and print 20.0. Treating NULL as 0 would give 15.0 instead.",
+            "expectOutput": "20.0"
+          }
+        },
+        "check": {
+          "question": "What does SELECT NULL = NULL; return?",
+          "choices": ["1 (true)", "0 (false)", "NULL", "An error"],
+          "answer": 2,
+          "explanation": "Comparing anything with NULL gives unknown, which SQL represents as NULL. That is why the separate IS NULL test exists."
+        }
+      },
+      {
+        "title": "Subqueries",
+        "body": "\"Which products cost more than the average product?\" You can't write `WHERE price > AVG(price)`, because WHERE works on single rows before any aggregation happens. You need the average first, and a **subquery**, a SELECT inside another statement, gives it to you.\n\nSubqueries come in a few shapes:\n- A **scalar subquery** returns one value (one row, one column) and can go anywhere a value can: `WHERE price > (SELECT AVG(price) FROM products)`.\n- An **IN subquery** returns one column of many rows, used as a list: `WHERE id IN (SELECT customer_id FROM orders WHERE total > 100)`.\n- **EXISTS** is true if the subquery returns any row at all. A **correlated** subquery refers to the outer row, as in `WHERE EXISTS (SELECT 1 FROM orders o WHERE o.customer_id = c.id)`, and is conceptually evaluated once per outer row.\n- A **derived table** is a subquery in FROM, used like a temporary table and given an alias.\n\n`WITH name AS (SELECT ...)` defines a **common table expression** (CTE): a named subquery placed at the top, so the query reads in steps from top to bottom. For anything beyond a one-liner, CTEs make complex queries far easier to follow and review.\n\nThe famous trap is `NOT IN` with a NULL. `id NOT IN (1, 2, NULL)` asks whether id differs from 1, from 2 and from an unknown value, and \"differs from unknown\" is unknown, so no row ever passes. If the subquery's column can contain NULL (say, orders with no customer), `NOT IN` silently returns nothing. Use `NOT EXISTS`, or filter the NULLs out inside the subquery.\n\nMany subqueries can also be written as joins, and modern planners often run both forms the same way. Pick the one that states your question most clearly: \"customers who have an order\" reads naturally as EXISTS, while \"each order with its customer's name\" is a JOIN.",
+        "code": "-- Products above the average price\nSELECT name, price\nFROM products\nWHERE price > (SELECT AVG(price) FROM products);\n\n-- Customers with at least one big order\nSELECT name\nFROM customers\nWHERE id IN (SELECT customer_id FROM orders WHERE total > 100);\n\n-- Customers with no orders, safe even if customer_id has NULLs\nSELECT c.name\nFROM customers c\nWHERE NOT EXISTS (SELECT 1 FROM orders o WHERE o.customer_id = c.id);\n\n-- A CTE: name a step, then use it like a table\nWITH totals AS (\n  SELECT customer_id, SUM(total) AS spent\n  FROM orders\n  GROUP BY customer_id\n)\nSELECT c.name, t.spent\nFROM customers c\nJOIN totals t ON t.customer_id = c.id\nORDER BY t.spent DESC;",
+        "pitfall": "Using `NOT IN (subquery)` when the subquery can return NULL. The condition becomes unknown for every row and nothing comes back; use NOT EXISTS.",
+        "activity": {
+          "type": "sql-lab",
+          "title": "Subqueries on real data",
+          "prompt": "Answer each question with the kind of subquery it names. Check also runs your SQL on the same tables with a few extra rows, so a query that only fits this data will not pass.",
+          "goal": "Solve all five queries.",
+          "props": { "set": "subqueries", "exercises": ["scalar", "in-subquery", "exists", "correlated", "cte"] }
+        },
+        "check": {
+          "question": "What must a subquery used with =, as in WHERE price = (SELECT ...), return?",
+          "choices": ["Any number of rows", "A whole table with several columns", "Only NULL", "Exactly one value: one row and one column"],
+          "answer": 3,
+          "explanation": "= compares against a single value. Most databases raise an error when such a subquery returns several rows (SQLite quietly uses the first). For a list of values, use IN."
+        }
+      },
+      {
+        "title": "Changing data safely: INSERT, UPDATE and DELETE",
+        "body": "Reading data can't hurt anything. Changing it can, and the classic disaster is an UPDATE or DELETE that hits every row because its WHERE clause was missing or wrong. A few habits make writes safe.\n\n`INSERT INTO table (columns) VALUES (...)` adds rows. Always list the columns: the statement then keeps working when columns are added, and values can't silently land in the wrong place. One INSERT can add several rows, `VALUES (...), (...)`, and columns you leave out get their DEFAULT, or NULL.\n\n`UPDATE table SET column = value WHERE condition` changes the matching rows, and `DELETE FROM table WHERE condition` removes them. Without WHERE, both affect **every row** in the table. Inside SET, `=` assigns; in WHERE it compares.\n\nHabits that prevent disasters:\n- Write the WHERE clause first, and run it as a SELECT to preview exactly which rows will change.\n- Wrap risky changes in a **transaction**: `BEGIN`, make the change, check the row count the database reports, then `COMMIT` to keep it or `ROLLBACK` to undo it. Until you commit, other connections don't see the change.\n- Target rows by primary key when you mean one row: `WHERE id = 42`, not `WHERE name = 'Ada'`.\n\nTransactions also make several changes **atomic**. Moving money between accounts is two UPDATEs, and they must both happen or neither. If anything fails between BEGIN and COMMIT, roll back and the database is exactly as it was.\n\nFrom application code, never build SQL by pasting user input into the string. A name like `'; DROP TABLE users; --` turns into SQL code. That's **SQL injection**, one of the most exploited vulnerabilities on the web. Use **parameterized queries**, where the SQL contains placeholders and the values travel separately: `cur.execute(\"SELECT * FROM users WHERE email = ?\", (email,))` with Python's sqlite3, or `$1` placeholders with node-postgres.",
+        "code": "INSERT INTO customers (name, city)\nVALUES ('Ada', 'London'), ('Bo', 'Paris');\n\nBEGIN;\nSELECT * FROM orders WHERE status = 'cancelled';   -- preview the rows\nDELETE FROM orders WHERE status = 'cancelled';     -- same WHERE\nCOMMIT;                                            -- or ROLLBACK to undo\n\nBEGIN;\nUPDATE accounts SET balance = balance - 50 WHERE id = 1;\nUPDATE accounts SET balance = balance + 50 WHERE id = 2;\nCOMMIT;                                            -- both or neither",
+        "pitfall": "Running UPDATE or DELETE without a WHERE clause. Every row changes; preview with SELECT first and work inside a transaction.",
+        "activity": {
+          "type": "sql-lab",
+          "title": "Change data without breaking it",
+          "prompt": "Every exercise starts from a fresh copy of the database, so experiment freely. These are graded on the data you leave behind: add a row, update one category, delete orders in the order the foreign keys allow, and undo a mistake with ROLLBACK.",
+          "goal": "Solve all four.",
+          "props": { "set": "modify", "exercises": ["insert", "update", "delete", "rollback"] }
+        },
+        "check": {
+          "question": "Which part of an UPDATE statement decides which rows change?",
+          "choices": ["SET", "WHERE", "FROM", "VALUES"],
+          "answer": 1,
+          "explanation": "SET says what the new values are; WHERE says which rows get them. Leave out WHERE and every row in the table is updated."
+        }
+      },
+      {
+        "title": "CREATE TABLE with constraints, and indexes",
+        "body": "The best place to enforce a rule about your data is the database itself. Application code has bugs, there may be several applications, and someone will eventually run a manual fix in a console. A **constraint** is a rule the database checks on every insert and update, rejecting any change that would break it.\n\n`CREATE TABLE` defines the columns, their types and the constraints:\n- `PRIMARY KEY` identifies each row: unique and never NULL. Most tables use an auto-generated integer (`INTEGER PRIMARY KEY` in SQLite, `GENERATED ALWAYS AS IDENTITY` in PostgreSQL).\n- `NOT NULL`: the column must always have a value.\n- `UNIQUE`: no two rows may share the value, like an email address.\n- `CHECK (condition)`: any rule you can express, such as `CHECK (total >= 0)`.\n- `DEFAULT value`: used when an INSERT leaves the column out.\n- `REFERENCES other_table(column)`: a **foreign key**, guaranteeing the value exists in the other table. By default the database refuses to delete a parent row that still has children; `ON DELETE CASCADE` deletes the children with it. SQLite only enforces foreign keys after `PRAGMA foreign_keys = ON`.\n\nCommon types are `INTEGER`, `NUMERIC(10, 2)` for exact money amounts, `TEXT` or `VARCHAR(n)`, `BOOLEAN` and `TIMESTAMP`. Type names vary between databases more than any other part of SQL.\n\nAn **index** is a separate sorted structure, like the index at the back of a book, that lets the database find rows by a column without scanning the whole table. Primary keys and UNIQUE columns are indexed automatically. Add indexes for columns you often filter or join on, such as foreign keys. The trade-off: every insert, update and delete must also update each index, and indexes take space, so don't index everything.\n\nChange existing tables with `ALTER TABLE` and remove them with `DROP TABLE`. In real projects these changes live in versioned **migration** files, so every environment's schema evolves the same way.",
+        "code": "CREATE TABLE customers (\n  id    INTEGER PRIMARY KEY,\n  name  TEXT NOT NULL,\n  email TEXT NOT NULL UNIQUE,\n  city  TEXT\n);\n\nCREATE TABLE orders (\n  id          INTEGER PRIMARY KEY,\n  customer_id INTEGER NOT NULL REFERENCES customers(id),\n  total       NUMERIC(10, 2) NOT NULL CHECK (total >= 0),\n  status      TEXT NOT NULL DEFAULT 'pending',\n  created_at  TIMESTAMP DEFAULT CURRENT_TIMESTAMP\n);\n\nCREATE INDEX idx_orders_customer ON orders (customer_id);\n\nINSERT INTO orders (customer_id, total) VALUES (1, -5);\n-- rejected: CHECK constraint failed",
+        "pitfall": "Relying only on application code for rules like unique emails. Two requests at the same moment can both pass an app-side check; a UNIQUE constraint can't be raced.",
+        "activity": {
+          "type": "sql-lab",
+          "title": "Let the database enforce the rules",
+          "prompt": "Write the CREATE TABLE statement. Check then tries seven test inserts, valid and invalid, and your constraints must accept and reject exactly the right ones.",
+          "goal": "Build a reviews table that passes every test insert.",
+          "props": { "set": "modify", "exercises": ["create-table"] }
+        },
         "check": {
           "question": "Which statement about a primary key is true?",
           "choices": [
@@ -53,48 +199,31 @@
           "answer": 0,
           "explanation": "A primary key exists to identify each row, so its values must be unique and present. A table has one primary key, though it can combine several columns, and it can be any suitable type, most often an integer."
         }
-      },
-      {
-        "title": "NULL means unknown",
-        "body": "NULL is not a value like 0 or an empty string. It means missing or unknown, and that changes how comparisons work.\n\n- Any comparison with NULL, even `NULL = NULL`, is neither true nor false but unknown. `WHERE` keeps only rows where the condition is true, so `WHERE email = NULL` returns nothing.\n- Test for missing values with `IS NULL` and `IS NOT NULL`.\n- Arithmetic with NULL gives NULL: `price + NULL` is NULL.\n- Aggregates skip NULLs: the `AVG` of 10, 20 and NULL is 15, not 10.\n- `COALESCE(a, b, ...)` returns its first non-NULL argument, which is handy for defaults: `COALESCE(nickname, name)`.\n\nA condition such as `WHERE status <> 'done'` also skips rows where status is NULL, a common source of missing rows.",
-        "code": "SELECT name, COALESCE(phone, 'no phone') AS phone\nFROM users\nWHERE email IS NULL;        -- not: email = NULL",
-        "check": {
-          "question": "What does SELECT NULL = NULL; return?",
-          "choices": ["1 (true)", "0 (false)", "NULL", "An error"],
-          "answer": 2,
-          "explanation": "Comparing anything with NULL gives unknown, which SQL represents as NULL. That is why the separate IS NULL test exists."
-        }
-      },
-      {
-        "title": "Changing data, and indexes",
-        "body": "Three statements change data:\n\n- `INSERT INTO users (name, email) VALUES ('Ada', 'ada@example.com');` adds a row.\n- `UPDATE users SET email = 'new@example.com' WHERE id = 7;` changes matching rows.\n- `DELETE FROM users WHERE id = 7;` removes matching rows.\n\n`UPDATE` and `DELETE` affect every row the `WHERE` clause matches, and with no `WHERE` at all they affect every row in the table. Before running one, run a `SELECT` with the same `WHERE` to see exactly which rows will change, and wrap the change in a transaction (`BEGIN` ... `COMMIT`, or `ROLLBACK` to undo) when you can.\n\nAn index is a sorted lookup structure on one or more columns, like the index at the back of a book. It lets the database find matching rows without scanning the whole table, which speeds up `WHERE`, `JOIN` and `ORDER BY` on those columns. The cost is extra storage, and every `INSERT`, `UPDATE` and `DELETE` must also update the index. Primary keys are indexed automatically; foreign key columns that you join on usually deserve an index too.",
-        "code": "BEGIN;\nSELECT * FROM orders WHERE status = 'cancelled';  -- preview the rows\nDELETE FROM orders WHERE status = 'cancelled';\nCOMMIT;\n\nCREATE INDEX idx_orders_customer ON orders (customer_id);",
-        "check": {
-          "question": "Which part of an UPDATE statement decides which rows change?",
-          "choices": ["SET", "WHERE", "FROM", "VALUES"],
-          "answer": 1,
-          "explanation": "SET says what the new values are; WHERE says which rows get them. Leave out WHERE and every row in the table is updated."
-        }
       }
     ],
     "keyTerms": [
-      { "term": "WHERE", "definition": "The clause that filters individual rows before any grouping." },
-      { "term": "aggregate function", "definition": "A function such as COUNT, SUM or AVG that turns many rows into one value." },
-      { "term": "HAVING", "definition": "The clause that filters groups after GROUP BY, so it can use aggregates." },
-      { "term": "primary key", "definition": "A column or set of columns whose values uniquely identify each row; unique and never NULL." },
-      { "term": "foreign key", "definition": "A column that must match a primary key value in another table, linking the two." },
-      { "term": "LEFT JOIN", "definition": "A join that keeps every row of the left table, filling the right side with NULL where nothing matches." },
-      { "term": "NULL", "definition": "A marker for a missing or unknown value; comparisons with it are unknown, so test it with IS NULL." },
-      { "term": "index", "definition": "A lookup structure on columns that speeds up searches and joins at the cost of storage and slower writes." }
+      { "term": "WHERE", "definition": "The clause that keeps only rows for which a condition is true, before any grouping." },
+      { "term": "aggregate function", "definition": "COUNT, SUM, AVG, MIN or MAX: folds many rows into one value, skipping NULLs." },
+      { "term": "HAVING", "definition": "Filters groups after GROUP BY, so it can use aggregates such as COUNT(*) > 10." },
+      { "term": "primary key", "definition": "The column (or columns) that uniquely identifies each row; unique and never NULL." },
+      { "term": "foreign key", "definition": "A column holding another table's primary key; the database guarantees it points at a real row." },
+      { "term": "INNER JOIN", "definition": "Combines two tables, keeping only pairs of rows that match the ON condition." },
+      { "term": "LEFT JOIN", "definition": "Keeps every row of the left table, with NULLs where the right table has no match." },
+      { "term": "NULL", "definition": "Unknown or missing. Comparisons with it are unknown, so test it with IS NULL." },
+      { "term": "subquery", "definition": "A SELECT nested inside another statement, used as a value, a list or a table." },
+      { "term": "transaction", "definition": "A group of changes between BEGIN and COMMIT that succeed or fail together." },
+      { "term": "constraint", "definition": "A rule such as NOT NULL, UNIQUE, CHECK or a foreign key that the database enforces on every write." },
+      { "term": "index", "definition": "A sorted lookup structure that speeds up searches on a column but adds work on every write." }
     ],
     "summary": [
-      "Clauses run in a fixed order: WHERE filters rows, GROUP BY forms groups, HAVING filters groups, ORDER BY and LIMIT shape the output.",
-      "INNER JOIN keeps only matching pairs; LEFT JOIN keeps every left row and fills gaps with NULL.",
-      "NULL means unknown: use IS NULL, and remember that aggregates and COUNT(column) skip it.",
-      "UPDATE and DELETE without WHERE change every row, so preview with a SELECT first.",
-      "Indexes make reads on their columns fast and make every write a little slower."
+      "SQL is declarative: SELECT columns FROM a table, filter with WHERE, sort with ORDER BY and cut with LIMIT.",
+      "Aggregates fold rows into values; GROUP BY makes one row per group, and HAVING filters the groups.",
+      "INNER JOIN keeps matched pairs; LEFT JOIN keeps every left row, with NULLs where nothing matched.",
+      "NULL means unknown: test it with IS NULL, remember WHERE drops unknown rows, and avoid NOT IN with NULLs.",
+      "Preview writes with SELECT, use transactions and parameterized queries, and never UPDATE or DELETE without WHERE.",
+      "Constraints let the database enforce your rules; indexes speed up reads at a cost on writes."
     ],
-    "feynmanPrompt": "Explain to a coworker who uses spreadsheets what a LEFT JOIN between customers and orders produces, and why WHERE email = NULL finds nothing."
+    "feynmanPrompt": "Explain to a friend who uses spreadsheets what a LEFT JOIN between customers and orders returns, why a customer with no orders shows up with NULLs, and why WHERE email = NULL finds nothing."
   },
   "questions": [
     {
@@ -111,7 +240,7 @@
       "answer": 2,
       "explanation": "Sort from the highest price with ORDER BY price DESC, then keep three rows with LIMIT 3. Without DESC you get the three cheapest, LIMIT must come after ORDER BY, and MAX returns a single row.",
       "concept": "ORDER BY DESC with LIMIT",
-      "section": 0
+      "section": 1
     },
     {
       "id": "sql-basics-q02",
@@ -128,7 +257,7 @@
       "answer": 0,
       "explanation": "AND binds tighter than OR, so the condition is city = 'Paris' OR (city = 'Lyon' AND active = 1), and every Paris customer passes. Write WHERE (city = 'Paris' OR city = 'Lyon') AND active = 1, or use city IN ('Paris', 'Lyon').",
       "concept": "AND/OR precedence",
-      "section": 0
+      "section": 1
     },
     {
       "id": "sql-basics-q03",
@@ -140,7 +269,7 @@
       "answer": 3,
       "explanation": "LIKE matches patterns, and % stands for any run of characters, so 'Pro%' matches names such as Product and Prompt. With =, the % is an ordinary character, so only a name that is literally Pro% would match.",
       "concept": "LIKE patterns",
-      "section": 0
+      "section": 1
     },
     {
       "id": "sql-basics-q04",
@@ -151,7 +280,7 @@
       "answer": "3",
       "explanation": "COUNT(column) counts only rows where that column is not NULL, so the two users without an email are skipped. COUNT(*) would return 5 because it counts rows.",
       "concept": "COUNT(column) skips NULL",
-      "section": 1
+      "section": 2
     },
     {
       "id": "sql-basics-q05",
@@ -167,7 +296,7 @@
       "answer": 1,
       "explanation": "Counting per city needs GROUP BY city, and filtering on the count needs HAVING, which runs after the groups exist. WHERE runs before grouping, so it cannot use COUNT(*), and without GROUP BY the whole table is one group.",
       "concept": "HAVING filters groups",
-      "section": 1
+      "section": 2
     },
     {
       "id": "sql-basics-q06",
@@ -184,7 +313,7 @@
       "answer": 2,
       "explanation": "Each output row is one city, but a city can have many customers, so name has no single value. Standard SQL and most databases (PostgreSQL, SQL Server, MySQL in its default mode) reject the query; SQLite runs it but shows an arbitrary name. Add name to GROUP BY or wrap it in an aggregate. Only selected columns matter, not every column in the table.",
       "concept": "GROUP BY column rule",
-      "section": 1
+      "section": 2
     },
     {
       "id": "sql-basics-q07",
@@ -194,7 +323,7 @@
       "answer": "WHERE filters individual rows before they are grouped, so it cannot use aggregates. HAVING filters groups after GROUP BY, so it can use aggregates such as COUNT(*) > 10.",
       "explanation": "Filtering early with WHERE is also cheaper, because the rows it removes are never grouped. Use HAVING only for conditions on aggregates.",
       "concept": "WHERE vs HAVING",
-      "section": 1
+      "section": 2
     },
     {
       "id": "sql-basics-q08",
@@ -205,7 +334,7 @@
       "answer": "4",
       "explanation": "Ada matches two orders, so she appears twice; Bo appears once; Cy has no orders, but LEFT JOIN keeps her with NULL for o.id. That is 2 + 1 + 1 = 4 rows. An INNER JOIN would return 3.",
       "concept": "LEFT JOIN row count",
-      "section": 2
+      "section": 3
     },
     {
       "id": "sql-basics-q09",
@@ -221,7 +350,7 @@
       "answer": 3,
       "explanation": "LEFT JOIN keeps customers without orders and fills the order columns with NULL, and IS NULL keeps exactly those rows. An inner JOIN drops them before WHERE runs, = NULL is never true, and joining on <> pairs each customer with other people's orders.",
       "concept": "anti-join with LEFT JOIN",
-      "section": 2
+      "section": 3
     },
     {
       "id": "sql-basics-q10",
@@ -233,7 +362,7 @@
       "answer": 0,
       "explanation": "The foreign key orders.customer_id holds the id of the customer who placed the order, so it must equal customers.id. o.id = c.id pairs rows whose ids happen to share a number, which says nothing about who placed the order.",
       "concept": "join on foreign key",
-      "section": 2
+      "section": 3
     },
     {
       "id": "sql-basics-q11",
@@ -250,7 +379,7 @@
       "answer": 1,
       "explanation": "A foreign key guarantees that every customer_id points at an existing customer, so the insert fails. The database never invents the missing parent row or silently changes the value you gave it.",
       "concept": "foreign key constraint",
-      "section": 2
+      "section": 7
     },
     {
       "id": "sql-basics-q12",
@@ -267,7 +396,7 @@
       "answer": 2,
       "explanation": "Any comparison with NULL gives unknown, and WHERE keeps only rows where the condition is true, so no row passes. IS NULL is the test for missing values. 'NULL' in quotes is a four-letter string, not a missing value.",
       "concept": "IS NULL vs = NULL",
-      "section": 3
+      "section": 4
     },
     {
       "id": "sql-basics-q13",
@@ -279,7 +408,7 @@
       "accept": ["15.0"],
       "explanation": "AVG skips NULLs, so it averages only 10 and 20: 30 / 2 = 15. If NULL counted as 0, the answer would be 10.",
       "concept": "aggregates ignore NULL",
-      "section": 3
+      "section": 4
     },
     {
       "id": "sql-basics-q14",
@@ -291,7 +420,7 @@
       "answer": 0,
       "explanation": "COALESCE returns its first non-NULL argument: the phone if there is one, otherwise 'none'. NULLIF does nearly the opposite, returning NULL when its two arguments are equal.",
       "concept": "COALESCE defaults",
-      "section": 3
+      "section": 4
     },
     {
       "id": "sql-basics-q15",
@@ -308,7 +437,7 @@
       "answer": 3,
       "explanation": "UPDATE changes every row its WHERE clause matches, and with no WHERE that is the whole table. It should be UPDATE accounts SET balance = 0 WHERE id = 42. Inside SET, = assigns; it only compares inside WHERE.",
       "concept": "missing WHERE in UPDATE",
-      "section": 4
+      "section": 6
     },
     {
       "id": "sql-basics-q16",
@@ -320,7 +449,7 @@
       "answer": 1,
       "explanation": "INSERT lists the columns, then VALUES gives the matching values in the same order. SET belongs to UPDATE, and ROWS and DATA are not part of INSERT syntax.",
       "concept": "INSERT ... VALUES",
-      "section": 4
+      "section": 6
     },
     {
       "id": "sql-basics-q17",
@@ -336,7 +465,240 @@
       "answer": 2,
       "explanation": "An index lets the database jump to matching rows instead of scanning the table, but it is a separate structure that must be kept up to date on every insert, update and delete. A plain index does not forbid duplicates; only a UNIQUE index does.",
       "concept": "index tradeoffs",
+      "section": 7
+    },
+    {
+      "id": "sql-basics-q18",
+      "type": "cli",
+      "shell": "sql",
+      "difficulty": "easy",
+      "question": "Write a query that returns the name and price columns, in that order, for every row of the products table.",
+      "answer": "SELECT name, price FROM products;",
+      "explanation": "SELECT lists the columns you want, FROM names the table. With no WHERE, every row comes back. Naming the columns is better than SELECT * in application code.",
+      "concept": "basic SELECT",
+      "section": 0
+    },
+    {
+      "id": "sql-basics-q19",
+      "type": "order",
+      "difficulty": "hard",
+      "question": "Put these clauses in the order the database logically evaluates them.",
+      "items": ["FROM", "WHERE", "GROUP BY", "HAVING", "SELECT", "ORDER BY", "LIMIT"],
+      "explanation": "Rows are picked, filtered, grouped and the groups filtered before the output columns are computed; only then are they sorted and cut. That's why WHERE can't see SELECT aliases or aggregates, while ORDER BY can use both.",
+      "concept": "logical query order",
+      "section": 0
+    },
+    {
+      "id": "sql-basics-q20",
+      "type": "cli",
+      "shell": "sql",
+      "difficulty": "medium",
+      "question": "Write a query that returns only the name column of products whose category is 'books', cheapest first.",
+      "answer": "SELECT name FROM products WHERE category = 'books' ORDER BY price;",
+      "accept": ["SELECT name FROM products WHERE category = 'books' ORDER BY price ASC;"],
+      "explanation": "WHERE filters to books and ORDER BY price sorts ascending, which is the default. You can sort by a column you don't select.",
+      "concept": "WHERE with ORDER BY",
+      "section": 1
+    },
+    {
+      "id": "sql-basics-q21",
+      "type": "mcq",
+      "difficulty": "easy",
+      "question": "A product list shows 10 rows per page. Which query returns page 3?",
+      "choices": [
+        "SELECT name FROM products ORDER BY name LIMIT 30;",
+        "SELECT name FROM products ORDER BY name LIMIT 10 OFFSET 30;",
+        "SELECT name FROM products ORDER BY name LIMIT 3 OFFSET 10;",
+        "SELECT name FROM products ORDER BY name LIMIT 10 OFFSET 20;"
+      ],
+      "answer": 3,
+      "explanation": "Pages 1 and 2 cover the first 20 rows, so skip 20 with OFFSET 20 and take the next 10. OFFSET 30 would give page 4, and LIMIT 30 returns the first three pages at once.",
+      "concept": "LIMIT and OFFSET",
+      "section": 1
+    },
+    {
+      "id": "sql-basics-q22",
+      "type": "typed",
+      "difficulty": "medium",
+      "question": "The products table has prices 10, 15, 20 and 25. What number does this query return?",
+      "code": "SELECT COUNT(*) FROM products\nWHERE price BETWEEN 10 AND 20;",
+      "answer": "3",
+      "explanation": "BETWEEN includes both ends, so 10, 15 and 20 all match. It means price >= 10 AND price <= 20.",
+      "concept": "BETWEEN is inclusive",
+      "section": 1
+    },
+    {
+      "id": "sql-basics-q23",
+      "type": "cli",
+      "shell": "sql",
+      "difficulty": "medium",
+      "question": "Write a query that returns each category from products with its number of products, selecting exactly category and COUNT(*), in that order.",
+      "answer": "SELECT category, COUNT(*) FROM products GROUP BY category;",
+      "explanation": "GROUP BY category makes one row per category, and COUNT(*) counts the rows in each group. category may be selected because it is the grouping column.",
+      "concept": "GROUP BY with COUNT",
+      "section": 2
+    },
+    {
+      "id": "sql-basics-q24",
+      "type": "typed",
+      "difficulty": "hard",
+      "question": "How many rows does this query return?",
+      "code": "-- orders (customer_id, total):\n-- (1, 30), (1, 25), (2, 45), (3, 20), (3, 5), (2, 4)\n\nSELECT customer_id, SUM(total)\nFROM orders\nGROUP BY customer_id\nHAVING SUM(total) > 50;",
+      "answer": "1",
+      "explanation": "The sums are 55 for customer 1, 49 for customer 2 and 25 for customer 3. Only customer 1 is over 50, so one group survives HAVING.",
+      "concept": "HAVING on a sum",
+      "section": 2
+    },
+    {
+      "id": "sql-basics-q25",
+      "type": "typed",
+      "difficulty": "medium",
+      "question": "How many rows does this INNER JOIN return?",
+      "code": "-- customers (id): 1, 2, 3, 4\n-- orders (id, customer_id): (1, 1), (2, 1), (3, 1), (4, 3), (5, NULL)\n\nSELECT c.id, o.id\nFROM customers c\nJOIN orders o ON o.customer_id = c.id;",
+      "answer": "4",
+      "explanation": "Customer 1 matches three orders and customer 3 matches one. Customers 2 and 4 have no orders, and the order with a NULL customer_id matches nobody, because NULL = anything is unknown. A LEFT JOIN would return 6.",
+      "concept": "INNER JOIN row count",
+      "section": 3
+    },
+    {
+      "id": "sql-basics-q26",
+      "type": "cli",
+      "shell": "sql",
+      "difficulty": "hard",
+      "question": "Write a query that lists c.name and o.total for every customer, including customers without orders. Use customers with alias c, orders with alias o, and match o.customer_id to c.id.",
+      "answer": "SELECT c.name, o.total FROM customers c LEFT JOIN orders o ON o.customer_id = c.id;",
+      "accept": [
+        "SELECT c.name, o.total FROM customers c LEFT JOIN orders o ON c.id = o.customer_id;",
+        "SELECT c.name, o.total FROM customers c LEFT OUTER JOIN orders o ON o.customer_id = c.id;",
+        "SELECT c.name, o.total FROM customers c LEFT OUTER JOIN orders o ON c.id = o.customer_id;",
+        "SELECT c.name, o.total FROM customers AS c LEFT JOIN orders AS o ON o.customer_id = c.id;",
+        "SELECT c.name, o.total FROM customers AS c LEFT JOIN orders AS o ON c.id = o.customer_id;"
+      ],
+      "explanation": "Customers must be on the left of a LEFT JOIN so that every customer is kept. Those without orders get NULL for o.total. LEFT OUTER JOIN means the same thing.",
+      "concept": "writing a LEFT JOIN",
+      "section": 3
+    },
+    {
+      "id": "sql-basics-q27",
+      "type": "match",
+      "difficulty": "medium",
+      "question": "Match each join to the rows it returns.",
+      "pairs": [
+        { "left": "INNER JOIN", "right": "Only pairs of rows that match on both sides" },
+        { "left": "LEFT JOIN", "right": "Every left row, with NULLs where the right has no match" },
+        { "left": "RIGHT JOIN", "right": "Every right row, with NULLs where the left has no match" },
+        { "left": "FULL OUTER JOIN", "right": "Every row from both tables, matched where possible" },
+        { "left": "CROSS JOIN", "right": "Every combination of a left row and a right row" }
+      ],
+      "explanation": "INNER and LEFT cover most real queries. RIGHT is LEFT with the tables swapped, FULL keeps unmatched rows on both sides, and CROSS has no condition at all, which is why a forgotten ON clause can explode the row count.",
+      "concept": "join types",
+      "section": 3
+    },
+    {
+      "id": "sql-basics-q28",
+      "type": "typed",
+      "difficulty": "hard",
+      "question": "What number does this query return?",
+      "code": "-- users.email: 'ada@example.com', NULL, 'cy@example.com', NULL, 'eve@example.com'\n\nSELECT COUNT(*) FROM users\nWHERE email <> 'ada@example.com';",
+      "answer": "2",
+      "explanation": "Only the cy and eve rows are true. For the two NULL emails, NULL <> 'ada@example.com' is unknown, and WHERE drops unknown rows. To include them, add OR email IS NULL.",
+      "concept": "WHERE drops unknown rows",
       "section": 4
+    },
+    {
+      "id": "sql-basics-q29",
+      "type": "mcq",
+      "difficulty": "medium",
+      "question": "Which query lists products priced above the average price?",
+      "choices": [
+        "SELECT name FROM products WHERE price > AVG(price);",
+        "SELECT name FROM products WHERE price > (SELECT AVG(price) FROM products);",
+        "SELECT name FROM products HAVING price > AVG(price);",
+        "SELECT name, AVG(price) FROM products WHERE price > AVG;"
+      ],
+      "answer": 1,
+      "explanation": "The scalar subquery computes the average once, and WHERE compares each row against it. Aggregates aren't allowed in WHERE, which works row by row, and HAVING without GROUP BY treats the whole table as one group, so it can't list individual products this way.",
+      "concept": "scalar subquery",
+      "section": 5
+    },
+    {
+      "id": "sql-basics-q30",
+      "type": "code-fill",
+      "difficulty": "medium",
+      "question": "Complete the query to list customers who have at least one order over 100.",
+      "code": "SELECT name FROM customers\nWHERE id _____ (SELECT customer_id FROM orders WHERE total > 100);",
+      "choices": ["IN", "=", "LIKE", "BETWEEN"],
+      "answer": 0,
+      "explanation": "The subquery can return many customer ids, and IN checks membership in that list. = expects a single value: most databases raise an error when the subquery returns several rows, and SQLite quietly uses only the first.",
+      "concept": "IN with a subquery",
+      "section": 5
+    },
+    {
+      "id": "sql-basics-q31",
+      "type": "mcq",
+      "difficulty": "hard",
+      "question": "orders contains one row whose customer_id is NULL. What does this query return?",
+      "code": "SELECT name FROM customers\nWHERE id NOT IN (SELECT customer_id FROM orders);",
+      "choices": [
+        "Every customer who has no orders",
+        "Every customer",
+        "An error, because the subquery contains NULL",
+        "No rows at all"
+      ],
+      "answer": 3,
+      "explanation": "NOT IN means id differs from every value in the list. Differs from NULL is unknown, so the condition is never true and every row is dropped. NOT EXISTS (SELECT 1 FROM orders o WHERE o.customer_id = c.id) returns the customers without orders as intended.",
+      "concept": "NOT IN with NULL",
+      "section": 5
+    },
+    {
+      "id": "sql-basics-q32",
+      "type": "order",
+      "difficulty": "medium",
+      "question": "Put these steps for safely deleting rows from a production table in order.",
+      "items": [
+        "BEGIN a transaction",
+        "Run a SELECT with the WHERE clause you plan to use and inspect the rows",
+        "Run the DELETE with exactly that WHERE clause",
+        "Check that the reported row count matches the preview",
+        "COMMIT if it matches, or ROLLBACK if it doesn't"
+      ],
+      "explanation": "Previewing with the same WHERE shows exactly what will go, and the transaction gives you an undo button until you commit.",
+      "concept": "safe deletes",
+      "section": 6
+    },
+    {
+      "id": "sql-basics-q33",
+      "type": "mcq",
+      "difficulty": "medium",
+      "question": "A Python login handler looks up a user by the email typed into a form. Which line is safe from SQL injection?",
+      "choices": [
+        "cur.execute(f\"SELECT id FROM users WHERE email = '{email}'\")",
+        "cur.execute(\"SELECT id FROM users WHERE email = ?\", (email,))",
+        "cur.execute(\"SELECT id FROM users WHERE email = '\" + email + \"'\")",
+        "cur.execute(\"SELECT id FROM users WHERE email = '%s'\" % email)"
+      ],
+      "answer": 1,
+      "explanation": "With a placeholder, the email travels separately from the SQL text and is never parsed as SQL. The other three paste the input into the query, so an email like ' OR '1'='1 rewrites the WHERE clause.",
+      "concept": "parameterized queries",
+      "section": 6
+    },
+    {
+      "id": "sql-basics-q34",
+      "type": "code-fill",
+      "difficulty": "easy",
+      "question": "Complete the column definition so no two users can share an email address.",
+      "code": "CREATE TABLE users (\n  id    INTEGER PRIMARY KEY,\n  email TEXT NOT NULL _____,\n  age   INTEGER CHECK (age >= 13)\n);",
+      "choices": ["DISTINCT", "INDEX", "UNIQUE", "PRIMARY"],
+      "answer": 2,
+      "explanation": "UNIQUE makes the database reject any insert or update that would duplicate an email, and it creates an index to check that quickly. DISTINCT belongs to SELECT, and a table already has its one primary key.",
+      "concept": "UNIQUE constraint",
+      "section": 7
     }
+  ],
+  "resources": [
+    { "title": "SQLBolt", "url": "https://sqlbolt.com/", "kind": "practice", "note": "Free interactive lessons with a query box after each one, from SELECT to joins and aggregates." },
+    { "title": "Select Star SQL", "url": "https://selectstarsql.com/", "kind": "course", "note": "A free interactive book that teaches SQL on one real dataset, joins and subqueries included." },
+    { "title": "SQLite: SQL as understood by SQLite", "url": "https://www.sqlite.org/lang.html", "kind": "docs", "note": "The reference for the SQLite dialect the SQL lab runs, with a diagram for every statement." },
+    { "title": "PostgreSQL tutorial: the SQL language", "url": "https://www.postgresql.org/docs/current/tutorial-sql.html", "kind": "docs", "note": "The official PostgreSQL walkthrough of tables, queries, joins and aggregates." }
   ]
 }

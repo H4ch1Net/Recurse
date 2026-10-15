@@ -5,7 +5,10 @@ const GROUPS = [
     title: 'Anywhere',
     keys: [
       ['T', 'Go to Today'],
+      ['P', 'Go to Paths'],
+      ['X', 'Go to Practice'],
       ['L', 'Go to Library'],
+      ['G', 'Open the glossary'],
       ['S', 'Go to Progress'],
       [',', 'Open Settings'],
       ['?', 'Show this list']
@@ -21,9 +24,10 @@ const GROUPS = [
   {
     title: 'While studying',
     keys: [
-      ['A – D', 'Choose an answer'],
+      ['A to F', 'Choose an answer (toggle for select-all)'],
+      ['1 to 9', 'Place the next step in an order question'],
       ['Enter', 'Submit, reveal, or continue'],
-      ['1 – 4', 'Rate recall: Again, Hard, Good, Easy'],
+      ['1 to 4', 'Rate recall after answering: Again, Hard, Good, Easy'],
       ['E', 'Show the lesson excerpt'],
       ['Z or Ctrl+Z', 'Undo the last answer'],
       ['Esc', 'Leave the session']

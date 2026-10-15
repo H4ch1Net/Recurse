@@ -1,0 +1,1084 @@
+{
+  "id": "ccna-virtualization-clients",
+  "name": "Virtualization and Client IP Settings",
+  "version": "1.1.0",
+  "author": "Recurse",
+  "subject": "networking",
+  "level": "beginner",
+  "description": "Compare VMs, containers and VRFs, and verify a client's IP address, mask, gateway and DNS on Windows, macOS and Linux.",
+  "icon": "VM",
+  "language": "plaintext",
+  "prereqs": [
+    "ccna-network-components",
+    "ccna-osi-tcp-udp"
+  ],
+  "tags": [
+    "ccna",
+    "1.10",
+    "1.12",
+    "virtualization",
+    "containers",
+    "vrf",
+    "ipconfig",
+    "linux"
+  ],
+  "resources": [
+    {
+      "title": "Jeremy's IT Lab: Virtualization and Cloud (Day 54 part 1)",
+      "url": "https://www.youtube.com/watch?v=_S3greGajJA",
+      "kind": "video",
+      "note": "Free CCNA lecture: hypervisor types, vSwitches and cloud basics."
+    },
+    {
+      "title": "Jeremy's IT Lab: Containers (Day 54 part 2)",
+      "url": "https://www.youtube.com/watch?v=K731pAS22Aw",
+      "kind": "video",
+      "note": "Containers versus VMs, Docker and Kubernetes."
+    },
+    {
+      "title": "Jeremy's IT Lab: VRF (Day 54 part 3)",
+      "url": "https://www.youtube.com/watch?v=Ge4644KUvh4",
+      "kind": "video",
+      "note": "VRF-Lite configuration, VRF routing tables and ping vrf."
+    },
+    {
+      "title": "Microsoft Learn: ipconfig",
+      "url": "https://learn.microsoft.com/en-us/windows-server/administration/windows-commands/ipconfig",
+      "kind": "docs",
+      "note": "Every ipconfig option, including /all, /release, /renew and /flushdns."
+    },
+    {
+      "title": "ip-address(8) Linux manual page",
+      "url": "https://man7.org/linux/man-pages/man8/ip-address.8.html",
+      "kind": "docs",
+      "note": "Reference for ip address output and flags such as dynamic and temporary."
+    },
+    {
+      "title": "Docker: What is a container?",
+      "url": "https://www.docker.com/resources/what-container/",
+      "kind": "article",
+      "note": "Short official explanation of containers versus VMs."
+    }
+  ],
+  "lesson": {
+    "estimatedMinutes": 30,
+    "intro": "Two blueprint topics meet in this pack. Virtualization: how hypervisors run many virtual machines on one server, how containers package applications even more lightly, and how VRFs turn one router into several. Then the client side: verifying a host's IP address, mask, default gateway and DNS settings on Windows, macOS and Linux, and recognizing the misconfigurations that cause most \"I cannot connect\" tickets.",
+    "objectives": [
+      "Explain what a hypervisor does and compare Type 1 and Type 2 hypervisors with examples",
+      "Contrast VMs, containers and VRFs, and verify VRF routes with the right show and ping commands",
+      "Find address, mask, gateway and DNS on Windows, macOS and Linux from command output",
+      "Recognize IPv6 client settings such as link-local, temporary addresses and a link-local gateway",
+      "Diagnose APIPA, wrong gateway, wrong mask, wrong DNS and duplicate address problems on a client"
+    ],
+    "sections": [
+      {
+        "title": "Server virtualization: many servers in one box",
+        "body": "Ten years ago, a company with a mail server, a web server, a file server and a database bought four physical servers, and each one sat mostly idle. **Server virtualization** puts all four on one powerful physical **host** as **virtual machines (VMs)**. Each VM believes it is a whole computer, with its own operating system (the **guest OS**), CPUs, memory, disk and network card, but those are slices of the host's real hardware.\n\nThe software that makes this work is the **hypervisor**. It allocates the host's CPU cores and threads as **virtual CPUs (vCPUs)**, carves up RAM and storage, and keeps every VM isolated from the others, so a crash or compromise in one VM does not touch the rest. Benefits you should be able to name:\n\n- **Consolidation:** fewer physical servers, less power, cooling and rack space.\n- **Fast provisioning:** a new server is a few clicks or one script, not a purchase order.\n- **Mobility:** a running VM can move to another host (VMware calls this vMotion) for maintenance or load balancing.\n- **Snapshots and templates:** save a VM's state before a risky change and roll back if it fails.\n\nThe cost of sharing is **contention**. Administrators often allocate more vCPUs and RAM in total than the host really has (oversubscription), betting that not every VM is busy at once. When they are, all the VMs on that host slow down together.\n\nNetworking is virtual too. Each VM has a **virtual NIC (vNIC)**, and the hypervisor provides a **virtual switch (vSwitch)** inside the host that connects the vNICs to each other and to the host's physical NICs. The vSwitch can put each VM in its own VLAN or share a VLAN, just like access ports, and the physical NICs usually connect to the data center's **top-of-rack (ToR)** switches as **802.1Q trunks** carrying all the VMs' VLANs. Because the virtualization software controls the vSwitch, it can move a VM to another host and give it the same network settings there. Two VMs on the same host and VLAN talk through the vSwitch without their frames ever leaving the server.",
+        "code": "+---------------------------- Physical host (server) ----------------------------+\n|   [ VM1: Linux ]     [ VM2: Windows ]     [ VM3: Linux ]     [ VM4: Linux ]      |\n|     app  app           app                  app  app           app             |\n|     vNIC               vNIC                 vNIC               vNIC            |\n|       \\                 |                    |                  /               |\n|        +-------- virtual switch (VLAN 10, 20, 30 per VM port) --------+          |\n|                    Hypervisor: CPU, RAM, storage, NICs                          |\n|            Physical NIC 1                         Physical NIC 2                |\n+-------------------|--------------------------------------|----------------------+\n                    +---- 802.1Q trunks to the data center switches ----+",
+        "language": "plaintext",
+        "pitfall": "Assuming VMs on the same host are isolated from each other on the network. If their vNICs share a VLAN on the vSwitch they can talk directly at Layer 2, so segment VMs with VLANs exactly as you would physical servers.",
+        "check": {
+          "question": "What does a hypervisor do?",
+          "choices": [
+            "Routes packets between VLANs on a switch",
+            "Assigns IP addresses to virtual machines",
+            "Creates and runs VMs, allocating the host's CPU, memory, storage and NICs to them",
+            "Encrypts traffic between data centers"
+          ],
+          "answer": 2,
+          "explanation": "The hypervisor is the virtualization layer: it creates VMs and shares the physical hardware among them while keeping them isolated. Addressing and routing are still handled by DHCP servers and routers."
+        }
+      },
+      {
+        "title": "Type 1 and Type 2 hypervisors",
+        "body": "A network engineer runs a CCNA lab on a laptop with VirtualBox. A data center runs thousands of VMs on VMware ESXi. Both are hypervisors, but they sit in different places.\n\nA **Type 1** hypervisor, also called **bare metal** or native, runs directly on the server hardware, with no general-purpose operating system underneath. It is lean, fast and isolated from the problems of a desktop OS, which is why data centers and clouds use it. Examples: **VMware ESXi**, **Microsoft Hyper-V**, **KVM** (built into the Linux kernel) and **Xen** (Citrix XenServer).\n\nA **Type 2** hypervisor, also called **hosted**, is an application installed on a normal operating system such as Windows, macOS or Linux. The guest VMs run on top of that host OS, so every request passes through one more layer. It is convenient for desktops, labs and testing. Examples: **Oracle VirtualBox**, **VMware Workstation** and **Fusion**, and **Parallels Desktop**.\n\nOne trap: Hyper-V counts as Type 1 even though you switch it on from Windows. Enabling it slides the hypervisor underneath, and Windows itself becomes a privileged VM (the parent partition) running on top.\n\nKeep the vocabulary straight, because exam answers mix it up: the **host** is the physical machine, the **hypervisor** is the virtualization layer, and each **guest** is the operating system running inside a VM. Whichever type you use, the hypervisor virtualizes the same four resources for each VM: CPU, RAM, storage and NICs.",
+        "code": "   Type 1 (bare metal)                    Type 2 (hosted)\n+------+ +------+ +------+            +------+ +------+\n| VM 1 | | VM 2 | | VM 3 |            | VM 1 | | VM 2 |\n+------+ +------+ +------+            +------+ +------+\n|  Hypervisor (ESXi, KVM,  |          | Hypervisor app   |\n|  Hyper-V, Xen)           |          | (VirtualBox)     |\n+--------------------------+          +------------------+\n|       Hardware           |          | Host OS (Windows)|\n+--------------------------+          +------------------+\n                                      |     Hardware     |\n                                      +------------------+",
+        "language": "plaintext",
+        "pitfall": "Thinking Type 1 versus Type 2 is about size or how many VMs you can run. It is only about where the hypervisor sits: directly on the hardware, or as an application on top of a host operating system.",
+        "check": {
+          "question": "Which statement describes a Type 2 hypervisor?",
+          "choices": [
+            "It runs directly on the server hardware",
+            "It runs as an application on top of a host operating system",
+            "It shares the host kernel with containers and has no guest OS",
+            "It is only used by public cloud providers"
+          ],
+          "answer": 1,
+          "explanation": "A Type 2 (hosted) hypervisor such as VirtualBox runs on an existing OS. Type 1 (bare metal) hypervisors such as ESXi run directly on the hardware."
+        }
+      },
+      {
+        "title": "Containers",
+        "body": "A development team ships a web app that needs a particular version of Python and twenty libraries. On their laptops it works; on the server it breaks because a library version differs. **Containers** fix this by packaging the application together with everything it depends on into one **image**, which runs the same way on any host with a container engine.\n\nThe key difference from a VM: a container does **not** include its own operating system kernel. All containers on a host **share the host OS kernel**, and the kernel keeps them isolated from each other (on Linux, with namespaces and cgroups). Consequences:\n\n- Containers are small (often megabytes, where a VM image is gigabytes) and start in about a second, where a VM must boot a whole OS.\n- One host can run many more containers than VMs.\n- Isolation is lighter than a VM's, because every container trusts the same shared kernel.\n- A Linux container needs a Linux kernel. On a Windows or macOS machine, tools run a small Linux VM behind the scenes to provide one.\n\n**Docker** is the best-known engine for building and running containers, and images are pulled from **registries**. When there are hundreds of containers across many hosts, an **orchestrator** such as **Kubernetes** places them, restarts failed ones and scales them up and down. In real data centers, containers usually run inside VMs, combining both.\n\nContainers bring networking too. A container gets its own virtual interface and IP address on a host-internal network, and a **published port** maps a host port to the container's port: with `-p 8080:80`, users connect to the host on port 8080 and reach the web server listening on port 80 inside the container.",
+        "code": "     Virtual machines                         Containers\n  +-------+ +-------+ +-------+         +-----+ +-----+ +-----+ +-----+\n  | App A | | App B | | App C |         |App A| |App B| |App C| |App D|\n  | Libs  | | Libs  | | Libs  |         |Libs | |Libs | |Libs | |Libs |\n  |Guest  | |Guest  | |Guest  |         +-----+ +-----+ +-----+ +-----+\n  |  OS   | |  OS   | |  OS   |         |  Container engine (Docker)    |\n  +-------+ +-------+ +-------+         +-------------------------------+\n  |       Hypervisor          |         |  Host OS and its ONE kernel   |\n  +---------------------------+         +-------------------------------+\n  |        Hardware           |         |           Hardware            |\n  +---------------------------+         +-------------------------------+\n\n$ docker run -d --name web -p 8080:80 nginx     # host port 8080 -> container port 80",
+        "language": "plaintext",
+        "pitfall": "Calling a container \"a lightweight VM with its own OS\". Containers have no kernel of their own, which is both why they are light and why a Linux container cannot run directly on a Windows kernel.",
+        "check": {
+          "question": "What is the main architectural difference between a container and a VM?",
+          "choices": [
+            "Containers include a full guest OS; VMs do not",
+            "Containers need a Type 1 hypervisor; VMs do not",
+            "Containers can only run on network devices",
+            "Containers share the host OS kernel; each VM runs its own guest OS"
+          ],
+          "answer": 3,
+          "explanation": "Each VM boots its own guest operating system on virtual hardware. Containers package only the app and its dependencies and share the host kernel, which is why they are smaller and faster to start."
+        }
+      },
+      {
+        "title": "VRFs: several routers inside one router",
+        "body": "A service provider's edge router connects two customers. Both customers use the private network `10.1.1.0/24`, because private addresses are free for anyone to use. A normal router has one routing table, so it cannot hold two different `10.1.1.0/24` routes pointing to two different customers. The answer is **VRF (virtual routing and forwarding)**: virtualization for the routing table.\n\nA VRF is a separate routing table plus the interfaces assigned to it. Each interface belongs to exactly one VRF (or to the default **global** table). Routes, ARP entries and forwarding decisions in one VRF never mix with another, so:\n\n- Overlapping IP addresses are fine in different VRFs.\n- Traffic in one VRF cannot reach another VRF unless you deliberately leak routes between them.\n- One physical router (or Layer 3 switch) acts like several independent routers.\n\nService providers use VRFs with MPLS to build customer VPNs. Enterprises use **VRF-Lite** (VRFs without MPLS) to keep networks apart on shared hardware, for example guest Wi-Fi, building management systems or a newly acquired company.\n\nConfiguration has one ordering trap: putting an interface into a VRF **removes its IP address**, so assign the VRF first, then the address. You may also meet the older syntax, `ip vrf NAME` and `ip vrf forwarding NAME`, which does the same job for IPv4 only. Verification changes too: `show ip route` shows only the global table, so a VRF's routes appear only with `show ip route vrf NAME`, `show vrf` lists the VRFs and their interfaces, and tests need the VRF as well, as in `ping vrf CUST-A 10.1.1.10`. A plain `ping` always uses the global table.\n\nPut the three technologies side by side: a **VM** virtualizes a whole computer's hardware, a **container** virtualizes an application's OS environment while sharing the kernel, and a **VRF** virtualizes a router's routing table. (A VLAN, which you will meet in Domain 2, does the same for a LAN.)",
+        "code": "R1(config)# vrf definition CUST-A\nR1(config-vrf)# address-family ipv4\nR1(config-vrf-af)# exit-address-family\nR1(config-vrf)# exit\nR1(config)# interface gigabitethernet0/1\nR1(config-if)# vrf forwarding CUST-A\nR1(config-if)# ip address 10.1.1.1 255.255.255.0\nR1(config-if)# no shutdown\nR1(config-if)# end\n\nR1# show ip route vrf CUST-A\n\nRouting Table: CUST-A\nCodes: L - local, C - connected, S - static, R - RIP, M - mobile, B - BGP\n! lines omitted\nGateway of last resort is not set\n\n      10.0.0.0/8 is variably subnetted, 2 subnets, 2 masks\nC        10.1.1.0/24 is directly connected, GigabitEthernet0/1\nL        10.1.1.1/32 is directly connected, GigabitEthernet0/1",
+        "language": "cisco",
+        "pitfall": "Running show ip route, seeing nothing, and concluding the interface is broken. VRF routes live in their own table; use show ip route vrf CUST-A.",
+        "check": {
+          "question": "Two customers both use 10.1.1.0/24 and connect to the same provider router. What lets the router keep their routes separate?",
+          "choices": [
+            "A separate VLAN for each customer only",
+            "NAT on the customer routers",
+            "A second routing protocol process in the global table",
+            "A separate VRF, with its own routing table, for each customer"
+          ],
+          "answer": 3,
+          "explanation": "Each VRF has its own routing table and its own interfaces, so identical prefixes can exist in different VRFs. VLANs separate Layer 2 domains but do not give the router separate routing tables."
+        }
+      },
+      {
+        "title": "The four IP settings every client needs",
+        "body": "Moving from servers to endpoints: when a user says \"I cannot get to anything\", the first thing to check is the client's own IP configuration. Every IPv4 host needs four settings, usually delivered by DHCP, sometimes typed in statically:\n\n- **IP address:** its own unique address, such as 192.168.1.172.\n- **Subnet mask** (or prefix length): which addresses are on the local subnet, such as 255.255.255.0 (/24).\n- **Default gateway:** the IP address of the router interface (or Layer 3 switch SVI) on the local subnet, used for every destination outside it.\n- **DNS server(s):** where to send name lookups, so \"www.example.com\" becomes an IP address. Hosts usually list two for redundancy.\n\nThe host uses the address and mask for one decision on every packet. It compares the destination with its own subnet. If the destination is **local**, it ARPs for the destination's MAC address and sends the frame straight to it. If the destination is **remote**, it ARPs for the **default gateway's** MAC and hands the frame to the router, while the IP header still carries the final destination.\n\nTwo consequences follow. The default gateway **must be in the same subnet** as the host, or the host cannot even ARP for it. And the host and its router must **agree on the mask**, or they will disagree about which addresses are local. DNS is separate: a host with a wrong DNS server can still reach everything by IP address, but nothing by name.\n\nEvery operating system shows these four values in a settings window and from the command line. The CCNA blueprint asks you to verify them on Windows, macOS and Linux, so the next sections show the commands and, more importantly, where each value appears in their output.",
+        "tip": "Gateway must be in the host's subnet, mask must match the router's, DNS only affects names. Check those three and most client problems are solved.",
+        "pitfall": "Setting a PC's default gateway to the management address of the Layer 2 switch it plugs into. That switch does not route; the gateway must be a router interface or Layer 3 switch SVI in the PC's subnet.",
+        "activity": {
+          "type": "packet-journey",
+          "title": "Local or remote?",
+          "prompt": "Watch the host make its first decision: is the destination on my subnet? Note whose MAC it ARPs for when the destination is remote, and confirm that the destination IP in the packet never changes to the gateway's address.",
+          "props": {}
+        },
+        "check": {
+          "question": "Host 192.168.10.25/24 sends a packet to 192.168.20.5. Whose MAC address does it put in the frame's destination field?",
+          "choices": [
+            "192.168.20.5's MAC address",
+            "Its default gateway's MAC address",
+            "The broadcast address FFFF.FFFF.FFFF",
+            "The DNS server's MAC address"
+          ],
+          "answer": 1,
+          "explanation": "192.168.20.5 is outside 192.168.10.0/24, so the host sends the frame to its default gateway. The IP destination stays 192.168.20.5; only the Ethernet destination is the router's MAC."
+        }
+      },
+      {
+        "title": "Windows: ipconfig and friends",
+        "body": "On Windows, open a command prompt. Plain `ipconfig` shows each adapter's IPv4 address, mask and default gateway. **`ipconfig /all`** adds what you usually need for troubleshooting: the **Physical Address** (MAC, written with dashes), **DHCP Enabled**, the **lease** times, the **DHCP Server** that handed out the lease, and the **DNS Servers**. \"(Preferred)\" after the address means it is valid and in use; \"(Duplicate)\" means Windows detected another host using it.\n\nOther commands worth knowing:\n\n- `ipconfig /release` then `ipconfig /renew`: give up the DHCP lease and request a new one (the DORA exchange runs again).\n- `ipconfig /flushdns`: clear the local DNS cache after a DNS record changes.\n- `netstat -rn` (or `route print`): the host's routing table. The default route is the line with destination 0.0.0.0 and mask 0.0.0.0, pointing at the default gateway. \"On-link\" means directly reachable.\n- `arp -a`: the ARP cache, IP-to-MAC mappings the host has learned.\n- `ping`, `tracert` and `nslookup`: test reachability, the path, and DNS resolution.\n\nThe one address that should make you sit up is **169.254.x.x** with a mask of 255.255.0.0 and no gateway. That is **APIPA** (automatic private IP addressing): the host asked for a DHCP lease, got no answer, and gave itself a link-local address. It can talk only to other APIPA hosts on the same link. Look for a DHCP server that is down, a switch port in the wrong VLAN, or a router missing its `ip helper-address` relay.\n\nThe same values are in the GUI under Settings, Network and internet, then the adapter's hardware and connection properties, but on the exam and on the job the command line is faster and shows everything at once.",
+        "code": "C:\\> ipconfig /all\n\nEthernet adapter Ethernet:\n\n   Connection-specific DNS Suffix  . : corp.example.com\n   Description . . . . . . . . . . . : Intel(R) Ethernet Connection I219-LM\n   Physical Address. . . . . . . . . : 00-05-1B-A3-5D-D0\n   DHCP Enabled. . . . . . . . . . . : Yes\n   Autoconfiguration Enabled . . . . : Yes\n   IPv4 Address. . . . . . . . . . . : 192.168.1.172(Preferred)\n   Subnet Mask . . . . . . . . . . . : 255.255.255.0\n   Lease Obtained. . . . . . . . . . : Thursday, October 15, 2026 8:02:11 AM\n   Lease Expires . . . . . . . . . . : Friday, October 16, 2026 8:02:11 AM\n   Default Gateway . . . . . . . . . : 192.168.1.1\n   DHCP Server . . . . . . . . . . . : 192.168.1.5\n   DNS Servers . . . . . . . . . . . : 192.168.1.10\n                                       192.168.1.11\n\nC:\\> netstat -rn\nIPv4 Route Table\n===========================================================================\nActive Routes:\nNetwork Destination        Netmask          Gateway       Interface  Metric\n          0.0.0.0          0.0.0.0      192.168.1.1    192.168.1.172     25\n      192.168.1.0    255.255.255.0         On-link     192.168.1.172    281",
+        "language": "plaintext",
+        "pitfall": "Using plain ipconfig to check DNS. It does not list DNS servers at all; only ipconfig /all does.",
+        "check": {
+          "question": "Which Windows command shows the DNS servers and DHCP lease details for each adapter?",
+          "choices": [
+            "ipconfig",
+            "arp -a",
+            "ipconfig /all",
+            "netstat -rn"
+          ],
+          "answer": 2,
+          "explanation": "Plain ipconfig shows only address, mask and gateway. ipconfig /all adds MAC address, DHCP details, lease times and DNS servers. arp -a lists the ARP cache and netstat -rn the routing table."
+        }
+      },
+      {
+        "title": "Linux: ip address, ip route and resolvectl",
+        "body": "On **Linux**, the modern tool is the `ip` command from the iproute2 package. **`ip address`** (short forms `ip addr` and `ip a`) lists each interface with its MAC (`link/ether`) and addresses in prefix notation (`inet 10.20.30.45/24`). The word `dynamic` means the address came from DHCP, and `valid_lft` shows how long the lease has left. **`ip route`** lists the routing table, and the line starting `default via` names the default gateway; `proto dhcp` on that line says DHCP supplied it.\n\nThe older **net-tools** commands are deprecated, and some distributions no longer install them, but they still appear in documentation and on the exam: `ifconfig` (addresses, with the mask in dotted decimal) and `netstat -rn` or `route -n` (routing table, with the default route shown as destination `0.0.0.0` and flags `UG`, meaning up and via a gateway). Older ifconfig versions print `inet addr:192.168.1.223 Bcast:192.168.1.255 Mask:255.255.255.0`; newer ones print `inet 192.168.1.223 netmask 255.255.255.0 broadcast 192.168.1.255`. Same facts, different layout.\n\nDNS servers are shown by neither. Look at `/etc/resolv.conf`, but on many modern distributions it lists only `127.0.0.53`, a local caching stub run by systemd-resolved. The real upstream servers are shown by `resolvectl status` (or `resolvectl dns`). On desktops that use NetworkManager, `nmcli device show eth0` prints address, gateway and DNS together.\n\nOne more useful command: `ip neighbor` shows the ARP cache (IPv4) and neighbor cache (IPv6), the Linux equivalent of `arp -a`.",
+        "code": "$ ip address show eth0\n2: eth0: <BROADCAST,MULTICAST,UP,LOWER_UP> mtu 1500 qdisc fq_codel state UP\n    link/ether 52:54:00:3a:7c:21 brd ff:ff:ff:ff:ff:ff\n    inet 10.20.30.45/24 brd 10.20.30.255 scope global dynamic eth0\n       valid_lft 85912sec preferred_lft 85912sec\n    inet6 fe80::5054:ff:fe3a:7c21/64 scope link\n       valid_lft forever preferred_lft forever\n\n$ ip route\ndefault via 10.20.30.1 dev eth0 proto dhcp metric 100\n10.20.30.0/24 dev eth0 proto kernel scope link src 10.20.30.45 metric 100\n\n$ resolvectl dns eth0\nLink 2 (eth0): 10.20.0.53 10.20.0.54\n\n$ netstat -rn\nKernel IP routing table\nDestination     Gateway         Genmask         Flags   MSS Window  irtt Iface\n0.0.0.0         10.20.30.1      0.0.0.0         UG        0 0          0 eth0\n10.20.30.0      0.0.0.0         255.255.255.0   U         0 0          0 eth0",
+        "language": "plaintext",
+        "tip": "On Linux: ip a for the address and prefix, ip r for the gateway, resolvectl for DNS. Three commands, four settings.",
+        "pitfall": "Reading the brd address in ip address output as the gateway. brd is the subnet broadcast address; the gateway appears only in ip route, on the default via line.",
+        "check": {
+          "question": "On a modern Linux host, which command shows the default gateway?",
+          "choices": [
+            "ip route",
+            "ip address",
+            "ifconfig",
+            "cat /etc/hostname"
+          ],
+          "answer": 0,
+          "explanation": "ip route prints the routing table, and the line \"default via <address>\" is the default gateway. ip address and ifconfig show interface addresses and masks but not the gateway."
+        }
+      },
+      {
+        "title": "macOS: ifconfig, networksetup and netstat",
+        "body": "**macOS** is built on BSD Unix, so its commands look like Linux's older tools with a few twists.\n\n- `ifconfig en0` shows the MAC (`ether`), the IPv4 address and the mask, but writes the mask in **hex**: `netmask 0xffffff00` is 255.255.255.0. Like Linux's ifconfig, it does not show the gateway or DNS servers, and there is no `/all` option.\n- `networksetup -getinfo Wi-Fi` (or `Ethernet`, using the name of the network service) shows whether DHCP is in use, plus the IP address, subnet mask in dotted decimal, **Router** (the default gateway) and MAC address.\n- `networksetup -getdnsservers Wi-Fi` lists the DNS servers configured for that service. `scutil --dns` shows the resolver configuration the system is actually using, including servers learned from DHCP.\n- `netstat -rn` lists the routing table. The default route is the line whose destination is the word `default` rather than 0.0.0.0, with flags such as `UG` (up, gateway).\n- macOS also has its own `ipconfig`, but it is not the Windows tool: `ipconfig getifaddr en0` prints just the interface's IPv4 address, and `ipconfig getpacket en0` shows the DHCP reply, including the router and DNS options it received.\n\nIn the GUI, System Settings, then Network, then the service's Details, shows the same four values on its TCP/IP and DNS tabs, and says whether they were configured using DHCP or manually.\n\nThe commands differ from Windows and Linux, but the questions you ask are identical on every OS: what is my address and prefix, what is my default gateway, which DNS servers am I using, and did those come from DHCP?",
+        "code": "mac$ ifconfig en0\nen0: flags=8863<UP,BROADCAST,SMART,RUNNING,SIMPLEX,MULTICAST> mtu 1500\n        ether 0c:4d:e9:a9:9c:41\n        inet 192.168.1.102 netmask 0xffffff00 broadcast 192.168.1.255\n        status: active\n\nmac$ networksetup -getinfo Wi-Fi\nDHCP Configuration\nIP address: 192.168.1.102\nSubnet mask: 255.255.255.0\nRouter: 192.168.1.1\n\nmac$ networksetup -getdnsservers Wi-Fi\n192.168.1.10\n192.168.1.11\n\nmac$ netstat -rn | grep default\ndefault            192.168.1.1        UGScg          en0",
+        "language": "plaintext",
+        "tip": "Hex masks: each ff is 255 and 00 is 0, so 0xffffff00 is 255.255.255.0 and 0xfffffe00 is 255.255.254.0 (/23).",
+        "pitfall": "Typing ipconfig /all on a Mac and assuming the network is broken when it errors. macOS has a different ipconfig; use ifconfig, networksetup and netstat -rn instead.",
+        "check": {
+          "question": "On a Mac, which command shows the default router (gateway) learned for the Wi-Fi service?",
+          "choices": [
+            "ifconfig en0",
+            "networksetup -getinfo Wi-Fi",
+            "ipconfig /all",
+            "ip route"
+          ],
+          "answer": 1,
+          "explanation": "networksetup -getinfo lists the DHCP status, address, mask and Router for a service. ifconfig on macOS shows no gateway, ipconfig /all is a Windows command, and ip route is Linux."
+        }
+      },
+      {
+        "title": "IPv6 settings on clients",
+        "body": "Modern clients run IPv4 and IPv6 side by side (dual stack), so `ipconfig` on a typical laptop shows more IPv6 lines than IPv4 ones. You need to recognize them:\n\n- **Link-local IPv6 Address** (starts with `fe80::`): every IPv6 interface creates one automatically. Windows adds `%12` after it: the **zone index**, the local number of the interface, needed because every interface has an fe80:: address.\n- **IPv6 Address**: a global unicast address (2000::/3), usually built with **SLAAC** from the prefix the router advertises, or assigned by DHCPv6.\n- **Temporary IPv6 Address**: a second global address with a random interface ID that changes over time, used for outgoing connections for privacy.\n- **Default Gateway**: on IPv6 this is normally the router's **link-local** address, such as `fe80::1%12`, learned from the router advertisement. Windows lists the IPv6 gateway and the IPv4 gateway under the same heading.\n\nOn Linux, `ip -6 address` shows the same addresses with tags: `scope link` for fe80::, `scope global dynamic` for a SLAAC address, `temporary` for privacy addresses. `ip -6 route` shows the gateway as `default via fe80::1 dev eth0 proto ra`, where `proto ra` means it came from a router advertisement. On macOS, `ifconfig en0` lists `inet6` lines with flags such as `secured` and `autoconf temporary`.\n\nThe troubleshooting logic carries over. No global IPv6 address but a link-local one means the host heard no router advertisement. A link-local gateway is normal, not a mistake.",
+        "code": "C:\\> ipconfig\n\nEthernet adapter Ethernet:\n\n   Connection-specific DNS Suffix  . : corp.example.com\n   IPv6 Address. . . . . . . . . . . : 2001:db8:acad:10:9d3c:7a2f:4b1e:65c0\n   Temporary IPv6 Address. . . . . . : 2001:db8:acad:10:4c1:ae55:1f0e:9b2d\n   Link-local IPv6 Address . . . . . : fe80::9d3c:7a2f:4b1e:65c0%12\n   IPv4 Address. . . . . . . . . . . : 192.168.10.37\n   Subnet Mask . . . . . . . . . . . : 255.255.255.0\n   Default Gateway . . . . . . . . . : fe80::1%12\n                                       192.168.10.1\n\n$ ip -6 route\n2001:db8:acad:10::/64 dev eth0 proto ra metric 100 pref medium\nfe80::/64 dev eth0 proto kernel metric 256 pref medium\ndefault via fe80::1 dev eth0 proto ra metric 100 pref medium",
+        "language": "plaintext",
+        "pitfall": "Flagging a link-local default gateway as a misconfiguration. On IPv6 that is the normal, expected value; the global gateway address is rarely used.",
+        "check": {
+          "question": "Windows ipconfig shows \"Default Gateway . . . : fe80::1%12\". What is fe80::1?",
+          "choices": [
+            "The router's link-local address on that link, learned from its router advertisement",
+            "An APIPA address that means DHCPv6 failed",
+            "The PC's own temporary IPv6 address",
+            "A multicast address for all routers"
+          ],
+          "answer": 0,
+          "explanation": "IPv6 hosts use the router's link-local address as their default gateway, and %12 is the zone index of the PC interface. APIPA is an IPv4 idea, and the all-routers multicast group is ff02::2."
+        }
+      },
+      {
+        "title": "Spotting common client misconfigurations",
+        "body": "A small set of mistakes causes most client connectivity tickets, and each has a recognizable fingerprint:\n\n- **No DHCP lease (APIPA):** 169.254.x.x/16, no gateway, no DNS. Nothing beyond the local link works. Fix DHCP reachability: server, VLAN, relay.\n- **Wrong DNS server:** `ping 8.8.8.8` works but `ping www.example.com` fails with \"could not find host\", and `nslookup` times out. The network is fine; name resolution is not.\n- **Wrong default gateway:** the host reaches everything on its own subnet but nothing beyond it. Check that the gateway address is right and answers ARP.\n- **Gateway outside the host's subnet:** for example 10.1.1.50/24 with gateway 10.1.2.1. The host cannot ARP for an off-subnet gateway, so all remote traffic fails.\n- **Wrong mask:** a /16 mask on a /24 network makes the host believe some remote hosts are local. It ARPs for them directly, gets no answer, and only those destinations fail, which makes the problem look random.\n- **Duplicate IP address:** two hosts with the same address fight over it; connectivity comes and goes, and Windows marks the address \"(Duplicate)\" or warns of a conflict.\n\nA methodical test sequence from the client narrows things down quickly: check `ipconfig /all` (or `ip address` and `ip route`), ping the loopback 127.0.0.1 (the TCP/IP stack works), ping your own address (the interface is up), ping the default gateway (the local subnet and gateway work), ping a remote IP address (routing beyond the gateway works), then ping or `nslookup` a name (DNS works). The first step that fails tells you where to look.",
+        "code": "Step   Test                         If it fails, suspect\n1      ipconfig /all, ip a, ip r    missing or APIPA address, wrong mask/gateway/DNS\n2      ping 127.0.0.1               TCP/IP stack on the host\n3      ping <own IP>                the host's interface or its address\n4      ping <default gateway>       cabling, VLAN, wrong gateway or mask\n5      ping <remote IP>             routing beyond the gateway, ACLs, firewall\n6      nslookup <name>              DNS server settings or reachability",
+        "language": "plaintext",
+        "pitfall": "Blaming \"the network\" when only names fail. If remote IP addresses answer, routing is fine and the problem is DNS.",
+        "check": {
+          "question": "A user can ping 8.8.8.8 and their default gateway, but no website opens by name. Which setting should you check first?",
+          "choices": [
+            "The subnet mask",
+            "The default gateway",
+            "The DNS servers",
+            "The MAC address"
+          ],
+          "answer": 2,
+          "explanation": "Reaching a remote IP proves the address, mask and gateway work. Failing only when names are involved points to DNS: a wrong, missing or unreachable DNS server."
+        }
+      }
+    ],
+    "keyTerms": [
+      {
+        "term": "Hypervisor",
+        "definition": "Software that creates and runs virtual machines, sharing the host hardware among them."
+      },
+      {
+        "term": "Type 1 hypervisor",
+        "definition": "Bare-metal hypervisor running directly on hardware, such as ESXi, Hyper-V or KVM."
+      },
+      {
+        "term": "Type 2 hypervisor",
+        "definition": "Hosted hypervisor running as an application on an OS, such as VirtualBox or VMware Workstation."
+      },
+      {
+        "term": "vSwitch",
+        "definition": "Virtual switch inside a host connecting VM vNICs to each other and to the physical NICs, with VLAN support."
+      },
+      {
+        "term": "Container",
+        "definition": "An application packaged with its dependencies that shares the host OS kernel instead of running its own OS."
+      },
+      {
+        "term": "VRF",
+        "definition": "Virtual routing and forwarding: a separate routing table and set of interfaces on one router, allowing overlapping addresses."
+      },
+      {
+        "term": "Default gateway",
+        "definition": "The router address on the local subnet that a host uses for all off-subnet destinations."
+      },
+      {
+        "term": "APIPA",
+        "definition": "A self-assigned 169.254.0.0/16 address that a host uses when DHCP fails."
+      },
+      {
+        "term": "ipconfig /all",
+        "definition": "Windows command showing address, mask, gateway, MAC, DHCP lease details and DNS servers."
+      },
+      {
+        "term": "ip route",
+        "definition": "Linux command showing the routing table; \"default via\" names the default gateway."
+      },
+      {
+        "term": "Guest OS",
+        "definition": "The operating system running inside a virtual machine; the physical machine is the host."
+      },
+      {
+        "term": "vNIC",
+        "definition": "A virtual network interface card given to a VM and connected to a vSwitch."
+      },
+      {
+        "term": "VRF-Lite",
+        "definition": "VRFs used without MPLS, to keep several routed networks separate on one enterprise router or Layer 3 switch."
+      },
+      {
+        "term": "networksetup",
+        "definition": "macOS command that shows a network service's address, mask, router and DNS servers."
+      },
+      {
+        "term": "Zone index",
+        "definition": "The %number after a link-local IPv6 address on Windows, identifying which local interface it belongs to."
+      }
+    ],
+    "summary": [
+      "A hypervisor runs isolated VMs on one host; vNICs connect to a vSwitch that trunks VLANs to the physical network.",
+      "Type 1 runs on bare metal (ESXi, Hyper-V, KVM); Type 2 runs on a host OS (VirtualBox, VMware Workstation).",
+      "Containers share the host kernel, so they are small and fast; VRFs give one router several separate routing tables.",
+      "Plain ping and show ip route use the global table; use ping vrf and show ip route vrf to work inside a VRF.",
+      "Windows: ipconfig /all and netstat -rn. Linux: ip address, ip route, resolvectl. macOS: ifconfig (hex mask), networksetup -getinfo, netstat -rn.",
+      "IPv6 clients show a link-local fe80:: address, global and temporary addresses, and usually a link-local default gateway learned from router advertisements.",
+      "169.254.x.x means DHCP failed; names failing while IPs work means DNS; local-only reachability means a gateway problem."
+    ],
+    "feynmanPrompt": "Explain to a new help desk technician how to check a laptop's network settings on Windows and Linux, what each of the four settings is for, and how to tell a DHCP problem from a DNS problem."
+  },
+  "questions": [
+    {
+      "id": "ccna-virtualization-clients-q01",
+      "type": "mcq",
+      "difficulty": "easy",
+      "question": "Which component allocates a physical server's CPU, memory and NICs among several virtual machines?",
+      "choices": [
+        "The vNIC",
+        "The container engine",
+        "The hypervisor",
+        "The top-of-rack switch"
+      ],
+      "answer": 2,
+      "explanation": "The hypervisor creates the VMs and shares the host hardware among them. A vNIC is one VM's virtual network card, and a container engine runs containers, not VMs.",
+      "concept": "hypervisor role",
+      "section": 0
+    },
+    {
+      "id": "ccna-virtualization-clients-q02",
+      "type": "multi",
+      "difficulty": "medium",
+      "question": "Which two are benefits of server virtualization? (Choose two.)",
+      "choices": [
+        "Running several servers on fewer physical machines",
+        "Each VM needs its own dedicated physical NIC",
+        "Moving a running VM to another host for maintenance",
+        "VMs no longer need IP addresses",
+        "Every VM must run the same operating system"
+      ],
+      "answers": [
+        0,
+        2
+      ],
+      "explanation": "Consolidation and mobility (live migration) are core benefits. VMs share physical NICs through a vSwitch, still need IP addresses, and can each run a different OS.",
+      "concept": "virtualization benefits",
+      "section": 0
+    },
+    {
+      "id": "ccna-virtualization-clients-q03",
+      "type": "mcq",
+      "difficulty": "medium",
+      "question": "A host runs 20 VMs spread across VLANs 10, 20 and 30. How should the physical switch ports connected to the host's NICs normally be configured?",
+      "choices": [
+        "As 802.1Q trunks carrying VLANs 10, 20 and 30",
+        "As access ports in VLAN 1",
+        "As routed ports with one IP address per VM",
+        "As shut down ports, since VMs do not use the physical network"
+      ],
+      "answer": 0,
+      "explanation": "The vSwitch places each VM in a VLAN and sends tagged frames out the physical NICs, so the physical switch ports must be trunks carrying all those VLANs.",
+      "concept": "vSwitch uplink",
+      "section": 0
+    },
+    {
+      "id": "ccna-virtualization-clients-q04",
+      "type": "mcq",
+      "difficulty": "easy",
+      "question": "Two VMs on the same host and in the same VLAN exchange traffic. Which device switches their frames?",
+      "choices": [
+        "The data center core router",
+        "The physical access switch",
+        "The default gateway",
+        "The virtual switch inside the host"
+      ],
+      "answer": 3,
+      "explanation": "The vSwitch connects the vNICs on that host, so frames between two local VMs in the same VLAN never leave the server. Traffic between VLANs still needs a router or Layer 3 switch.",
+      "concept": "vSwitch local traffic",
+      "section": 0
+    },
+    {
+      "id": "ccna-virtualization-clients-q05",
+      "type": "mcq",
+      "difficulty": "easy",
+      "question": "A student installs VirtualBox on a Windows laptop to run lab VMs. What type of hypervisor is VirtualBox?",
+      "choices": [
+        "Type 1, because it runs VMs",
+        "Type 2, because it runs as an application on a host OS",
+        "A container engine",
+        "A Type 1 hypervisor that becomes Type 2 on laptops"
+      ],
+      "answer": 1,
+      "explanation": "VirtualBox is a hosted (Type 2) hypervisor: it is installed on top of Windows, macOS or Linux. Type 1 hypervisors run directly on the hardware.",
+      "concept": "Type 2 definition",
+      "section": 1
+    },
+    {
+      "id": "ccna-virtualization-clients-q06",
+      "type": "multi",
+      "difficulty": "medium",
+      "question": "Which three are Type 1 (bare-metal) hypervisors? (Choose three.)",
+      "choices": [
+        "VMware ESXi",
+        "Oracle VirtualBox",
+        "Microsoft Hyper-V",
+        "VMware Workstation",
+        "KVM",
+        "Parallels Desktop"
+      ],
+      "answers": [
+        0,
+        2,
+        4
+      ],
+      "explanation": "ESXi, Hyper-V and KVM run directly on the hardware (KVM is part of the Linux kernel, and Hyper-V slides underneath Windows). VirtualBox, VMware Workstation and Parallels Desktop are Type 2 applications.",
+      "concept": "Type 1 examples",
+      "section": 1
+    },
+    {
+      "id": "ccna-virtualization-clients-q07",
+      "type": "mcq",
+      "difficulty": "medium",
+      "question": "Why do data centers run Type 1 hypervisors rather than Type 2?",
+      "choices": [
+        "Running directly on hardware means less overhead and no general-purpose host OS to slow down or destabilize the VMs",
+        "Type 1 hypervisors can only run Linux guests",
+        "Type 2 hypervisors cannot run more than one VM",
+        "Type 1 hypervisors do not need any hardware"
+      ],
+      "answer": 0,
+      "explanation": "A bare-metal hypervisor avoids the extra host OS layer, giving better performance, stability and isolation. Type 2 hypervisors can run several VMs and many guest OSs; they are just less efficient.",
+      "concept": "why Type 1 in data centers",
+      "section": 1
+    },
+    {
+      "id": "ccna-virtualization-clients-q08",
+      "type": "mcq",
+      "difficulty": "easy",
+      "question": "What do all containers on one host share?",
+      "choices": [
+        "A single application",
+        "One IP address and port",
+        "The host operating system kernel",
+        "A guest OS installed by the hypervisor"
+      ],
+      "answer": 2,
+      "explanation": "Containers share the host kernel and package only the application and its libraries. Each container gets its own isolated environment, often with its own IP address.",
+      "concept": "container kernel",
+      "section": 2
+    },
+    {
+      "id": "ccna-virtualization-clients-q09",
+      "type": "match",
+      "difficulty": "medium",
+      "question": "Match each term to its description.",
+      "pairs": [
+        {
+          "left": "Virtual machine",
+          "right": "Runs a full guest OS on virtual hardware"
+        },
+        {
+          "left": "Container",
+          "right": "App plus dependencies sharing the host kernel"
+        },
+        {
+          "left": "Hypervisor",
+          "right": "Creates and runs virtual machines"
+        },
+        {
+          "left": "Docker",
+          "right": "Engine that builds and runs containers"
+        },
+        {
+          "left": "Kubernetes",
+          "right": "Orchestrates many containers across many hosts"
+        }
+      ],
+      "explanation": "VMs virtualize hardware and run their own OS; containers virtualize the OS environment and share the kernel. Docker runs containers on one host, and Kubernetes manages them across a cluster.",
+      "concept": "virtualization terms",
+      "section": 2
+    },
+    {
+      "id": "ccna-virtualization-clients-q10",
+      "type": "mcq",
+      "difficulty": "hard",
+      "question": "A team wants to run a Linux container image on a Windows server. What must be present for it to work?",
+      "choices": [
+        "Nothing extra; containers bring their own kernel",
+        "A Linux kernel, for example provided by a lightweight Linux VM on the server",
+        "A Type 2 hypervisor installed inside the container",
+        "A VRF for the container's traffic"
+      ],
+      "answer": 1,
+      "explanation": "Containers share the host kernel, so a Linux container needs a Linux kernel. On Windows that kernel comes from a small Linux VM (such as WSL 2 or Hyper-V), which is exactly what container desktop tools set up behind the scenes.",
+      "concept": "Linux container on Windows",
+      "section": 2
+    },
+    {
+      "id": "ccna-virtualization-clients-q11",
+      "type": "typed",
+      "difficulty": "medium",
+      "question": "A web server inside a container listens on port 80. It was started with docker run -p 8080:80. Which port do users connect to on the host's IP address?",
+      "answer": "8080",
+      "accept": [
+        "tcp 8080"
+      ],
+      "explanation": "The -p host:container option publishes the container's port 80 on host port 8080. Users connect to the host on 8080, and the engine forwards the traffic to port 80 inside the container.",
+      "concept": "published port",
+      "section": 2
+    },
+    {
+      "id": "ccna-virtualization-clients-q12",
+      "type": "mcq",
+      "difficulty": "easy",
+      "question": "What does a VRF give a router?",
+      "choices": [
+        "A second power supply",
+        "A faster switching ASIC",
+        "A backup copy of the startup configuration",
+        "A separate routing table with its own interfaces"
+      ],
+      "answer": 3,
+      "explanation": "A VRF is an independent routing table and the interfaces assigned to it. Several VRFs let one router behave like several separate routers.",
+      "concept": "VRF definition",
+      "section": 3
+    },
+    {
+      "id": "ccna-virtualization-clients-q13",
+      "type": "mcq",
+      "difficulty": "medium",
+      "question": "Which problem do VRFs solve that a single routing table cannot?",
+      "choices": [
+        "Routing between two VLANs on the same router",
+        "Assigning addresses with DHCP",
+        "Speeding up OSPF convergence",
+        "Supporting two customers that use the same IP subnet on one router"
+      ],
+      "answer": 3,
+      "explanation": "A single routing table can hold only one route for 10.1.1.0/24. Separate VRFs can each hold their own 10.1.1.0/24, so customers with overlapping private addresses can share a router.",
+      "concept": "overlapping addresses",
+      "section": 3
+    },
+    {
+      "id": "ccna-virtualization-clients-q14",
+      "type": "mcq",
+      "difficulty": "hard",
+      "question": "An engineer configures the commands in the exhibit, then runs show ip route and does not see 10.1.1.0/24 anywhere. What is the explanation?",
+      "code": "R1(config)# vrf definition CUST-A\nR1(config-vrf)# address-family ipv4\nR1(config-vrf-af)# exit-address-family\nR1(config-vrf)# exit\nR1(config)# interface gigabitethernet0/1\nR1(config-if)# vrf forwarding CUST-A\nR1(config-if)# ip address 10.1.1.1 255.255.255.0\nR1(config-if)# no shutdown",
+      "language": "cisco",
+      "choices": [
+        "The interface is still shut down",
+        "The connected route is in the CUST-A routing table, which show ip route does not display",
+        "VRFs do not create connected routes",
+        "The mask must be /32 inside a VRF"
+      ],
+      "answer": 1,
+      "explanation": "G0/1 belongs to VRF CUST-A, so its connected and local routes live in that VRF's table. show ip route shows only the global table; show ip route vrf CUST-A shows them.",
+      "concept": "missing route in global table",
+      "section": 3
+    },
+    {
+      "id": "ccna-virtualization-clients-q15",
+      "type": "cli",
+      "difficulty": "medium",
+      "question": "Which command displays the routing table of the VRF named CUST-A?",
+      "answer": "show ip route vrf CUST-A",
+      "shell": "ios",
+      "explanation": "Add vrf and the VRF name to see that table. Plain show ip route displays only the global routing table.",
+      "concept": "show VRF routes",
+      "section": 3
+    },
+    {
+      "id": "ccna-virtualization-clients-q16",
+      "type": "mcq",
+      "difficulty": "hard",
+      "question": "An engineer configures ip address 10.2.2.1 255.255.255.0 on G0/2 and then enters vrf forwarding CUST-B on the same interface. What happens?",
+      "choices": [
+        "The interface keeps its address and joins CUST-B",
+        "The command is rejected because the interface already has an address",
+        "IOS removes the IP address from G0/2, so it must be configured again",
+        "The address moves to the global table and the VRF is ignored"
+      ],
+      "answer": 2,
+      "explanation": "Assigning an interface to a VRF removes its existing IPv4 address (IOS prints a warning). Configure vrf forwarding first, then the IP address.",
+      "concept": "VRF config order",
+      "section": 3
+    },
+    {
+      "id": "ccna-virtualization-clients-q17",
+      "type": "multi",
+      "difficulty": "medium",
+      "question": "Besides its own IP address, which three settings does a client need to browse websites on the internet by name? (Choose three.)",
+      "choices": [
+        "Subnet mask",
+        "Default gateway",
+        "DNS server address",
+        "The switch's MAC address",
+        "The VLAN ID of its access port"
+      ],
+      "answers": [
+        0,
+        1,
+        2
+      ],
+      "explanation": "Address, mask, default gateway and DNS are the four standard client settings. The client does not need to know the switch's MAC or its VLAN; the switch handles VLAN membership.",
+      "concept": "client settings",
+      "section": 4
+    },
+    {
+      "id": "ccna-virtualization-clients-q18",
+      "type": "mcq",
+      "difficulty": "easy",
+      "question": "What is the default gateway used for?",
+      "choices": [
+        "Reaching any destination outside the host's own subnet",
+        "Resolving names to IP addresses",
+        "Assigning the host an IP address",
+        "Reaching other hosts on the same subnet"
+      ],
+      "answer": 0,
+      "explanation": "Off-subnet traffic goes to the default gateway, a router interface on the local subnet. Local hosts are reached directly with ARP, DNS resolves names, and DHCP assigns addresses.",
+      "concept": "default gateway purpose",
+      "section": 4
+    },
+    {
+      "id": "ccna-virtualization-clients-q19",
+      "type": "mcq",
+      "difficulty": "hard",
+      "question": "Host 172.16.5.20/24 with gateway 172.16.5.1 sends a packet to 172.16.5.200. What does it ARP for?",
+      "choices": [
+        "The MAC address of 172.16.5.1",
+        "Nothing; it broadcasts the packet",
+        "The MAC address of 172.16.5.200",
+        "The MAC address of its DNS server"
+      ],
+      "answer": 2,
+      "explanation": "172.16.5.200 is inside 172.16.5.0/24, so the destination is local and the host ARPs for it directly. The gateway is only used for destinations outside the subnet.",
+      "concept": "local destination ARP",
+      "section": 4
+    },
+    {
+      "id": "ccna-virtualization-clients-q20",
+      "type": "cli",
+      "difficulty": "easy",
+      "question": "On Windows, which command shows the adapter's MAC address, DHCP lease times and DNS servers?",
+      "answer": "ipconfig /all",
+      "accept": [
+        "ipconfig/all"
+      ],
+      "explanation": "ipconfig /all is the detailed view. Plain ipconfig shows only the address, mask and default gateway.",
+      "concept": "ipconfig /all",
+      "section": 5
+    },
+    {
+      "id": "ccna-virtualization-clients-q21",
+      "type": "mcq",
+      "difficulty": "medium",
+      "question": "Based on the exhibit, which statement is true?",
+      "code": "C:\\> ipconfig /all\n\nEthernet adapter Ethernet:\n\n   Connection-specific DNS Suffix  . : corp.example.com\n   Description . . . . . . . . . . . : Intel(R) Ethernet Connection I219-LM\n   Physical Address. . . . . . . . . : 00-05-1B-A3-5D-D0\n   DHCP Enabled. . . . . . . . . . . : Yes\n   Autoconfiguration Enabled . . . . : Yes\n   IPv4 Address. . . . . . . . . . . : 192.168.1.172(Preferred)\n   Subnet Mask . . . . . . . . . . . : 255.255.255.0\n   Lease Obtained. . . . . . . . . . : Thursday, October 15, 2026 8:02:11 AM\n   Lease Expires . . . . . . . . . . : Friday, October 16, 2026 8:02:11 AM\n   Default Gateway . . . . . . . . . : 192.168.1.1\n   DHCP Server . . . . . . . . . . . : 192.168.1.5\n   DNS Servers . . . . . . . . . . . : 192.168.1.10\n                                       192.168.1.11",
+      "language": "plaintext",
+      "choices": [
+        "The PC leased its address from 192.168.1.5 and sends off-subnet traffic to 192.168.1.1",
+        "The PC was configured with a static address",
+        "The PC sends off-subnet traffic to 192.168.1.10",
+        "The PC's subnet mask is /16"
+      ],
+      "answer": 0,
+      "explanation": "DHCP Enabled is Yes and the DHCP Server line shows 192.168.1.5. The Default Gateway is 192.168.1.1. 192.168.1.10 is a DNS server, and 255.255.255.0 is a /24 mask.",
+      "concept": "read ipconfig /all",
+      "section": 5
+    },
+    {
+      "id": "ccna-virtualization-clients-q22",
+      "type": "mcq",
+      "difficulty": "medium",
+      "question": "A PC shows the output in the exhibit and cannot reach anything. What is the most likely cause?",
+      "code": "C:\\> ipconfig /all\n\nEthernet adapter Ethernet:\n\n   Physical Address. . . . . . . . . : 00-05-1B-A3-5D-D0\n   DHCP Enabled. . . . . . . . . . . : Yes\n   Autoconfiguration Enabled . . . . : Yes\n   Autoconfiguration IPv4 Address. . : 169.254.37.112(Preferred)\n   Subnet Mask . . . . . . . . . . . : 255.255.0.0\n   Default Gateway . . . . . . . . . :\n   DNS Servers . . . . . . . . . . . :",
+      "language": "plaintext",
+      "choices": [
+        "The DNS server is down",
+        "The PC has a duplicate IP address",
+        "The default gateway is in the wrong subnet",
+        "The PC requested a DHCP lease and got no answer"
+      ],
+      "answer": 3,
+      "explanation": "169.254.x.x/16 with no gateway or DNS is an APIPA address, which Windows assigns itself when DHCP fails. Check the DHCP server, the access port VLAN and any DHCP relay on the router.",
+      "concept": "APIPA",
+      "section": 5
+    },
+    {
+      "id": "ccna-virtualization-clients-q23",
+      "type": "cli",
+      "difficulty": "easy",
+      "question": "After fixing the DHCP server, which Windows command asks for a new DHCP lease right away?",
+      "answer": "ipconfig /renew",
+      "accept": [
+        "ipconfig/renew"
+      ],
+      "explanation": "ipconfig /renew runs the DHCP exchange again. ipconfig /release gives the current lease up first, which is useful when you want a completely fresh lease.",
+      "concept": "renew lease",
+      "section": 5
+    },
+    {
+      "id": "ccna-virtualization-clients-q24",
+      "type": "mcq",
+      "difficulty": "easy",
+      "question": "In Windows netstat -rn output, which line represents the default route?",
+      "choices": [
+        "Network Destination 127.0.0.0, Netmask 255.0.0.0",
+        "Network Destination 0.0.0.0, Netmask 0.0.0.0",
+        "Network Destination 192.168.1.0, Netmask 255.255.255.0, Gateway On-link",
+        "Network Destination 255.255.255.255, Netmask 255.255.255.255"
+      ],
+      "answer": 1,
+      "explanation": "0.0.0.0 with mask 0.0.0.0 matches every destination and points at the default gateway. The 192.168.1.0 On-link line is the local subnet, and 127.0.0.0 is the loopback range.",
+      "concept": "netstat default route",
+      "section": 5
+    },
+    {
+      "id": "ccna-virtualization-clients-q25",
+      "type": "cli",
+      "difficulty": "easy",
+      "question": "On a modern Linux host, which command lists every interface with its IP addresses and prefix lengths?",
+      "answer": "ip address",
+      "accept": [
+        "ip addr",
+        "ip a",
+        "ip address show",
+        "ip addr show",
+        "ifconfig"
+      ],
+      "shell": "bash",
+      "explanation": "ip address (also ip addr or ip a) is the iproute2 replacement for ifconfig. It shows addresses in prefix notation such as 10.20.30.45/24.",
+      "concept": "Linux addresses",
+      "section": 6
+    },
+    {
+      "id": "ccna-virtualization-clients-q26",
+      "type": "cli",
+      "difficulty": "medium",
+      "question": "On a modern Linux host, which command shows the routing table, including the default gateway?",
+      "answer": "ip route",
+      "accept": [
+        "ip route show",
+        "ip r",
+        "netstat -rn",
+        "route -n"
+      ],
+      "shell": "bash",
+      "explanation": "ip route prints the routing table, and the \"default via\" line names the default gateway. netstat -rn and route -n show the same table in the older net-tools format.",
+      "concept": "Linux routes",
+      "section": 6
+    },
+    {
+      "id": "ccna-virtualization-clients-q27",
+      "type": "mcq",
+      "difficulty": "medium",
+      "question": "Based on the exhibit, what are this Linux host's default gateway and DNS servers?",
+      "code": "$ ip address show eth0\n2: eth0: <BROADCAST,MULTICAST,UP,LOWER_UP> mtu 1500 qdisc fq_codel state UP group default qlen 1000\n    link/ether 52:54:00:3a:7c:21 brd ff:ff:ff:ff:ff:ff\n    inet 10.20.30.45/24 brd 10.20.30.255 scope global dynamic eth0\n       valid_lft 85912sec preferred_lft 85912sec\n    inet6 fe80::5054:ff:fe3a:7c21/64 scope link\n       valid_lft forever preferred_lft forever\n\n$ ip route\ndefault via 10.20.30.1 dev eth0 proto dhcp metric 100\n10.20.30.0/24 dev eth0 proto kernel scope link src 10.20.30.45 metric 100\n\n$ resolvectl dns eth0\nLink 2 (eth0): 10.20.0.53 10.20.0.54",
+      "language": "bash",
+      "choices": [
+        "Gateway 10.20.30.1; DNS 10.20.0.53 and 10.20.0.54",
+        "Gateway 10.20.30.45; DNS 10.20.30.255",
+        "Gateway 10.20.0.53; DNS 10.20.30.1",
+        "Gateway 10.20.30.255; DNS 127.0.0.53"
+      ],
+      "answer": 0,
+      "explanation": "The \"default via 10.20.30.1\" line in ip route names the gateway, and resolvectl lists the DNS servers. 10.20.30.45 is the host itself and 10.20.30.255 is the subnet broadcast address.",
+      "concept": "read Linux output",
+      "section": 6
+    },
+    {
+      "id": "ccna-virtualization-clients-q28",
+      "type": "mcq",
+      "difficulty": "hard",
+      "question": "On a Mac, ifconfig en0 shows \"inet 10.4.6.20 netmask 0xfffffe00\". What is the mask in dotted decimal?",
+      "choices": [
+        "255.255.255.0",
+        "255.255.0.0",
+        "255.255.254.0",
+        "255.255.255.254"
+      ],
+      "answer": 2,
+      "explanation": "Convert each pair of hex digits: ff = 255, ff = 255, fe = 254, 00 = 0, so 255.255.254.0, a /23. 0xffffff00 would be 255.255.255.0.",
+      "concept": "macOS hex mask",
+      "section": 7
+    },
+    {
+      "id": "ccna-virtualization-clients-q29",
+      "type": "mcq",
+      "difficulty": "medium",
+      "question": "On an Ubuntu host, /etc/resolv.conf lists only \"nameserver 127.0.0.53\". What does that mean?",
+      "choices": [
+        "DNS is misconfigured, because 127.0.0.53 is a loopback address",
+        "The host uses a local stub resolver; the real upstream DNS servers are shown by resolvectl",
+        "The host has no network connection",
+        "The host is its own authoritative DNS server for the internet"
+      ],
+      "answer": 1,
+      "explanation": "systemd-resolved runs a local caching stub at 127.0.0.53 and forwards queries to the real servers, which resolvectl status displays. It is normal, not an error.",
+      "concept": "resolv.conf stub",
+      "section": 6
+    },
+    {
+      "id": "ccna-virtualization-clients-q30",
+      "type": "order",
+      "difficulty": "medium",
+      "question": "Put these client troubleshooting tests in a logical order, from the host outward.",
+      "items": [
+        "Check ipconfig /all for address, mask, gateway and DNS",
+        "Ping 127.0.0.1",
+        "Ping the host's own IP address",
+        "Ping the default gateway",
+        "Ping a remote IP address",
+        "Run nslookup for a host name"
+      ],
+      "explanation": "Start with the configuration, then test the stack, the interface, the local subnet and gateway, routing beyond the gateway, and finally DNS. The first failing step shows where the fault is.",
+      "concept": "client test sequence",
+      "section": 9
+    },
+    {
+      "id": "ccna-virtualization-clients-q31",
+      "type": "mcq",
+      "difficulty": "hard",
+      "question": "A PC can reach other hosts on its own subnet but nothing beyond it. Based on the exhibit, why?",
+      "code": "C:\\> ipconfig\nEthernet adapter Ethernet:\n   IPv4 Address. . . . . . . . . . . : 10.1.1.50\n   Subnet Mask . . . . . . . . . . . : 255.255.255.0\n   Default Gateway . . . . . . . . . : 10.1.2.1",
+      "language": "plaintext",
+      "choices": [
+        "The DNS server is wrong",
+        "The mask should be 255.255.0.0 for any gateway to work",
+        "The PC needs a second IP address",
+        "The default gateway 10.1.2.1 is not in the PC's subnet 10.1.1.0/24, so the PC cannot ARP for it"
+      ],
+      "answer": 3,
+      "explanation": "A host can only reach a gateway on its own subnet. 10.1.2.1 is outside 10.1.1.0/24, so remote traffic has nowhere to go. The gateway should be the router's address in 10.1.1.0/24, such as 10.1.1.1.",
+      "concept": "gateway in wrong subnet",
+      "section": 9
+    },
+    {
+      "id": "ccna-virtualization-clients-q32",
+      "type": "mcq",
+      "difficulty": "hard",
+      "question": "A PC is configured as 192.168.1.50 with mask 255.255.0.0 and gateway 192.168.1.1. The real subnet, as configured on the router, is 192.168.1.0/24. Which destination will it fail to reach?",
+      "choices": [
+        "192.168.1.20, a printer on the same /24",
+        "8.8.8.8 on the internet",
+        "192.168.1.1, its gateway",
+        "192.168.2.20, a server on another subnet behind the router"
+      ],
+      "answer": 3,
+      "explanation": "With a /16 mask the PC believes 192.168.2.20 is local, so it ARPs for it directly instead of using the gateway, and gets no reply. 8.8.8.8 is outside 192.168.0.0/16, so it correctly goes to the gateway, and 192.168.1.x hosts really are local.",
+      "concept": "wrong mask",
+      "section": 9
+    },
+    {
+      "id": "ccna-virtualization-clients-q33",
+      "type": "mcq",
+      "difficulty": "medium",
+      "question": "A user's connection keeps dropping and reconnecting, and ipconfig /all shows \"IPv4 Address . . . : 192.168.1.40(Duplicate)\". What is happening?",
+      "choices": [
+        "DHCP has failed and the PC is using APIPA",
+        "Another device is using the same IP address on the subnet",
+        "The PC has two NICs on different subnets",
+        "The DNS server returned two answers"
+      ],
+      "answer": 1,
+      "explanation": "Windows marks the address Duplicate when it detects another host answering ARP for the same IP. Find the other device, often one with a static address inside the DHCP pool, and fix one of them.",
+      "concept": "duplicate address",
+      "section": 9
+    },
+    {
+      "id": "ccna-virtualization-clients-q34",
+      "type": "mcq",
+      "difficulty": "easy",
+      "question": "In server virtualization, what are the physical server and the operating system inside each VM called?",
+      "choices": [
+        "The guest and the host",
+        "The hypervisor and the container",
+        "The host and the guest OS",
+        "The vSwitch and the vNIC"
+      ],
+      "answer": 2,
+      "explanation": "The host is the physical machine running the hypervisor, and each VM runs a guest operating system. The hypervisor sits between them and shares out the hardware.",
+      "concept": "host and guest",
+      "section": 1
+    },
+    {
+      "id": "ccna-virtualization-clients-q35",
+      "type": "mcq",
+      "difficulty": "hard",
+      "question": "A host with 16 hardware threads runs eight VMs that are allocated 40 vCPUs in total. Most of the day all is well, but at month end every VM on the host becomes slow at the same time. What explains this?",
+      "choices": [
+        "The hypervisor is Type 2, which limits each VM to one vCPU",
+        "The VMs are oversubscribed and are contending for the same physical CPU",
+        "The vSwitch drops traffic when more than eight VMs are running",
+        "Each VM needs its own physical NIC to use more than 4 vCPUs"
+      ],
+      "answer": 1,
+      "explanation": "Allocating more vCPUs than the host has threads (oversubscription) works only while VMs are not all busy at once. When they are, they contend for the same physical CPU, so every VM on that host slows. Hypervisors share hardware; they do not create more of it.",
+      "concept": "resource contention",
+      "section": 0
+    },
+    {
+      "id": "ccna-virtualization-clients-q36",
+      "type": "multi",
+      "difficulty": "medium",
+      "question": "Which two statements about a hypervisor virtual switch (vSwitch) are true? (Choose two.)",
+      "choices": [
+        "It can place each VM vNIC in its own VLAN",
+        "It needs a router to connect two VMs in the same VLAN",
+        "It usually trunks VLANs to the physical switch through the host NICs",
+        "It replaces the need for VLANs in the data center",
+        "It can only connect VMs running the same guest OS"
+      ],
+      "answers": [
+        0,
+        2
+      ],
+      "explanation": "A vSwitch can put each VM port in a VLAN, and its uplinks through the physical NICs usually trunk to the physical switch. It forwards by MAC like any Layer 2 switch; it does not need a router between VMs in the same VLAN, and it is configured from the virtualization software.",
+      "concept": "virtual switch",
+      "section": 0
+    },
+    {
+      "id": "ccna-virtualization-clients-q37",
+      "type": "cli",
+      "difficulty": "medium",
+      "question": "Which command pings 10.1.1.10 using the routing table of the VRF named CUST-A?",
+      "answer": "ping vrf CUST-A 10.1.1.10",
+      "shell": "ios",
+      "explanation": "ping vrf NAME address sends the ping using that VRF's table and interfaces. A plain ping uses the global table, which does not contain the VRF's routes.",
+      "concept": "ping in a VRF",
+      "section": 3
+    },
+    {
+      "id": "ccna-virtualization-clients-q38",
+      "type": "mcq",
+      "difficulty": "hard",
+      "question": "Based on the exhibit, an engineer types ping 10.1.1.10 with no other options. Which interface does the router use to send it?",
+      "code": "R1# show ip route | include 10.1.1.0\nC        10.1.1.0/24 is directly connected, GigabitEthernet0/0\nR1# show ip route vrf GUEST | include 10.1.1.0\nC        10.1.1.0/24 is directly connected, GigabitEthernet0/2",
+      "language": "cisco",
+      "choices": [
+        "G0/2, because VRF routes are preferred",
+        "Both, because the router load balances",
+        "Neither, because overlapping subnets are rejected",
+        "G0/0, because a plain ping uses the global routing table"
+      ],
+      "answer": 3,
+      "explanation": "Both tables hold their own 10.1.1.0/24, which is exactly what VRFs allow. A ping without the vrf keyword uses the global table, so it goes out G0/0. To test the GUEST network the engineer must use ping vrf GUEST 10.1.1.10.",
+      "concept": "global table versus VRF",
+      "section": 3
+    },
+    {
+      "id": "ccna-virtualization-clients-q39",
+      "type": "match",
+      "difficulty": "medium",
+      "question": "Match each technology to what it virtualizes.",
+      "pairs": [
+        {
+          "left": "Virtual machine",
+          "right": "A whole computer's hardware, with its own OS"
+        },
+        {
+          "left": "Container",
+          "right": "An app's environment, sharing the host kernel"
+        },
+        {
+          "left": "VRF",
+          "right": "A router's routing table"
+        },
+        {
+          "left": "VLAN",
+          "right": "A LAN (broadcast domain) on a switch"
+        },
+        {
+          "left": "vSwitch",
+          "right": "An Ethernet switch inside a hypervisor host"
+        }
+      ],
+      "explanation": "A VM virtualizes a whole computer, a container an application environment on a shared kernel, a VRF a routing table, a VLAN a LAN, and a vSwitch an Ethernet switch inside the host.",
+      "concept": "kinds of virtualization",
+      "section": 3
+    },
+    {
+      "id": "ccna-virtualization-clients-q40",
+      "type": "mcq",
+      "difficulty": "hard",
+      "question": "Based on the exhibit, which statement is correct?",
+      "code": "C:\\> ipconfig\n   IPv6 Address. . . . . . . . . . . : 2001:db8:acad:10:9d3c:7a2f:4b1e:65c0\n   Temporary IPv6 Address. . . . . . : 2001:db8:acad:10:4c1:ae55:1f0e:9b2d\n   Link-local IPv6 Address . . . . . : fe80::9d3c:7a2f:4b1e:65c0%12\n   Default Gateway . . . . . . . . . : fe80::1%12\n                                       192.168.10.1",
+      "language": "plaintext",
+      "choices": [
+        "The IPv6 gateway is misconfigured because it is a link-local address",
+        "The PC has no global IPv6 address, only link-local",
+        "The PC uses the router's link-local address as its IPv6 gateway, and %12 identifies the PC interface",
+        "The temporary address means DHCPv6 failed"
+      ],
+      "answer": 2,
+      "explanation": "fe80:: addresses are link-local, and %12 is the zone index of the interface. The PC uses the router's link-local address fe80::1 as its IPv6 gateway, which is normal. The 2001:db8 addresses are global unicast addresses, one stable and one temporary.",
+      "concept": "IPv6 in ipconfig",
+      "section": 8
+    },
+    {
+      "id": "ccna-virtualization-clients-q41",
+      "type": "mcq",
+      "difficulty": "medium",
+      "question": "A Linux host shows \"default via fe80::1 dev eth0 proto ra\" in ip -6 route. Where did this default route come from?",
+      "choices": [
+        "A router advertisement from the local router",
+        "A static route typed by the administrator",
+        "A DHCPv4 lease",
+        "The DNS server"
+      ],
+      "answer": 0,
+      "explanation": "proto ra means the route was learned from a router advertisement (NDP). The router announced itself, and the host uses its link-local address as the gateway. DHCP-learned IPv4 routes show proto dhcp instead.",
+      "concept": "IPv6 default route source",
+      "section": 8
+    },
+    {
+      "id": "ccna-virtualization-clients-q42",
+      "type": "cli",
+      "difficulty": "easy",
+      "question": "On macOS, which command lists the DNS servers configured for the network service named Wi-Fi?",
+      "answer": "networksetup -getdnsservers Wi-Fi",
+      "shell": "bash",
+      "accept": [
+        "networksetup -getdnsservers wi-fi",
+        "networksetup -getdnsservers \"Wi-Fi\""
+      ],
+      "explanation": "networksetup -getdnsservers followed by the service name prints that service's DNS servers. ifconfig shows no DNS information, and scutil --dns shows the full resolver state.",
+      "concept": "macOS DNS servers",
+      "section": 7
+    },
+    {
+      "id": "ccna-virtualization-clients-q43",
+      "type": "mcq",
+      "difficulty": "medium",
+      "question": "Which macOS command shows whether an Ethernet service uses DHCP, along with its address, subnet mask and router?",
+      "choices": [
+        "ifconfig -a",
+        "networksetup -getinfo Ethernet",
+        "ipconfig /all",
+        "ip address show"
+      ],
+      "answer": 1,
+      "explanation": "networksetup -getinfo Ethernet prints the configuration method (DHCP or manual), IP address, subnet mask in dotted decimal, router and MAC. ifconfig shows the mask in hex and no router, and the other two commands belong to Windows and Linux.",
+      "concept": "networksetup -getinfo",
+      "section": 7
+    },
+    {
+      "id": "ccna-virtualization-clients-q44",
+      "type": "typed",
+      "difficulty": "easy",
+      "question": "A Linux host prints this routing table. What is its default gateway?",
+      "code": "$ netstat -rn\nKernel IP routing table\nDestination     Gateway         Genmask         Flags   MSS Window  irtt Iface\n0.0.0.0         192.168.1.1     0.0.0.0         UG        0 0          0 wlan0\n192.168.1.0     0.0.0.0         255.255.255.0   U         0 0          0 wlan0",
+      "language": "plaintext",
+      "answer": "192.168.1.1",
+      "explanation": "The default route has destination 0.0.0.0, genmask 0.0.0.0 and the G flag, and its Gateway column holds the default gateway: 192.168.1.1. The 192.168.1.0 line with gateway 0.0.0.0 is the directly connected subnet.",
+      "concept": "netstat -rn default route",
+      "section": 6
+    }
+  ]
+}

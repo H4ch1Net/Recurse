@@ -1,0 +1,735 @@
+{
+  "id": "swe-stacks-queues",
+  "name": "Stacks and Queues",
+  "version": "1.0.0",
+  "author": "Recurse",
+  "subject": "swe",
+  "level": "intermediate",
+  "description": "Stacks and queues for interviews: bracket matching, expression evaluation, monotonic stacks, min stack, two-stack queues.",
+  "icon": "S/Q",
+  "language": "python",
+  "prereqs": [
+    "data-structures",
+    "swe-arrays-strings",
+    "big-o"
+  ],
+  "tags": [
+    "interviews",
+    "stack",
+    "queue",
+    "monotonic stack",
+    "deque"
+  ],
+  "lesson": {
+    "estimatedMinutes": 35,
+    "intro": "Stacks and queues are simple structures that solve a surprising number of interview problems. This pack covers when each one fits, how to build them efficiently in Python and JavaScript, and the classic problems they unlock: bracket matching, expression evaluation, monotonic stacks, a constant-time min stack and a queue built from two stacks.",
+    "objectives": [
+      "Choose between a stack, a queue and a deque from the order a problem needs items back in",
+      "Implement bracket matching and reverse Polish evaluation, handling empty stacks, operand order and truncating division",
+      "Use a monotonic stack of indexes to find next greater elements in O(n)",
+      "Design a min stack and a queue from two stacks, and explain their O(1) and amortized O(1) costs"
+    ],
+    "sections": [
+      {
+        "title": "LIFO and FIFO in Python and JavaScript",
+        "body": "Your browser's back button returns you to the page you visited most recently. A printer prints jobs in the order they arrived. Those are the two disciplines in this pack: a **stack** is last in, first out (LIFO), and a **queue** is first in, first out (FIFO).\n\nBoth are easy to build, but the obvious way to build a queue is slow:\n\n- **Stack in Python**: a list. `append(x)` pushes, `pop()` pops and `stack[-1]` peeks, all O(1) (append is amortized O(1)).\n- **Stack in JavaScript**: an array. `push(x)`, `pop()` and `arr[arr.length - 1]` (or `arr.at(-1)`), all O(1).\n- **Queue in Python**: `collections.deque`. `append(x)` enqueues and `popleft()` dequeues, both O(1). A list with `pop(0)` works but costs O(n) per dequeue, because every remaining item shifts.\n- **Queue in JavaScript**: there is no built-in deque, and `arr.shift()` is O(n) in general. For big queues, keep a head index and read `queue[head++]` instead of shifting, or build the queue from two stacks (later in this pack).\n\nPopping from an empty stack is worth planning for. Python raises `IndexError: pop from empty list`, while JavaScript's `pop()` quietly returns `undefined`. Check `if stack:` in Python or `stack.length > 0` in JavaScript first.\n\nSignals that point to a stack: \"most recent\", \"matching\" or \"nested\" (brackets, tags, function calls), \"undo\", \"evaluate an expression\", \"next greater or smaller element\". Signals that point to a queue: \"in the order they arrived\", \"level by level\", \"fewest steps\" (breadth-first search), and \"maximum of each sliding window\" (a deque).",
+        "code": "from collections import deque\n\nstack = []\nstack.append(1)\nstack.append(2)\nstack.append(3)\nprint(stack.pop(), stack[-1])     # 3 2   last in, first out\n\nqueue = deque()\nqueue.append(\"a\")\nqueue.append(\"b\")\nqueue.append(\"c\")\nprint(queue.popleft(), queue[0])  # a b   first in, first out\n\n# An undo history is a stack: the most recent action is undone first\nhistory = [\"type H\", \"type i\", \"make bold\"]\nwhile history:\n    print(\"undo\", history.pop())\n# undo make bold\n# undo type i\n# undo type H",
+        "pitfall": "Using `list.pop(0)` as a queue's dequeue. It looks fine on small tests and becomes O(n^2) over n dequeues on large inputs. Use `collections.deque` and `popleft()`.",
+        "check": {
+          "question": "Which Python operation makes a list-based queue slow?",
+          "choices": [
+            "list.append(x)",
+            "list[-1]",
+            "list.pop(0), because every remaining item shifts left",
+            "len(list)"
+          ],
+          "answer": 2,
+          "explanation": "Removing the first item of a list moves all the others down one slot, which is O(n). Appending, peeking at the end and len() are O(1). deque.popleft() removes from the front in O(1)."
+        }
+      },
+      {
+        "title": "Matching brackets with a stack",
+        "body": "Is `{[()]}` balanced? What about `([)]`? Counting brackets is not enough, because both contain one of each pair. What matters is **nesting**: every closing bracket must match the most recent unmatched opening bracket, and \"most recent unmatched\" is exactly what the top of a stack holds.\n\nThe algorithm:\n\n- Opening bracket: push it.\n- Closing bracket: if the stack is empty, or its top is not the matching opener, the string is invalid. Otherwise pop.\n- At the end, the string is valid only if the stack is empty, meaning no opener was left unclosed.\n\nTrace `{[()]}`: push {, push [, push (. Then ) matches the top ( so pop, ] matches [ so pop, and } matches { so pop. The stack ends empty: valid.\n\nTrace `([)]`: push (, push [. Then ) arrives, but the top is [. Mismatch: invalid. Counting would have said it was fine.\n\nA small map from each closer to its opener keeps the code short: `{\")\": \"(\", \"]\": \"[\", \"}\": \"{\"}`. Time is O(n), and space is O(n) in the worst case, when the string is all openers.\n\nThe same idea validates HTML or XML tags (push opening tags, pop on closing tags) and checks that function calls return in the right order. It also simplifies Unix paths, as the code below shows: for `/a/./b/../c`, push each directory name, ignore `.`, pop on `..`, and join what remains to get `/a/c`.",
+        "code": "def simplify_path(path):\n    \"\"\"Resolve \".\" and \"..\" in a Unix-style absolute path.\"\"\"\n    stack = []\n    for part in path.split(\"/\"):\n        if part == \"\" or part == \".\":\n            continue                # empty pieces and \".\" change nothing\n        if part == \"..\":\n            if stack:\n                stack.pop()         # go up one level, never above the root\n        else:\n            stack.append(part)\n    return \"/\" + \"/\".join(stack)\n\nprint(simplify_path(\"/a/./b/../c\"))        # /a/c\nprint(simplify_path(\"/../x//y/\"))          # /x/y\nprint(simplify_path(\"/home/user/../..\"))   # /",
+        "pitfall": "Forgetting one of the two failure cases: a closer arriving when the stack is empty, as in `\")(\"`, or openers left over at the end, as in `\"((\"`. Returning `True` after the loop without checking that the stack is empty accepts `\"((\"`.",
+        "activity": {
+          "type": "stack-queue",
+          "title": "Match brackets by hand",
+          "prompt": "Use the stack to check a bracket string: push every opener and pop when its matching closer arrives. Try a string whose counts match but whose order does not, such as ([)], and notice exactly where it fails.",
+          "props": {
+            "mode": "stack"
+          }
+        },
+        "check": {
+          "question": "Why is a stack the right structure for bracket matching?",
+          "choices": [
+            "Stacks sort the brackets by type",
+            "Each closer must match the most recent unmatched opener, which is always on top",
+            "A stack counts each kind of bracket in O(1)",
+            "Brackets must be matched first in, first out"
+          ],
+          "answer": 1,
+          "explanation": "Nesting means the last opener seen is the first that must close, which is LIFO order. Matching first in, first out would pair the outermost opener with the innermost closer, and counting cannot see order at all."
+        }
+      },
+      {
+        "title": "Evaluating expressions: reverse Polish notation",
+        "body": "Calculators and compilers can turn `(2 + 1) * 3` into a form without parentheses called **reverse Polish notation** (RPN), or postfix: `2 1 + 3 *`. Each operator comes after its two operands. RPN needs no parentheses or precedence rules, and a stack evaluates it in one left-to-right pass:\n\n- Number: push it.\n- Operator: pop the top two values, apply the operator, push the result.\n- At the end, the stack holds exactly one value: the answer.\n\nThe table below traces `[\"4\", \"13\", \"5\", \"/\", \"+\"]`: push 4, 13 and 5; `/` pops 5 and 13 and pushes 13 / 5 = 2 (integer division); `+` pops 2 and 4 and pushes 6.\n\nTwo details decide whether your solution is right:\n\n- **Operand order.** The first value you pop is the right operand. For `[\"10\", \"3\", \"-\"]` you pop 3, then 10, and compute 10 - 3 = 7. Swapping them gives -7. Addition and multiplication do not care; subtraction and division do.\n- **Division rounding.** RPN problems usually say integer division truncates toward zero, so 7 / -2 is -3. Python's `//` floors instead: `7 // -2` is -4. Use `int(a / b)` in Python (exact for values in a 32-bit range) or `Math.trunc(a / b)` in JavaScript.\n\nThis stack discipline is also how your programs run. Each function call pushes a frame onto the **call stack** and each return pops it, which is why very deep recursion raises `RecursionError` in Python or `RangeError: Maximum call stack size exceeded` in JavaScript. Any recursive algorithm can be rewritten with an explicit stack, a common follow-up question.",
+        "code": "tokens: 4  13  5  /  +\n\ntoken   action                              stack after\n4       push                                [4]\n13      push                                [4, 13]\n5       push                                [4, 13, 5]\n/       pop 5 (right), pop 13 (left), 13/5  [4, 2]\n+       pop 2 (right), pop 4 (left), 4+2    [6]\nresult: 6\n\nInteger division that truncates toward zero:\n  Python      7 // -2 == -4   (floors: wrong here)\n              int(7 / -2) == -3\n  JavaScript  Math.trunc(7 / -2) === -3",
+        "language": "plaintext",
+        "pitfall": "Using `//` for division in Python. It floors toward negative infinity, so `-7 // 2` is -4, while RPN problems expect truncation toward zero, -3.",
+        "activity": {
+          "type": "code-runner",
+          "title": "Fix the RPN evaluator",
+          "prompt": "This evaluator has the two classic bugs from this section. Run it, compare each line with its comment, and fix the code until all three lines are right.",
+          "props": {
+            "language": "python",
+            "code": "def eval_rpn(tokens):\n    stack = []\n    for tok in tokens:\n        if tok in (\"+\", \"-\", \"*\", \"/\"):\n            a = stack.pop()\n            b = stack.pop()\n            if tok == \"+\":\n                stack.append(a + b)\n            elif tok == \"-\":\n                stack.append(a - b)\n            elif tok == \"*\":\n                stack.append(a * b)\n            else:\n                stack.append(a // b)\n        else:\n            stack.append(int(tok))\n    return stack[0]\n\nprint(eval_rpn([\"2\", \"1\", \"+\", \"3\", \"*\"]))   # should be 9\nprint(eval_rpn([\"10\", \"3\", \"-\"]))            # should be 7\nprint(eval_rpn([\"7\", \"-2\", \"/\"]))            # should be -3\n",
+            "task": "Fix the operand order and the division rounding so the three lines print 9, 7 and -3.",
+            "expectOutput": "9\n7\n-3"
+          }
+        },
+        "check": {
+          "question": "Evaluating the RPN tokens [\"8\", \"2\", \"-\"], which computation is correct?",
+          "choices": [
+            "2 - 8 = -6, because the first value popped is the left operand",
+            "8 + 2 = 10",
+            "It fails, because - needs three operands",
+            "8 - 2 = 6, because the first value popped is the right operand"
+          ],
+          "answer": 3,
+          "explanation": "8 was pushed first and 2 second, so the first pop returns 2, the right operand. The expression means 8 - 2. Getting this order wrong only shows up with - and /."
+        }
+      },
+      {
+        "title": "Monotonic stacks: the next greater element",
+        "body": "Daily temperatures: `[73, 74, 75, 71, 69, 72, 76, 73]`. For each day, how many days until a warmer one? The brute force scans forward from every day, which is O(n^2) during a long cold spell.\n\nFlip the view. Instead of each day searching forward, let each new day **resolve** the earlier days that were waiting for something warmer. Keep a stack of the indexes of days still waiting. Their temperatures never increase from bottom to top, because a warmer day above a cooler one would already have resolved it. That is a **monotonic stack**.\n\nFor each day i:\n\n- While the stack is not empty and today is warmer than the day on top, pop that day j and set `answer[j] = i - j`.\n- Push i: it now waits for its own warmer day.\n\nTrace, with temperatures in parentheses:\n\n- Day 0 (73): the stack is empty, push 0. Stack [0].\n- Day 1 (74): warmer than day 0, so answer[0] = 1. Push 1. Stack [1].\n- Day 2 (75): resolves day 1 (answer 1). Push 2. Stack [2].\n- Day 3 (71): not warmer than 75. Push. Stack [2, 3].\n- Day 4 (69): push. Stack [2, 3, 4].\n- Day 5 (72): resolves day 4 (answer 1) and day 3 (answer 2), then stops at 75. Push 5. Stack [2, 5].\n- Day 6 (76): resolves day 5 (answer 1) and day 2 (answer 4). Push 6.\n- Day 7 (73): push. Days 6 and 7 never see a warmer day and keep the default 0.\n\nThe answer is `[1, 1, 4, 2, 1, 1, 0, 0]`.\n\nIt looks like a nested loop, but every index is pushed once and popped at most once, so the total work is O(n). Store **indexes**, not values: an index gives you the distance and still lets you read the value as `temps[j]`.\n\nVariations: flip the comparison for the next smaller element, scan from the right for the previous greater or smaller element, and choose `<` or `<=` on purpose depending on whether equal values should count. The same tool solves stock span, the largest rectangle in a histogram, and trapping rain water. The code below applies the template to next greater element.",
+        "code": "def next_greater(nums):\n    \"\"\"For each item, the first larger item to its right, or -1.\"\"\"\n    result = [-1] * len(nums)\n    stack = []                        # indexes still waiting for an answer\n    for i, x in enumerate(nums):\n        while stack and nums[stack[-1]] < x:\n            result[stack.pop()] = x   # x is the first larger item they meet\n        stack.append(i)\n    return result\n\nprint(next_greater([2, 1, 2, 4, 3]))   # [4, 2, 4, -1, -1]\nprint(next_greater([5, 4, 3]))         # [-1, -1, -1]",
+        "pitfall": "Pushing values instead of indexes. For daily temperatures you need the distance `i - j`, which requires the index; with an index you can always get the value back as `temps[j]`.",
+        "check": {
+          "question": "In the daily temperatures solution, what is true of the temperatures of the days on the stack, read from bottom to top?",
+          "choices": [
+            "They are strictly increasing",
+            "They are non-increasing: each is no warmer than the one below it",
+            "They are every temperature seen so far, in input order",
+            "They are sorted from coldest to warmest"
+          ],
+          "answer": 1,
+          "explanation": "A new day pops every cooler day before it is pushed, so nothing on the stack sits above a cooler day. Equal temperatures can stack up because only strictly warmer days resolve them."
+        }
+      },
+      {
+        "title": "Designing with stacks: a min stack",
+        "body": "An interviewer asks you to build a stack that supports `push`, `pop`, `top` and `getMin`, all in O(1). Push and pop are easy. The minimum is the hard part: if you keep a single `min` variable, what happens when you pop the minimum? You would have to scan the whole stack to find the new one, which is O(n).\n\nThe fix is to remember the minimum **at every height** of the stack. Two common designs:\n\n- **Pairs**: push `(value, min_so_far)`, where min_so_far is `min(value, previous min)`. The current minimum is always the second item of the top pair.\n- **Two stacks**: a main stack and a min stack. Push onto the min stack when the new value is `<=` its top (or it is empty), and pop from it when the popped value equals its top. The `<=` matters: with repeated minimums, `<` would pop the only copy too early, as the table below shows.\n\nTrace the pairs design with push 5, push 3, push 7, getMin, pop, pop, getMin:\n\n- push 5: [(5, 5)]\n- push 3: [(5, 5), (3, 3)]\n- push 7: [(5, 5), (3, 3), (7, 3)]. getMin reads 3.\n- pop removes (7, 3) and pop removes (3, 3). Now the stack is [(5, 5)], so getMin reads 5.\n\nEvery operation touches only the top, so all four are O(1), using O(n) extra space for the stored minimums.\n\nThe challenge for this design uses an interface that suits a test runner: instead of a class, you write one function that receives a list of operations such as `[[\"push\", 5], [\"getMin\"], [\"pop\"]]` and returns the outputs of the operations that produce one. Inside the function you still keep the stack state; the list just replays what a caller would do. This \"process a list of operations\" format is common in online assessments, so it is worth getting comfortable with it.",
+        "code": "Two-stack design with a repeated minimum:\npush 2, push 2, push 1, pop, getMin, pop, getMin\n\noperation  main stack  min stack  output  why\npush 2     [2]         [2]                min stack empty: push\npush 2     [2, 2]      [2, 2]             2 <= 2: push\npush 1     [2, 2, 1]   [2, 2, 1]          1 <= 2: push\npop        [2, 2]      [2, 2]             popped 1 equals min top: pop it too\ngetMin     [2, 2]      [2, 2]     2\npop        [2]         [2]                popped 2 equals min top: pop it too\ngetMin     [2]         [2]        2       with < instead of <=, the min\n                                          stack would already be empty",
+        "language": "plaintext",
+        "pitfall": "Using `<` instead of `<=` when deciding whether to push onto the min stack. With two copies of the minimum, the first pop removes the only min-stack entry, and getMin then reports a wrong value or fails on an empty min stack.",
+        "check": {
+          "question": "A min stack stores (value, min_so_far) pairs. After push 4, push 6, push 2 and one pop, what does getMin return?",
+          "choices": [
+            "2",
+            "6",
+            "It must scan the stack to find out",
+            "4"
+          ],
+          "answer": 3,
+          "explanation": "The pairs are (4, 4), (6, 4), (2, 2). Popping removes (2, 2), so the top pair is (6, 4) and getMin reads 4 in O(1). 2 is no longer in the stack."
+        }
+      },
+      {
+        "title": "Queues: two stacks, deques and breadth-first order",
+        "body": "A classic puzzle: implement a queue using only two stacks. It tests whether you understand both structures and amortized cost.\n\nCall the stacks `inbox` and `outbox`. Enqueue always pushes onto inbox. To dequeue, pop from outbox; if outbox is empty, first move everything from inbox to outbox, one pop and push at a time. Moving reverses the order, so the oldest item ends up on top of outbox, exactly where a queue needs it.\n\nTrace: push 1, 2 and 3 (inbox [1, 2, 3]). Dequeue: outbox is empty, so move all three, giving outbox [3, 2, 1], and pop 1. Push 4 goes to inbox [4]. The next two dequeues pop 2 and then 3 from outbox. The one after finds outbox empty, moves 4 over and returns 4. The order is 1, 2, 3, 4: first in, first out.\n\nA single dequeue can cost O(n) when it triggers a transfer, but each item moves from inbox to outbox **at most once** in its life. Over any sequence of n operations the total work is O(n), so each operation is **O(1) amortized**. The key rule: transfer only when outbox is empty. Transferring while outbox still holds items puts newer items on top of older ones and breaks FIFO order.\n\nIn real code you would use a deque. Python's `collections.deque` gives O(1) appends and pops at both ends, so it can act as a stack, a queue, or a **monotonic deque** for the maximum of every sliding window. Queues are also the engine of **breadth-first search**: putting each node's neighbors at the back of the queue visits a tree or graph level by level, which is why BFS finds shortest paths in unweighted graphs. The code below groups a small graph's nodes by distance; the trees and graphs packs build on it.",
+        "code": "from collections import deque\n\ndef levels(graph, start):\n    \"\"\"Group nodes by their distance from start (breadth-first).\"\"\"\n    seen = {start}\n    queue = deque([start])\n    result = []\n    while queue:\n        level = []\n        for _ in range(len(queue)):       # everything queued now is one level\n            node = queue.popleft()\n            level.append(node)\n            for nxt in graph[node]:\n                if nxt not in seen:\n                    seen.add(nxt)\n                    queue.append(nxt)\n        result.append(level)\n    return result\n\ngraph = {\"A\": [\"B\", \"C\"], \"B\": [\"D\"], \"C\": [\"D\", \"E\"], \"D\": [], \"E\": [\"A\"]}\nprint(levels(graph, \"A\"))    # [['A'], ['B', 'C'], ['D', 'E']]",
+        "pitfall": "Moving items from inbox to outbox while outbox is not empty. Newer items land on top of older ones, and the next dequeue returns the wrong item.",
+        "check": {
+          "question": "Why is dequeue O(1) amortized in a queue built from two stacks?",
+          "choices": [
+            "Every dequeue moves exactly one item",
+            "Each item moves from inbox to outbox at most once, so n operations do O(n) total work",
+            "Stacks give O(1) access to any position",
+            "The outbox keeps its items sorted"
+          ],
+          "answer": 1,
+          "explanation": "A transfer can move many items at once, but each item is pushed onto inbox once, moved once and popped once. Spread over all operations, that is a constant amount of work per operation."
+        }
+      },
+      {
+        "title": "Practice: picking the structure",
+        "body": "When you read a problem, ask in what order you need things back.\n\n- **Most recent first** (undo, matching, nesting, backtracking, evaluating postfix): a stack.\n- **Oldest first** (tasks in arrival order, level-by-level traversal, fewest steps): a queue.\n- **The next greater or smaller item** for every position, or spans like \"how many days until\": a monotonic stack of indexes.\n- **The maximum or minimum of a sliding window**: a monotonic deque.\n- **An O(1) minimum or maximum of a changing stack**: store the running minimum with each item.\n\nCommon mistakes to check before you submit:\n\n- Popping or peeking an empty stack (Python raises, JavaScript returns `undefined`).\n- Returning `True` from bracket matching without checking that the stack is empty at the end.\n- Popping operands in the wrong order for `-` and `/`, or flooring where truncation is required.\n- Storing values instead of indexes in a monotonic stack, so distances cannot be computed.\n- Using `list.pop(0)` or `arr.shift()` for a large queue.\n- Transferring into the outbox while it still holds items.\n\nComplexity summary: push, pop and peek are O(1). Bracket matching, RPN evaluation and monotonic stack scans are O(n) time and O(n) space in the worst case. Min stack operations are O(1), and the two-stack queue is O(1) amortized per operation.\n\nThe JavaScript below shows the stack and head-index queue idioms from the first section. The other challenges in this set are valid parentheses, evaluate reverse Polish notation, the min stack operations list and a queue from two stacks.",
+        "code": "// Stack: push and pop at the end, both O(1)\nconst stack = []\nstack.push(\"a\")\nstack.push(\"b\")\nconsole.log(stack.pop(), stack.at(-1))     // b a\nconsole.log([].pop())                      // undefined, no error\n\n// Queue without shift(): keep a head index, O(1) per dequeue\nconst queue = []\nlet head = 0\nqueue.push(1)\nqueue.push(2)\nqueue.push(3)\nconsole.log(queue[head++], queue[head++])  // 1 2\nconsole.log(queue.length - head)           // 1 item left",
+        "language": "javascript",
+        "activity": {
+          "type": "challenge",
+          "title": "Daily temperatures",
+          "prompt": "Keep a stack of indexes whose warmer day is still unknown. Each new day pops and answers every cooler day on top. Trace [73, 74, 75, 71, 69, 72, 76, 73] and expect [1, 1, 4, 2, 1, 1, 0, 0].",
+          "props": {
+            "id": "daily-temperatures"
+          }
+        },
+        "check": {
+          "question": "For each bar in a histogram, you need the nearest bar to its left that is shorter. Which structure fits best?",
+          "choices": [
+            "A monotonic stack of indexes, scanning left to right",
+            "A queue, processing the bars in arrival order",
+            "A hash map from height to index",
+            "A min stack with an O(1) getMin"
+          ],
+          "answer": 0,
+          "explanation": "\"Nearest smaller to the left\" is the previous-smaller variant of the monotonic stack: pop taller or equal bars, and whatever remains on top is the answer. A min stack only knows the overall minimum, not the nearest smaller bar."
+        }
+      }
+    ],
+    "keyTerms": [
+      {
+        "term": "Stack (LIFO)",
+        "definition": "A collection where the last item added is the first removed; push, pop and peek work at the top in O(1)."
+      },
+      {
+        "term": "Queue (FIFO)",
+        "definition": "A collection where the first item added is the first removed; items join at the back and leave from the front."
+      },
+      {
+        "term": "Deque",
+        "definition": "A double-ended queue with O(1) adds and removes at both ends, such as Python's collections.deque."
+      },
+      {
+        "term": "Monotonic stack",
+        "definition": "A stack kept in increasing or decreasing order by popping items that break the order, used for next greater or smaller element problems."
+      },
+      {
+        "term": "Reverse Polish notation",
+        "definition": "Postfix notation where operators follow their operands, as in 2 1 + 3 *, evaluated with a stack and no parentheses."
+      },
+      {
+        "term": "Call stack",
+        "definition": "The runtime stack of function frames; each call pushes a frame and each return pops one."
+      },
+      {
+        "term": "Min stack",
+        "definition": "A stack that also returns its current minimum in O(1) by storing the minimum at every height."
+      },
+      {
+        "term": "Amortized O(1)",
+        "definition": "Constant cost per operation averaged over a sequence, even if a single operation, such as a stack transfer, is occasionally expensive."
+      }
+    ],
+    "summary": [
+      "A stack returns the most recent item first (LIFO); a queue returns the oldest first (FIFO).",
+      "Use a list or array as a stack, and collections.deque or a head index as a queue; avoid pop(0) and shift() on large inputs.",
+      "Bracket matching and postfix evaluation are stack problems: the most recent unmatched opener, or the two most recent values, are always on top.",
+      "A monotonic stack of indexes answers next-greater questions in O(n), because each index is pushed and popped at most once.",
+      "Store the running minimum with each item for an O(1) getMin, and use <= when the minimum can repeat.",
+      "Two stacks make a queue with O(1) amortized operations if you transfer only when the outbox is empty."
+    ],
+    "feynmanPrompt": "Explain to a friend why a stack is the natural way to check that brackets like {[()]} are balanced, and how the same stack idea answers \"how many days until a warmer day\" for every day in a single pass."
+  },
+  "questions": [
+    {
+      "id": "swe-stacks-queues-q01",
+      "type": "mcq",
+      "difficulty": "easy",
+      "question": "Which structure always returns the most recently added item first?",
+      "choices": [
+        "A queue",
+        "A stack",
+        "A hash set",
+        "A sorted array"
+      ],
+      "answer": 1,
+      "explanation": "A stack is last in, first out. A queue returns the oldest item first, and sets and sorted arrays do not track insertion recency at all.",
+      "concept": "LIFO",
+      "section": 0
+    },
+    {
+      "id": "swe-stacks-queues-q02",
+      "type": "mcq",
+      "difficulty": "easy",
+      "question": "What happens when you pop from an empty list in Python, and from an empty array in JavaScript?",
+      "choices": [
+        "Both return None",
+        "Both raise an error",
+        "Python returns None; JavaScript throws a RangeError",
+        "Python raises IndexError; JavaScript returns undefined"
+      ],
+      "answer": 3,
+      "explanation": "Python raises IndexError: pop from empty list, which is loud. JavaScript's pop() returns undefined silently, which can hide bugs. Check the size first in both languages.",
+      "concept": "empty pops",
+      "section": 0
+    },
+    {
+      "id": "swe-stacks-queues-q03",
+      "type": "typed",
+      "difficulty": "easy",
+      "question": "What does this print?",
+      "code": "from collections import deque\nq = deque([1, 2, 3])\nq.append(4)\nq.popleft()\nprint(q[0])",
+      "answer": "2",
+      "explanation": "popleft removes 1 from the front, leaving deque([2, 3, 4]), so the front is now 2. append adds 4 at the back and does not change the front.",
+      "concept": "deque operations",
+      "section": 0
+    },
+    {
+      "id": "swe-stacks-queues-q04",
+      "type": "match",
+      "difficulty": "medium",
+      "question": "Match each task with the structure that fits it.",
+      "pairs": [
+        {
+          "left": "Undo the most recent edit",
+          "right": "Stack"
+        },
+        {
+          "left": "Serve requests in the order they arrived",
+          "right": "Queue"
+        },
+        {
+          "left": "Maximum of every window of size k",
+          "right": "Monotonic deque"
+        },
+        {
+          "left": "Next warmer day for each day",
+          "right": "Monotonic stack"
+        }
+      ],
+      "explanation": "Undo needs the latest action first (LIFO), arrival order needs FIFO, window maximums need removal at both ends, and next-greater questions need a stack of unresolved items.",
+      "concept": "choosing the structure",
+      "section": 0
+    },
+    {
+      "id": "swe-stacks-queues-q05",
+      "type": "mcq",
+      "difficulty": "medium",
+      "language": "javascript",
+      "question": "Why can a JavaScript queue built with push and shift be slow for large inputs?",
+      "choices": [
+        "push is O(n) on large arrays",
+        "shift removes the first item and generally has to move the rest, which is O(n)",
+        "Arrays cannot hold more than 65,536 items",
+        "shift sorts the array before removing an item"
+      ],
+      "answer": 1,
+      "explanation": "Removing the front of an array means every other item moves one slot, O(n) per dequeue and O(n^2) overall. Keeping a head index, or building the queue from two stacks, avoids it.",
+      "concept": "shift cost",
+      "section": 0
+    },
+    {
+      "id": "swe-stacks-queues-q06",
+      "type": "mcq",
+      "difficulty": "easy",
+      "question": "Which bracket string is NOT balanced?",
+      "choices": [
+        "{[()]}",
+        "()[]{}",
+        "(())",
+        "([)]"
+      ],
+      "answer": 3,
+      "explanation": "In ([)], the ) arrives while [ is the most recent unmatched opener, so the nesting is wrong even though each bracket type appears once on each side.",
+      "concept": "balanced brackets",
+      "section": 1
+    },
+    {
+      "id": "swe-stacks-queues-q07",
+      "type": "debug",
+      "difficulty": "medium",
+      "question": "is_valid(\"((\") returns True. What is wrong?",
+      "code": "def is_valid(s):\n    pairs = {\")\": \"(\", \"]\": \"[\", \"}\": \"{\"}\n    stack = []\n    for ch in s:\n        if ch in \"([{\":\n            stack.append(ch)\n        else:\n            if not stack or stack.pop() != pairs[ch]:\n                return False\n    return True",
+      "choices": [
+        "It returns True without checking that the stack is empty, so unclosed openers are accepted",
+        "pairs maps the brackets the wrong way around",
+        "stack.pop() should be stack[-1]",
+        "The empty-stack check should come after the pop"
+      ],
+      "answer": 0,
+      "explanation": "Both ( are pushed and nothing ever closes them, but the loop ends and returns True. The last line should be return not stack (or len(stack) == 0). The mapping and the guarded pop are correct.",
+      "concept": "leftover openers",
+      "section": 1
+    },
+    {
+      "id": "swe-stacks-queues-q08",
+      "type": "code-fill",
+      "difficulty": "medium",
+      "question": "Fill the blank so a closer fails when it does not match the most recent opener (pairs maps each closer to its opener).",
+      "code": "for ch in s:\n    if ch in \"([{\":\n        stack.append(ch)\n    elif not stack or _____:\n        return False\nreturn not stack",
+      "choices": [
+        "stack[-1] == pairs[ch]",
+        "stack.pop() == pairs[ch]",
+        "len(stack) > 1",
+        "stack.pop() != pairs[ch]"
+      ],
+      "answer": 3,
+      "explanation": "The pop removes the most recent opener and the comparison fails the string if it is not the matching one. Using == would reject every correct match, and peeking with stack[-1] would never remove matched openers.",
+      "concept": "matching the top",
+      "section": 1
+    },
+    {
+      "id": "swe-stacks-queues-q09",
+      "type": "typed",
+      "difficulty": "medium",
+      "question": "While checking \"(([]){})\" with a stack, what is the largest number of items the stack ever holds?",
+      "answer": "3",
+      "explanation": "( ( [ makes 3. Then ] and ) pop down to 1, { brings it to 2, and } and ) empty it. The maximum depth is the deepest nesting, 3.",
+      "concept": "stack depth",
+      "section": 1
+    },
+    {
+      "id": "swe-stacks-queues-q10",
+      "type": "typed",
+      "difficulty": "medium",
+      "question": "What does simplify_path(\"/a/b/../../c/./d\") return?",
+      "answer": "/c/d",
+      "explanation": "Push a and b, pop both for the two .., push c, ignore ., push d. The stack is [c, d], joined as /c/d.",
+      "concept": "stack for paths",
+      "section": 1
+    },
+    {
+      "id": "swe-stacks-queues-q11",
+      "type": "order",
+      "difficulty": "easy",
+      "question": "Put the steps of stack-based bracket matching in order.",
+      "items": [
+        "Create an empty stack",
+        "For each opening bracket, push it",
+        "For each closing bracket, fail if the stack is empty or its top does not match; otherwise pop",
+        "After the loop, return whether the stack is empty"
+      ],
+      "explanation": "The final emptiness check is the step people forget; it catches openers that were never closed.",
+      "concept": "matching steps",
+      "section": 1
+    },
+    {
+      "id": "swe-stacks-queues-q12",
+      "type": "typed",
+      "difficulty": "easy",
+      "question": "Evaluate the RPN tokens [\"3\", \"4\", \"+\", \"2\", \"*\"].",
+      "answer": "14",
+      "explanation": "3 + 4 = 7, then 7 * 2 = 14. In infix it is (3 + 4) * 2.",
+      "concept": "RPN evaluation",
+      "section": 2
+    },
+    {
+      "id": "swe-stacks-queues-q13",
+      "type": "mcq",
+      "difficulty": "medium",
+      "question": "What do the RPN tokens [\"5\", \"1\", \"2\", \"+\", \"4\", \"*\", \"+\", \"3\", \"-\"] evaluate to?",
+      "choices": [
+        "14",
+        "12",
+        "18",
+        "-14"
+      ],
+      "answer": 0,
+      "explanation": "1 + 2 = 3, 3 * 4 = 12, 5 + 12 = 17, 17 - 3 = 14. In infix this is 5 + (1 + 2) * 4 - 3.",
+      "concept": "RPN trace",
+      "section": 2
+    },
+    {
+      "id": "swe-stacks-queues-q14",
+      "type": "mcq",
+      "difficulty": "medium",
+      "question": "In Python, what is -7 // 2, and what is -7 / 2 truncated toward zero?",
+      "choices": [
+        "-4 and -3",
+        "-3 and -4",
+        "-3 and -3",
+        "-4 and -4"
+      ],
+      "answer": 0,
+      "explanation": "// floors toward negative infinity, so -3.5 becomes -4. Truncating toward zero gives -3, which is what int(-7 / 2) returns and what RPN problems usually expect.",
+      "concept": "floor vs truncation",
+      "section": 2
+    },
+    {
+      "id": "swe-stacks-queues-q15",
+      "type": "debug",
+      "difficulty": "hard",
+      "question": "apply leaves [-7] on the stack for 10 3 -, but the answer is 7. What is the bug?",
+      "code": "def apply(stack, op):\n    a = stack.pop()\n    b = stack.pop()\n    if op == \"-\":\n        stack.append(a - b)\n    elif op == \"/\":\n        stack.append(int(a / b))\n\nstack = [10, 3]\napply(stack, \"-\")\nprint(stack)",
+      "choices": [
+        "int(a / b) should be a // b",
+        "The first pop is the right operand, so it should be b = stack.pop() and then a = stack.pop()",
+        "The stack should be reversed before applying the operator",
+        "The operator itself should be pushed onto the stack"
+      ],
+      "answer": 1,
+      "explanation": "3 was pushed last, so it comes off first and is the right operand: 10 - 3. The code computes 3 - 10. Switching to // would also break the truncation rule.",
+      "concept": "operand order",
+      "section": 2
+    },
+    {
+      "id": "swe-stacks-queues-q16",
+      "type": "recall",
+      "difficulty": "medium",
+      "question": "What happens on the call stack when a recursive function recurses too deeply, and how can you avoid it?",
+      "answer": "Each call pushes a frame and each return pops one. Too many nested calls exceed the stack's limit, raising RecursionError in Python or RangeError in JavaScript. Rewrite the recursion with an explicit stack in a loop, or reduce the depth.",
+      "explanation": "An explicit stack lives on the heap and can grow far larger than the call stack, which is why iterative DFS is a common follow-up to a recursive solution.",
+      "concept": "call stack",
+      "section": 2
+    },
+    {
+      "id": "swe-stacks-queues-q17",
+      "type": "multi",
+      "difficulty": "medium",
+      "question": "Which statements about evaluating RPN with a stack are true? Select all that apply.",
+      "choices": [
+        "It needs no parentheses or precedence rules",
+        "Each operator pops two values and pushes one",
+        "A valid expression leaves exactly one value on the stack",
+        "The first value popped is the left operand",
+        "It runs in O(n) time for n tokens"
+      ],
+      "answers": [
+        0,
+        1,
+        2,
+        4
+      ],
+      "explanation": "The postfix order already encodes precedence, each operator replaces two values with one, and a well-formed expression reduces to a single value in one pass. The first pop is the right operand, not the left.",
+      "concept": "RPN facts",
+      "section": 2
+    },
+    {
+      "id": "swe-stacks-queues-q18",
+      "type": "typed",
+      "difficulty": "medium",
+      "question": "What does next_greater([1, 3, 2, 4]) return, using -1 when no larger item follows? Write it as a list.",
+      "answer": "[3, 4, 4, -1]",
+      "accept": [
+        "[3,4,4,-1]",
+        "3, 4, 4, -1",
+        "3 4 4 -1"
+      ],
+      "explanation": "1 is first beaten by 3; 3 and 2 are both first beaten by 4; nothing follows 4. In the scan, 4 pops both 2 and 3 at once.",
+      "concept": "next greater element",
+      "section": 3
+    },
+    {
+      "id": "swe-stacks-queues-q19",
+      "type": "mcq",
+      "difficulty": "medium",
+      "question": "What does daily temperatures return for [30, 40, 50, 60]?",
+      "choices": [
+        "[1, 2, 3, 0]",
+        "[3, 2, 1, 0]",
+        "[0, 1, 1, 1]",
+        "[1, 1, 1, 0]"
+      ],
+      "answer": 3,
+      "explanation": "Each day is followed immediately by a warmer one, so the wait is 1 day, except the last, which has no warmer day and gets 0.",
+      "concept": "daily temperatures",
+      "section": 3
+    },
+    {
+      "id": "swe-stacks-queues-q20",
+      "type": "mcq",
+      "difficulty": "hard",
+      "question": "Why is the monotonic stack solution O(n), even with a while loop inside the for loop?",
+      "choices": [
+        "The while loop runs at most twice per day",
+        "The stack never holds more than two items",
+        "Each index is pushed once and popped at most once, so all the pops together cost O(n)",
+        "Temperatures fall within a small fixed range"
+      ],
+      "answer": 2,
+      "explanation": "One day can pop many earlier days, but a day can only be popped once in total. Counting pushes and pops across the whole run gives at most 2n operations.",
+      "concept": "monotonic stack cost",
+      "section": 3
+    },
+    {
+      "id": "swe-stacks-queues-q21",
+      "type": "code-fill",
+      "difficulty": "medium",
+      "question": "Fill the blank to record how many days day j waited for a warmer day.",
+      "code": "def daily_temperatures(temps):\n    answer = [0] * len(temps)\n    stack = []\n    for i, t in enumerate(temps):\n        while stack and temps[stack[-1]] < t:\n            j = stack.pop()\n            answer[j] = _____\n        stack.append(i)\n    return answer",
+      "choices": [
+        "t - temps[j]",
+        "j - i",
+        "i - j",
+        "i"
+      ],
+      "answer": 2,
+      "explanation": "Day i is the first warmer day after day j, so the wait is i - j days. t - temps[j] is the temperature difference, not the number of days.",
+      "concept": "distance with indexes",
+      "section": 3
+    },
+    {
+      "id": "swe-stacks-queues-q22",
+      "type": "debug",
+      "difficulty": "hard",
+      "question": "daily_temperatures([70, 70, 75]) returns [1, 1, 0], but the answer is [2, 1, 0]. What is wrong?",
+      "code": "def daily_temperatures(temps):\n    answer = [0] * len(temps)\n    stack = []\n    for i, t in enumerate(temps):\n        while stack and temps[stack[-1]] <= t:\n            j = stack.pop()\n            answer[j] = i - j\n        stack.append(i)\n    return answer",
+      "choices": [
+        "answer[j] should be i - j - 1",
+        "<= pops a day when an equally warm day arrives, so equal counts as warmer; use <",
+        "The stack should store temperatures instead of indexes",
+        "The loop must run from right to left"
+      ],
+      "answer": 1,
+      "explanation": "Day 1 (70) pops day 0 (70) because 70 <= 70, recording a wait of 1 although day 1 is not warmer. With a strict <, day 0 waits until day 2 (75), giving 2.",
+      "concept": "strict comparison",
+      "section": 3
+    },
+    {
+      "id": "swe-stacks-queues-q23",
+      "type": "mcq",
+      "difficulty": "medium",
+      "question": "Why can't a min stack keep just one variable for the current minimum?",
+      "choices": [
+        "A variable cannot hold negative numbers",
+        "One variable uses more memory than a second stack",
+        "When the minimum is popped, finding the next one means scanning the stack, which is O(n)",
+        "getMin would return the maximum instead"
+      ],
+      "answer": 2,
+      "explanation": "A single variable forgets the earlier minimums. Storing the minimum at each height (pairs or a second stack) remembers the answer for every possible stack state.",
+      "concept": "why store minimums",
+      "section": 4
+    },
+    {
+      "id": "swe-stacks-queues-q24",
+      "type": "mcq",
+      "difficulty": "hard",
+      "question": "A two-stack min stack pushes onto its min stack only when the value is strictly less than the min stack's top. What goes wrong with push 2, push 2, pop, getMin?",
+      "choices": [
+        "Nothing: < and <= behave the same here",
+        "getMin returns 4",
+        "The first push fails because the min stack is empty",
+        "The min stack holds a single 2, the pop removes it, and getMin finds the min stack empty although a 2 remains"
+      ],
+      "answer": 3,
+      "explanation": "The second 2 is not pushed onto the min stack because 2 < 2 is false. Popping a 2 then removes the only min entry. With <=, both copies are recorded and the remaining 2 is still reported.",
+      "concept": "duplicate minimums",
+      "section": 4
+    },
+    {
+      "id": "swe-stacks-queues-q25",
+      "type": "typed",
+      "difficulty": "medium",
+      "question": "A min stack runs push 3, push 1, push 4, getMin, pop, pop, getMin. What does the second getMin return?",
+      "answer": "3",
+      "explanation": "The first getMin returns 1. The two pops remove 4 and 1, leaving only 3, so the second getMin returns 3.",
+      "concept": "min stack trace",
+      "section": 4
+    },
+    {
+      "id": "swe-stacks-queues-q26",
+      "type": "recall",
+      "difficulty": "medium",
+      "question": "Describe the (value, min_so_far) design for a min stack and the cost of each operation.",
+      "answer": "Each push stores the value together with min(value, the previous top's min). Pop removes the top pair, top reads its value, and getMin reads its stored minimum. All four are O(1), with O(n) extra space.",
+      "explanation": "Because each pair remembers the minimum of everything at or below it, popping automatically restores the earlier minimum.",
+      "concept": "min stack design",
+      "section": 4
+    },
+    {
+      "id": "swe-stacks-queues-q27",
+      "type": "order",
+      "difficulty": "medium",
+      "question": "Put the steps of a queue built from two stacks (inbox and outbox) in order, from enqueuing an item to dequeuing it.",
+      "items": [
+        "Enqueue pushes the item onto inbox",
+        "Dequeue checks whether outbox is empty",
+        "If it is, pop every item from inbox and push it onto outbox",
+        "Pop and return the top of outbox"
+      ],
+      "explanation": "The transfer reverses the order so the oldest item is on top of outbox. Transferring only when outbox is empty keeps FIFO order and the amortized O(1) cost.",
+      "concept": "two-stack queue steps",
+      "section": 5
+    },
+    {
+      "id": "swe-stacks-queues-q28",
+      "type": "mcq",
+      "difficulty": "easy",
+      "question": "A queue built from two stacks runs push 1, push 2, pop, push 3, pop, pop. What do the three pops return, in order?",
+      "choices": [
+        "2, 1, 3",
+        "1, 2, 3",
+        "1, 3, 2",
+        "3, 2, 1"
+      ],
+      "answer": 1,
+      "explanation": "It is still a queue, so items come out in arrival order: 1, 2, 3. The first pop transfers [1, 2] into the outbox as [2, 1]; 3 waits in the inbox until the outbox is empty.",
+      "concept": "FIFO order",
+      "section": 5
+    },
+    {
+      "id": "swe-stacks-queues-q29",
+      "type": "debug",
+      "difficulty": "hard",
+      "question": "The second pop prints 3, but 2 arrived first. What is wrong?",
+      "code": "inbox, outbox = [], []\n\ndef push(x):\n    inbox.append(x)\n\ndef pop():\n    while inbox:\n        outbox.append(inbox.pop())\n    return outbox.pop()\n\npush(1)\npush(2)\nprint(pop())   # 1\npush(3)\nprint(pop())   # 3, expected 2",
+      "choices": [
+        "inbox.pop() should be inbox.pop(0)",
+        "push should append to outbox",
+        "It transfers even when outbox still holds items, putting 3 on top of the older 2; transfer only when outbox is empty",
+        "pop should read outbox[0]"
+      ],
+      "answer": 2,
+      "explanation": "After the first pop, outbox is [2]. The second pop moves 3 onto it, giving [2, 3], and pops 3. Guarding the transfer with if not outbox keeps older items on top.",
+      "concept": "transfer rule",
+      "section": 5
+    },
+    {
+      "id": "swe-stacks-queues-q30",
+      "type": "mcq",
+      "difficulty": "medium",
+      "question": "Why does breadth-first search use a queue rather than a stack?",
+      "choices": [
+        "A queue processes nodes in the order they were discovered, so every node at distance d is visited before any node at distance d + 1",
+        "A queue uses less memory than a stack",
+        "A stack cannot hold graph nodes",
+        "A queue visits nodes in sorted order"
+      ],
+      "answer": 0,
+      "explanation": "FIFO order expands the search one ring at a time, which is why BFS finds shortest paths in unweighted graphs. Using a stack instead gives depth-first search, which dives down one path first.",
+      "concept": "queue for BFS",
+      "section": 5
+    },
+    {
+      "id": "swe-stacks-queues-q31",
+      "type": "mcq",
+      "difficulty": "medium",
+      "question": "For each day's stock price, you need the number of consecutive days up to and including today whose price was at most today's (the stock span). Which approach fits?",
+      "choices": [
+        "A queue of all earlier prices",
+        "A monotonic stack of indexes of earlier, higher prices",
+        "A min stack",
+        "A hash set of prices"
+      ],
+      "answer": 1,
+      "explanation": "Pop every earlier day with a price at most today's; the index left on top is the previous higher price, and the span is the distance to it. Each day is pushed and popped once, so it is O(n).",
+      "concept": "previous greater element",
+      "section": 6
+    },
+    {
+      "id": "swe-stacks-queues-q32",
+      "type": "match",
+      "difficulty": "easy",
+      "question": "Match each problem with what its stack or queue holds.",
+      "pairs": [
+        {
+          "left": "Valid parentheses",
+          "right": "Stack of unmatched openers"
+        },
+        {
+          "left": "Evaluate 3 4 + 2 *",
+          "right": "Stack of operand values"
+        },
+        {
+          "left": "Daily temperatures",
+          "right": "Stack of indexes still waiting"
+        },
+        {
+          "left": "Level-order traversal of a tree",
+          "right": "Queue of discovered nodes"
+        },
+        {
+          "left": "Constant-time getMin",
+          "right": "Stack of (value, min) pairs"
+        }
+      ],
+      "explanation": "Saying what the structure holds is half of explaining a stack or queue solution in an interview; the push and pop rules follow from it.",
+      "concept": "what the structure holds",
+      "section": 6
+    }
+  ]
+}

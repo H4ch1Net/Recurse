@@ -1,6 +1,9 @@
 import { describe, expect, it } from 'vitest'
 import { sanitizePack, slugify, validatePack, subjectFor } from './packSchema'
-import { BUILT_IN_PACKS } from './packs'
+import { normalizePack } from './packs'
+
+// Full packs (with lesson text), not the slim index the app starts with.
+const BUILT_IN_PACKS = Object.values(import.meta.glob('../data/packs/*.json', { eager: true, import: 'default' })).map((p) => normalizePack(p))
 
 const minimal = () => ({
   id: 'my-pack',

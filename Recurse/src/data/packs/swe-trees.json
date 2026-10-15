@@ -1,0 +1,758 @@
+{
+  "id": "swe-trees",
+  "name": "Binary Trees and BSTs",
+  "version": "1.0.0",
+  "author": "Recurse",
+  "subject": "swe",
+  "level": "intermediate",
+  "description": "Recursion on trees, depth-first orders, level-by-level BFS, the BST property and balanced vs degenerate trees.",
+  "icon": "Tr",
+  "language": "python",
+  "prereqs": [
+    "data-structures",
+    "algorithms",
+    "swe-stacks-queues",
+    "swe-linked-lists"
+  ],
+  "tags": [
+    "interviews",
+    "trees",
+    "binary search tree",
+    "recursion",
+    "bfs",
+    "dfs"
+  ],
+  "lesson": {
+    "estimatedMinutes": 30,
+    "intro": "After arrays and hash maps, trees are the most common topic in coding interviews, and nearly every tree problem is solved by one of two moves: recurse into the children and combine their answers, or walk the tree level by level with a queue. This pack teaches both, plus the binary search tree property and why a tree's shape decides its speed.",
+    "objectives": [
+      "Write recursive tree functions by deciding what each call needs from its children",
+      "Produce preorder, inorder, postorder and level order traversals and pick the one a problem needs",
+      "Use the BST property to search, validate and find common ancestors in O(h) time",
+      "Explain how height drives complexity and why balanced and degenerate trees behave so differently"
+    ],
+    "sections": [
+      {
+        "title": "Tree vocabulary and how trees arrive in interviews",
+        "body": "Your computer's folders form a tree: one top folder, each folder holding subfolders, and files at the ends. A **tree** is a set of nodes joined by edges, with no cycles and exactly one path between any two nodes. The node at the top is the **root**. In a **binary tree** every node has at most two children, called `left` and `right`.\n\nWords you need to use fluently, because interviewers will:\n\n- **Leaf**: a node with no children.\n- **Parent, child, sibling, ancestor, descendant**: the family words mean what you expect.\n- **Depth** of a node: the number of edges from the root down to it. The root has depth 0.\n- **Height** of a tree: the number of edges on the longest path from the root to a leaf.\n- **Subtree**: a node together with all of its descendants. Every subtree is itself a tree, which is exactly why recursion fits trees so well.\n\nWatch out: many interview problems ask for the \"maximum depth\" and count **nodes** on the longest path, not edges, so a single node has maximum depth 1. When in doubt, check the examples or ask.\n\nIn interviews and on practice sites a tree arrives as a `TreeNode` with `val`, `left` and `right`, and examples write it as a **level-order array**: values row by row, left to right, with `null` (or `None`) for a missing child. Children of a missing node are not written, and trailing nulls are dropped. The coding challenges in this pack use the same format.\n\nRead `[3, 9, 20, null, null, 15, 7]` like this: 3 is the root. The next two entries are its children, 9 and 20. The next two are 9's children (both missing), and the last two are 20's children, 15 and 7.",
+        "code": "class TreeNode:\n    def __init__(self, val=0, left=None, right=None):\n        self.val = val\n        self.left = left\n        self.right = right\n\n# [3, 9, 20, null, null, 15, 7] as a picture:\n#\n#          3           depth 0\n#         / \\\n#        9   20        depth 1\n#           /  \\\n#          15   7      depth 2\n#\n# leaves: 9, 15, 7\n# height (edges): 2      maximum depth (nodes): 3\n\nroot = TreeNode(3, TreeNode(9), TreeNode(20, TreeNode(15), TreeNode(7)))\nprint(root.right.left.val)   # 15",
+        "pitfall": "Mixing up height in edges with depth in nodes gives answers that are off by one. Check the examples: if a single node is expected to return 1, the problem counts nodes.",
+        "check": {
+          "question": "In the tree written as `[1, 2, 3, null, 4]`, where is the node 4?",
+          "choices": [
+            "It is the left child of 3",
+            "It is the left child of 2",
+            "It is a third child of the root",
+            "It is the right child of 2"
+          ],
+          "answer": 3,
+          "explanation": "After the root, entries come in pairs: (2, 3) are the root's children, then (null, 4) are 2's children. So 2 has no left child and 4 as its right child. 3's children would come next, and the array ends before them."
+        }
+      },
+      {
+        "title": "Recursion on trees: ask your children",
+        "body": "Suppose you run a company and want the longest chain of command below you. You do not walk every path yourself. You ask each of your direct reports for their longest chain, take the bigger answer and add one for yourself. Each report does the same with their own reports. That is how almost every tree problem is solved.\n\nA recursive tree function has three parts:\n\n- **Base case**: what to return for an empty tree (`None`). Usually 0, `True`, an empty list, or `None`.\n- **Recurse**: call the function on `node.left` and on `node.right`, and trust that each call returns the right answer for that subtree. This trust is the \"leap of faith\" that makes recursion manageable.\n- **Combine**: build this node's answer from the two child answers and `node.val`.\n\nMaximum depth: the base case is 0 and the combine step is `1 + max(left, right)`. Same tree: two empty trees are equal, exactly one empty tree is not, and otherwise the values must match and both pairs of subtrees must be the same. Invert (mirror) a tree: invert both subtrees and swap them.\n\nNotice that no call ever looks at its grandchildren. Each call only combines what its two children reported. If you catch yourself writing `node.left.left`, step back and let the recursion do that work.\n\nEach node is visited once, so these functions run in O(n) time. The extra space is the call stack, O(h) where h is the height of the tree: O(log n) for a balanced tree, but O(n) for a tree shaped like a linked list.",
+        "code": "def max_depth(node):\n    if node is None:                 # base case: empty tree\n        return 0\n    left = max_depth(node.left)      # trust the recursion\n    right = max_depth(node.right)\n    return 1 + max(left, right)      # combine\n\ndef is_same_tree(p, q):\n    if p is None and q is None:\n        return True\n    if p is None or q is None:\n        return False\n    return (p.val == q.val and is_same_tree(p.left, q.left)\n            and is_same_tree(p.right, q.right))\n\ndef invert(node):\n    if node is None:\n        return None\n    node.left, node.right = invert(node.right), invert(node.left)\n    return node\n\n# Trace max_depth on [3, 9, 20, null, null, 15, 7]\n# max_depth(9)   -> 1 + max(0, 0) = 1\n# max_depth(15)  -> 1        max_depth(7) -> 1\n# max_depth(20)  -> 1 + max(1, 1) = 2\n# max_depth(3)   -> 1 + max(1, 2) = 3",
+        "pitfall": "Reading `node.left.val` before checking that `node.left` exists crashes on leaves. Put the `None` check first, as the base case, and let the recursive calls deal with missing children.",
+        "activity": {
+          "type": "code-runner",
+          "title": "Count the leaves",
+          "prompt": "Write `count_leaves(node)` with the same three parts: a base case for None, a case for a node with no children, and a combine step that adds the counts from both subtrees. The tree has 3 leaves (9, 15 and 7), so the program should print `3 3`.",
+          "props": {
+            "language": "python",
+            "code": "class TreeNode:\n    def __init__(self, val=0, left=None, right=None):\n        self.val = val\n        self.left = left\n        self.right = right\n\n#          3\n#         / \\\n#        9   20\n#           /  \\\n#          15   7\nroot = TreeNode(3, TreeNode(9), TreeNode(20, TreeNode(15), TreeNode(7)))\n\ndef max_depth(node):\n    if node is None:\n        return 0\n    return 1 + max(max_depth(node.left), max_depth(node.right))\n\ndef count_leaves(node):\n    # Base case: an empty tree has no leaves.\n    # A node with no children is exactly one leaf.\n    # Otherwise, add up the leaves of the two subtrees.\n    return 0   # replace this\n\nprint(max_depth(root), count_leaves(root))",
+            "task": "Finish count_leaves so the program prints 3 3.",
+            "expectOutput": "3 3"
+          }
+        },
+        "check": {
+          "question": "What extra space does `max_depth` use on a tree of n nodes in which every node has only a right child?",
+          "choices": [
+            "O(1), because no data structure is created",
+            "O(log n), because it is a binary tree",
+            "O(n), because the call stack grows as deep as the tree",
+            "O(n^2), because each call copies the path above it"
+          ],
+          "answer": 2,
+          "explanation": "Every recursive call waits on the stack until its child returns. In a chain of n nodes the calls nest n deep, so the stack holds O(n) frames. O(log n) only applies when the tree is balanced."
+        }
+      },
+      {
+        "title": "Depth-first orders: pre, in and post",
+        "body": "When a recursive function visits a node, it can do its own work before visiting the children, between them, or after them. Those three choices are the three depth-first orders, and each one fits different jobs:\n\n- **Preorder** (node, left, right): you see a parent before its children. Use it to copy or serialize a tree, or to pass information down, such as the path from the root so far.\n- **Inorder** (left, node, right): on a binary search tree this visits values in sorted order. Use it for anything \"sorted\" or \"kth smallest\" on a BST.\n- **Postorder** (left, right, node): you see the children before the parent. Use it when a node's answer depends on its children's answers: heights, sizes, checking balance, deleting a tree.\n\nMaximum depth from the previous section is a postorder computation: it needs both child answers before it can finish.\n\nAll three are **depth-first search** (DFS): go as deep as possible before backing up. Recursion is the natural way to write them, but interviewers sometimes ask for an iterative version with an explicit stack. The iterative inorder in the code block is worth memorizing: go left as far as you can, pushing each node; pop one and visit it; then turn to its right subtree and repeat.\n\nA quick way to check your answers: in preorder the root comes first, in postorder the root comes last, and in inorder the root sits between everything in its left subtree and everything in its right subtree.",
+        "code": "#          4\n#         / \\\n#        2   6\n#       / \\   \\\n#      1   3   7\n\ndef preorder(node, out):\n    if node:\n        out.append(node.val)      # node first\n        preorder(node.left, out)\n        preorder(node.right, out)\n\ndef inorder(node, out):\n    if node:\n        inorder(node.left, out)\n        out.append(node.val)      # node in the middle\n        inorder(node.right, out)\n\ndef postorder(node, out):\n    if node:\n        postorder(node.left, out)\n        postorder(node.right, out)\n        out.append(node.val)      # node last\n\ndef inorder_iterative(root):\n    out, stack, curr = [], [], root\n    while curr or stack:\n        while curr:               # go left as far as possible\n            stack.append(curr)\n            curr = curr.left\n        curr = stack.pop()        # visit\n        out.append(curr.val)\n        curr = curr.right         # then the right subtree\n    return out\n\n# preorder:  [4, 2, 1, 3, 6, 7]\n# inorder:   [1, 2, 3, 4, 6, 7]\n# postorder: [1, 3, 2, 7, 6, 4]",
+        "tip": "If a node needs information from its children, think postorder. If it needs information from its ancestors, think preorder with an extra parameter that carries it down.",
+        "pitfall": "Python's default recursion limit is about 1000 frames. A degenerate tree with 5,000 nodes makes recursive DFS raise RecursionError; switch to an explicit stack, or raise the limit with `sys.setrecursionlimit` if you must.",
+        "check": {
+          "question": "You need the 3rd smallest value in a binary search tree. Which traversal produces values in the order you need?",
+          "choices": [
+            "Preorder",
+            "Inorder",
+            "Postorder",
+            "Level order"
+          ],
+          "answer": 1,
+          "explanation": "Inorder visits the left subtree (all smaller values), then the node, then the right subtree (all larger values), so a BST comes out sorted. Stop after the 3rd value. Preorder and postorder follow the tree's shape, not the value order."
+        }
+      },
+      {
+        "title": "Breadth-first: one level at a time",
+        "body": "Picture an org chart printed level by level: the CEO on the first line, everyone who reports to the CEO on the second, their reports on the third. That is **level order traversal**. It uses breadth-first search (BFS) with a queue instead of recursion.\n\nThe template: put the root in a queue. While the queue is not empty, record its current size: that is exactly how many nodes are on the current level. Pop that many nodes, record their values, and push their children. The children you pushed form the next level.\n\nReading `len(queue)` before the inner loop is the key detail. During the loop the queue holds the rest of the current level and the start of the next one at the same time, so without the saved size you cannot tell where one level ends.\n\nLevel by level BFS answers a whole family of questions:\n\n- Level order as a list of lists, one inner list per level.\n- Right side view: the last node of each level.\n- Minimum depth: the first level that contains a leaf. BFS can stop right there, while DFS has to explore every branch to be sure.\n- Average, sum or maximum of each level, and zigzag order (reverse every other level).\n\nEvery node enters and leaves the queue once, so the time is O(n). The queue holds at most one level plus part of the next, which is about n / 2 nodes for the bottom of a complete tree, so the space is O(w) for maximum width w, O(n) in the worst case.\n\nIn Python use `collections.deque`, whose `popleft()` is O(1); `list.pop(0)` shifts every element and is O(n). JavaScript has no built-in deque and `array.shift()` can be O(n), so a common JavaScript style builds each level as a fresh array, as you will see in the questions.",
+        "code": "from collections import deque\n\ndef level_order(root):\n    if root is None:\n        return []\n    levels = []\n    queue = deque([root])\n    while queue:\n        size = len(queue)              # nodes on this level\n        level = []\n        for _ in range(size):\n            node = queue.popleft()\n            level.append(node.val)\n            if node.left:\n                queue.append(node.left)\n            if node.right:\n                queue.append(node.right)\n        levels.append(level)\n    return levels\n\n# Trace on [3, 9, 20, null, null, 15, 7]\n# queue [3]        size 1  ->  level [3]       queue [9, 20]\n# queue [9, 20]    size 2  ->  level [9, 20]   queue [15, 7]\n# queue [15, 7]    size 2  ->  level [15, 7]   queue []\n# result [[3], [9, 20], [15, 7]]",
+        "pitfall": "Putting `None` into the queue (from an empty root or a missing child) leads to `AttributeError: 'NoneType' object has no attribute 'val'`. Handle the empty tree first and only enqueue children that exist.",
+        "activity": {
+          "type": "challenge",
+          "title": "Level order traversal",
+          "prompt": "Use the queue and the size-of-the-level trick. Before submitting, run it in your head on an empty tree and on a tree that leans entirely to one side.",
+          "props": {
+            "id": "binary-tree-level-order"
+          }
+        },
+        "check": {
+          "question": "Why does the level order code save `size = len(queue)` before the inner loop?",
+          "choices": [
+            "len(queue) is slow, so it is computed only once",
+            "It stops the root from being visited twice",
+            "deque has no way to check whether it is empty",
+            "The queue mixes the end of one level with the start of the next, and the size marks where this level ends"
+          ],
+          "answer": 3,
+          "explanation": "As you pop nodes from the current level you push their children, so the queue soon contains two levels at once. Popping exactly size nodes processes the current level and nothing more. len on a deque is O(1), so speed is not the reason."
+        }
+      },
+      {
+        "title": "Binary search trees: the ordering rule",
+        "body": "A paper dictionary is ordered so you never read every word: open it in the middle, then go left or right. A **binary search tree** (BST) builds that idea into a tree. The **BST property**: for every node, all values in its left subtree are smaller and all values in its right subtree are larger. Problems say how duplicates are handled; in this pack they are not allowed.\n\nThat rule gives you search almost for free. Compare the target with the current node: equal, found it; smaller, go left; larger, go right. Each step discards a whole subtree, so search, insert and delete cost O(h), the height of the tree. And as you saw, an inorder traversal of a BST visits its values in sorted order.\n\nTwo interview classics use the property directly.\n\n**Validate a BST.** The tempting check, \"each node is greater than its left child and less than its right child\", is wrong. In the tree `[5, 1, 6, null, null, 3, 7]`, every parent and child pair looks fine, but 3 sits in 5's right subtree while being smaller than 5. The fix is to pass down the allowed range: each node must lie strictly between a `low` and a `high` bound inherited from its ancestors. Going left, the node's value becomes the new `high`; going right, it becomes the new `low`. An inorder walk that checks the values are strictly increasing also works.\n\n**Lowest common ancestor in a BST.** The lowest common ancestor (LCA) of p and q is the deepest node that has both of them in its subtree; a node counts as its own ancestor. Start at the root. If both values are smaller than the node, the LCA is in the left subtree; if both are larger, it is in the right subtree. Otherwise the two values split here (or one of them is this node), so this node is the answer. That is O(h) time with a simple loop.",
+        "code": "def search(node, target):\n    while node and node.val != target:\n        node = node.left if target < node.val else node.right\n    return node                     # the node, or None if absent\n\ndef is_valid_bst(node, low=float(\"-inf\"), high=float(\"inf\")):\n    if node is None:\n        return True\n    if not (low < node.val < high):\n        return False\n    return (is_valid_bst(node.left, low, node.val) and\n            is_valid_bst(node.right, node.val, high))\n\ndef lca_bst(root, p, q):\n    node = root\n    while node:\n        if p < node.val and q < node.val:\n            node = node.left\n        elif p > node.val and q > node.val:\n            node = node.right\n        else:\n            return node.val         # the paths split here\n    return None\n\n#            6\n#          /   \\\n#         2     8         lca_bst(root, 2, 8) -> 6   (split at the root)\n#        / \\   / \\        lca_bst(root, 2, 4) -> 2   (2 is an ancestor of 4)\n#       0   4 7   9       lca_bst(root, 3, 5) -> 4\n#          / \\\n#         3   5",
+        "pitfall": "Validating a BST by comparing each node only with its direct children misses violations further down. Pass the allowed (low, high) range down the recursion instead.",
+        "activity": {
+          "type": "bst",
+          "title": "Search and traverse a BST",
+          "prompt": "Search for 60 and count how many nodes you compare against. Then run the in-order traversal and confirm it comes out sorted. Finally, predict where 65 will land before you insert it.",
+          "props": {
+            "values": [
+              50,
+              30,
+              70,
+              20,
+              40,
+              60,
+              80
+            ]
+          }
+        },
+        "check": {
+          "question": "Which tree breaks the BST property even though every node is greater than its left child and less than its right child?",
+          "choices": [
+            "[10, 5, 15, 3, 7, 12, 20]",
+            "[10, 5, 15, null, null, 6, 20]",
+            "[10, 5, 15, null, 8, null, 20]",
+            "[10, 5, 15]"
+          ],
+          "answer": 1,
+          "explanation": "In [10, 5, 15, null, null, 6, 20], 6 is the left child of 15, which looks fine locally, but 6 lives in 10's right subtree and is smaller than 10. The other trees respect every ancestor's bound."
+        }
+      },
+      {
+        "title": "Balanced versus degenerate: shape decides speed",
+        "body": "Insert 1, 2, 3, 4, 5 into an empty BST in that order. Each value is larger than everything before it, so each one becomes the right child of the previous one. The result is a linked list wearing a tree costume, and searching it takes O(n). Insert the same values in the order 3, 1, 4, 2, 5 and you get a tree of height 2.\n\nEvery BST operation costs O(h), so the shape is everything:\n\n- A **balanced** tree keeps its height close to log2(n). A million nodes means about 20 levels, so a search takes about 20 comparisons.\n- A **degenerate** (or skewed) tree has height n - 1. A million nodes can mean a million comparisons, no better than scanning a list.\n\n**Self-balancing** BSTs, such as AVL trees and red-black trees, do a little extra work on each insert and delete (small local restructurings called rotations) to keep the height O(log n) whatever the insertion order. You are not expected to code rotations in an internship interview, but you should know they exist and where you meet them: Java's `TreeMap` and C++'s `std::map` are usually red-black trees, and database indexes use the related B-tree. Python has no built-in balanced BST; use a dict for lookups, `bisect` on a sorted list for modest ordered data, or the third-party `sortedcontainers` package.\n\nA related interview question asks whether a tree is **height-balanced**: for every node, the heights of its two subtrees differ by at most 1. The naive solution calls a separate `height` function at every node, measuring the same subtrees again and again (O(n log n) even on a balanced tree, and worse on lopsided ones). The better solution is a single postorder pass that returns each subtree's height, or -1 as soon as anything below is unbalanced. Returning a sentinel value to signal failure is a trick you will reuse.",
+        "code": "def check_height(node):\n    \"\"\"Height in nodes, or -1 if any subtree is unbalanced.\"\"\"\n    if node is None:\n        return 0\n    left = check_height(node.left)\n    if left == -1:\n        return -1\n    right = check_height(node.right)\n    if right == -1:\n        return -1\n    if abs(left - right) > 1:\n        return -1\n    return 1 + max(left, right)\n\ndef is_balanced(root):\n    return check_height(root) != -1\n\n# Insert 1, 2, 3, 4, 5:          Insert 3, 1, 4, 2, 5:\n#\n#  1                                    3\n#   \\                                 /   \\\n#    2                               1     4\n#     \\                               \\     \\\n#      3                               2     5\n#       \\\n#        4                          height 2\n#         \\\n#          5      height 4",
+        "pitfall": "Saying \"BST search is O(log n)\" without the word balanced. The honest answer is O(h): O(log n) when the tree is balanced, O(n) in the worst case.",
+        "check": {
+          "question": "You insert 10,000 keys in sorted order into a plain BST that never rebalances. How many comparisons can a search for the largest key take?",
+          "choices": [
+            "About 14",
+            "About 10,000",
+            "About 100",
+            "Exactly 1"
+          ],
+          "answer": 1,
+          "explanation": "Sorted inserts build a chain, so the largest key sits at the bottom of a path of 10,000 nodes. About 14 (log2 of 10,000) is what a balanced tree would give, and that is exactly what self-balancing trees guarantee."
+        }
+      },
+      {
+        "title": "Practice: choosing the right tree approach",
+        "body": "Most tree problems fall into a handful of shapes. Read the problem, then ask which one it is:\n\n- \"Depth\", \"height\", \"size\", \"diameter\", \"is it balanced\", \"path sum\": recursion that combines child answers (postorder).\n- \"Same tree\", \"symmetric\", \"subtree of another tree\": recursion over two trees at once, comparing node pairs.\n- \"Level\", \"row\", \"right side view\", \"minimum depth\", \"zigzag\": BFS with a queue and the level-size trick.\n- \"Sorted\", \"kth smallest\", \"valid BST\": inorder traversal, or passing (low, high) bounds down.\n- \"Search\", \"insert\", \"common ancestor\" in a BST: walk down a single path using comparisons, O(h).\n- \"Path from the root\", \"all root-to-leaf paths\": preorder DFS carrying the path so far.\n\nBefore you write code, answer these out loud:\n\n- What does my function return for an empty tree?\n- What does each call need from its children, or pass down to them?\n- Is this a BST or just a binary tree? The value-comparison shortcuts only work on a BST.\n- What are the time and space? Usually O(n) time, O(h) space for DFS and O(w) for BFS.\n\nThen test on three tiny trees: an empty tree, a single node, and a lopsided chain of three nodes. Lopsided trees catch most bugs, because at every node one child is missing.",
+        "activity": {
+          "type": "challenge",
+          "title": "Validate a binary search tree",
+          "prompt": "Use the (low, high) bounds idea. Before submitting, trace your code on [5, 1, 6, null, null, 3, 7], the tree that fools the parent and child check.",
+          "props": {
+            "id": "validate-binary-search-tree"
+          }
+        },
+        "check": {
+          "question": "A problem asks for the smallest depth at which any leaf appears, in a huge and very wide tree. Which approach can stop earliest?",
+          "choices": [
+            "Postorder DFS computing the minimum depth of every subtree",
+            "Inorder traversal collecting the depth of every leaf",
+            "BFS level by level, returning at the first leaf it meets",
+            "Sorting all the leaves by depth"
+          ],
+          "answer": 2,
+          "explanation": "BFS visits the tree in order of depth, so the first leaf it pops is at the minimum depth and it can return immediately. DFS-based approaches must explore every branch before they can be sure."
+        }
+      }
+    ],
+    "keyTerms": [
+      {
+        "term": "root",
+        "definition": "The top node of a tree, the only node with no parent."
+      },
+      {
+        "term": "leaf",
+        "definition": "A node with no children."
+      },
+      {
+        "term": "depth and height",
+        "definition": "Depth: edges from the root down to a node. Height: edges on the longest root-to-leaf path. Maximum depth problems often count nodes instead."
+      },
+      {
+        "term": "binary search tree",
+        "definition": "A binary tree where every value in a node's left subtree is smaller and every value in its right subtree is larger."
+      },
+      {
+        "term": "preorder",
+        "definition": "Depth-first order visiting a node before its children: node, left, right."
+      },
+      {
+        "term": "inorder",
+        "definition": "Depth-first order visiting left subtree, node, right subtree. Produces sorted output on a BST."
+      },
+      {
+        "term": "postorder",
+        "definition": "Depth-first order visiting both children before the node, used when a node needs its children's answers."
+      },
+      {
+        "term": "level order traversal",
+        "definition": "Breadth-first traversal that visits the tree row by row using a queue."
+      },
+      {
+        "term": "balanced tree",
+        "definition": "A tree whose height stays O(log n), so searches and updates take O(log n) steps."
+      },
+      {
+        "term": "degenerate tree",
+        "definition": "A tree where each node has one child, so its height is n - 1 and operations take O(n)."
+      },
+      {
+        "term": "lowest common ancestor",
+        "definition": "The deepest node that has both given nodes in its subtree, where a node counts as its own ancestor."
+      }
+    ],
+    "summary": [
+      "Most tree problems are recursion: handle the empty tree, trust the calls on left and right, and combine their answers.",
+      "Preorder passes information down, postorder combines answers from the children, and inorder visits a BST in sorted order.",
+      "BFS with a queue and the level-size trick handles anything described by levels and finds the minimum depth fastest.",
+      "The BST property covers whole subtrees, so validate with (low, high) bounds, not parent and child checks.",
+      "BST operations cost O(h): O(log n) when balanced and O(n) when degenerate, and recursive DFS uses O(h) stack space."
+    ],
+    "feynmanPrompt": "Explain to a friend why checking each node against only its two children is not enough to prove a tree is a valid binary search tree, and how passing a range of allowed values down the tree fixes it."
+  },
+  "questions": [
+    {
+      "id": "swe-trees-q01",
+      "type": "typed",
+      "difficulty": "easy",
+      "question": "How many leaves does the tree `[1, 2, 3, 4, 5, null, 6]` have?",
+      "answer": "3",
+      "explanation": "The root 1 has children 2 and 3. Node 2 has children 4 and 5; node 3 has only a right child, 6. The nodes with no children are 4, 5 and 6.",
+      "concept": "counting leaves",
+      "section": 0
+    },
+    {
+      "id": "swe-trees-q02",
+      "type": "mcq",
+      "difficulty": "medium",
+      "question": "What is the height, counted in edges, of the tree `[1, 2, null, 3, null, 4]`?",
+      "choices": [
+        "4",
+        "2",
+        "3",
+        "1"
+      ],
+      "answer": 2,
+      "explanation": "Node 2 is 1's left child, 3 is 2's left child and 4 is 3's left child, so the tree is a chain 1 - 2 - 3 - 4. A chain of 4 nodes has 3 edges. Its maximum depth counted in nodes would be 4.",
+      "concept": "height in edges",
+      "section": 0
+    },
+    {
+      "id": "swe-trees-q03",
+      "type": "match",
+      "difficulty": "easy",
+      "question": "Match each term with its meaning.",
+      "pairs": [
+        {
+          "left": "Leaf",
+          "right": "A node with no children"
+        },
+        {
+          "left": "Root",
+          "right": "The only node with no parent"
+        },
+        {
+          "left": "Depth of a node",
+          "right": "Number of edges from the root down to it"
+        },
+        {
+          "left": "Subtree",
+          "right": "A node plus all of its descendants"
+        }
+      ],
+      "explanation": "Depth counts edges from the root down to a node, so the root has depth 0. A subtree is any node together with everything below it, which is why recursion fits trees.",
+      "concept": "tree vocabulary",
+      "section": 0
+    },
+    {
+      "id": "swe-trees-q04",
+      "type": "mcq",
+      "difficulty": "medium",
+      "question": "Which level-order array describes this tree?",
+      "code": "    1\n   / \\\n  2   3\n   \\\n    4",
+      "language": "plaintext",
+      "choices": [
+        "[1, 2, 3, null, 4]",
+        "[1, 2, 3, 4]",
+        "[1, 2, 3, null, null, 4]",
+        "[1, null, 2, 3, 4]"
+      ],
+      "answer": 0,
+      "explanation": "The root's children are 2 and 3. Then come 2's children: none on the left, 4 on the right, written as null, 4. The array [1, 2, 3, 4] would make 4 the left child of 2.",
+      "concept": "reading level-order arrays",
+      "section": 0
+    },
+    {
+      "id": "swe-trees-q05",
+      "type": "order",
+      "difficulty": "easy",
+      "question": "Put the parts of one call of a recursive tree function in the order they run.",
+      "items": [
+        "Return the base case value if the node is None",
+        "Call the function on the left child",
+        "Call the function on the right child",
+        "Combine the two child results with the node's value and return"
+      ],
+      "explanation": "The base case comes first so that missing children are handled before anything reads them. Then the function recurses into both children and combines their answers with its own value.",
+      "concept": "recursive function parts",
+      "section": 1
+    },
+    {
+      "id": "swe-trees-q06",
+      "type": "code-fill",
+      "difficulty": "medium",
+      "question": "Complete `count_nodes` so it returns the number of nodes in the tree.",
+      "code": "def count_nodes(node):\n    if node is None:\n        return 0\n    _____",
+      "choices": [
+        "return count_nodes(node.left) + count_nodes(node.right)",
+        "return 1 + max(count_nodes(node.left), count_nodes(node.right))",
+        "return 1 + count_nodes(node.left) + count_nodes(node.right)",
+        "return count_nodes(node.left.left) + count_nodes(node.right.right)"
+      ],
+      "answer": 2,
+      "explanation": "Each node counts itself (the 1) plus everything in both subtrees. Using max would compute the depth instead, and leaving out the 1 would always return 0.",
+      "concept": "combine step",
+      "section": 1
+    },
+    {
+      "id": "swe-trees-q07",
+      "type": "debug",
+      "difficulty": "medium",
+      "question": "This is meant to mirror a tree, but the result has the wrong shape. Why?",
+      "code": "def invert(node):\n    if node is None:\n        return None\n    node.left = invert(node.right)\n    node.right = invert(node.left)\n    return node",
+      "choices": [
+        "node.left is overwritten before the old left subtree is used, so it is lost",
+        "The base case should return node instead of None",
+        "Inverting must happen before the recursive calls, in preorder",
+        "Recursion cannot modify a tree, so a queue is required"
+      ],
+      "answer": 0,
+      "explanation": "The first assignment replaces node.left with the inverted right subtree, so the original left subtree is lost. The second line inverts that same subtree back and stores it on the right, so both children end up pointing at one subtree. Compute both results before assigning, for example with a tuple assignment.",
+      "concept": "overwriting before use",
+      "section": 1
+    },
+    {
+      "id": "swe-trees-q08",
+      "type": "typed",
+      "difficulty": "medium",
+      "question": "What does `mystery` return for the tree `[5, 3, 8, 1, null, null, 2]`?",
+      "code": "def mystery(node):\n    if node is None:\n        return 0\n    return node.val + mystery(node.left) + mystery(node.right)",
+      "answer": "19",
+      "explanation": "mystery adds a node's value to the totals of both subtrees, so it sums every value: 5 + 3 + 8 + 1 + 2 = 19. Node 1 is 3's left child and 2 is 8's right child.",
+      "concept": "tracing recursion",
+      "section": 1
+    },
+    {
+      "id": "swe-trees-q09",
+      "type": "mcq",
+      "difficulty": "hard",
+      "question": "`is_same_tree(p, q)` compares trees with n and m nodes. What is its worst-case time?",
+      "choices": [
+        "O(n * m)",
+        "O(n + m), since every node of both trees is visited",
+        "O(log n)",
+        "O(min(n, m)), since it stops at the first difference"
+      ],
+      "answer": 3,
+      "explanation": "It only recurses into positions where both trees have a node, and it stops at the first difference, so it examines at most min(n, m) pairs. O(n + m) overstates it: the extra nodes of the bigger tree are never visited.",
+      "concept": "complexity of same tree",
+      "section": 1
+    },
+    {
+      "id": "swe-trees-q10",
+      "type": "typed",
+      "difficulty": "medium",
+      "question": "What is the preorder traversal of `[1, 2, 3, 4, 5]`? List the values separated by commas.",
+      "answer": "1, 2, 4, 5, 3",
+      "accept": [
+        "[1, 2, 4, 5, 3]",
+        "1 2 4 5 3",
+        "[1,2,4,5,3]",
+        "1,2,4,5,3"
+      ],
+      "explanation": "Preorder visits the node, then its whole left subtree, then its right subtree: 1, then 2 with its children 4 and 5, then 3.",
+      "concept": "preorder",
+      "section": 2
+    },
+    {
+      "id": "swe-trees-q11",
+      "type": "mcq",
+      "difficulty": "medium",
+      "question": "What is the postorder traversal of `[1, 2, 3, 4, 5]`?",
+      "choices": [
+        "4, 2, 5, 1, 3",
+        "1, 2, 4, 5, 3",
+        "4, 5, 3, 2, 1",
+        "4, 5, 2, 3, 1"
+      ],
+      "answer": 3,
+      "explanation": "Postorder finishes both subtrees before the node: 4 and 5 before 2, then 3, and the root 1 last. 4, 2, 5, 1, 3 is inorder and 1, 2, 4, 5, 3 is preorder.",
+      "concept": "postorder",
+      "section": 2
+    },
+    {
+      "id": "swe-trees-q12",
+      "type": "match",
+      "difficulty": "medium",
+      "question": "Match each task with the traversal that fits it best.",
+      "pairs": [
+        {
+          "left": "Print a BST's values in sorted order",
+          "right": "Inorder"
+        },
+        {
+          "left": "Compute the height of every subtree",
+          "right": "Postorder"
+        },
+        {
+          "left": "Copy a tree, creating each parent before its children",
+          "right": "Preorder"
+        },
+        {
+          "left": "Print the tree one row at a time",
+          "right": "Level order"
+        }
+      ],
+      "explanation": "Inorder sorts a BST, postorder has children's answers ready before the parent, preorder handles a parent before its children, and level order goes row by row.",
+      "concept": "choosing a traversal",
+      "section": 2
+    },
+    {
+      "id": "swe-trees-q13",
+      "type": "debug",
+      "difficulty": "medium",
+      "question": "`inorder_iterative` returns an empty list for every tree. What is wrong?",
+      "code": "def inorder_iterative(root):\n    out, stack, curr = [], [], root\n    while stack:\n        while curr:\n            stack.append(curr)\n            curr = curr.left\n        curr = stack.pop()\n        out.append(curr.val)\n        curr = curr.right\n    return out",
+      "choices": [
+        "curr = curr.right should be curr = curr.left",
+        "The outer loop should be while curr or stack, because the stack starts empty",
+        "out.append must come before stack.pop()",
+        "The inner loop should push curr.right"
+      ],
+      "answer": 1,
+      "explanation": "The stack starts empty, so `while stack` is false immediately and the loop never runs. The condition must be `while curr or stack`, because at the start the work is in curr, not on the stack.",
+      "concept": "iterative inorder",
+      "section": 2
+    },
+    {
+      "id": "swe-trees-q14",
+      "type": "mcq",
+      "difficulty": "easy",
+      "question": "Which data structure drives level order traversal?",
+      "choices": [
+        "A stack (last in, first out)",
+        "A hash set",
+        "A queue (first in, first out)",
+        "A min-heap"
+      ],
+      "answer": 2,
+      "explanation": "A queue hands nodes back in the order they were added, so a whole level is processed before the next one. A stack would give a depth-first order.",
+      "concept": "BFS data structure",
+      "section": 3
+    },
+    {
+      "id": "swe-trees-q15",
+      "type": "typed",
+      "difficulty": "medium",
+      "question": "What does `level_order` return for `[1, 2, 3, null, 4, null, 5]`? Type it as a Python list of lists.",
+      "answer": "[[1], [2, 3], [4, 5]]",
+      "accept": [
+        "[[1],[2,3],[4,5]]"
+      ],
+      "explanation": "Node 2 has only a right child, 4, and node 3 has only a right child, 5. Levels: [1], then [2, 3], then [4, 5].",
+      "concept": "tracing level order",
+      "section": 3
+    },
+    {
+      "id": "swe-trees-q16",
+      "type": "code-fill",
+      "difficulty": "medium",
+      "question": "This JavaScript level order builds each level as a fresh array instead of using a queue. What goes in the blank?",
+      "code": "function levelOrder(root) {\n  const levels = []\n  let level = root ? [root] : []\n  while (level.length) {\n    levels.push(level.map((node) => node.val))\n    const next = []\n    for (const node of level) {\n      if (node.left) next.push(node.left)\n      if (node.right) next.push(node.right)\n    }\n    _____\n  }\n  return levels\n}",
+      "language": "javascript",
+      "choices": [
+        "next = level",
+        "level = next",
+        "levels.push(next)",
+        "level.push(...next)"
+      ],
+      "answer": 1,
+      "explanation": "After collecting the children of every node on this level into next, next becomes the level to process. Pushing next into level would make the loop run forever, and pushing it into levels would record node objects instead of values.",
+      "concept": "level arrays in JavaScript",
+      "section": 3
+    },
+    {
+      "id": "swe-trees-q17",
+      "type": "mcq",
+      "difficulty": "hard",
+      "question": "The right side view lists the node you would see at the right edge of each level, from top to bottom. How do you get it from the level order template?",
+      "choices": [
+        "Record the last node popped on each level",
+        "Record the first node popped on each level",
+        "Follow right children from the root until there are none",
+        "Record node.right.val for every node that has a right child"
+      ],
+      "answer": 0,
+      "explanation": "The last node popped on each level is the rightmost one, even when it is a left child (for example when its parent has no right child). Following only right children misses those nodes.",
+      "concept": "right side view",
+      "section": 3
+    },
+    {
+      "id": "swe-trees-q18",
+      "type": "mcq",
+      "difficulty": "easy",
+      "question": "Why is `queue.pop(0)` on a Python list a poor choice for BFS on a large tree?",
+      "choices": [
+        "It removes the last element, not the first",
+        "It shifts every remaining element, so each pop is O(n)",
+        "Lists cannot hold TreeNode objects",
+        "It raises an error when the list has a single item"
+      ],
+      "answer": 1,
+      "explanation": "Removing the first item shifts every remaining item one place left, so each pop is O(n) and the traversal can degrade to O(n^2). deque.popleft() is O(1).",
+      "concept": "deque vs list",
+      "section": 3
+    },
+    {
+      "id": "swe-trees-q19",
+      "type": "mcq",
+      "difficulty": "easy",
+      "question": "In a BST you are searching for 7 and the current node holds 10. Where do you go next?",
+      "choices": [
+        "Right, because 7 might be a right child",
+        "Both subtrees, because 7 could be anywhere",
+        "Left, because all smaller values are in the left subtree",
+        "Back to the parent"
+      ],
+      "answer": 2,
+      "explanation": "Everything smaller than 10 lives in its left subtree, so 7 can only be there. Searching both subtrees would throw away the whole advantage of a BST.",
+      "concept": "BST search direction",
+      "section": 4
+    },
+    {
+      "id": "swe-trees-q20",
+      "type": "multi",
+      "difficulty": "hard",
+      "question": "Which of these level-order arrays are valid BSTs? Select all that apply.",
+      "choices": [
+        "[8, 4, 12, 2, 6, 10, 14]",
+        "[8, 4, 12, 2, 9, 10, 14]",
+        "[5, 3, 7, null, 4]",
+        "[5, 3, 7, null, null, 4, 9]",
+        "[2, 1, 3]"
+      ],
+      "answers": [
+        0,
+        2,
+        4
+      ],
+      "explanation": "[8, 4, 12, 2, 9, 10, 14] fails because 9 is in 8's left subtree. [5, 3, 7, null, null, 4, 9] fails because 4 is in 5's right subtree. In [5, 3, 7, null, 4], 4 is 3's right child and still less than 5, so it is fine.",
+      "concept": "recognizing valid BSTs",
+      "section": 4
+    },
+    {
+      "id": "swe-trees-q21",
+      "type": "debug",
+      "difficulty": "hard",
+      "question": "Which input makes this `is_valid_bst` return True even though the tree is not a BST?",
+      "code": "def is_valid_bst(node):\n    if node is None:\n        return True\n    if node.left and node.left.val >= node.val:\n        return False\n    if node.right and node.right.val <= node.val:\n        return False\n    return is_valid_bst(node.left) and is_valid_bst(node.right)",
+      "choices": [
+        "[10, 15, 5]",
+        "[10, 5, 15, 5]",
+        "[10, 5, 15, null, null, 15]",
+        "[10, 5, 15, null, null, 6, 20]"
+      ],
+      "answer": 3,
+      "explanation": "The function only compares each node with its direct children. In [10, 5, 15, null, null, 6, 20], 6 is a fine left child of 15 but sits in 10's right subtree, which the local checks never notice. The other inputs are caught by a parent and child comparison.",
+      "concept": "local BST check",
+      "section": 4
+    },
+    {
+      "id": "swe-trees-q22",
+      "type": "typed",
+      "difficulty": "medium",
+      "question": "Using `lca_bst` on the tree `[6, 2, 8, 0, 4, 7, 9, null, null, 3, 5]` from this section, what is the lowest common ancestor of 3 and 0?",
+      "answer": "2",
+      "explanation": "At 6 both values are smaller, so go left to 2. At 2, 0 is smaller and 3 is larger, so the paths split and 2 is the answer.",
+      "concept": "lowest common ancestor in a BST",
+      "section": 4
+    },
+    {
+      "id": "swe-trees-q23",
+      "type": "mcq",
+      "difficulty": "medium",
+      "question": "Why can't `lca_bst` be used on an ordinary binary tree that is not a BST?",
+      "choices": [
+        "Comparing values only tells you where a value lives when the BST property holds",
+        "Ordinary binary trees can have more than two children",
+        "It would take O(n^2) time on an ordinary tree",
+        "Ordinary binary trees have no root node"
+      ],
+      "answer": 0,
+      "explanation": "It chooses left or right by comparing values, and that comparison only tells you where a value lives when the BST property holds. For a general binary tree you need a full DFS that reports whether each subtree contains p or q.",
+      "concept": "LCA needs the BST property",
+      "section": 4
+    },
+    {
+      "id": "swe-trees-q24",
+      "type": "mcq",
+      "difficulty": "medium",
+      "question": "You build a BST by inserting 1, 2, 3, 4, 5, 6, 7 in that order. What is its height in edges?",
+      "choices": [
+        "2",
+        "3",
+        "6",
+        "7"
+      ],
+      "answer": 2,
+      "explanation": "Each value is larger than all earlier ones, so each becomes the right child of the previous node. Seven nodes in a chain have 6 edges. A balanced tree of 7 nodes would have height 2.",
+      "concept": "degenerate height",
+      "section": 5
+    },
+    {
+      "id": "swe-trees-q25",
+      "type": "mcq",
+      "difficulty": "medium",
+      "question": "Which insertion order of 1 through 7 produces a perfectly balanced BST?",
+      "choices": [
+        "1, 2, 3, 4, 5, 6, 7",
+        "4, 2, 6, 1, 3, 5, 7",
+        "7, 6, 5, 4, 3, 2, 1",
+        "4, 1, 2, 3, 5, 6, 7"
+      ],
+      "answer": 1,
+      "explanation": "Inserting the middle value first (4), then the middles of each half (2 and 6), then the rest fills every level. Sorted or reverse-sorted orders build chains, and 4, 1, 2, 3, 5, 6, 7 hangs a chain on each side of 4, giving height 3.",
+      "concept": "balanced insertion order",
+      "section": 5
+    },
+    {
+      "id": "swe-trees-q26",
+      "type": "mcq",
+      "difficulty": "hard",
+      "question": "Why is `check_height` (the version that returns -1 for unbalanced) O(n), while calling a separate height function at every node is slower?",
+      "choices": [
+        "It skips the leaves entirely",
+        "It uses a queue instead of recursion",
+        "Each subtree's height is computed once and reused by its parent",
+        "It only walks down the left spine of the tree"
+      ],
+      "answer": 2,
+      "explanation": "check_height computes each subtree's height once, in postorder, and hands it to the parent. The naive version recomputes the heights of the same subtrees from scratch at every ancestor.",
+      "concept": "single pass balance check",
+      "section": 5
+    },
+    {
+      "id": "swe-trees-q27",
+      "type": "recall",
+      "difficulty": "medium",
+      "question": "Why do Java's TreeMap and C++'s std::map use self-balancing trees rather than plain BSTs?",
+      "answer": "A plain BST degenerates into a chain with O(n) operations when keys arrive in sorted order. Self-balancing trees (usually red-black trees here) rotate nodes on insert and delete to keep the height O(log n), so every operation stays O(log n).",
+      "explanation": "Self-balancing trees trade a little extra work per update for a guaranteed logarithmic height.",
+      "concept": "self-balancing trees",
+      "section": 5
+    },
+    {
+      "id": "swe-trees-q28",
+      "type": "match",
+      "difficulty": "medium",
+      "question": "Match each problem with the approach that fits it.",
+      "pairs": [
+        {
+          "left": "Return the values seen from the right side",
+          "right": "BFS, keeping the last node of each level"
+        },
+        {
+          "left": "Is this tree a mirror image of itself?",
+          "right": "Recursion comparing two nodes at a time"
+        },
+        {
+          "left": "Find the 2nd smallest value in a BST",
+          "right": "Inorder traversal, stopping at the 2nd value"
+        },
+        {
+          "left": "List every root-to-leaf path",
+          "right": "Preorder DFS carrying the path so far"
+        }
+      ],
+      "explanation": "Right side view is a level question, symmetry compares pairs of nodes, kth smallest in a BST is inorder, and root-to-leaf paths carry state downward in preorder.",
+      "concept": "problem to approach",
+      "section": 6
+    },
+    {
+      "id": "swe-trees-q29",
+      "type": "mcq",
+      "difficulty": "hard",
+      "question": "The diameter of a binary tree is the longest path between any two nodes, counted in edges. Which approach is O(n)?",
+      "choices": [
+        "For every node, compute both subtree heights from scratch",
+        "BFS from the root, returning the number of levels",
+        "Inorder traversal, measuring from the first value to the last",
+        "One postorder pass returning heights and updating a best total of left plus right height"
+      ],
+      "answer": 3,
+      "explanation": "The longest path through a node uses its left height plus its right height. One postorder pass can return heights upward while updating a best-so-far value. Recomputing heights at every node repeats work, and the path does not have to pass through the root.",
+      "concept": "diameter in one pass",
+      "section": 6
+    },
+    {
+      "id": "swe-trees-q30",
+      "type": "multi",
+      "difficulty": "easy",
+      "question": "Which inputs are worth testing for almost any tree function? Select all that apply.",
+      "choices": [
+        "An empty tree",
+        "A single node",
+        "A chain where every node has only one child",
+        "A tree with exactly one million nodes",
+        "A tree whose values are all prime"
+      ],
+      "answers": [
+        0,
+        1,
+        2
+      ],
+      "explanation": "An empty tree checks the base case, a single node checks leaf handling, and a lopsided chain makes one child missing at every node. Huge trees and special values rarely reveal logic bugs.",
+      "concept": "tree test cases",
+      "section": 6
+    }
+  ]
+}

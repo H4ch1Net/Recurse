@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
-import { useLocation } from 'react-router-dom'
-import { Download, Eye, EyeOff, Keyboard, Loader2, Monitor, Moon, Sun, Upload, ExternalLink } from 'lucide-react'
+import { Link, useLocation } from 'react-router-dom'
+import { Download, Eye, EyeOff, Keyboard, Loader2, Monitor, Moon, Sun, Upload, ExternalLink, Volume2 } from 'lucide-react'
 import { useApp } from '../state/context'
 import { useDocumentTitle } from '../hooks/useDocumentTitle'
 import { SUBJECTS } from '../lib/subjects'
@@ -8,6 +8,25 @@ import { PROVIDERS, callAI } from '../lib/ai'
 import { exportSnapshot } from '../lib/storage'
 import { downloadJSON } from '../lib/share'
 import Modal from '../components/Modal'
+import { ACCENTS, THEMES, THEME_MAP, accentHue } from '../lib/themes'
+import { sfx } from '../lib/sfx'
+import { celebrate } from '../lib/juice'
+import { modeOf } from '../lib/approaches'
+import ModeIcon from '../components/ModeIcon'
+
+/** A miniature of a theme: page, card, accent bar and two lines of text. */
+function ThemeSwatch({ theme }) {
+  const [paper, card, accent, ink] = theme.swatch
+  return (
+    <span className="theme-swatch" style={{ background: paper }}>
+      <span className="ts-card" style={{ background: card, borderColor: `color-mix(in srgb, ${ink} 14%, transparent)` }}>
+        <span className="ts-line" style={{ background: ink, width: '70%' }} />
+        <span className="ts-line" style={{ background: ink, opacity: 0.45, width: '50%' }} />
+        <span className="ts-btn" style={{ background: accent }} />
+      </span>
+    </span>
+  )
+}
 
 function Row({ label, hint, children, htmlFor }) {
   return (
@@ -109,17 +128,89 @@ export default function Settings() {
       <div className="stack-lg">
         <section className="settings-section" aria-labelledby="s-appearance">
           <h2 className="section-title" id="s-appearance">Appearance</h2>
-          <Row label="Theme" hint="System follows your device setting.">
-            <div className="segmented" role="group" aria-label="Theme">
-              {[['system', 'System', Monitor], ['light', 'Light', Sun], ['dark', 'Dark', Moon]].map(([id, label, Icon]) => (
-                <button key={id} type="button" aria-pressed={settings.theme === id} onClick={() => updateSettings({ theme: id })}>
-                  <Icon size={14} /> {label}
+          <div className="setting-block">
+            <div className="label">Theme</div>
+            <div className="hint">System switches between Paper and Ink with your device.</div>
+            <div className="theme-grid" role="radiogroup" aria-label="Theme">
+              <button type="button" role="radio" aria-checked={settings.theme === 'system'} className="theme-option" onClick={() => updateSettings({ theme: 'system' })}>
+                <span className="theme-preview split" aria-hidden="true">
+                  <ThemeSwatch theme={THEME_MAP.light} />
+                  <ThemeSwatch theme={THEME_MAP.dark} />
+                </span>
+                <span className="theme-name"><Monitor size={13} /> System</span>
+              </button>
+              {THEMES.map((theme) => (
+                <button key={theme.id} type="button" role="radio" aria-checked={settings.theme === theme.id} className="theme-option" onClick={() => { sfx.tap(); updateSettings({ theme: theme.id }) }} title={theme.blurb}>
+                  <span className="theme-preview" aria-hidden="true"><ThemeSwatch theme={theme} /></span>
+                  <span className="theme-name">{theme.mode === 'dark' ? <Moon size={13} /> : <Sun size={13} />} {theme.label}</span>
                 </button>
               ))}
             </div>
-          </Row>
+          </div>
+          <div className="setting-block">
+            <div className="label">Accent color</div>
+            <div className="hint">Buttons, links, progress and highlights. Each theme has its own default.</div>
+            <div className="accent-row" role="radiogroup" aria-label="Accent color">
+              <button type="button" role="radio" aria-checked={settings.accent === 'theme'} className="accent-swatch theme-default" onClick={() => updateSettings({ accent: 'theme' })} title="Theme default">
+                <span>Aa</span>
+              </button>
+              {ACCENTS.map((a) => (
+                <button key={a.id} type="button" role="radio" aria-checked={settings.accent === a.id} className="accent-swatch" style={{ '--swatch': `oklch(0.62 0.17 ${a.hue})` }} onClick={() => { sfx.pop(); updateSettings({ accent: a.id }) }} title={a.label} aria-label={a.label} />
+              ))}
+            </div>
+            <label className="w-slider accent-hue">
+              <span>Custom hue</span>
+              <input
+                type="range"
+                min="0"
+                max="359"
+                value={accentHue(settings.accent) ?? 268}
+                onChange={(e) => updateSettings({ accent: Number(e.target.value) })}
+                aria-label="Custom accent hue"
+              />
+            </label>
+          </div>
           <Row label="Keyboard shortcuts" hint="Press ? anywhere to see them.">
             <button type="button" className="btn" onClick={() => setShortcutsOpen(true)}><Keyboard size={16} /> View shortcuts</button>
+          </Row>
+        </section>
+
+        <section className="settings-section" aria-labelledby="s-feel">
+          <h2 className="section-title" id="s-feel">Sound and effects</h2>
+          <Row label="Sound effects" hint="Chimes for right answers, a soft tone for misses, fanfare for finished sessions." htmlFor="sound">
+            <Switch id="sound" checked={settings.sound} onChange={(v) => { updateSettings({ sound: v }); if (v) setTimeout(() => sfx.correct(2), 30) }} label="Sound effects" />
+          </Row>
+          {settings.sound && (
+            <Row label={`Volume: ${Math.round(settings.soundVolume * 100)}%`} htmlFor="volume">
+              <div className="row" style={{ gap: 8 }}>
+                <input id="volume" type="range" min="0.05" max="1" step="0.05" value={settings.soundVolume} onChange={(e) => updateSettings({ soundVolume: Number(e.target.value) })} />
+                <button type="button" className="btn btn-sm" onClick={() => sfx.complete()}><Volume2 size={14} /> Test</button>
+              </div>
+            </Row>
+          )}
+          <Row label="Visual effects" hint="Sparks, confetti and floating XP. Calm keeps small animations only. Reduced-motion devices always get Calm.">
+            <div className="segmented" role="group" aria-label="Visual effects">
+              {[['full', 'Full'], ['calm', 'Calm'], ['off', 'Off']].map(([id, label]) => (
+                <button key={id} type="button" aria-pressed={settings.effects === id} onClick={() => { updateSettings({ effects: id }); if (id === 'full') setTimeout(() => celebrate(), 30) }}>{label}</button>
+              ))}
+            </div>
+          </Row>
+        </section>
+
+        <section className="settings-section" aria-labelledby="s-learning">
+          <h2 className="section-title" id="s-learning">Learning</h2>
+          <Row label="Learning approach" hint={`${modeOf(settings).label}: ${modeOf(settings).tagline} Changes what comes first in lessons and topics.`}>
+            <Link to="/approach" className="btn"><ModeIcon mode={modeOf(settings)} size={16} /> Change approach</Link>
+          </Row>
+          <Row label="Pop quizzes" hint="Questions from topics you studied earlier, mixed into sessions and lessons. They keep old topics from fading.">
+            <div className="segmented" role="group" aria-label="Pop quizzes">
+              {[['off', 'Off'], ['sometimes', 'Sometimes'], ['often', 'Often']].map(([id, label]) => (
+                <button key={id} type="button" aria-pressed={(settings.popQuiz || 'sometimes') === id} onClick={() => updateSettings({ popQuiz: id })}>{label}</button>
+              ))}
+            </div>
+          </Row>
+          <Row label="Lesson warm-ups" hint="Recall three things you learned before, at the start of a new lesson." htmlFor="warmups">
+            <Switch id="warmups" checked={settings.warmups !== false} onChange={(v) => updateSettings({ warmups: v })} label="Lesson warm-ups" />
           </Row>
         </section>
 

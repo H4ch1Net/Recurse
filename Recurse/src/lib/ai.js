@@ -96,13 +96,24 @@ export function extractJSON(text) {
   return JSON.parse(source.slice(start, end + 1))
 }
 
-const FEYNMAN_SYSTEM = `You are a patient tutor grading a learner's plain-language explanation of a topic.
-Judge understanding, not vocabulary. Be specific and encouraging, and point at concrete gaps.
+const FEYNMAN_SYSTEM = `You are a patient tutor using the Feynman technique: the learner explains a topic in plain words and you find the gaps.
+Judge understanding, not vocabulary. Be specific and encouraging, and point at concrete gaps. Match your bar to the audience the learner is explaining to.
+When earlier rounds are included, judge the latest explanation together with what the learner already showed, and check whether they answered the last follow-up.
 Reply with only a JSON object with these keys:
-{"score": integer 0-100, "strengths": "2-3 sentences", "gaps": "2-3 sentences on what is missing", "misconceptions": "anything factually wrong, or an empty string", "modelExplanation": "a clear 3-5 sentence explanation a beginner would understand"}`
+{"score": integer 0-100, "strengths": "2-3 sentences", "gaps": "2-3 sentences on what is missing", "misconceptions": "anything factually wrong, or an empty string", "followUp": "one question that probes the most important remaining gap, or an empty string when the explanation is complete", "gotIt": true when score is 85 or more and nothing important is missing, "modelExplanation": "a clear 3-5 sentence explanation pitched at the audience"}`
 
-export async function gradeExplanation(config, { topic, prompt, keyTerms = [], text }) {
-  const user = `Topic: ${topic}\nPrompt: ${prompt}\nKey ideas the explanation could cover: ${keyTerms.join(', ') || 'n/a'}\n\nLearner's explanation:\n${text}`
+export const AUDIENCES = {
+  friend: 'a friend who has never studied this',
+  kid: 'a curious 12-year-old',
+  teammate: 'a new teammate at work who knows the basics of the field',
+  interviewer: 'a technical interviewer who expects precise terms and trade-offs'
+}
+
+export async function gradeExplanation(config, { topic, prompt, keyTerms = [], text, audience = 'friend', rounds = [] }) {
+  const history = rounds.length
+    ? `\n\nEarlier rounds:\n${rounds.map((r, i) => `Round ${i + 1} explanation: ${r.text}\nYour follow-up question: ${r.followUp || '(none)'}`).join('\n\n')}`
+    : ''
+  const user = `Topic: ${topic}\nPrompt: ${prompt}\nAudience: ${AUDIENCES[audience] || AUDIENCES.friend}\nKey ideas the explanation could cover: ${keyTerms.join(', ') || 'n/a'}${history}\n\nLearner's ${rounds.length ? 'latest ' : ''}explanation:\n${text}`
   const parsed = extractJSON(await callAI(config, FEYNMAN_SYSTEM, user, { maxTokens: 2048 }))
   const score = Math.max(0, Math.min(100, Math.round(Number(parsed.score) || 0)))
   return {
@@ -110,6 +121,8 @@ export async function gradeExplanation(config, { topic, prompt, keyTerms = [], t
     strengths: String(parsed.strengths || ''),
     gaps: String(parsed.gaps || ''),
     misconceptions: String(parsed.misconceptions || '').replace(/^none\.?$/i, ''),
+    followUp: String(parsed.followUp || ''),
+    gotIt: Boolean(parsed.gotIt) || score >= 85,
     modelExplanation: String(parsed.modelExplanation || parsed.suggestion || '')
   }
 }

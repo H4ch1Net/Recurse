@@ -1,13 +1,15 @@
-import { useMemo } from 'react'
+import { useEffect, useMemo, useRef } from 'react'
 import { Link, Navigate } from 'react-router-dom'
-import { ArrowRight, Award, BookOpen, CircleCheck, CircleX, MessageSquareText, RotateCcw, Trophy } from 'lucide-react'
+import { ArrowRight, Award, BookOpen, CircleCheck, CircleX, Flame, MessageSquareText, RotateCcw, Trophy, Zap } from 'lucide-react'
 import { useApp } from '../state/context'
 import { useDocumentTitle } from '../hooks/useDocumentTitle'
 import { dueSummary } from '../lib/session'
 import { retrievability } from '../lib/memory'
 import { topicMastery, topicOf } from '../lib/progress'
 import { dueStamp, formatDuration, formatRelative } from '../lib/dates'
-import { isChoiceType } from '../lib/packSchema'
+import { answerText } from '../lib/answers'
+import { feedbackComplete } from '../lib/juice'
+import CountUp from '../components/CountUp'
 import { todayLog, currentStreak } from '../lib/gamification'
 import { Inline } from '../components/RichText'
 
@@ -58,6 +60,15 @@ export default function Complete() {
     return { memory, missed, concepts: [...concepts.values()].sort((a, b) => b.count - a.count) }
   }, [s, packMap, progress, now])
 
+  // Celebrate once per session, scaled to how it went.
+  const celebrated = useRef(null)
+  useEffect(() => {
+    if (!s?.cards || celebrated.current === s.id) return
+    celebrated.current = s.id
+    const id = setTimeout(() => feedbackComplete({ big: s.accuracy >= 90 && s.cards >= 5 }), 250)
+    return () => clearTimeout(id)
+  }, [s])
+
   if (!s || !details) return <Navigate to="/" replace />
 
   const due = dueSummary(packs, progress, settings, stats, now)
@@ -79,7 +90,7 @@ export default function Complete() {
         <div className="grid-stats complete-stats">
           <div className="stat">
             <div className="stat-label">First try</div>
-            <div className="stat-value">{s.accuracy}%</div>
+            <div className="stat-value"><CountUp value={s.accuracy} suffix="%" /></div>
             <div className="stat-note">{s.correct} of {s.cards} cards</div>
           </div>
           <div className="stat">
@@ -90,14 +101,20 @@ export default function Complete() {
           <div className="stat">
             <div className="stat-label">Time</div>
             <div className="stat-value">{formatDuration(s.seconds)}</div>
-            <div className="stat-note">{s.cards ? `${Math.round(s.seconds / Math.max(1, s.cards))}s per card` : '—'}</div>
+            <div className="stat-note">{s.cards ? `${Math.round(s.seconds / Math.max(1, s.cards))}s per card` : 'no cards'}</div>
           </div>
           <div className="stat">
             <div className="stat-label">XP</div>
-            <div className="stat-value">+{s.xp}</div>
+            <div className="stat-value">+<CountUp value={s.xp} /></div>
             <div className="stat-note">{streak > 1 ? `${streak}-day streak` : 'streak started'}</div>
           </div>
         </div>
+        {(s.bestCombo > 1 || s.pops > 0) && (
+          <div className="row wrap complete-extras">
+            {s.bestCombo > 1 && <span className="chip warn"><Flame size={13} /> Best run: {s.bestCombo} in a row</span>}
+            {s.pops > 0 && <span className="chip accent"><Zap size={13} /> {s.pops} pop {s.pops === 1 ? 'quiz' : 'quizzes'} from older topics</span>}
+          </div>
+        )}
         <div className="goal-strip">
           <div className="row between xsmall">
             <span className="subtle">{goalHit ? 'Daily goal reached' : 'Daily goal'}</span>
@@ -174,7 +191,7 @@ export default function Complete() {
               const pack = packMap.get(r.packId)
               const question = pack?.questions.find((q) => q.id === r.questionId)
               if (!question) return null
-              const answer = isChoiceType(question.type) ? question.choices[question.answer] : question.answer
+              const answer = answerText(question)
               return (
                 <div key={r.key} className="list-row result-row">
                   {r.correct ? <CircleCheck size={18} className="good-text" aria-label="Correct" /> : <CircleX size={18} className="bad-text" aria-label="Missed" />}

@@ -56,6 +56,12 @@ export function formatRelative(date, now = new Date()) {
   return diff > 0 ? `in ${label}` : `${label} ago`
 }
 
+/** "Next redo in 3d." or "A redo is due now." for a lab or challenge card, or '' without one. */
+export function redoText(card, now = new Date()) {
+  if (!card?.due) return ''
+  return new Date(card.due) <= now ? 'A redo is due now.' : `Next redo ${formatRelative(card.due, now)}.`
+}
+
 export function formatDate(date) {
   return new Date(date).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })
 }

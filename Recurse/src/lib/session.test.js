@@ -106,3 +106,51 @@ describe('dueSummary', () => {
     expect(summary.startedCount).toBe(1)
   })
 })
+
+describe('recall features', () => {
+  it('mixes pop quizzes from other studied topics into a topic session', () => {
+    const a = pack('a', 12)
+    const b = pack('b', 6)
+    const progress = { b: { cards: learned(['b-q01', 'b-q02', 'b-q03', 'b-q04']) } }
+    const s = buildSession({ kind: 'topic', topicId: 'a', packs: [a, b], progress, settings: { sessionSize: 12, popQuiz: 'often' }, now, seed: 7 })
+    const pops = s.items.filter((i) => i.pop)
+    expect(pops.length).toBe(4)
+    expect(pops.every((i) => i.packId === 'b' && !i.isNew)).toBe(true)
+    expect(s.items[0].pop).toBeFalsy()
+  })
+
+  it('adds no pop quizzes when turned off or when nothing else was studied', () => {
+    const a = pack('a', 12)
+    const b = pack('b', 6)
+    const progress = { b: { cards: learned(['b-q01']) } }
+    expect(buildSession({ kind: 'topic', topicId: 'a', packs: [a, b], progress, settings: { sessionSize: 12, popQuiz: 'off' }, now }).items.some((i) => i.pop)).toBe(false)
+    expect(buildSession({ kind: 'topic', topicId: 'a', packs: [a, b], progress: {}, settings: { sessionSize: 12, popQuiz: 'often' }, now }).items.some((i) => i.pop)).toBe(false)
+  })
+
+  it('builds recall roulette from seen cards only, across topics', () => {
+    const a = pack('a', 6)
+    const b = pack('b', 6)
+    const progress = { a: { cards: learned(['a-q01', 'a-q02']) }, b: { cards: learned(['b-q01', 'b-q02', 'b-q03']) } }
+    const s = buildSession({ kind: 'roulette', packs: [a, b], progress, settings: { sessionSize: 10 }, now })
+    expect(s.items).toHaveLength(5)
+    expect(new Set(s.items.map((i) => i.packId))).toEqual(new Set(['a', 'b']))
+    expect(s.items.every((i) => !i.isNew)).toBe(true)
+  })
+
+  it('scopes a path review to its topics', () => {
+    const a = pack('a', 6)
+    const b = pack('b', 6)
+    const progress = { a: { cards: learned(['a-q01']) }, b: { cards: learned(['b-q01']) } }
+    const s = buildSession({ kind: 'path', topicIds: ['a'], packs: [a, b], progress, settings: { sessionSize: 10, newPerDay: 0 }, now })
+    expect(s.items.map((i) => i.packId)).toEqual(['a'])
+  })
+
+  it('never presents an order question already in order', () => {
+    const q = { id: 'o-q01', type: 'order', question: 'Order', items: ['1', '2', '3'] }
+    const o = { id: 'o', name: 'o', questions: [q], prereqs: [] }
+    for (let seed = 1; seed < 30; seed++) {
+      const s = buildSession({ kind: 'practice', topicId: 'o', packs: [o], progress: {}, settings: { sessionSize: 1, popQuiz: 'off' }, now, seed })
+      expect(s.items[0].order).not.toEqual([0, 1, 2])
+    }
+  })
+})

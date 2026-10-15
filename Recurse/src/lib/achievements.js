@@ -19,7 +19,17 @@ export const ACHIEVEMENTS = [
   { id: 'Polymath', title: 'Polymath', description: 'Study topics from four different subjects.', check: ({ progress, packs }) => new Set(packs.filter((p) => Object.keys(progress[p.id]?.cards || {}).length).map((p) => p.subject)).size >= 4 },
   { id: 'Feynman', title: 'Explainer', description: 'Explain a topic in your own words.', check: ({ stats }) => (stats.feynmanCount || 0) > 0 },
   { id: 'Mastered', title: 'Mastery', description: 'Reach 90% mastery in a topic.', check: ({ progress, packs }) => packs.some((p) => topicMastery(progress[p.id]?.cards, p.questions.length) >= 90) },
-  { id: 'Creator', title: 'Creator', description: 'Create or import a pack of your own.', check: ({ packs }) => packs.some((p) => p.community) }
+  { id: 'Creator', title: 'Creator', description: 'Create or import a pack of your own.', check: ({ packs }) => packs.some((p) => p.community) },
+  { id: 'Combo', title: 'On fire', description: 'Get ten answers right in a row in one session.', check: ({ stats }) => (stats.sessions || []).some((s) => (s.bestCombo || 0) >= 10) },
+  { id: 'Tinkerer', title: 'Tinkerer', description: 'Reach the goal of five interactive activities.', check: ({ stats }) => (stats.activitiesDone || 0) >= 5 },
+  { id: 'Console', title: 'Console cowboy', description: 'Pass your first Cisco console lab.', check: ({ practice }) => Object.keys(practice?.labs || {}).length > 0 },
+  { id: 'Netadmin', title: 'Network engineer', description: 'Pass fifteen console labs.', check: ({ practice }) => Object.keys(practice?.labs || {}).length >= 15 },
+  { id: 'Hello', title: 'Hello, world', description: 'Solve your first coding challenge.', check: ({ practice }) => Object.keys(practice?.challenges || {}).length > 0 },
+  { id: 'Solver', title: 'Problem solver', description: 'Solve twenty-five coding challenges.', check: ({ practice }) => Object.keys(practice?.challenges || {}).length >= 25 },
+  { id: 'Shipped', title: 'Shipped it', description: 'Finish a portfolio project.', check: ({ practice }) => Object.values(practice?.projects || {}).some((p) => p.status === 'done') },
+  { id: 'ExamReady', title: 'Exam ready', description: 'Score 85% or more on a full practice exam.', check: ({ practice }) => (practice?.exams || []).some((e) => e.mode === 'exam' && e.score >= 85) },
+  { id: 'MockPass', title: 'Interview ready', description: 'Pass your first mock interview.', check: ({ practice }) => (practice?.interviews || []).some((i) => i.passed) },
+  { id: 'PopQuiz', title: 'Sharp memory', description: 'Answer twenty pop quiz cards from older topics.', check: ({ stats }) => (stats.sessions || []).reduce((sum, s) => sum + (s.pops || 0), 0) >= 20 }
 ]
 
 export function newlyUnlocked(context) {

@@ -1,29 +1,25 @@
 import { useEffect, useEffectEvent, useRef, useState } from 'react'
-import { Link, useNavigate, useParams } from 'react-router-dom'
-import { BookOpen, CircleCheck, CircleX, Clock, Eye, Timer, X, RotateCcw, Undo2 } from 'lucide-react'
+import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
+import { BookOpen, CircleCheck, Clock, Flame, Shuffle, Sparkles, Timer, X, RotateCcw, Undo2, Zap } from 'lucide-react'
 import { useApp } from '../state/context'
 import { useDocumentTitle } from '../hooks/useDocumentTitle'
 import { buildSession, requeue, dueSummary } from '../lib/session'
 import { GRADES, Rating, previewDue, retrievability } from '../lib/memory'
-import { checkTyped } from '../lib/answers'
 import { codeLanguage } from '../lib/packs'
-import { isChoiceType } from '../lib/packSchema'
-import { QUESTION_TYPE_LABELS } from '../lib/subjects'
+import { QUESTION_PROMPTS, QUESTION_TYPE_LABELS } from '../lib/subjects'
 import { formatInterval, formatRelative, nowMs, secondsSince } from '../lib/dates'
 import { topicMastery, topicOf } from '../lib/progress'
+import { levelFromXp } from '../lib/gamification'
+import { getCollection } from '../lib/collections'
+import { feedbackCorrect, feedbackWrong, floatText, burstFrom, celebrate } from '../lib/juice'
+import { sfx } from '../lib/sfx'
 import CodeBlock from '../components/CodeBlock'
-import RichText, { Inline } from '../components/RichText'
+import { Inline } from '../components/RichText'
+import AnswerArea from '../components/QuestionView'
+import AnswerFeedback from '../components/AnswerFeedback'
 import { ConfirmDialog } from '../components/Modal'
 import EmptyState from '../components/EmptyState'
 import Illustration from '../components/Illustration'
-
-const PROMPTS = {
-  mcq: 'Choose the best answer.',
-  'code-fill': 'Which option fills the blank?',
-  debug: 'Find the bug.',
-  typed: 'Type your answer.',
-  recall: 'Answer in your head, or write it down, then reveal.'
-}
 
 function clock(seconds) {
   const m = Math.floor(seconds / 60)
@@ -38,16 +34,18 @@ function topicMemory(topic, now) {
 }
 
 /** Build the queue and snapshot the "before" numbers the summary compares against. */
-function startSession({ kind, topicId, packs, packMap, progress, settings, stats }) {
+function startSession({ kind, topicId, pathId, packs, packMap, progress, settings, stats }) {
   const now = new Date()
-  const built = buildSession({ kind, topicId, packs, progress, settings, stats, now })
+  const collection = pathId ? getCollection(pathId) : null
+  const built = buildSession({ kind, topicId, topicIds: collection?.packIds, packs, progress, settings, stats, now })
+  if (collection) built.title = `${collection.name} review`
   const memoryBefore = {}
   const masteryBefore = {}
   for (const id of new Set(built.items.map((i) => i.packId))) {
     memoryBefore[id] = topicMemory(topicOf(progress, id), now)
     masteryBefore[id] = topicMastery(progress[id]?.cards, packMap.get(id).questions.length)
   }
-  return { ...built, memoryBefore, masteryBefore, started: now.getTime() }
+  return { ...built, memoryBefore, masteryBefore, started: now.getTime(), xpBefore: stats.xp || 0 }
 }
 
 /** Next due interval for each grade, as labels like "10m" or "4d". */
@@ -78,11 +76,15 @@ function LessonPrompt({ pack, onStart }) {
   )
 }
 
+const MILESTONES = { 5: 'Five in a row', 10: 'Ten in a row', 15: 'Fifteen in a row', 25: 'Unstoppable', 40: 'Legendary' }
+
 export default function Study() {
   const { kind = 'review', topicId } = useParams()
+  const [params] = useSearchParams()
+  const pathId = params.get('path')
   const navigate = useNavigate()
   const { packs, packMap, callNos, progress, settings, stats, now, recordReview, undoReview, finishSession, toast } = useApp()
-  const [session] = useState(() => startSession({ kind, topicId, packs, packMap, progress, settings, stats }))
+  const [session] = useState(() => startSession({ kind, topicId, pathId, packs, packMap, progress, settings, stats }))
   const pack0 = topicId ? packMap.get(topicId) : null
   const needsLessonPrompt = kind === 'topic' && pack0?.lesson && !progress[topicId]?.lessonRead && !Object.keys(progress[topicId]?.cards || {}).length
   const [skipLesson, setSkipLesson] = useState(false)
@@ -90,19 +92,20 @@ export default function Study() {
   const [items, setItems] = useState(session.items)
   const [index, setIndex] = useState(0)
   const [phase, setPhase] = useState('answer')
-  const [picked, setPicked] = useState(null)
-  const [typed, setTyped] = useState('')
   const [outcome, setOutcome] = useState(null)
-  const [showLesson, setShowLesson] = useState(false)
   const [results, setResults] = useState([])
   const [xp, setXp] = useState(0)
+  const [combo, setCombo] = useState(0)
+  const [bestCombo, setBestCombo] = useState(0)
   const [elapsed, setElapsed] = useState(0)
   const [leaving, setLeaving] = useState(false)
   const [focusDone, setFocusDone] = useState(false)
   const [intervals, setIntervals] = useState(null)
   const [undo, setUndo] = useState(null)
+  const [lessonOpen, setLessonOpen] = useState(0)
   const cardStart = useRef(session.started)
-  const inputRef = useRef(null)
+  const cardRef = useRef(null)
+  const comboRef = useRef(null)
   const continueRef = useRef(null)
   const feedbackRef = useRef(null)
   const finished = useRef(false)
@@ -125,21 +128,17 @@ export default function Study() {
     return () => clearInterval(id)
   }, [])
 
-  // Focus management: input for typed answers, continue/rate buttons after answering.
   useEffect(() => {
-    // Typed answers need the input. The recall notes box is optional, so it stays unfocused
-    // and Space/Enter keep working as reveal shortcuts.
-    if (phase === 'answer' && question?.type === 'typed') inputRef.current?.focus({ preventScroll: true })
     if (phase === 'feedback') {
       continueRef.current?.focus({ preventScroll: true })
       feedbackRef.current?.scrollIntoView({ block: 'nearest', behavior: 'smooth' })
     }
-  }, [phase, index, question])
+  }, [phase, index])
 
   const correctCount = results.filter((r) => r.retry === 0 && r.correct).length
   const firstAttempts = results.filter((r) => r.retry === 0).length
 
-  function finish(list = results, totalXp = xp) {
+  function finish(list = results, totalXp = xp, best = bestCombo) {
     if (finished.current) return
     finished.current = true
     const first = list.filter((r) => r.retry === 0)
@@ -147,47 +146,53 @@ export default function Study() {
     const record = finishSession({
       kind: session.kind,
       topicId: session.topicId,
+      pathId,
       title: session.title,
       cards: first.length,
       correct: first.filter((r) => r.correct).length,
       accuracy: first.length ? Math.round((first.filter((r) => r.correct).length / first.length) * 100) : 0,
       newCards: first.filter((r) => r.isNew).length,
+      pops: first.filter((r) => r.pop).length,
       retries: list.length - first.length,
       xp: totalXp,
+      bestCombo: best,
       seconds: Math.round(secondsSince(session.started)),
       results: list,
       topics: touched,
       memoryBefore: session.memoryBefore,
-      masteryBefore: session.masteryBefore
+      masteryBefore: session.masteryBefore,
+      xpBefore: session.xpBefore
     })
     navigate('/complete', { replace: true, state: { sessionId: record.id } })
   }
 
-  function submitChoice(original) {
+  /** The learner answered: grade it, give feedback, and move to the rating step. */
+  function submit(result) {
     if (phase !== 'answer') return
-    setPicked(original)
-    setOutcome({ correct: original === question.answer, given: question.choices[original] })
+    setOutcome(result)
     setIntervals(intervalLabels(card, settings.desiredRetention))
     setPhase('feedback')
+    if (result.correct === true) {
+      const next = combo + 1
+      feedbackCorrect(cardRef.current, { combo })
+      setCombo(next)
+      setBestCombo((b) => Math.max(b, next))
+      if (MILESTONES[next]) {
+        setTimeout(() => {
+          sfx.success()
+          floatText(comboRef.current, MILESTONES[next], { tone: 'warn' })
+          burstFrom(comboRef.current, { kind: 'stars', count: 26 })
+        }, 260)
+      }
+    } else if (result.correct === false) {
+      feedbackWrong(cardRef.current)
+      setCombo(0)
+    } else {
+      sfx.flip()
+    }
   }
 
-  function submitTyped(giveUp = false) {
-    if (phase !== 'answer') return
-    if (!giveUp && !typed.trim()) return
-    const check = giveUp ? { correct: false, nearMiss: false } : checkTyped(typed, question)
-    setOutcome({ ...check, given: giveUp ? '' : typed.trim(), gaveUp: giveUp })
-    setIntervals(intervalLabels(card, settings.desiredRetention))
-    setPhase('feedback')
-  }
-
-  function reveal() {
-    if (phase !== 'answer') return
-    setOutcome({ correct: null, given: typed.trim() })
-    setIntervals(intervalLabels(card, settings.desiredRetention))
-    setPhase('feedback')
-  }
-
-  function rate(rating) {
+  function rate(rating, from) {
     if (phase !== 'feedback' || !question) return
     const selfGraded = outcome.correct === null
     const correct = selfGraded ? rating !== Rating.Again : outcome.correct && rating !== Rating.Again
@@ -201,24 +206,36 @@ export default function Study() {
       seconds,
       given: outcome.given
     })
-    const result = { key: item.key, packId: pack.id, questionId: question.id, correct, rating, isNew: item.isNew, retry: item.retry, due: next.due, given: outcome.given }
+    if (selfGraded) {
+      const nextCombo = correct ? combo + 1 : 0
+      setCombo(nextCombo)
+      setBestCombo((b) => Math.max(b, nextCombo))
+    }
+    if (earned && from) floatText(from, `+${earned} XP`, { tone: correct ? 'good' : 'accent' })
+    const level = levelFromXp(session.xpBefore + xp)
+    if (levelFromXp(session.xpBefore + xp + earned) > level) {
+      setTimeout(() => {
+        sfx.levelUp()
+        celebrate({ big: true })
+        toast(`Level ${level + 1} reached`, { tone: 'good', duration: 5000 })
+      }, 200)
+    }
+    const result = { key: item.key, packId: pack.id, questionId: question.id, correct, rating, isNew: item.isNew, retry: item.retry, pop: Boolean(item.pop), due: next.due, given: outcome.given }
     const nextResults = [...results, result]
     const nextXp = xp + earned
     const nextItems = rating === Rating.Again ? requeue(items, index) : items
-    setUndo({ items, index, results, xp })
+    setUndo({ items, index, results, xp, combo })
     setResults(nextResults)
     setXp(nextXp)
     setItems(nextItems)
     if (index + 1 >= nextItems.length) {
-      finish(nextResults, nextXp)
+      finish(nextResults, nextXp, Math.max(bestCombo, combo))
       return
     }
     setIndex(index + 1)
     setPhase('answer')
-    setPicked(null)
-    setTyped('')
     setOutcome(null)
-    setShowLesson(false)
+    setLessonOpen(0)
     cardStart.current = nowMs()
   }
 
@@ -234,37 +251,25 @@ export default function Study() {
     setIndex(undo.index)
     setResults(undo.results)
     setXp(undo.xp)
+    setCombo(undo.combo)
     setUndo(null)
-    setPicked(null)
-    setTyped('')
     setOutcome(null)
-    setShowLesson(false)
     cardStart.current = nowMs()
     toast('Last answer undone')
   }
 
   const wrong = outcome && outcome.correct === false
   const canRate = phase === 'feedback' && !wrong
-  const order = item?.order || []
 
   const keyActions = {
     Escape: () => (results.length ? setLeaving(true) : leave()),
-    a: () => phase === 'answer' && isChoiceType(question?.type) && order[0] !== undefined && submitChoice(order[0]),
-    b: () => phase === 'answer' && isChoiceType(question?.type) && order[1] !== undefined && submitChoice(order[1]),
-    c: () => phase === 'answer' && isChoiceType(question?.type) && order[2] !== undefined && submitChoice(order[2]),
-    d: () => phase === 'answer' && isChoiceType(question?.type) && order[3] !== undefined && submitChoice(order[3]),
     1: () => (canRate ? rate(Rating.Again) : false),
     2: () => (canRate ? rate(Rating.Hard) : false),
     3: () => (canRate ? rate(Rating.Good) : false),
     4: () => (canRate ? rate(Rating.Easy) : false),
-    e: () => (phase === 'feedback' ? setShowLesson((v) => !v) : false),
+    e: () => (phase === 'feedback' ? setLessonOpen((n) => n + 1) : false),
     z: () => (undo && phase === 'answer' ? undoLast() : false),
-    ' ': () => (phase === 'answer' && question?.type === 'recall' ? reveal() : false),
-    Enter: () => {
-      if (phase === 'feedback') rate(wrong ? Rating.Again : Rating.Good)
-      else if (question?.type === 'recall') reveal()
-      else return false
-    }
+    Enter: () => (phase === 'feedback' ? rate(wrong ? Rating.Again : Rating.Good, continueRef.current) : false)
   }
   const onKey = useEffectEvent((event) => {
     if (leaving || !item || (needsLessonPrompt && !skipLesson) || event.altKey || event.defaultPrevented) return
@@ -273,11 +278,7 @@ export default function Study() {
     const target = event.target
     const typing = target instanceof HTMLElement && ['INPUT', 'TEXTAREA', 'SELECT'].includes(target.tagName)
     if (event.metaKey || event.ctrlKey) {
-      // Ctrl/Cmd+Enter reveals from the recall notes box; Ctrl/Cmd+Z undoes when the field is empty.
-      if (key === 'Enter' && phase === 'answer' && question?.type === 'recall') {
-        event.preventDefault()
-        reveal()
-      } else if (key === 'z' && undo && phase === 'answer' && (!typing || !target.value)) {
+      if (key === 'z' && undo && phase === 'answer' && (!typing || !target.value)) {
         event.preventDefault()
         undoLast()
       }
@@ -285,9 +286,9 @@ export default function Study() {
     }
     const action = keyActions[key]
     if (!action) return
-    // While typing, only Escape is a shortcut. Enter on a focused button activates that button.
     if (typing && key !== 'Escape') return
     if (key === 'Enter' && target instanceof HTMLButtonElement) return
+    if (phase === 'answer' && key !== 'Escape' && key !== 'z') return
     if (action(event) !== false) event.preventDefault()
   })
   useEffect(() => {
@@ -304,26 +305,27 @@ export default function Study() {
         <div className="card">
           <EmptyState
             art={kind === 'mistakes' ? 'cleared' : 'done'}
-            title={kind === 'mistakes' ? 'No mistakes to review' : 'Nothing to study right now'}
+            title={kind === 'mistakes' ? 'No mistakes to review' : kind === 'roulette' ? 'Nothing to spin yet' : 'Nothing to study right now'}
             action={
               <div className="row wrap" style={{ justifyContent: 'center' }}>
-                <Link to="/library" className="btn btn-primary">Find a topic</Link>
+                <Link to="/paths" className="btn btn-primary">Pick a path</Link>
                 <Link to="/" className="btn">Back to Today</Link>
               </div>
             }
           >
             {kind === 'mistakes'
               ? 'Every card you missed has since been answered correctly.'
-              : summary.nextDue
-                ? `Your next review is due ${formatRelative(summary.nextDue, now)}. Start a new topic in the meantime.`
-                : 'Read a lesson or start a topic, and its cards will show up here.'}
+              : kind === 'roulette'
+                ? 'Recall roulette draws from cards you have already seen. Study a topic first.'
+                : summary.nextDue
+                  ? `Your next review is due ${formatRelative(summary.nextDue, now)}. Start a new topic in the meantime.`
+                  : 'Read a lesson or start a topic, and its cards will show up here.'}
           </EmptyState>
         </div>
       </div>
     )
   }
 
-  const section = question.section != null ? pack.lesson?.sections?.[question.section] : null
   const progressRatio = index / items.length
   const remaining = items.length - index
 
@@ -338,7 +340,7 @@ export default function Study() {
             <span className="study-title">{session.ahead ? 'Reviewing ahead' : session.title}{session.topicId && pack0 ? ` · ${pack0.name}` : ''}</span>
             <span className="tabular subtle" aria-label={`${remaining} cards left`}>{index + 1} / {items.length}</span>
           </div>
-          <div className="bar" role="progressbar" aria-label="Session progress" aria-valuemin={0} aria-valuemax={items.length} aria-valuenow={index}>
+          <div className="bar study-progress" role="progressbar" aria-label="Session progress" aria-valuemin={0} aria-valuemax={items.length} aria-valuenow={index}>
             <span style={{ width: `${progressRatio * 100}%` }} />
           </div>
         </div>
@@ -348,6 +350,9 @@ export default function Study() {
               <Undo2 size={14} /> <span className="hide-mobile">Undo</span>
             </button>
           )}
+          <span ref={comboRef} key={combo} className={`combo-chip${combo >= 2 ? ' lit' : ''}${combo >= 5 ? ' hot' : ''}`} title="Correct answers in a row" aria-label={`${combo} in a row`}>
+            <Flame size={14} /><span className="tabular">{combo}</span>
+          </span>
           {settings.focusTimer && (
             <span className={`chip ${focusDone ? 'warn' : 'outline'}`} title="Focus timer">
               <Timer size={13} />
@@ -357,132 +362,60 @@ export default function Study() {
           {settings.showTimer && !settings.focusTimer && (
             <span className="chip outline hide-mobile" title="Session time"><Clock size={13} /><span className="tabular">{clock(elapsed)}</span></span>
           )}
-          <span className="chip outline" title="Correct on first try">
+          <span className="chip outline hide-mobile" title="Correct on first try">
             <CircleCheck size={13} /><span className="tabular">{correctCount}/{firstAttempts}</span>
           </span>
         </div>
       </header>
 
       <main className="study-main" id="main">
-        <article className="study-card" key={`${item.key}:${item.retry}`} aria-labelledby="q-text">
+        <article ref={cardRef} className={`study-card deal-in${item.pop ? ' is-pop' : ''}`} key={`${item.key}:${item.retry}`} aria-labelledby="q-text">
+          {item.pop && (
+            <div className="pop-banner" role="note">
+              <Zap size={15} /> <strong>Pop quiz</strong> <span className="small">From {pack.name}. Recalling older topics is what keeps them.</span>
+            </div>
+          )}
           <div className="study-meta catalog-head">
             <span className="callno">{callNos.get(pack.id)} · {pack.name}</span>
             <span className="chip outline">{QUESTION_TYPE_LABELS[question.type]}</span>
-            {item.isNew && <span className="chip accent">New</span>}
+            {item.isNew && <span className="chip accent"><Sparkles size={11} /> New</span>}
+            {kind === 'roulette' && <span className="chip outline"><Shuffle size={11} /> Roulette</span>}
             {item.retry > 0 && <span className="chip warn"><RotateCcw size={11} /> Again</span>}
             {!item.isNew && item.retry === 0 && card?.last_review && phase === 'answer' && (
-              <span className="chip outline" title="When you last saw this card, and the estimated chance you still remember it">
+              <span className="chip outline hide-mobile" title="When you last saw this card, and the estimated chance you still remember it">
                 Seen {formatRelative(card.last_review, now)} · {Math.round(retrievability(card, now) * 100)}% recall
               </span>
             )}
           </div>
           <h1 id="q-text" className="study-question"><Inline text={question.question} /></h1>
-          <p className="xsmall subtle">{PROMPTS[question.type]}</p>
+          <p className="xsmall subtle">{QUESTION_PROMPTS[question.type]}</p>
           {question.code && <CodeBlock code={question.code} language={codeLanguage(pack, question)} />}
 
-          {isChoiceType(question.type) && (
-            <div className="choices" role="group" aria-label="Answer choices">
-              {order.map((original, i) => {
-                const answered = phase === 'feedback'
-                const isAnswer = original === question.answer
-                const state = !answered ? '' : isAnswer ? ' is-correct' : original === picked ? ' is-wrong' : ' is-dim'
-                return (
-                  <button key={original} type="button" className={`choice${state}`} onClick={() => submitChoice(original)} disabled={answered} aria-keyshortcuts={String.fromCharCode(97 + i)}>
-                    <span className="choice-key">{String.fromCharCode(65 + i)}</span>
-                    <span className="choice-text"><Inline text={question.choices[original]} /></span>
-                    {answered && isAnswer && <CircleCheck size={20} className="choice-icon good-text" aria-label="Correct answer" />}
-                    {answered && original === picked && !isAnswer && <CircleX size={20} className="choice-icon bad-text" aria-label="Your answer" />}
-                  </button>
-                )
-              })}
-            </div>
-          )}
-
-          {question.type === 'typed' && (
-            <form className="typed-form" onSubmit={(e) => { e.preventDefault(); submitTyped() }}>
-              <input
-                ref={inputRef}
-                className={`input lg${outcome ? (outcome.correct ? ' is-correct' : ' is-wrong') : ''}`}
-                value={typed}
-                onChange={(e) => setTyped(e.target.value)}
-                readOnly={phase === 'feedback'}
-                placeholder="Your answer"
-                autoComplete="off"
-                autoCapitalize="off"
-                spellCheck={false}
-                aria-label="Your answer"
-              />
-              {phase === 'answer' && (
-                <div className="row wrap">
-                  <button type="submit" className="btn btn-primary" disabled={!typed.trim()}>Check <span className="kbd">Enter</span></button>
-                  <button type="button" className="btn btn-ghost" onClick={() => submitTyped(true)}>I don’t know</button>
-                </div>
-              )}
-            </form>
-          )}
-
-          {question.type === 'recall' && phase === 'answer' && (
-            <div className="stack-sm">
-              <textarea ref={inputRef} className="textarea lined" rows={3} value={typed} onChange={(e) => setTyped(e.target.value)} placeholder="Optional: write your answer first. Writing it out shows you what you actually know. Ctrl+Enter reveals." aria-label="Your answer (optional)" />
-              <div>
-                <button type="button" className="btn btn-primary" onClick={reveal}><Eye size={16} /> Show answer <span className="kbd hide-mobile">Space</span></button>
-              </div>
-            </div>
-          )}
+          <AnswerArea key={`${item.key}:${item.retry}`} question={question} item={item} answered={phase === 'feedback'} outcome={outcome} onSubmit={submit} />
 
           {phase === 'feedback' && (
             <section ref={feedbackRef} className="feedback rise" aria-live="polite">
               {outcome.correct === true && (
-                <div className="feedback-head good-text"><span className="stamp good press">Correct</span> {outcome.nearMiss ? 'Check the accents' : outcome.overridden ? 'Counted as right' : ''}</div>
+                <div className="feedback-head good-text">
+                  <span className="stamp good press">Correct</span>
+                  <span className="small">{outcome.nearMiss ? 'Check the accents.' : outcome.overridden ? 'Counted as right.' : combo >= 3 ? `${combo} in a row.` : ''}</span>
+                </div>
               )}
               {outcome.correct === false && (
                 <div className="feedback-head bad-text"><span className="stamp press">{outcome.gaveUp ? 'Answer' : 'Not quite'}</span> <span className="small muted">{outcome.gaveUp ? 'Read it, then try to recall it next time.' : 'Read why, then it comes back shortly.'}</span></div>
               )}
               {outcome.correct === null && <div className="feedback-head"><span className="stamp ink press">Compare</span> <span className="small muted">How close was your answer?</span></div>}
 
-              {(question.type === 'typed' || question.type === 'recall') && (
-                <div className="answer-compare">
-                  <div>
-                    <div className="eyebrow">Answer</div>
-                    <div className="answer-text"><Inline text={question.answer} /></div>
-                    {question.type === 'typed' && question.accept?.length > 0 && (
-                      <div className="xsmall subtle">Also accepted: {question.accept.slice(0, 4).join(', ')}</div>
-                    )}
-                  </div>
-                  {outcome.given && question.type === 'recall' && (
-                    <div>
-                      <div className="eyebrow">You wrote</div>
-                      <div className="answer-text muted" style={{ whiteSpace: 'pre-wrap' }}>{outcome.given}</div>
-                    </div>
-                  )}
-                </div>
-              )}
-
-              {question.explanation && <RichText text={question.explanation} className="prose feedback-explain" />}
-              {question.concept && <div className="xsmall subtle">Concept: {question.concept}</div>}
-
-              {section && (
-                <div className="lesson-peek">
-                  <button type="button" className="btn btn-ghost btn-sm" onClick={() => setShowLesson((v) => !v)} aria-expanded={showLesson}>
-                    <BookOpen size={14} /> {showLesson ? 'Hide' : 'Show'} the lesson: {section.title} <span className="kbd hide-mobile">E</span>
-                  </button>
-                  {showLesson && (
-                    <div className="lesson-peek-body rise">
-                      <RichText text={section.body} className="prose small-prose" />
-                      {section.code && <CodeBlock code={section.code} language={codeLanguage(pack, section)} />}
-                    </div>
-                  )}
-                </div>
-              )}
+              <AnswerFeedback key={lessonOpen} pack={pack} question={question} outcome={outcome} showLessonDefault={lessonOpen > 0 && lessonOpen % 2 === 1} />
 
               <div className="grade-area">
                 {wrong ? (
                   <div className="stack-sm">
                     <p className="small muted">This card will come back in a few minutes{item.retry < 2 ? ', and once more before this session ends' : ''}.</p>
                     <div className="row wrap">
-                      <button ref={continueRef} type="button" className="btn btn-primary btn-lg" onClick={() => rate(Rating.Again)}>Continue <span className="kbd">Enter</span></button>
-                      {question.type === 'typed' && !outcome.gaveUp && (
-                        <button type="button" className="btn btn-ghost" onClick={() => setOutcome({ ...outcome, correct: true, overridden: true })}>I was right</button>
+                      <button ref={continueRef} type="button" className="btn btn-primary btn-lg" onClick={(e) => rate(Rating.Again, e.currentTarget)}>Continue <span className="kbd">Enter</span></button>
+                      {(question.type === 'typed' || question.type === 'cli') && !outcome.gaveUp && (
+                        <button type="button" className="btn btn-ghost" onClick={() => { setOutcome({ ...outcome, correct: true, overridden: true }); setCombo((c) => c + 1) }}>I was right</button>
                       )}
                     </div>
                   </div>
@@ -498,7 +431,7 @@ export default function Study() {
                           ref={grade.rating === Rating.Good ? continueRef : undefined}
                           type="button"
                           className={`grade grade-${grade.label.toLowerCase()}`}
-                          onClick={() => rate(grade.rating)}
+                          onClick={(e) => rate(grade.rating, e.currentTarget)}
                           title={grade.hint}
                           aria-keyshortcuts={grade.key}
                         >
