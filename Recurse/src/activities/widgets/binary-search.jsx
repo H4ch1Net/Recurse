@@ -20,7 +20,7 @@ export default function BinarySearch({ props, onComplete, standalone }) {
   const [round, setRound] = useState(() => newRound(clampSize(props.size ?? (standalone ? 32 : 16))))
   const [combo, setCombo] = useState(0)
   const [wins, setWins] = useState(0)
-  const [message, setMessage] = useState({ text: 'Click the box you want to check first. Hint: which box splits the row in half?', tone: '' })
+  const [message, setMessage] = useState({ text: 'Pick the box you want to check first. Hint: which box splits the row in half?', tone: '' })
   const stageRef = useRef(null)
   const boxRefs = useRef([])
 

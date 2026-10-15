@@ -4,6 +4,7 @@ import { feedbackCorrect, feedbackWrong } from '../../lib/juice'
 import { sfx } from '../../lib/sfx'
 import { shuffle } from '../../lib/random'
 import { GROWTH, checkRanking, correctOrder, formatCount, formatDuration, opsAt, perspective, pickClasses, sampleCurve, scientific } from '../lib/big-o'
+import { useWidth } from '../lib/use-width'
 import './big-o.css'
 
 const STYLE = {
@@ -21,6 +22,15 @@ const H = 270
 const PAD = { l: 44, r: 70, t: 14, b: 28 }
 const PW = W - PAD.l - PAD.r
 const PH = H - PAD.t - PAD.b
+const DESKTOP = { W, H, PAD, PW, PH, gap: 13, phone: false }
+
+/** Phone chart: drawn at the stage's real width, so 12px type stays 12px on screen. */
+function phoneGeometry(width) {
+  const w = Math.max(260, Math.round(width))
+  const pad = { l: 40, r: 84, t: 26, b: 30 }
+  const h = 290
+  return { W: w, H: h, PAD: pad, PW: w - pad.l - pad.r, PH: h - pad.t - pad.b, gap: 15, phone: true }
+}
 
 function reducedMotion() {
   return typeof window !== 'undefined' && window.matchMedia?.('(prefers-reduced-motion: reduce)').matches
@@ -58,6 +68,10 @@ export default function BigO({ props, onComplete, standalone }) {
   const uid = useId().replace(/[^a-zA-Z0-9_-]/g, '')
   const clipId = `bigo-clip-${uid}`
   const rankRef = useRef(null)
+  const stageRef = useRef(null)
+  const stageW = useWidth(stageRef)
+  const geo = useMemo(() => (stageW !== null && stageW < 480 ? phoneGeometry(stageW) : DESKTOP), [stageW])
+  const { W, H, PAD, PW, PH } = geo
 
   useEffect(() => {
     const a = anim.current
@@ -124,10 +138,10 @@ export default function BigO({ props, onComplete, standalone }) {
     })
     // End labels, nudged apart so they never overlap.
     const labels = curves.map((c) => ({ key: c.key, y: Math.min(PAD.t + PH, Math.max(PAD.t + 4, c.endY)), off: c.off })).sort((a, b) => a.y - b.y)
-    for (let k = 1; k < labels.length; k++) labels[k].y = Math.max(labels[k].y, labels[k - 1].y + 13)
+    for (let k = 1; k < labels.length; k++) labels[k].y = Math.max(labels[k].y, labels[k - 1].y + geo.gap)
     const overflow = labels.length ? labels[labels.length - 1].y - (PAD.t + PH + 4) : 0
     if (overflow > 0) for (const l of labels) l.y -= overflow
-    for (let k = labels.length - 2; k >= 0; k--) labels[k].y = Math.min(labels[k].y, labels[k + 1].y - 13)
+    for (let k = labels.length - 2; k >= 0; k--) labels[k].y = Math.min(labels[k].y, labels[k + 1].y - geo.gap)
     // Y ticks for whichever scale is (mostly) showing.
     let yTicks
     if (mix < 0.5) {
@@ -138,11 +152,11 @@ export default function BigO({ props, onComplete, standalone }) {
       const top = Math.floor(logMax)
       const every = Math.max(1, Math.ceil(top / 5))
       yTicks = []
-      for (let k = 0; k <= top; k += every) yTicks.push({ y: yOf(10 ** k), text: k === 0 ? '1' : k <= 3 ? String(10 ** k) : `10${sup(k)}` })
+      for (let k = 0; k <= top; k += every) yTicks.push({ y: yOf(10 ** k), text: k === 0 ? '1' : k <= 3 ? String(10 ** k) : sup(k) })
     }
     const xTicks = [...new Set([1, Math.round(xMax / 4), Math.round(xMax / 2), Math.round((3 * xMax) / 4), xMax])].filter((v) => v >= 1)
     return { curves, labels, yTicks, xTicks: xTicks.map((v) => ({ x: xOf(v), text: v })) }
-  }, [classes, n, mix])
+  }, [classes, n, mix, PAD, PW, PH, geo.gap])
 
   // ---- Ranking game ----
   const place = (key) => {
@@ -215,8 +229,8 @@ export default function BigO({ props, onComplete, standalone }) {
         </div>
       </div>
 
-      <div className="w-stage bigo-stage">
-        <svg viewBox={`0 0 ${W} ${H}`} className="bigo-chart" role="img" aria-label={`Growth curves up to n = ${n}, ${logScale ? 'log' : 'linear'} scale`}>
+      <div className="w-stage bigo-stage" ref={stageRef}>
+        <svg viewBox={`0 0 ${W} ${H}`} className={`bigo-chart${geo.phone ? ' phone' : ''}`} role="img" aria-label={`Growth curves up to n = ${n}, ${logScale ? 'log' : 'linear'} scale`}>
           <defs>
             <clipPath id={clipId}><rect x={PAD.l} y={PAD.t - 2} width={PW + 2} height={PH + 4} /></clipPath>
           </defs>
@@ -230,7 +244,7 @@ export default function BigO({ props, onComplete, standalone }) {
             <text key={`x${t.text}`} className="bigo-xtick" x={t.x} y={PAD.t + PH + 16} textAnchor="middle">{t.text}</text>
           ))}
           <text className="bigo-axis" x={PAD.l + PW} y={H - 1} textAnchor="end">n</text>
-          <text className="bigo-axis" x={4} y={PAD.t + 2} dominantBaseline="hanging">ops</text>
+          <text className="bigo-axis" x={4} y={geo.phone ? 2 : PAD.t + 2} dominantBaseline="hanging">ops</text>
           <line className="bigo-base" x1={PAD.l} x2={PAD.l + PW} y1={PAD.t + PH} y2={PAD.t + PH} />
           <line className="bigo-base" x1={PAD.l} x2={PAD.l} y1={PAD.t} y2={PAD.t + PH} />
           <g clipPath={`url(#${clipId})`}>

@@ -3,14 +3,16 @@ import { ChevronLeft, FastForward, Pause, Play, RotateCcw, SkipForward } from 'l
 import { feedbackCorrect, floatText } from '../../lib/juice'
 import { sfx } from '../../lib/sfx'
 import { FUNCTIONS, FUNCTION_NAMES, buildTrace, callName, describeEvent, layoutTree } from '../lib/recursion-tree'
+import { useWidth } from '../lib/use-width'
 import './recursion-tree.css'
 
 const DELAYS = [900, 560, 320, 150, 60]
 const SPEED_NAMES = ['Slow', 'Easy', 'Medium', 'Fast', 'Blazing']
 const PAD = 14
 
-function sizing(width) {
-  const compact = width > 9
+function sizing(width, phone = false) {
+  // Compact boxes (argument only) for wide trees, and for any branching tree on a phone.
+  const compact = width > 9 || (phone && width > 3)
   return compact ? { compact, w: 32, h: 36, ux: 37, uy: 66 } : { compact, w: 52, h: 36, ux: 60, uy: 66 }
 }
 
@@ -54,12 +56,15 @@ export default function RecursionTree({ props, onComplete, standalone }) {
   const [runs, setRuns] = useState({})
   const [message, setMessage] = useState({ text: '', tone: '' })
   const compareRef = useRef(null)
+  const treeRef = useRef(null)
+  const treeW = useWidth(treeRef)
+  const phone = treeW !== null && treeW < 480
 
   const trace = useMemo(() => buildTrace(fn, n, memo), [fn, n, memo])
   const layout = useMemo(() => layoutTree(trace.nodes), [trace])
   const view = useMemo(() => replay(trace, pos), [trace, pos])
   const last = trace.events.length
-  const size = sizing(layout.width)
+  const size = sizing(layout.width, phone)
   const vbW = Math.max(layout.width * size.ux + size.w + PAD * 2, 240)
   const vbH = (layout.levels - 1) * size.uy + size.h + PAD * 2
   const offsetX = (vbW - (layout.width * size.ux + size.w)) / 2 + size.w / 2
@@ -141,6 +146,15 @@ export default function RecursionTree({ props, onComplete, standalone }) {
   const def = FUNCTIONS[fn]
   const label = (arg) => (size.compact ? String(arg) : callName(fn, arg))
   const stackTop = view.stack[view.stack.length - 1]
+  // On a phone a big tree scrolls sideways: keep the running call in view.
+  const topX = stackTop === undefined ? null : px(stackTop)
+  useEffect(() => {
+    const el = treeRef.current
+    const svg = el?.querySelector('svg')
+    if (!phone || topX === null || !svg || el.scrollWidth <= el.clientWidth) return
+    const scale = svg.getBoundingClientRect().width / vbW
+    el.scrollLeft = Math.max(0, topX * scale - el.clientWidth / 2)
+  }, [phone, topX, vbW])
   const argCounts = Object.entries(view.perArg).sort((a, b) => Number(b[0]) - Number(a[0]))
   const maxCount = Math.max(1, ...argCounts.map(([, c]) => c))
 
@@ -175,52 +189,54 @@ export default function RecursionTree({ props, onComplete, standalone }) {
                 <span className="rtree-line">{'}'}</span>
               </code>
             </pre>
-            <svg className="rtree-svg" viewBox={`0 0 ${vbW} ${vbH}`} style={{ maxWidth: `${Math.round(vbW * 1.4)}px` }} role="img" aria-label={`Call tree for ${callName(fn, n)}: ${view.calls} of ${trace.calls} calls made so far`}>
-              <g className="rtree-edges">
+            <div className="rtree-tree" ref={treeRef}>
+              <svg className={`rtree-svg${phone ? ' phone' : ''}`} viewBox={`0 0 ${vbW} ${vbH}`} style={{ maxWidth: `${Math.round(vbW * 1.4)}px`, '--vbw': vbW }} role="img" aria-label={`Call tree for ${callName(fn, n)}: ${view.calls} of ${trace.calls} calls made so far`}>
+                <g className="rtree-edges">
+                  {trace.nodes.map((node) => {
+                    if (node.parent === null || view.status[node.id] === 'hidden') return null
+                    const st = view.status[node.id]
+                    return (
+                      <line
+                        key={node.id}
+                        className={`rtree-edge ${st}`}
+                        x1={px(node.parent)}
+                        y1={py(node.parent) + size.h / 2}
+                        x2={px(node.id)}
+                        y2={py(node.id) - size.h / 2}
+                      />
+                    )
+                  })}
+                </g>
                 {trace.nodes.map((node) => {
-                  if (node.parent === null || view.status[node.id] === 'hidden') return null
                   const st = view.status[node.id]
+                  if (st === 'hidden') return null
+                  const isTop = node.id === stackTop
+                  const showValue = st === 'done' || st === 'hit'
                   return (
-                    <line
-                      key={node.id}
-                      className={`rtree-edge ${st}`}
-                      x1={px(node.parent)}
-                      y1={py(node.parent) + size.h / 2}
-                      x2={px(node.id)}
-                      y2={py(node.id) - size.h / 2}
-                    />
+                    <g key={node.id} transform={`translate(${px(node.id)} ${py(node.id)})`}>
+                      <g className={`rtree-node ${st}${isTop ? ' top' : ''}`}>
+                        <rect x={-size.w / 2} y={-size.h / 2} width={size.w} height={size.h} rx="8" />
+                        <text className="rtree-label" y={showValue ? -3 : 4}>{label(node.arg)}</text>
+                        {showValue && <text className="rtree-value" y="12">{`= ${node.value}`}</text>}
+                        {st === 'hit' && !size.compact && <text className="rtree-tag" y={-size.h / 2 - 4}>memo</text>}
+                      </g>
+                    </g>
                   )
                 })}
-              </g>
-              {trace.nodes.map((node) => {
-                const st = view.status[node.id]
-                if (st === 'hidden') return null
-                const isTop = node.id === stackTop
-                const showValue = st === 'done' || st === 'hit'
-                return (
-                  <g key={node.id} transform={`translate(${px(node.id)} ${py(node.id)})`}>
-                    <g className={`rtree-node ${st}${isTop ? ' top' : ''}`}>
-                      <rect x={-size.w / 2} y={-size.h / 2} width={size.w} height={size.h} rx="8" />
-                      <text className="rtree-label" y={showValue ? -3 : 4}>{label(node.arg)}</text>
-                      {showValue && <text className="rtree-value" y="12">{`= ${node.value}`}</text>}
-                      {st === 'hit' && !size.compact && <text className="rtree-tag" y={-size.h / 2 - 4}>memo</text>}
+                {bubble && (
+                  <g transform={`translate(${px(bubble.parent)} ${py(bubble.parent)})`}>
+                    <g
+                      key={pos}
+                      className="rtree-bubble"
+                      style={{ '--dx': `${px(bubble.id) - px(bubble.parent)}px`, '--dy': `${py(bubble.id) - py(bubble.parent)}px` }}
+                    >
+                      <circle r="11" />
+                      <text y="4">{bubble.value}</text>
                     </g>
                   </g>
-                )
-              })}
-              {bubble && (
-                <g transform={`translate(${px(bubble.parent)} ${py(bubble.parent)})`}>
-                  <g
-                    key={pos}
-                    className="rtree-bubble"
-                    style={{ '--dx': `${px(bubble.id) - px(bubble.parent)}px`, '--dy': `${py(bubble.id) - py(bubble.parent)}px` }}
-                  >
-                    <circle r="11" />
-                    <text y="4">{bubble.value}</text>
-                  </g>
-                </g>
-              )}
-            </svg>
+                )}
+              </svg>
+            </div>
           </div>
 
           <aside className="rtree-side" aria-label="Call stack">

@@ -3,14 +3,15 @@ import { Shuffle, Target } from 'lucide-react'
 import { feedbackCorrect } from '../../lib/juice'
 import { sfx } from '../../lib/sfx'
 import { MATCH_TOLERANCE, PRESETS, PRESET_NAMES, VIEW, curveDistance, curvePath, defaults, features, fmtNum, formatEquation, randomTarget, snap } from '../lib/function-plot'
+import { useWidth } from '../lib/use-width'
 import './function-plot.css'
 
-const W = 480
-const H = 360
+// Desktop drawing size. On a phone the plot is drawn at the stage's real width instead,
+// so tick labels keep a readable size.
+const DESK_W = 480
+const DESK_H = 360
 const SPAN_X = VIEW.xmax - VIEW.xmin
 const SPAN_Y = VIEW.ymax - VIEW.ymin
-const sx = (x) => ((x - VIEW.xmin) / SPAN_X) * W
-const sy = (y) => ((VIEW.ymax - y) / SPAN_Y) * H
 const clampX = (x) => Math.max(VIEW.xmin, Math.min(VIEW.xmax, x))
 
 /** Writes "1.5^x" with a real superscript. */
@@ -46,6 +47,12 @@ export default function FunctionPlot({ props, onComplete, standalone }) {
   const svgRef = useRef(null)
   const stageRef = useRef(null)
   const dragRef = useRef(false)
+  const stageW = useWidth(stageRef)
+  const phone = stageW !== null && stageW < 480
+  const W = phone ? Math.max(240, stageW) : DESK_W
+  const H = phone ? Math.round(W * 0.8) : DESK_H
+  const sx = (x) => ((x - VIEW.xmin) / SPAN_X) * W
+  const sy = (y) => ((VIEW.ymax - y) / SPAN_Y) * H
 
   const spec = PRESETS[preset]
   const y0 = spec.f(x0, params)
@@ -53,9 +60,9 @@ export default function FunctionPlot({ props, onComplete, standalone }) {
   const dist = curveDistance(preset, params, target)
   const heat = warmth(dist)
   const closeness = Math.max(0, Math.min(1, 1 - dist / 4))
-  const curve = useMemo(() => curvePath(preset, params, W, H), [preset, params])
-  const targetCurve = useMemo(() => curvePath(preset, target, W, H), [preset, target])
-  const slopeCurve = useMemo(() => (showSlope ? curvePath(preset, params, W, H, VIEW, 240, 'df') : ''), [preset, params, showSlope])
+  const curve = useMemo(() => curvePath(preset, params, W, H), [preset, params, W, H])
+  const targetCurve = useMemo(() => curvePath(preset, target, W, H), [preset, target, W, H])
+  const slopeCurve = useMemo(() => (showSlope ? curvePath(preset, params, W, H, VIEW, 240, 'df') : ''), [preset, params, showSlope, W, H])
   const facts = features(preset, params)
   const pointVisible = y0 >= VIEW.ymin && y0 <= VIEW.ymax
 
@@ -175,7 +182,7 @@ export default function FunctionPlot({ props, onComplete, standalone }) {
         <div className="w-stage fplot-stage" ref={stageRef}>
           <svg
             ref={svgRef}
-            className={`fplot-svg${showTangent ? ' can-drag' : ''}`}
+            className={`fplot-svg${showTangent ? ' can-drag' : ''}${phone ? ' phone' : ''}`}
             viewBox={`0 0 ${W} ${H}`}
             role="img"
             aria-label={`Graph of ${formatEquation(preset, params)}${showTangent ? `, tangent at x = ${fmtNum(x0)} with slope ${fmtNum(m)}` : ''}`}
@@ -215,7 +222,7 @@ export default function FunctionPlot({ props, onComplete, standalone }) {
                 className="fplot-handle"
                 cx={sx(x0)}
                 cy={sy(y0)}
-                r="8"
+                r={phone ? 11 : 8}
                 role="slider"
                 tabIndex={0}
                 aria-label="Tangent point x"
@@ -274,7 +281,7 @@ export default function FunctionPlot({ props, onComplete, standalone }) {
 
       {showTangent && (
         <p className="fplot-caption">
-          The tangent line touches the curve at one point and has the same slope there. At x = {fmtNum(x0)} the curve {Math.abs(m) < 0.005 ? 'is flat for an instant (slope 0)' : m > 0 ? `rises ${fmtNum(m)} for every 1 step right` : `falls ${fmtNum(-m)} for every 1 step right`}. Drag the dot, or focus it and use the arrow keys.
+          The tangent line touches the curve at one point and has the same slope there. At x = {fmtNum(x0)} the curve {Math.abs(m) < 0.005 ? 'is flat for an instant (slope 0)' : m > 0 ? `rises ${fmtNum(m)} for every 1 step right` : `falls ${fmtNum(-m)} for every 1 step right`}. Drag along the graph to move the dot, or focus it and use the arrow keys.
         </p>
       )}
 

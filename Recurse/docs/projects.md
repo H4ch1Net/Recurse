@@ -72,6 +72,12 @@ The SWE projects build on each other, from a first tested program to a measured 
 | 7 | `open-source-contribution` | advanced | git, testing and review habits from all of the above |
 | 8 | `url-shortener-design` | advanced | 5 (API and database), adds caching and load testing |
 
+The Python Developer path adds one project that proves the professional toolchain:
+
+| id | Level | Builds on |
+|---|---|---|
+| `python-package-release` | intermediate | 1 and 2 (a tested module), adds packaging, typing, CI and a TestPyPI release |
+
 The CCNA projects follow the exam domains and can be done in Cisco Packet Tracer or Cisco Modeling
 Labs at home:
 

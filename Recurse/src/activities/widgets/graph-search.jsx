@@ -273,7 +273,7 @@ export default function GraphSearch({ props, onComplete, standalone }) {
 
   const caption = step
     ? describeStep(step, algo, grid.cols)
-    : `Click or drag to draw walls, and drag S or G to move them. Then press Play to watch ${INFO[algo].label} search.`
+    : `Select cells or drag across the grid to draw walls, and drag S or G to move them. Then press Play to watch ${INFO[algo].label} search.`
   const frontier = step ? step.frontier : []
   const ran = algorithms.filter((a) => done[a])
   const bestMoves = ran.length ? Math.min(...ran.map((a) => done[a].moves).filter((m) => m >= 0)) : 0

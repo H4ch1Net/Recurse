@@ -71,7 +71,7 @@ function Topology({ ifs, linkState, badges, settled, current, selected, onSelect
   const POS_ = phone ? PHONE_POS : POS
   const center = phone ? PHONE_CENTER : CENTER
   // Bigger type on the phone layout needs wider cost pills.
-  const pill = phone ? { pad: 18, ch: 8.2, h: 24, hit: 38 } : { pad: 14, ch: 7, h: 18, hit: 26 }
+  const pill = phone ? { pad: 18, ch: 8.2, h: 24, hit: 42 } : { pad: 14, ch: 7, h: 18, hit: 26 }
   return (
     <svg className={`ospf-topo${phone ? ' phone' : ''}`} viewBox={phone ? '0 0 300 446' : '0 0 400 236'} role="group" aria-label="OSPF topology. Top path: R1 to R2 to R4 over FastEthernet. Bottom path: R1 to R3 to R5 to R4 over Gigabit and 10 Gigabit links. Select a cost to edit that interface.">
       {LINKS.map((link) => {

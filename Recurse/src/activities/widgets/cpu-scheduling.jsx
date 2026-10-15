@@ -95,7 +95,7 @@ export default function CpuScheduling({ props, onComplete, standalone }) {
     } else {
       setPhase('identify')
       feedbackWrong(resultsRef.current)
-      setMessage({ text: `Not this time: ${labelOf(current.prediction, current.quantum)} averaged ${fmt(current.results[current.prediction].avgWaiting)}. Read the averages below and click the algorithm with the lowest average wait.`, tone: 'bad' })
+      setMessage({ text: `Not this time: ${labelOf(current.prediction, current.quantum)} averaged ${fmt(current.results[current.prediction].avgWaiting)}. Read the averages below and pick the algorithm with the lowest average wait.`, tone: 'bad' })
     }
   }
 

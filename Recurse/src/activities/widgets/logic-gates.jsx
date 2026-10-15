@@ -47,6 +47,7 @@ function Switch({ x, y, name, value, onToggle }) {
       onClick={onToggle}
       onKeyDown={onKey}
     >
+      <rect className="gates-hit" x="-20" y="-23" width="90" height="46" />
       <rect className="gates-focus" x="-4" y="-19" width="72" height="38" rx="19" />
       <rect className="gates-track" x="0" y="-15" width="64" height="30" rx="15" />
       <circle className="gates-knob" cx={value ? 49 : 15} cy="0" r="11" />
@@ -262,7 +263,7 @@ export default function LogicGates({ props, onComplete, standalone }) {
           <p className="gates-caption" aria-live="polite">
             <strong className="mono">{one ? expression(gate, a) : expression(gate, a, b)}</strong> {GATES[gate].rule}
           </p>
-          <p className="xsmall subtle">Click the switches (or focus one and press Space). The highlighted row of the table is the one you are testing.</p>
+          <p className="xsmall subtle">Flip the switches (or focus one and press Space). The highlighted row of the table is the one you are testing.</p>
         </div>
       )}
 

@@ -3,12 +3,14 @@ import { ArrowLeftRight, LogOut, Pause, Play, Plus, SkipForward, Trash2 } from '
 import { burstFrom, feedbackCorrect, feedbackSuccess, feedbackWrong } from '../../lib/juice'
 import { sfx } from '../../lib/sfx'
 import { REVERSE_LINES, applyLine, deleteNode, expectedLine, fromValues, insertAfter, insertHead, insertTail, reversalLength, startReversal, toArray } from '../lib/linked-list'
+import { useWidth } from '../lib/use-width'
 import './linked-list.css'
 
 const NW = 62
 const NH = 44
-const SP = 98
-const PADL = 74
+// Node spacing: a little tighter on a phone, where a long list scrolls sideways in the stage.
+const DESKTOP = { SP: 98, PADL: 74 }
+const PHONE = { SP: 88, PADL: 66 }
 const NODE_Y = 70
 const SPEEDS = [1100, 700, 380]
 const CLICKABLE = new Set(['init', 'save', 'repoint', 'prev', 'curr', 'head'])
@@ -41,9 +43,12 @@ export default function LinkedList({ props, onComplete, standalone }) {
   const [playing, setPlaying] = useState(false)
   const [speed, setSpeed] = useState(1)
   const [combo, setCombo] = useState(0)
-  const [message, setMessage] = useState({ text: 'Click a node to select it, or add a value. When you are ready, start the reversal.', tone: '' })
+  const [message, setMessage] = useState({ text: 'Pick a node to select it, or add a value. When you are ready, start the reversal.', tone: '' })
   const stageRef = useRef(null)
   const lineRefs = useRef({})
+  const stageW = useWidth(stageRef)
+  const phone = stageW !== null && stageW < 480
+  const { SP, PADL } = phone ? PHONE : DESKTOP
   const timer = useRef({ id: 0 })
   const uid = useId().replace(/[^a-zA-Z0-9_-]/g, '')
 
@@ -59,6 +64,18 @@ export default function LinkedList({ props, onComplete, standalone }) {
   const width = PADL + Math.max(1, layoutIds.length) * SP + 40
   const height = 172
   const busy = Boolean(doomed)
+
+  // On a phone a long list is wider than the screen: keep the node being worked on in view.
+  const focusId = rev?.curr ?? selected
+  const focusX = focusId && layoutIds.includes(focusId) ? xOf(focusId) : null
+  useEffect(() => {
+    const el = stageRef.current
+    const svg = el?.querySelector('svg')
+    if (!phone || focusX === null || !svg || el.scrollWidth <= el.clientWidth) return
+    const scale = svg.getBoundingClientRect().width / width
+    const left = (focusX + NW / 2) * scale - el.clientWidth / 2
+    el.scrollTo?.({ left: Math.max(0, left), behavior: window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' })
+  }, [phone, focusX, width])
 
   // Pointer tags: where each one sits (a node id or 'null-left' / 'null-right').
   const tags = []
@@ -138,7 +155,7 @@ export default function LinkedList({ props, onComplete, standalone }) {
     setFresh(null)
     setCombo(0)
     setPlaying(false)
-    setMessage({ text: 'Click the line of code that runs next. Start at the top.', tone: '' })
+    setMessage({ text: 'Pick the line of code that runs next. Start at the top.', tone: '' })
   }
 
   const leaveReversal = () => {
@@ -230,7 +247,7 @@ export default function LinkedList({ props, onComplete, standalone }) {
       )}
 
       <div className={`w-stage grid-bg ll-stage${rev?.done ? ' done' : ''}`} ref={stageRef}>
-        <svg viewBox={`0 0 ${width} ${height}`} style={{ maxWidth: `${width * 1.35}px` }} className="ll-svg" role="group" aria-label={`Linked list: ${order.map((n) => n.value).join(' then ') || 'empty'}, then null`}>
+        <svg viewBox={`0 0 ${width} ${height}`} style={{ maxWidth: `${width * 1.35}px`, '--vbw': width }} className={`ll-svg${phone ? ' phone' : ''}`} role="group" aria-label={`Linked list: ${order.map((n) => n.value).join(' then ') || 'empty'}, then null`}>
           <defs>
             <marker id={`ll-a-${uid}`} viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
               <path d="M0,0 L10,5 L0,10 z" className="ll-head" />

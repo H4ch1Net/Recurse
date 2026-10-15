@@ -60,7 +60,7 @@ function linkGeometry(topology, pos, inset = 42, spread = 28) {
 }
 
 const pillText = (l, phone) => (phone ? `${l.speed} · ${linkCost(l)}` : `${l.speed} cost ${linkCost(l)}`)
-const pillWidth = (l, phone) => (phone ? pillText(l, true).length * 7.2 + 10 : pillText(l).length * 5.8 + 14)
+const pillWidth = (l, phone) => (phone ? pillText(l, true).length * 7.5 + 10 : pillText(l).length * 5.8 + 14)
 
 const randomMac = () =>
   normalizeMac(

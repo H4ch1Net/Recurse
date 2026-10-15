@@ -18,6 +18,7 @@ import {
   pairCount,
   rollDice
 } from '../lib/probability-sim'
+import { useWidth } from '../lib/use-width'
 import './probability-sim.css'
 
 const EXPERIMENTS = { coin: 'Coin flips', dice: 'Two dice', birthday: 'Birthday problem' }
@@ -26,6 +27,17 @@ const H = 220
 const M = { l: 40, r: 12, t: 12, b: 26 }
 const PW = W - M.l - M.r
 const PH = H - M.t - M.b
+const DESKTOP = { W, H, M, PW, PH, phone: false }
+
+/** Chart size: the desktop drawing, or on a phone the stage's real width so 12px labels stay 12px. */
+function useChartGeo(stageRef) {
+  const width = useWidth(stageRef)
+  if (width === null || width >= 480) return DESKTOP
+  const w = Math.max(240, width)
+  const h = 230
+  const m = { l: 42, r: 16, t: 12, b: 28 }
+  return { W: w, H: h, M: m, PW: w - m.l - m.r, PH: h - m.t - m.b, phone: true }
+}
 const num = (n) => Math.round(n).toLocaleString('en-US')
 const pct = (p, digits = 1) => `${(p * 100).toFixed(digits)}%`
 const reducedMotion = () => typeof window !== 'undefined' && window.matchMedia?.('(prefers-reduced-motion: reduce)').matches
@@ -91,6 +103,7 @@ function CoinSim({ onComplete, standalone }) {
   const [revealed, setRevealed] = useState(false)
   const [message, setMessage] = useState({ text: '', tone: '' })
   const stageRef = useRef(null)
+  const { W, H, M, PW, PH, phone } = useChartGeo(stageRef)
   const countUp = useCountUp()
 
   const reveal = (right, total) => {
@@ -165,7 +178,7 @@ function CoinSim({ onComplete, standalone }) {
       <RunButtons onRun={doRun} locked={Boolean(prediction)} noun="flips" total={run.flips} remaining={MAX_FLIPS - run.flips} />
 
       <div className="w-stage probsim-stage" ref={stageRef}>
-        <svg className="probsim-svg" viewBox={`0 0 ${W} ${H}`} role="img" aria-label={`Running share of heads: ${flips ? pct(heads / flips) : 'no flips yet'} after ${num(flips)} flips`}>
+        <svg className={`probsim-svg${phone ? ' phone' : ''}`} viewBox={`0 0 ${W} ${H}`} role="img" aria-label={`Running share of heads: ${flips ? pct(heads / flips) : 'no flips yet'} after ${num(flips)} flips`}>
           <rect className="probsim-band" x={M.l} width={PW} y={py(Math.min(1, p + 0.05))} height={py(Math.max(0, p - 0.05)) - py(Math.min(1, p + 0.05))} />
           {[0, 0.25, 0.5, 0.75, 1].map((v) => (
             <g key={v}>
@@ -176,7 +189,7 @@ function CoinSim({ onComplete, standalone }) {
           {Array.from({ length: xExp + 1 }, (_, e) => (
             <g key={e}>
               <line className="probsim-grid" x1={px(10 ** e)} x2={px(10 ** e)} y1={M.t} y2={H - M.b} />
-              <text className="probsim-tick" x={px(10 ** e)} y={H - 8}>{num(10 ** e)}</text>
+              <text className="probsim-tick" x={px(10 ** e)} y={H - 8}>{phone && e >= 3 ? `${10 ** (e - 3)}k` : num(10 ** e)}</text>
             </g>
           ))}
           <line className="probsim-truth" x1={M.l} x2={W - M.r} y1={py(p)} y2={py(p)} />
@@ -243,6 +256,7 @@ function DiceSim({ onComplete, standalone }) {
   const [revealed, setRevealed] = useState(false)
   const [message, setMessage] = useState({ text: '', tone: '' })
   const stageRef = useRef(null)
+  const { W, H, M, PW, PH, phone } = useChartGeo(stageRef)
   const countUp = useCountUp()
 
   const dist = diceDistribution(count)
@@ -330,7 +344,7 @@ function DiceSim({ onComplete, standalone }) {
             <span className="probsim-dice-sum">= {last.reduce((a, b) => a + b, 0)}</span>
           </div>
         )}
-        <svg className="probsim-svg" viewBox={`0 0 ${W} ${H}`} role="img" aria-label={`Share of rolls for each sum after ${num(rolls)} rolls${leader ? `. Most common so far: ${leader}` : ''}`}>
+        <svg className={`probsim-svg${phone ? ' phone' : ''}`} viewBox={`0 0 ${W} ${H}`} role="img" aria-label={`Share of rolls for each sum after ${num(rolls)} rolls${leader ? `. Most common so far: ${leader}` : ''}`}>
           {yTicks.map((v) => (
             <g key={v}>
               <line className="probsim-grid" x1={M.l} x2={W - M.r} y1={py(v)} y2={py(v)} />
@@ -351,7 +365,7 @@ function DiceSim({ onComplete, standalone }) {
                 >
                   <title>{`Sum ${s}: ${num(counts[s])} rolls (${pct(share)})`}</title>
                 </rect>
-                <text className="probsim-tick" x={bx(s) + slot / 2} y={H - 8}>{s}</text>
+                {(!phone || slot >= 20 || s % 2 === 0) && <text className="probsim-tick" x={bx(s) + slot / 2} y={H - 8}>{s}</text>}
               </g>
             )
           })}
@@ -397,6 +411,7 @@ function BirthdaySimPanel({ onComplete, standalone }) {
   const [revealed, setRevealed] = useState(false)
   const [message, setMessage] = useState({ text: '', tone: '' })
   const stageRef = useRef(null)
+  const { W, H, M, PW, PH, phone } = useChartGeo(stageRef)
   const countUp = useCountUp()
   const answer = birthdayThreshold(0.5)
 
@@ -478,7 +493,7 @@ function BirthdaySimPanel({ onComplete, standalone }) {
       <RunButtons onRun={doRun} locked={locked} noun="rooms" total={rooms} />
 
       <div className="w-stage probsim-stage" ref={stageRef}>
-        <svg className="probsim-svg" viewBox={`0 0 ${W} ${H}`} role="img" aria-label={`Chance of a shared birthday by room size.${current ? ` Simulated for ${k} people: ${pct(current.shared / current.trials)}.` : ''}`}>
+        <svg className={`probsim-svg${phone ? ' phone' : ''}`} viewBox={`0 0 ${W} ${H}`} role="img" aria-label={`Chance of a shared birthday by room size.${current ? ` Simulated for ${k} people: ${pct(current.shared / current.trials)}.` : ''}`}>
           {[0, 0.25, 0.5, 0.75, 1].map((v) => (
             <g key={v}>
               <line className={`probsim-grid${v === 0.5 ? ' half' : ''}`} x1={M.l} x2={W - M.r} y1={py(v)} y2={py(v)} />
@@ -510,13 +525,14 @@ function BirthdaySimPanel({ onComplete, standalone }) {
 
         {lastRoom && (
           <div className="probsim-room">
-            <svg viewBox="0 0 480 46" className="probsim-room-svg" aria-hidden="true">
+            <svg viewBox="0 0 480 46" className={`probsim-room-svg${phone ? ' phone' : ''}`} aria-hidden="true">
               <defs>
                 <clipPath id={`${uid}-strip`}><rect x="0" y="0" width="480" height="46" /></clipPath>
               </defs>
               <line className="probsim-grid" x1="4" x2="476" y1="34" y2="34" />
               {['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'].map((mo, i) => (
-                <text key={mo} className="probsim-tick" x={4 + ((i * 30.4 + 15) / 365) * 472} y="45">{mo}</text>
+                // On a phone the strip is too narrow for twelve names: every other month.
+                (!phone || i % 2 === 0) && <text key={mo} className="probsim-tick" x={4 + ((i * 30.4 + 15) / 365) * 472} y="45">{mo}</text>
               ))}
               <g clipPath={`url(#${uid}-strip)`}>
                 {roomDots.map((d) => (

@@ -160,7 +160,7 @@ export default function SortVisualizer({ props, onComplete, standalone }) {
       )}
 
       <div className={`w-stage grid-bg sv-stage${standalone ? ' big' : ''}`} ref={stageRef} style={{ '--sv-dur': `${Math.min(300, Math.round(DELAYS[speed] * 0.8))}ms` }}>
-        <div className="sv-bars" role="img" aria-label={`Array: ${frame.values.join(', ')}`}>
+        <div className={`sv-bars${start.length > 12 ? ' crowded' : ''}`} role="img" aria-label={`Array: ${frame.values.join(', ')}`}>
           {start.map((value, id) => {
             const k = posOf[id]
             const state = stateOf(frame, k)

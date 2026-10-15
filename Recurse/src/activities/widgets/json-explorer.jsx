@@ -133,7 +133,7 @@ function JsonTree({ root, expanded, setExpanded, selected, onSelect, onHover, re
 function PathBar({ root, path, hidden }) {
   const btnRef = useRef(null)
   const node = path ? getNode(root, path) : null
-  if (hidden) return <div className="json-pathbar small muted">Find the node in the tree, then click it. The path stays hidden for this one.</div>
+  if (hidden) return <div className="json-pathbar small muted">Find the node in the tree, then select it. The path stays hidden for this one.</div>
   if (!node) return <div className="json-pathbar small subtle">Hover or select a node to see its path.</div>
   const dot = formatPath(path, ROOT_NAME)
   const copy = async () => {
@@ -224,7 +224,7 @@ function QuizCard({ quiz, cardRef, onSubmit, onNext, onRestart }) {
           </button>
         </form>
       )}
-      {q.kind === 'click' && !fb && <p className="small muted json-click-note">Click (or press Enter on) the node in the tree below.</p>}
+      {q.kind === 'click' && !fb && <p className="small muted json-click-note">Select (or press Enter on) the node in the tree below.</p>}
       {q.kind === 'type' && (
         <div className="json-choices" role="group" aria-label="Types">
           {TYPES.map((t) => (
@@ -406,7 +406,7 @@ export default function JsonExplorer({ props, onComplete }) {
               </div>
             </div>
           ) : (
-            <p className="xsmall subtle json-valid">{parsed.ok ? 'Valid JSON. Click a node to pin its path; arrow keys move through the tree.' : parsed.error.message}</p>
+            <p className="xsmall subtle json-valid">{parsed.ok ? 'Valid JSON. Select a node to pin its path; arrow keys move through the tree.' : parsed.error.message}</p>
           )}
         </div>
       )}

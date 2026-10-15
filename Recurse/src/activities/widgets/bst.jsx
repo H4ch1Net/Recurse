@@ -3,11 +3,12 @@ import { Check, Dice5, ListOrdered, Pause, Play, Plus, Scale, Search, SkipForwar
 import { feedbackCorrect, feedbackSuccess, feedbackWrong } from '../../lib/juice'
 import { sfx } from '../../lib/sfx'
 import { TRAVERSALS, balancedOrder, compareSequences, contains, fromValues, height, inOrder, insert, isBalanced, layout, minHeight, parseSequence, search, size } from '../lib/bst'
+import { useWidth } from '../lib/use-width'
 import './bst.css'
 
-const COLW = 40
-const LEVELH = 54
-const R = 16
+// Desktop geometry. Phones use a tighter grid (PHONE) so a typical tree fits the screen at full size.
+const DESKTOP = { COLW: 40, LEVELH: 54, R: 16 }
+const PHONE = { COLW: 34, LEVELH: 50, R: 14 }
 const PAD = 12
 const SPEEDS = [1000, 620, 340]
 const SORTED_DEMO = [10, 20, 30, 40, 50, 60, 70]
@@ -32,19 +33,29 @@ export default function Bst({ props, onComplete, standalone }) {
   const [failedOn, setFailedOn] = useState(null)
   const [done, setDone] = useState({})
   const [combo, setCombo] = useState(0)
-  const [message, setMessage] = useState({ text: 'Insert values, search for one, or run a traversal. Click a node to search for it.', tone: '' })
+  const [message, setMessage] = useState({ text: 'Insert values, search for one, or run a traversal. Pick a node to search for it.', tone: '' })
   const stageRef = useRef(null)
   const predictRef = useRef(null)
+  const stageW = useWidth(stageRef)
+  const phone = stageW !== null && stageW < 480
+  const { COLW, LEVELH, R } = phone ? PHONE : DESKTOP
   const guessId = `bst-guess-${useId().replace(/[^a-zA-Z0-9_-]/g, '')}`
 
   const shape = useMemo(() => layout(root), [root])
-  const pos = useMemo(() => Object.fromEntries(shape.nodes.map((n) => [n.value, { x: PAD + n.rank * COLW + COLW / 2, y: PAD + R + n.depth * LEVELH }])), [shape])
+  const pos = useMemo(() => Object.fromEntries(shape.nodes.map((n) => [n.value, { x: PAD + n.rank * COLW + COLW / 2, y: PAD + R + n.depth * LEVELH }])), [shape, COLW, R, LEVELH])
   const count = size(root)
   const levels = height(root)
   const balanced = isBalanced(root)
   const ghost = anim?.kind === 'search' && anim.pos >= anim.seq.length && !anim.found ? anim.ghost : null
   const width = Math.max(3, shape.columns) * COLW + PAD * 2
   const svgHeight = Math.max(1, levels + (ghost ? 1 : 0)) * LEVELH + PAD * 2 - (LEVELH - 2 * R) + 4
+
+  // A tree wider than a phone scrolls sideways inside the stage: start with the middle in view.
+  useEffect(() => {
+    const el = stageRef.current
+    if (!el || !phone) return
+    el.scrollLeft = Math.max(0, (el.scrollWidth - el.clientWidth) / 2)
+  }, [phone, width])
 
   const markDone = (key) => {
     if (done[key]) return done
@@ -251,7 +262,7 @@ export default function Bst({ props, onComplete, standalone }) {
   const searchFound = anim?.kind === 'search' && anim.found && anim.pos >= anim.seq.length
   const animating = anim && anim.kind !== 'build' ? anim.pos < anim.seq.length : anim ? anim.pos < anim.values.length : false
   const tasks = [
-    { key: 'search', text: 'Search for a value.', hint: 'Type a number and press Search, or click a node.' },
+    { key: 'search', text: 'Search for a value.', hint: 'Type a number and press Search, or pick a node.' },
     { key: 'predict', text: 'Predict the in-order traversal.', hint: 'Press In-order and type the sequence before it runs.' }
   ]
 
@@ -313,7 +324,7 @@ export default function Bst({ props, onComplete, standalone }) {
 
       <div className={`w-stage grid-bg bst-stage${standalone ? ' big' : ''}`} ref={stageRef}>
         {!root && <p className="bst-empty small subtle">The tree is empty. Insert a value to plant the root.</p>}
-        <svg viewBox={`0 0 ${width} ${svgHeight}`} style={{ maxWidth: `${width * 1.5}px` }} className="bst-svg" role="img" aria-label={root ? `Binary search tree with ${count} nodes, in order: ${inOrder(root).join(', ')}` : 'Empty tree'}>
+        <svg viewBox={`0 0 ${width} ${svgHeight}`} style={{ maxWidth: `${width * 1.5}px`, '--vbw': width }} className={`bst-svg${phone ? ' phone' : ''}`} role="img" aria-label={root ? `Binary search tree with ${count} nodes, in order: ${inOrder(root).join(', ')}` : 'Empty tree'}>
           {shape.nodes.map((n) => {
             if (n.parent === null) return null
             const a = pos[n.parent]

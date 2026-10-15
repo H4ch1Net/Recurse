@@ -158,7 +158,7 @@ export default function DpTable({ props, onComplete, standalone }) {
       setFillIdx(next)
       if (next >= order.length) {
         setPhase('pick')
-        setMessage({ text: `Table complete. ${table.question} Click it.`, tone: 'good' })
+        setMessage({ text: `Table complete. ${table.question} Select it.`, tone: 'good' })
       }
       inputRef.current?.focus()
       return
