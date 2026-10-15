@@ -97,9 +97,10 @@ for that.
 | `language` | default code highlighting: `python`, `javascript`, `typescript`, `java`, `cpp`, `go`, `sql`, `bash`, `html`, `css`, `json`, `dockerfile`, `yaml`, `cisco` (IOS config and show output), `plaintext`. Sections and questions may override with their own `language` |
 | `prereqs` | pack ids recommended first. Suggestions only, nothing is locked |
 | `lesson.objectives` | 2 to 5 "you will be able to" statements, each starting with a verb |
-| `lesson.sections` | 4 to 8 sections, each with a `check` (4 choices). Optional `code`, `tip`, `pitfall`, `activity` |
-| `lesson.keyTerms` | 5 to 12 terms |
-| `questions` | 12 or more for built-in packs (aim for 20 to 30), ids `<pack-id>-q01` and up |
+| `lesson.sections` | 4 to 10 sections, each with a `check` (4 choices). Optional `code`, `tip`, `pitfall`, `activity` |
+| `lesson.keyTerms` | 5 to 15 terms. They also feed the app-wide glossary, so define each one so it stands on its own |
+| `questions` | 12 or more for built-in packs (aim for 30 to 45), ids `<pack-id>-q01` and up |
+| `resources` | optional, up to 8 outside links shown under "Go deeper" on the topic page and collected on its paths: `{ "title", "url" (https), "kind": docs, book, course, video, practice, tool or article, "note" }`. Free resources first, and check every link opens |
 
 `estimatedMinutes` should be honest: about 200 words a minute plus time for activities and checks.
 

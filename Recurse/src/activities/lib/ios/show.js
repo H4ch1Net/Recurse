@@ -208,7 +208,9 @@ export function showIpInterface(sim, name) {
     out.push('  Broadcast address is 255.255.255.255')
     out.push('  Address determined by setup command')
     out.push('  MTU is 1500 bytes')
-    out.push(i.helpers.length ? `  Helper addresses are ${i.helpers.join(' ')}` : '  Helper address is not set')
+    if (!i.helpers.length) out.push('  Helper address is not set')
+    else if (i.helpers.length === 1) out.push(`  Helper address is ${i.helpers[0]}`)
+    else out.push(`  Helper addresses are ${i.helpers[0]}`, ...i.helpers.slice(1).map((h) => `                       ${h}`))
     out.push('  Directed broadcast forwarding is disabled')
     out.push('  Outgoing Common access list is not set ')
     out.push(`  Outgoing access list is ${i.aclOut ?? 'not set'}`)
@@ -420,7 +422,7 @@ export function showSpanningTree(sim, vlan) {
     out.push(`  Bridge ID  Priority    ${st.bridge.prio}  (priority ${base} sys-id-ext ${v})`, `             Address     ${st.bridge.mac}`)
     out.push('             Hello Time   2 sec  Max Age 20 sec  Forward Delay 15 sec', '             Aging Time  300 sec', '')
     out.push('Interface           Role Sts Cost      Prio.Nbr Type', '------------------- ---- --- --------- -------- --------------------------------')
-    for (const p of st.ports) out.push(`${pad(shortIf(p.name), 20)}${pad(p.role, 5)}${pad(p.state, 4)}${pad(p.cost, 10)}${pad(`${p.prio}.${p.num}`, 9)}P2p${p.edge ? ' Edge' : ''}`)
+    for (const p of st.ports) out.push(`${pad(shortIf(p.name), 20)}${pad(p.role, 5)}${pad(p.state, 4)}${pad(p.cost, 10)}${pad(`${p.prio}.${p.num}`, 9)}P2p${p.edge ? ' Edge' : ''}${p.rootInc ? ' *ROOT_Inc' : ''}`)
   }
   return out
 }
@@ -895,11 +897,11 @@ export function showVersion(sim) {
   const m = modelOf(dev)
   const sw = dev.kind === 'switch'
   return [
-    `Cisco IOS Software, ${sw ? 'C2960' : 'C2900'} Software (${m.image}), Version ${m.version}, RELEASE SOFTWARE (fc2)`,
+    `Cisco IOS Software, ${m.family} Software (${m.image}), Version ${m.version}, RELEASE SOFTWARE (fc2)`,
     'Technical Support: http://www.cisco.com/techsupport',
     'Copyright (c) 1986-2021 by Cisco Systems, Inc.',
     '',
-    `ROM: ${sw ? 'Bootstrap program is C2960 boot loader' : 'System Bootstrap, Version 15.0(1r)M16, RELEASE SOFTWARE (fc1)'}`,
+    `ROM: ${sw ? `Bootstrap program is ${m.family} boot loader` : 'System Bootstrap, Version 15.0(1r)M16, RELEASE SOFTWARE (fc1)'}`,
     '',
     `${dev.hostname} uptime is ${uptimeText(sim)}`,
     'System returned to ROM by power-on',
@@ -992,6 +994,75 @@ export function showArp(sim) {
   }
   rows.sort((a, b) => (a[0] < b[0] ? -1 : 1))
   for (const r of rows) out.push(`Internet  ${pad(r[0], 17)}${rpad(r[1], 9)}   ${pad(r[2], 16)}ARPA   ${r[3]}`)
+  return out
+}
+
+const ERR_REASONS = { 'channel-misconfig': 'channel-misconfig (STP)', bpduguard: 'bpduguard', 'psecure-violation': 'psecure-violation' }
+
+export function showInterfacesStatusErr(sim) {
+  const out = [`${pad('Port', 10)}${pad('Name', 19)}${pad('Status', 13)}${pad('Reason', 21)}Err-disabled Vlans`]
+  for (const name of sortedIfNames(sim.dev)) {
+    if (!sim.op.errdisabled.includes(name)) continue
+    const why = sim.op.errInfo[name]?.reason ?? 'unknown'
+    out.push(`${pad(shortIf(name), 10)}${pad((sim.dev.interfaces[name].description ?? '').slice(0, 18), 19)}${pad('err-disabled', 13)}${ERR_REASONS[why] ?? why}`)
+  }
+  return out
+}
+
+const RECOVERY_CAUSES = ['arp-inspection', 'bpduguard', 'channel-misconfig (STP)', 'dhcp-rate-limit', 'dtp-flap', 'gbic-invalid', 'inline-power', 'link-flap', 'loopback', 'mac-limit', 'pagp-flap', 'port-mode-failure', 'psecure-violation', 'security-violation', 'sfp-config-mismatch', 'storm-control', 'udld']
+
+export function showErrdisableRecovery(sim) {
+  const d = sim.dev
+  const on = (c) => d.errdisable.causes.includes('all') || d.errdisable.causes.includes(c.replace(' (STP)', ''))
+  const out = ['ErrDisable Reason            Timer Status', '-----------------            --------------']
+  for (const c of RECOVERY_CAUSES) out.push(`${pad(c, 29)}${on(c) ? 'Enabled' : 'Disabled'}`)
+  const interval = d.errdisable.interval ?? 300
+  out.push('', `Timer interval: ${interval} seconds`, '', 'Interfaces that will be enabled at the next timeout:', '')
+  const due = sim.op.errdisabled.filter((n) => on(sim.op.errInfo[n]?.reason ?? ''))
+  if (due.length) {
+    out.push('Interface       Errdisable reason       Time left(sec)', '---------       -----------------       --------------')
+    for (const n of due) {
+      const info = sim.op.errInfo[n]
+      const left = Math.max(0, Math.ceil((info.at + interval * 1000 - sim.now()) / 1000))
+      out.push(`${pad(shortIf(n), 16)}${pad(info.reason, 24)}${left}`)
+    }
+  }
+  return out
+}
+
+export function showSpanningTreeInconsistent(sim) {
+  const out = ['Name                 Interface                Inconsistency', '-------------------- ------------------------ ------------------']
+  let n = 0
+  for (const v of stpVlans(sim)) {
+    for (const p of stpForVlan(sim, v).ports) {
+      if (!p.rootInc) continue
+      n++
+      out.push(`${pad(`VLAN${String(v).padStart(4, '0')}`, 21)}${pad(p.name, 25)}Root Inconsistent`)
+    }
+  }
+  out.push('', `Number of inconsistent ports (segments) in the system : ${n}`)
+  return out
+}
+
+export function showPortSecurityAddress(sim) {
+  const dev = sim.dev
+  const out = ['               Secure Mac Address Table', '-----------------------------------------------------------------------------', 'Vlan    Mac Address       Type                          Ports   Remaining Age', '                                                                   (mins)    ', '----    -----------       ----                          -----   -------------']
+  let total = 0
+  for (const name of sortedIfNames(dev)) {
+    const i = dev.interfaces[name]
+    const ps = i.portSecurity
+    if (!ps?.enabled) continue
+    const rows = [...ps.macs.map((m) => [m, 'SecureConfigured']), ...ps.stickyMacs.map((m) => [m, 'SecureSticky'])]
+    if (!ps.sticky && !sim.op.errdisabled.includes(name) && isUp(sim, name)) {
+      const dyn = neighborsOn(sim, name).filter((n) => n.kind === 'host' && n.mac && !ps.macs.includes(n.mac)).slice(0, Math.max(0, ps.max - ps.macs.length))
+      rows.push(...dyn.map((n) => [n.mac, 'SecureDynamic']))
+    }
+    for (const [mac, type] of rows) {
+      total++
+      out.push(`${rpad(i.accessVlan, 4)}    ${pad(mac, 18)}${pad(type, 30)}${pad(shortIf(name), 8)}    -`)
+    }
+  }
+  out.push('-----------------------------------------------------------------------------', `Total Addresses in System (excluding one mac per port)     : ${Math.max(0, total - 1)}`, 'Max Addresses limit in System (excluding one mac per port) : 4096')
   return out
 }
 

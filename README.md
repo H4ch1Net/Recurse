@@ -347,10 +347,23 @@ import React, so they are tested directly.
 
 ## Deployment
 
-The app is a static site. Build with `npm run build` and serve `Recurse/dist/` from any static host.
-Every route must fall back to `index.html`; `Recurse/vercel.json` does this for Vercel (set the project
-root directory to `Recurse`). After a deploy, open pages pick up the new version on the next navigation
-because the service worker fetches HTML from the network first.
+The app is a static site, so it can be hosted for free. The repository includes a `netlify.toml`, which
+makes Netlify the quickest option:
+
+1. Sign in at [app.netlify.com](https://app.netlify.com) with your GitHub account (the free plan is enough).
+2. **Add new site > Import an existing project**, pick GitHub and choose this repository.
+3. Leave the build settings as Netlify fills them in from `netlify.toml` (base `Recurse`, command
+   `npm run build`, publish `dist`, Node 22) and choose the `main` branch.
+4. Deploy. You get a `*.netlify.app` address within a couple of minutes; rename it under **Site
+   configuration > Change site name**, or add your own domain.
+
+Every push to `main` deploys again, and pull requests get their own preview links. Everything (progress,
+settings, API keys) stays in each visitor's browser, so there is no server or database to run.
+
+Other free static hosts work too: Cloudflare Pages and Vercel (`Recurse/vercel.json` is included; set the
+project root directory to `Recurse`). On any host, build with `npm run build`, serve `Recurse/dist/`, and
+make every route fall back to `index.html`. After a deploy, open pages pick up the new version on the next
+navigation because the service worker fetches HTML from the network first.
 
 ## Troubleshooting
 

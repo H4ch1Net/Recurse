@@ -20,6 +20,7 @@ import {
 
 export const MODELS = {
   router: {
+    family: 'C2900',
     model: 'CISCO2911/K9',
     platform: 'CISCO2911',
     image: 'C2900-UNIVERSALK9-M',
@@ -30,6 +31,7 @@ export const MODELS = {
     ports: ['GigabitEthernet0/0', 'GigabitEthernet0/1', 'GigabitEthernet0/2']
   },
   switch: {
+    family: 'C2960',
     model: 'WS-C2960G-24TC-L',
     platform: 'WS-C2960G-24TC-L',
     image: 'C2960-LANBASEK9-M',
@@ -37,6 +39,18 @@ export const MODELS = {
     version: '15.0(2)SE11',
     shortVersion: '15.0',
     baseMac: '0019.e86a.6f80',
+    ports: Array.from({ length: 24 }, (_, i) => `GigabitEthernet0/${i + 1}`)
+  },
+  // Multilayer switch used by the Layer 3 switching labs (same port layout as the 2960).
+  l3switch: {
+    family: 'C3560',
+    model: 'WS-C3560G-24TS',
+    platform: 'WS-C3560G-24TS',
+    image: 'C3560-IPSERVICESK9-M',
+    file: 'flash:c3560-ipservicesk9-mz.150-2.SE11.bin',
+    version: '15.0(2)SE11',
+    shortVersion: '15.0',
+    baseMac: '0022.0dc4.1a00',
     ports: Array.from({ length: 24 }, (_, i) => `GigabitEthernet0/${i + 1}`)
   }
 }
@@ -58,12 +72,14 @@ function lineDefaults(kind) {
   }
 }
 
-/** A factory-fresh device. opts: { hostname, baseMac } */
+/** A factory-fresh device. opts: { hostname, baseMac, model: 'l3switch' for a multilayer switch } */
 export function makeDevice(kind = 'router', opts = {}) {
   const sw = kind === 'switch'
-  const meta = MODELS[sw ? 'switch' : 'router']
+  const modelKey = sw && opts.model === 'l3switch' ? 'l3switch' : sw ? 'switch' : 'router'
+  const meta = MODELS[modelKey]
   const dev = {
     kind: sw ? 'switch' : 'router',
+    model: modelKey,
     hostname: opts.hostname || (sw ? 'Switch' : 'Router'),
     baseMac: opts.baseMac || meta.baseMac,
     interfaces: {},
@@ -111,7 +127,7 @@ export function makeDevice(kind = 'router', opts = {}) {
 }
 
 export function modelOf(dev) {
-  return MODELS[dev.kind]
+  return MODELS[dev.model] ?? MODELS[dev.kind]
 }
 
 /** True when a physical port name is part of this device's hardware. */

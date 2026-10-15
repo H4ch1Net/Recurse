@@ -167,7 +167,7 @@ export function trunkRows(sim) {
     for (const v of active) {
       const st = stpForVlan(sim, v)
       const port = st?.ports.find((p) => p.name === name)
-      if (port && port.state === 'BLK') blocked.add(v)
+      if (port && port.state !== 'FWD') blocked.add(v)
     }
     rows.push({
       name,
@@ -194,9 +194,22 @@ function channelCompatible(local, peer) {
   return false
 }
 
+/** Why a member's Layer 2 settings stop it bundling with its port-channel, or null. */
+export function memberMismatch(i, po) {
+  if (!po || po.switchport !== true || i.switchport !== true) return null
+  const m = shortIf(i.name)
+  const p = shortIf(po.name)
+  if (i.mode !== po.mode) return `trunk mode of ${m} is ${i.mode}, ${p} is ${po.mode}`
+  if ((i.allowed ?? null) !== (po.allowed ?? null)) return 'vlan mask is different'
+  if (i.nativeVlan !== po.nativeVlan) return `native vlan of ${m} is ${i.nativeVlan}, ${p} id ${po.nativeVlan}`
+  if (i.accessVlan !== po.accessVlan) return `access vlan of ${m} is ${i.accessVlan}, ${p} id ${po.accessVlan}`
+  return null
+}
+
 /** Members of a channel group with their bundle flag: P bundled, I stand-alone, s suspended, D down. */
 export function etherchannelMembers(sim, id) {
   const dev = sim.dev
+  const po = dev.interfaces[`Port-channel${id}`]
   return sortedIfNames(dev)
     .map((n) => dev.interfaces[n])
     .filter((i) => i.channelGroup?.id === id)
@@ -208,6 +221,8 @@ export function etherchannelMembers(sim, id) {
         const crossed = peer && (LACP.includes(i.channelGroup.mode) !== LACP.includes(peer)) && i.channelGroup.mode !== 'on' && peer !== 'on'
         return { name: i.name, flag: crossed ? 'I' : i.channelGroup.mode === 'on' || peer === 'on' ? 's' : 'I' }
       }
+      const why = memberMismatch(i, po)
+      if (why) return { name: i.name, flag: 's', why }
       return { name: i.name, flag: 'P' }
     })
 }
@@ -253,7 +268,7 @@ function stpPorts(sim, vlan) {
     const mode = swOperMode(sim, name)
     if (mode === 'access' && i.accessVlan !== vlan && i.voiceVlan !== vlan) continue
     if (mode === 'trunk' && !trunkCarries(i, vlan)) continue
-    out.push({ i, neighbor: neighborsOn(sim, name).find((n) => n.stp) })
+    out.push({ i, neighbor: i.bpdufilter === 'enable' ? undefined : neighborsOn(sim, name).find((n) => n.stp) })
   }
   return out
 }
@@ -273,12 +288,15 @@ export function stpForVlan(sim, vlan) {
   const ports = stpPorts(sim, vlan)
   if (!ports.length) return null
   const me = localBridge(sim, vlan)
+  const guarded = (p) => p.i.guard === 'root'
   let root = { ...me, local: true }
   for (const p of ports) {
-    if (!p.neighbor) continue
+    if (!p.neighbor || guarded(p)) continue
     const nb = { prio: neighborPrio(p.neighbor, vlan), mac: p.neighbor.stp.mac }
     if (bidLess(nb, root)) root = { ...nb, local: false }
   }
+  // Root guard: a port that hears a better root than the one we know goes root-inconsistent.
+  const rootInc = new Set(ports.filter((p) => p.neighbor && guarded(p) && bidLess({ prio: neighborPrio(p.neighbor, vlan), mac: p.neighbor.stp.mac }, root)).map((p) => p.i.name))
   const nbInfo = (p) => {
     const nb = { prio: neighborPrio(p.neighbor, vlan), mac: p.neighbor.stp.mac }
     const isRoot = !root.local && nb.prio === root.prio && nb.mac === root.mac
@@ -289,7 +307,7 @@ export function stpForVlan(sim, vlan) {
   if (!root.local) {
     let best = null
     for (const p of ports) {
-      if (!p.neighbor) continue
+      if (!p.neighbor || guarded(p)) continue
       const { nb, cost } = nbInfo(p)
       const total = cost + portCost(p.i)
       const cand = { name: p.i.name, total, nb, num: portNum(p.i.name) }
@@ -303,6 +321,7 @@ export function stpForVlan(sim, vlan) {
     const edge = !p.neighbor && (i.portfast === 'enable' || (dev.stp.portfastDefault && swOperMode(sim, i.name) === 'access' && i.portfast !== 'disable'))
     let role = 'Desg'
     let state = 'FWD'
+    if (rootInc.has(i.name)) return { name: i.name, role, state: 'BKN*', cost: portCost(i), prio: i.stpPrio ?? 128, num: portNum(i.name), edge: false, rootInc: true }
     if (i.name === rootPort) role = 'Root'
     else if (p.neighbor && !root.local) {
       const { nb, cost } = nbInfo(p)
@@ -631,12 +650,35 @@ function linkPeers(sim, ifaceName) {
   })
 }
 
+/** True when a neighbor on this switch port sits in the VLAN. */
+function portInVlan(sim, n, vlan) {
+  const i = sim.dev.interfaces[n.port]
+  if (!i || i.switchport !== true || !isUp(sim, n.port)) return false
+  const mode = swOperMode(sim, n.port)
+  if (mode === 'access') return (n.vlan ?? i.accessVlan) === vlan && (i.accessVlan === vlan || i.voiceVlan === vlan)
+  if (mode === 'trunk') return trunkCarries(i, vlan) && (n.vlan ?? i.nativeVlan) === vlan
+  return false
+}
+
 function hostReachableOnLink(sim, ifaceName, ip) {
   if (sim.dev.kind === 'switch' && /^Vlan/.test(ifaceName)) {
     const vlan = Number(ifaceName.slice(4))
-    return (sim.env.neighbors || []).some((n) => n.ip === ip && isUp(sim, n.port) && (n.vlan == null || n.vlan === vlan))
+    return (sim.env.neighbors || []).some((n) => n.ip === ip && portInVlan(sim, n, vlan))
   }
-  return linkPeers(sim, ifaceName).some((n) => n.ip === ip)
+  if (linkPeers(sim, ifaceName).some((n) => n.ip === ip)) return true
+  return dhcpLeases(sim).some((l) => l.ip === ip && l.port === parentIf(ifaceName))
+}
+
+function pathReaches(sim, p, ip) {
+  const nh = p.nh
+  const viaIf = nh ? ipInterfaces(sim).find((x) => inPrefix(nh, x.ip, x.len))?.name : p.iface
+  if (!viaIf) return false
+  const nb = linkPeers(sim, viaIf).find((n) => (nh ? n.ip === nh : true))
+  if (!nb) return false
+  return (nb.behind || []).some((b) => {
+    const [net, len] = b.split('/')
+    return inPrefix(ip, net, Number(len))
+  })
 }
 
 /**
@@ -651,21 +693,11 @@ export function pingResult(sim, ip) {
   const route = sim.dev.kind === 'switch' && !sim.dev.ipRouting ? switchRoute(sim, ip) : lookupRoute(sim, ip)
   if (!route) return { ok: false, reason: 'noroute' }
   if (route.code === 'C') return { ok: hostReachableOnLink(sim, route.paths[0].iface, ip) }
-  for (const p of route.paths) {
-    const nh = p.nh
-    const viaIf = nh ? ipInterfaces(sim).find((x) => inPrefix(nh, x.ip, x.len))?.name : p.iface
-    if (!viaIf) continue
-    const nb = linkPeers(sim, viaIf).find((n) => (nh ? n.ip === nh : true))
-    if (!nb) continue
-    const behind = nb.behind || []
-    if (behind.some((b) => {
-      const [net, len] = b.split('/')
-      return inPrefix(ip, net, Number(len))
-    })) {
-      if (natBlocks(sim, viaIf, ip)) continue
-      return { ok: true }
-    }
-  }
+  const results = route.paths.map((p) => pathReaches(sim, p, ip))
+  const good = results.filter(Boolean).length
+  if (good === results.length) return { ok: true }
+  // Equal-cost paths where only some work: packets alternate between them.
+  if (good) return { ok: false, partial: true }
   return { ok: false }
 }
 
@@ -677,11 +709,6 @@ function switchRoute(sim, ip) {
   const gw = sim.dev.defaultGateway
   if (gw && conn.some((x) => inPrefix(gw, x.ip, x.len))) return { code: 'S', paths: [{ nh: gw }] }
   return null
-}
-
-// Placeholder hook: NAT does not change reachability for router-originated pings.
-function natBlocks() {
-  return false
 }
 
 export function pingV6Result(sim, text) {
@@ -746,7 +773,8 @@ export function hsrpGroups(sim) {
         version: i.hsrpVersion,
         active: state === 'Active' ? 'local' : state === 'Standby' ? peer.ip : 'unknown',
         standby: state === 'Active' ? peer?.ip ?? 'unknown' : state === 'Standby' ? 'local' : 'unknown',
-        peerPriority: peer?.hsrp.priority ?? null
+        peerPriority: peer?.hsrp.priority ?? null,
+        vipMismatch: g.ip && peer?.hsrp.ip && peer.hsrp.active !== false && g.ip !== peer.hsrp.ip ? peer.hsrp.ip : null
       })
     }
   }
@@ -853,6 +881,48 @@ export function dhcpBindings(sim) {
   return out
 }
 
+let leaseDepth = 0
+
+/**
+ * Leases clients get from a DHCP server on another subnet, through `ip helper-address`.
+ * env.dhcpServers: [{ ip, pools: [{ network, len, start, router }] }]
+ */
+export function relayLeases(sim) {
+  if (leaseDepth) return []
+  leaseDepth++
+  try {
+    const dev = sim.dev
+    const out = []
+    const taken = new Set()
+    for (const c of sim.env.dhcpClients || []) {
+      const i = dev.interfaces[c.port]
+      if (!i || !i.ip || !isUp(sim, c.port)) continue
+      if (dev.dhcpPools.some((p) => p.network && p.mask && inPrefix(i.ip, p.network, maskToPrefix(p.mask)))) continue
+      for (const h of i.helpers) {
+        const server = (sim.env.dhcpServers || []).find((s) => s.ip === h)
+        if (!server || !pingResult(sim, h).ok) continue
+        const pool = server.pools.find((p) => inPrefix(i.ip, p.network, p.len))
+        if (!pool) continue
+        let n = parseIPv4(pool.start)
+        while (taken.has(ipToStr(n))) n++
+        const ip = ipToStr(n)
+        taken.add(ip)
+        out.push({ ip, mac: c.mac, port: c.port, server: h, router: pool.router, name: c.name })
+        break
+      }
+    }
+    return out
+  } finally {
+    leaseDepth--
+  }
+}
+
+/** Every lease a client on this device's links holds, from the local server or a relay. */
+export function dhcpLeases(sim) {
+  if (leaseDepth) return []
+  return [...dhcpBindings(sim).map((b) => ({ ip: b.ip, mac: b.mac, port: b.iface, server: 'local', name: b.name })), ...relayLeases(sim)]
+}
+
 export function poolSize(pool) {
   if (!pool.network || !pool.mask) return 0
   return Math.max(0, 2 ** (32 - maskToPrefix(pool.mask)) - 2)
@@ -931,14 +1001,20 @@ function snapshot(sim) {
   for (const p of ospfNeighbors(sim).problems) problems[`${p.kind}|${p.iface}|${p.ip}`] = p
   const hsrp = {}
   for (const g of hsrpGroups(sim)) hsrp[`${g.iface}|${g.group}`] = g.state
+  const vip = {}
+  for (const g of hsrpGroups(sim)) if (g.vipMismatch) vip[`${g.iface}|${g.group}`] = { active: g.vipMismatch, local: sim.dev.interfaces[g.iface].hsrp.find((x) => x.group === g.group)?.ip }
   const mismatch = {}
+  const rootInc = {}
+  const suspended = {}
   if (dev.kind === 'switch') {
     for (const name of Object.keys(dev.interfaces)) {
       const m = nativeMismatch(sim, name)
       if (m) mismatch[name] = m
     }
+    for (const v of stpVlans(sim)) for (const p of stpForVlan(sim, v).ports) if (p.rootInc) rootInc[`${p.name}|${v}`] = true
+    for (const id of channelGroups(sim)) for (const m of etherchannelMembers(sim, id)) if (m.flag === 's' && m.why) suspended[m.name] = { why: m.why, po: `Po${id}` }
   }
-  return { links, nbrs, problems, hsrp, mismatch }
+  return { links, nbrs, problems, hsrp, mismatch, vip, rootInc, suspended }
 }
 
 function linkMessages(name, before, after) {
@@ -956,19 +1032,70 @@ function linkMessages(name, before, after) {
   return msgs
 }
 
+/** Put a port into err-disabled state, remembering why and when. */
+export function errDisable(sim, name, reason) {
+  if (!sim.op.errdisabled.includes(name)) sim.op.errdisabled.push(name)
+  sim.op.errInfo[name] = { reason, at: sim.now() }
+}
+
+export function clearErrDisable(sim, name) {
+  sim.op.errdisabled = sim.op.errdisabled.filter((n) => n !== name)
+  delete sim.op.errInfo[name]
+}
+
+/** Automatic recovery when `errdisable recovery cause` covers the reason and the interval has passed. */
+function recoverTimers(sim) {
+  const dev = sim.dev
+  const msgs = []
+  const causes = dev.errdisable.causes
+  if (!causes.length) return msgs
+  const interval = (dev.errdisable.interval ?? 300) * 1000
+  for (const name of [...sim.op.errdisabled]) {
+    const info = sim.op.errInfo[name]
+    if (!info || !(causes.includes('all') || causes.includes(info.reason))) continue
+    if (sim.now() - info.at < interval) continue
+    clearErrDisable(sim, name)
+    msgs.push(`%PM-4-ERR_RECOVER: Attempting to recover from ${info.reason} err-disable state on ${shortIf(name)}`)
+  }
+  return msgs
+}
+
+/** "on" facing an LACP or PAgP neighbor: STP's EtherChannel guard err-disables the bundle. */
+function channelMisconfig(sim) {
+  const dev = sim.dev
+  const msgs = []
+  for (const id of channelGroups(sim)) {
+    const members = Object.values(dev.interfaces).filter((i) => i.channelGroup?.id === id && i.channelGroup.mode === 'on')
+    const bad = members.filter((i) => {
+      if (i.shutdown || sim.op.errdisabled.includes(i.name) || !portConnected(sim, i.name)) return false
+      const peer = neighborsOn(sim, i.name).find((n) => n.channel)
+      return peer && peer.channel !== 'on' && (peer.stp || peer.trunk)
+    })
+    if (!bad.length) continue
+    msgs.push(`%SPANTREE-2-CHNL_MISCFG: Detected loop due to etherchannel misconfiguration of ${shortIf(bad[0].name)}`)
+    for (const i of bad) {
+      errDisable(sim, i.name, 'channel-misconfig')
+      msgs.push(`%PM-4-ERR_DISABLE: channel-misconfig (STP) error detected on Po${id}, putting ${shortIf(i.name)} in err-disable state`)
+    }
+  }
+  return msgs
+}
+
 /** Learn sticky MACs and catch BPDU guard and port security violations (they change state). */
 function applyDynamics(sim) {
   const dev = sim.dev
   const msgs = []
   if (dev.kind !== 'switch') return msgs
+  msgs.push(...recoverTimers(sim))
+  msgs.push(...channelMisconfig(sim))
   for (const i of Object.values(dev.interfaces)) {
     if (i.switchport !== true || !isPhysical(i.name)) continue
     if (i.shutdown || sim.op.errdisabled.includes(i.name)) continue
     if (!portConnected(sim, i.name)) continue
     const nbs = neighborsOn(sim, i.name)
     const guard = i.bpduguard === 'enable' || (dev.stp.bpduguardDefault && i.bpduguard !== 'disable' && (i.portfast === 'enable' || (dev.stp.portfastDefault && i.mode === 'access')))
-    if (guard && nbs.some((n) => n.stp)) {
-      sim.op.errdisabled.push(i.name)
+    if (guard && i.bpdufilter !== 'enable' && nbs.some((n) => n.stp)) {
+      errDisable(sim, i.name, 'bpduguard')
       msgs.push(`%SPANTREE-2-BLOCK_BPDUGUARD: Received BPDU on port ${i.name} with BPDU Guard enabled. Disabling port.`)
       msgs.push(`%PM-4-ERR_DISABLE: bpduguard error detected on ${shortIf(i.name)}, putting ${shortIf(i.name)} in err-disable state`)
       continue
@@ -986,7 +1113,7 @@ function applyDynamics(sim) {
       }
       sim.op.violations[i.name] = (sim.op.violations[i.name] ?? 0) + 1
       if (ps.violation === 'shutdown') {
-        sim.op.errdisabled.push(i.name)
+        errDisable(sim, i.name, 'psecure-violation')
         msgs.push(`%PM-4-ERR_DISABLE: psecure-violation error detected on ${shortIf(i.name)}, putting ${shortIf(i.name)} in err-disable state`)
         msgs.push(`%PORT_SECURITY-2-PSECURE_VIOLATION: Security violation occurred, caused by MAC address ${h.mac} on port ${i.name}.`)
         break
@@ -1006,7 +1133,8 @@ export function observe(sim, { silent = false } = {}) {
   const prev = sim.op.obs
   const next = snapshot(sim)
   sim.op.obs = next
-  if (silent || !prev) return []
+  if (silent) return []
+  if (!prev) return dyn
   const msgs = [...dyn]
   for (const [name, state] of Object.entries(next.links)) msgs.push(...linkMessages(name, prev.links[name], state))
   for (const key of Object.keys(next.nbrs)) {
@@ -1037,6 +1165,26 @@ export function observe(sim, { silent = false } = {}) {
   for (const [name, m] of Object.entries(next.mismatch)) {
     if (prev.mismatch[name]) continue
     msgs.push(mismatchMessage(name, m))
+  }
+  for (const [key, v] of Object.entries(next.vip)) {
+    if (prev.vip?.[key]) continue
+    const [iface, group] = key.split('|')
+    msgs.push(`%HSRP-4-DIFFVIP1: ${iface} Grp ${group} active routers virtual IP address ${v.active} is different to the locally configured address ${v.local}`)
+  }
+  const vlanName = (v) => `VLAN${String(v).padStart(4, '0')}`
+  for (const key of Object.keys(next.rootInc)) {
+    if (prev.rootInc?.[key]) continue
+    const [port, v] = key.split('|')
+    msgs.push(`%SPANTREE-2-ROOTGUARD_BLOCK: Root guard blocking port ${port} on ${vlanName(v)}.`)
+  }
+  for (const key of Object.keys(prev.rootInc || {})) {
+    if (next.rootInc[key]) continue
+    const [port, v] = key.split('|')
+    msgs.push(`%SPANTREE-2-ROOTGUARD_UNBLOCK: Root guard unblocking port ${port} on ${vlanName(v)}.`)
+  }
+  for (const [name, s] of Object.entries(next.suspended)) {
+    if (prev.suspended?.[name]) continue
+    msgs.push(`%EC-5-CANNOT_BUNDLE2: ${shortIf(name)} is not compatible with ${s.po} and will be suspended (${s.why})`)
   }
   return msgs
 }

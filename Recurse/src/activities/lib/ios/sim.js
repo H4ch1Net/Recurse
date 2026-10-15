@@ -44,13 +44,14 @@ import {
   hasPort,
   ifTypesFor,
   makeDevice,
+  modelOf,
   newPortSecurity,
   parseAclRule,
   TCP_PORTS,
   UDP_PORTS
 } from './device.js'
 import { MODE_LABELS, formatHelpList, formatPartialHelp } from './help.js'
-import { ipInterfaces, isUp, lookupRoute, observe, pingResult, pingV6Result, startupNotices, stpForVlan } from './model.js'
+import { clearErrDisable, errDisable, ipInterfaces, isUp, lookupRoute, observe, pingResult, pingV6Result, startupNotices, stpForVlan } from './model.js'
 import * as S from './show.js'
 
 // =====================================================================
@@ -508,8 +509,8 @@ function execReload(ctx) {
 
 function doReload(sim, out) {
   logMsg(sim, out, '%SYS-5-RELOAD: Reload requested by console. Reload Reason: Reload Command.')
-  const meta = MODELS[sim.dev.kind]
-  sim.dev = sim.startup ? cloneConfig(sim.startup) : makeDevice(sim.dev.kind, { baseMac: sim.dev.baseMac })
+  const meta = modelOf(sim.dev)
+  sim.dev = sim.startup ? cloneConfig(sim.startup) : makeDevice(sim.dev.kind, { baseMac: sim.dev.baseMac, model: sim.dev.model })
   sim.mode = { name: 'user' }
   sim.bootAt = sim.now()
   sim.clock = { base: Date.UTC(1993, 2, 1), setAt: sim.now(), authoritative: false }
@@ -539,9 +540,10 @@ function execClockSet(ctx) {
   sim.clock = { base: Date.UTC(year, month, day, h, mi, s) - shift, setAt: sim.now(), authoritative: true }
 }
 
-function pingOutput(ok, firstMiss, target) {
+function pingOutput(ok, firstMiss, target, partial = false) {
   const lines = ['Type escape sequence to abort.', `Sending 5, 100-byte ICMP Echos to ${target}, timeout is 2 seconds:`]
-  if (!ok) lines.push('.....', 'Success rate is 0 percent (0/5)')
+  if (partial) lines.push('!.!.!', 'Success rate is 60 percent (3/5), round-trip min/avg/max = 1/1/2 ms')
+  else if (!ok) lines.push('.....', 'Success rate is 0 percent (0/5)')
   else if (firstMiss) lines.push('.!!!!', 'Success rate is 80 percent (4/5), round-trip min/avg/max = 1/1/2 ms')
   else lines.push('!!!!!', 'Success rate is 100 percent (5/5), round-trip min/avg/max = 1/1/2 ms')
   return lines
@@ -567,7 +569,7 @@ function execPing(ctx) {
       if (hop && !sim.op.arp.includes(hop)) sim.op.arp.push(hop)
       if (!sim.op.pingOk.includes(target)) sim.op.pingOk.push(target)
     }
-    ctx.print(pingOutput(res.ok, firstMiss, target))
+    ctx.print(pingOutput(res.ok, firstMiss, target, res.partial))
     return
   }
   if (isIPv6(target)) {
@@ -612,6 +614,21 @@ function execRemote(ctx) {
   out.add(`Trying ${host} ... `)
   if (pingResult(sim, host).ok) out.err('% Connection refused by remote host')
   else out.err('% Connection timed out; remote host not responding')
+}
+
+/** clear port-security {all | configured | dynamic | sticky} [interface X | address H.H.H] */
+function execClearPortSecurity(ctx) {
+  const { dev, w } = ctx
+  const what = w[2]
+  const onlyIf = ctx.has('interface') ? ctx.after('interface') : null
+  const onlyMac = ctx.has('address') ? ctx.after('address').toLowerCase() : null
+  for (const i of Object.values(dev.interfaces)) {
+    const ps = i.portSecurity
+    if (!ps || (onlyIf && i.name !== onlyIf)) continue
+    const keep = (m) => onlyMac && m !== onlyMac
+    if (what === 'sticky' || what === 'all') ps.stickyMacs = ps.stickyMacs.filter(keep)
+    if (what === 'configured' || what === 'all') ps.macs = ps.macs.filter(keep)
+  }
 }
 
 function execClearOspf(ctx) {
@@ -1225,7 +1242,7 @@ function ifShutdown(ctx) {
   const { sim } = ctx
   for (const i of targets(ctx)) {
     i.shutdown = !ctx.negate
-    if (i.shutdown) sim.op.errdisabled = sim.op.errdisabled.filter((n) => n !== i.name)
+    if (i.shutdown) clearErrDisable(sim, i.name)
   }
 }
 
@@ -1341,9 +1358,15 @@ function ifAccessVlan(ctx) {
 }
 
 function ifVoiceVlan(ctx) {
+  const { dev } = ctx
   const ifs = needSwitchport(ctx)
   if (!ifs) return
-  for (const i of ifs) i.voiceVlan = ctx.negate ? null : Number(ctx.w[3])
+  const id = ctx.negate ? null : Number(ctx.w[3])
+  if (id != null && dev.vlans[id] == null && dev.vtpMode !== 'client') {
+    ctx.say(`% Voice VLAN does not exist. Creating vlan ${id}`)
+    dev.vlans[id] = `VLAN${String(id).padStart(4, '0')}`
+  }
+  for (const i of ifs) i.voiceVlan = id
 }
 
 function ifNativeVlan(ctx) {
@@ -1408,7 +1431,7 @@ function ifPortSecurity(ctx) {
       }
       if (ctx.negate) {
         if (i.portSecurity) i.portSecurity.enabled = false
-        sim.op.errdisabled = sim.op.errdisabled.filter((n) => n !== i.name)
+        if (sim.op.errInfo[i.name]?.reason === 'psecure-violation') clearErrDisable(sim, i.name)
       } else (i.portSecurity ??= newPortSecurity()).enabled = true
       continue
     }
@@ -1473,7 +1496,12 @@ function ifStp(ctx) {
       else i.portfast = w[2] === 'trunk' ? 'trunk' : w[2] === 'disable' ? 'disable' : 'enable'
     } else if (what === 'bpduguard') i.bpduguard = ctx.negate ? null : w[2]
     else if (what === 'bpdufilter') i.bpdufilter = ctx.negate ? null : w[2]
-    else if (what === 'guard') i.guard = ctx.negate || w[2] === 'none' ? null : w[2]
+    else if (what === 'guard') {
+      const before = i.guard
+      i.guard = ctx.negate || w[2] === 'none' ? null : w[2]
+      if (before !== i.guard && (before === 'root' || i.guard === 'root')) logMsg(ctx.sim, ctx.out, `%SPANTREE-2-ROOTGUARD_CONFIG_CHANGE: Root guard ${i.guard === 'root' ? 'enabled' : 'disabled'} on port ${i.name}.`)
+      if (before !== i.guard && (before === 'loop' || i.guard === 'loop')) logMsg(ctx.sim, ctx.out, `%SPANTREE-2-LOOPGUARD_CONFIG_CHANGE: Loop guard ${i.guard === 'loop' ? 'enabled' : 'disabled'} on port ${i.name}.`)
+    }
     else if (what === 'cost') i.stpCost = ctx.negate ? null : Number(w[2])
     else if (what === 'port-priority') i.stpPrio = ctx.negate ? null : Number(w[2])
   }
@@ -1922,7 +1950,7 @@ function showTree(kind, priv) {
       SH('description|Show interface description', (c) => S.showInterfacesDescription(c.sim)),
       ...(sw
         ? [
-            SH('status|Show interface line status', (c) => S.showInterfacesStatus(c.sim)),
+            SH('status|Show interface line status', (c) => S.showInterfacesStatus(c.sim), [SH('err-disabled|Show interfaces in err-disabled state', (c) => S.showInterfacesStatusErr(c.sim))]),
             SH('switchport|Show interface switchport information', (c) => S.showInterfacesSwitchport(c.sim)),
             SH('trunk|Show interface trunk information', (c) => S.showInterfacesTrunk(c.sim))
           ]
@@ -1951,8 +1979,9 @@ function showTree(kind, priv) {
     nodes.push(
       SH('etherchannel|EtherChannel information', (c) => S.showEtherchannelSummary(c.sim), [SH('summary|One-line summary per channel-group', (c) => S.showEtherchannelSummary(c.sim))]),
       K('mac|MAC configuration', [SH('address-table|MAC forwarding table', (c) => S.showMacAddressTable(c.sim))]),
-      SH('port-security|Show secure port information', (c) => S.showPortSecurity(c.sim), [K('interface|Show secure interface', IFACE(kind, [PIPE], { run: (c) => c.print(S.showPortSecurityInterface(c.sim, c.w[3])) }, { types: ['GigabitEthernet'] }))]),
-      SH('spanning-tree|Spanning tree topology', (c) => S.showSpanningTree(c.sim), [K('vlan|VLAN Switch Spanning Trees', [A('<1-4094>|VLAN ID', [PIPE], (c) => c.print(S.showSpanningTree(c.sim, Number(c.w[3]))))])]),
+      K('errdisable|Error disable', [SH('recovery|Error disable recovery', (c) => S.showErrdisableRecovery(c.sim))]),
+      SH('port-security|Show secure port information', (c) => S.showPortSecurity(c.sim), [SH('address|Show secure address', (c) => S.showPortSecurityAddress(c.sim)), K('interface|Show secure interface', IFACE(kind, [PIPE], { run: (c) => c.print(S.showPortSecurityInterface(c.sim, c.w[3])) }, { types: ['GigabitEthernet'] }))]),
+      SH('spanning-tree|Spanning tree topology', (c) => S.showSpanningTree(c.sim), [SH('inconsistentports|Show inconsistent ports', (c) => S.showSpanningTreeInconsistent(c.sim)), K('vlan|VLAN Switch Spanning Trees', [A('<1-4094>|VLAN ID', [PIPE], (c) => c.print(S.showSpanningTree(c.sim, Number(c.w[3]))))])]),
       SH('vlan|VTP VLAN status', (c) => S.showVlanBrief(c.sim), [SH('brief|VTP all VLAN status in brief', (c) => S.showVlanBrief(c.sim))]),
       K('vtp|VTP information', [SH('status|VTP domain status', (c) => S.showVtpStatus(c.sim))])
     )
@@ -1996,7 +2025,10 @@ function execTree(kind, priv) {
           K('nat|Clear NAT', [K('translation|Clear dynamic translation', [K('*|Delete all dynamic translations', [], noop)])]),
           K('ospf|OSPF clear commands', [K('process|Reset OSPF process', [], execClearOspf)])
         ]),
-        K('mac|MAC forwarding table', [K('address-table|MAC forwarding table', [K('dynamic|dynamic entry type', [], noop)])])
+        K('mac|MAC forwarding table', [K('address-table|MAC forwarding table', [K('dynamic|dynamic entry type', [], noop)])]),
+        K('port-security|Clear secure MAC addresses', ['all|All secure MAC addresses', 'configured|Configured secure MAC addresses', 'dynamic|Dynamic secure MAC addresses', 'sticky|Sticky secure MAC addresses'].map((spec) =>
+          K(spec, [K('address|Clear a specific secure MAC address', [A('H.H.H|48 bit mac address', [], execClearPortSecurity)]), K('interface|Clear secure MAC addresses on an interface', IFACE(kind, [], { run: execClearPortSecurity }, { types: ['GigabitEthernet'] }))], execClearPortSecurity)
+        ))
       ]),
       K('clock|Manage the system clock', [
         K('set|Set the time and date', [A('hh:mm:ss|Current Time', [A('<1-31>|Day of the month', [monthArg([year])]), monthArg([A('<1-31>|Day of the month', [year])])])])
@@ -2052,7 +2084,7 @@ function configTree(kind, execRoot) {
       K('password|Assign the privileged level password (MAX of 25 characters)', [A('LINE|The UNENCRYPTED (cleartext) \'enable\' password', [], cfgEnable)], { nrun: cfgEnable }),
       K('secret|Assign the privileged level secret (MAX of 25 characters)', [A('LINE|The UNENCRYPTED (cleartext) \'enable\' secret', [], cfgEnable)], { nrun: cfgEnable })
     ]),
-    K('errdisable|Error disable', [K('recovery|Error disable recovery', [K('cause|Enable error disable recovery for application', ['all', 'bpduguard', 'psecure-violation'].map((c) => K(`${c}|Enable timer to recover from ${c} error disable state`, [], cfgErrdisable))), K('interval|Error disable recovery timer value', [A('<30-86400>|timer-interval(sec)', [], cfgErrdisable)], { nrun: cfgErrdisable })])]),
+    K('errdisable|Error disable', [K('recovery|Error disable recovery', [K('cause|Enable error disable recovery for application', ['all', 'bpduguard', 'channel-misconfig', 'psecure-violation'].map((c) => K(`${c}|Enable timer to recover from ${c} error disable state`, [], cfgErrdisable))), K('interval|Error disable recovery timer value', [A('<30-86400>|timer-interval(sec)', [], cfgErrdisable)], { nrun: cfgErrdisable })])]),
     K('hostname|Set system\'s network name', [A('WORD|This system\'s network name', [], cfgHostname)], { nrun: cfgHostname }),
     K('interface|Select an interface to configure', [...IFACE(kind, [], { run: cfgInterface }, { sub: !sw }), K('range|interface range command', [A('LINE|Interface range, for example GigabitEthernet0/1 - 4', [], cfgInterfaceRange)])]),
     K('ip|Global IP configuration subcommands', [
@@ -2660,7 +2692,7 @@ export function complete(sim, text = '') {
 // =====================================================================
 
 function freshOp(prev) {
-  return { errdisabled: [], violations: {}, ospfRid: null, since: {}, obs: null, pingOk: prev?.pingOk ?? [], arp: [], aclHits: {} }
+  return { errdisabled: [], errInfo: {}, violations: {}, ospfRid: null, since: {}, obs: null, pingOk: prev?.pingOk ?? [], arp: [], aclHits: {}, bootMsgs: [] }
 }
 
 function normalizeEnv(env = {}) {
@@ -2680,7 +2712,7 @@ function normalizeEnv(env = {}) {
  */
 export function createSim(opts = {}) {
   const now = typeof opts.now === 'function' ? opts.now : () => Date.now()
-  const dev = makeDevice(opts.kind === 'switch' ? 'switch' : 'router', { hostname: opts.hostname, baseMac: opts.baseMac })
+  const dev = makeDevice(opts.kind === 'switch' ? 'switch' : 'router', { hostname: opts.hostname, baseMac: opts.baseMac, model: opts.model })
   const sim = {
     dev,
     kind: dev.kind,
@@ -2711,11 +2743,16 @@ export function createSim(opts = {}) {
       const r = runLine(sim, raw)
       while (sim.pending) runLine(sim, '')
       if (r.error) sim.setupErrors.push(`${raw}: ${r.output}`)
+      for (const l of r.lines) if (l.kind === 'log' && BOOT_KEEP.test(l.text)) sim.op.bootMsgs.push(l.text.replace(/^\*?[A-Z][a-z]{2}\s+\d+ [\d:.]+: /, ''))
     }
     sim.mode = { name: 'user' }
     sim.startup = cloneConfig(sim.dev)
     sim.history = []
     sim.stats = { commands: 0, shows: 0, help: 0, enable: false, config: false }
+  }
+  for (const seed of sim.env.errdisabled || []) {
+    errDisable(sim, seed.port, seed.reason)
+    sim.op.bootMsgs.push(...(seed.messages || defaultErrMessages(seed)))
   }
   sim.logBuf = []
   sim.op.obs = null
@@ -2725,15 +2762,27 @@ export function createSim(opts = {}) {
   return sim
 }
 
+// Log messages from setting up a lab that a learner should still see when the console opens.
+const BOOT_KEEP = /ERR_DISABLE|PSECURE_VIOLATION|BLOCK_BPDUGUARD|CHNL_MISCFG|ROOTGUARD_BLOCK|CANNOT_BUNDLE|DIFFVIP/
+
+function defaultErrMessages(seed) {
+  const short = seed.port.replace('GigabitEthernet', 'Gi')
+  if (seed.reason === 'bpduguard') return [`%SPANTREE-2-BLOCK_BPDUGUARD: Received BPDU on port ${seed.port} with BPDU Guard enabled. Disabling port.`, `%PM-4-ERR_DISABLE: bpduguard error detected on ${short}, putting ${short} in err-disable state`]
+  return [`%PM-4-ERR_DISABLE: ${seed.reason} error detected on ${short}, putting ${short} in err-disable state`]
+}
+
 /** A simulator set up for a console lab from labs.js. */
 export function createLabSim(lab, opts = {}) {
-  return createSim({ kind: lab.deviceKind, env: lab.env, startingConfig: lab.startingConfig, ...opts })
+  return createSim({ kind: lab.deviceKind, model: lab.model, env: lab.env, startingConfig: lab.startingConfig, ...opts })
 }
 
 /** Lines shown when the console first opens: the console banner and any standing problems. */
 export function bootLines(sim) {
   const lines = []
-  for (const msg of startupNotices(sim)) {
+  const seen = new Set()
+  for (const msg of [...sim.op.bootMsgs, ...startupNotices(sim)]) {
+    if (seen.has(msg)) continue
+    seen.add(msg)
     const l = `${S.logStamp(sim)}${msg}`
     sim.logBuf.push(l)
     lines.push({ text: l, kind: 'log' })

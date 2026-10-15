@@ -62,7 +62,7 @@ export default function Activity({ spec, done = false, onComplete, standalone = 
   return (
     <section ref={frameRef} className={`activity${compact ? ' compact' : ''}${achieved ? ' achieved' : ''}`} data-group={meta.group} aria-label={spec.title || meta.title}>
       <header className="activity-head">
-        <span className="activity-badge"><MousePointerClick size={13} /> Interactive · {ACTIVITY_GROUPS[meta.group]}</span>
+        <span className="activity-badge"><MousePointerClick size={13} /> <span className="activity-badge-kind">Interactive · </span>{ACTIVITY_GROUPS[meta.group]}</span>
         {(achieved || done) && <span className="stamp good press">Done</span>}
         <button type="button" className="btn btn-ghost btn-sm activity-reset" onClick={reset} title="Start this activity over">
           <RotateCcw size={14} /> Reset
