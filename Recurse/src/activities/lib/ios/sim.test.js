@@ -448,3 +448,109 @@ describe('helpers', () => {
     expect(explainCommand('cisco')).toBeNull()
   })
 })
+
+describe('err-disable, guards and relay (round 2)', () => {
+  /** A clock the test can move forward. */
+  function manualClock() {
+    const c = { t: 1_700_000_000_000 }
+    c.now = () => c.t
+    return c
+  }
+
+  it('err-disables a BPDU guard port, lists it, and recovers on the timer', () => {
+    const c = manualClock()
+    const env = { connected: ['Gi0/1'], neighbors: [{ port: 'Gi0/1', device: 'ROGUE', stp: { priority: 32768, mac: '0000.0000.0009' } }] }
+    const s = createSim({ kind: 'switch', env, now: c.now })
+    const r = run(s, 'en', 'conf t', 'int g0/1', 'switchport mode access', 'spanning-tree portfast', 'spanning-tree bpduguard enable')
+    expect(r.output).toContain('%SPANTREE-2-BLOCK_BPDUGUARD: Received BPDU on port GigabitEthernet0/1 with BPDU Guard enabled. Disabling port.')
+    expect(r.output).toContain('%PM-4-ERR_DISABLE: bpduguard error detected on Gi0/1, putting Gi0/1 in err-disable state')
+    run(s, 'end')
+    expect(run(s, 'show interfaces status err-disabled').output).toMatch(/Gi0\/1\s+err-disabled bpduguard/)
+    run(s, 'conf t', 'errdisable recovery cause bpduguard', 'errdisable recovery interval 30')
+    c.t += 31_000
+    const again = run(s, 'do show clock')
+    expect(again.output).toContain('%PM-4-ERR_RECOVER: Attempting to recover from bpduguard err-disable state on Gi0/1')
+    expect(again.output).toContain('%SPANTREE-2-BLOCK_BPDUGUARD')
+  })
+
+  it('needs shutdown before no shutdown clears err-disabled', () => {
+    const s = createSim({ kind: 'switch', now: clock(), env: { connected: ['Gi0/5'], neighbors: [{ port: 'Gi0/5', kind: 'host', mac: '0050.7966.6805' }], errdisabled: [{ port: 'Gi0/5', reason: 'bpduguard' }] } })
+    run(s, 'en', 'conf t', 'int g0/5', 'no shutdown')
+    expect(s.op.errdisabled).toContain('GigabitEthernet0/5')
+    run(s, 'shutdown', 'no shutdown')
+    expect(s.op.errdisabled).toEqual([])
+  })
+
+  it('blocks a superior BPDU with root guard', () => {
+    const env = { connected: ['Gi0/24'], neighbors: [{ port: 'Gi0/24', device: 'SW4', trunk: { mode: 'trunk' }, stp: { priority: 0, mac: '0019.e86a.c800' } }] }
+    const s = createSim({ kind: 'switch', env, now: clock() })
+    run(s, 'en', 'conf t', 'int g0/24', 'switchport mode trunk')
+    const r = run(s, 'spanning-tree guard root')
+    expect(r.output).toContain('%SPANTREE-2-ROOTGUARD_CONFIG_CHANGE: Root guard enabled on port GigabitEthernet0/24.')
+    expect(r.output).toContain('%SPANTREE-2-ROOTGUARD_BLOCK: Root guard blocking port GigabitEthernet0/24 on VLAN0001.')
+    run(s, 'end')
+    const st = run(s, 'show spanning-tree vlan 1').output
+    expect(st).toContain('This bridge is the root')
+    expect(st).toMatch(/Gi0\/24\s+Desg BKN\*4\s+128\.24\s+P2p \*ROOT_Inc/)
+    expect(run(s, 'show spanning-tree inconsistentports').output).toContain('VLAN0001             GigabitEthernet0/24      Root Inconsistent')
+  })
+
+  it('clears sticky MACs and creates a missing voice VLAN', () => {
+    const s = sw()
+    run(s, 'en', 'conf t', 'int g0/3', 'switchport mode access', 'switchport port-security mac-address sticky 0050.7966.aaaa', 'switchport port-security')
+    expect(run(s, 'switchport voice vlan 150').output).toBe('% Voice VLAN does not exist. Creating vlan 150')
+    run(s, 'end', 'clear port-security sticky interface g0/3')
+    expect(s.dev.interfaces['GigabitEthernet0/3'].portSecurity.stickyMacs).toEqual([])
+  })
+
+  it('suspends a member whose trunk settings differ from the port-channel', () => {
+    const env = { connected: ['Gi0/1', 'Gi0/2'], neighbors: [{ port: 'Gi0/1', channel: 'active', trunk: { mode: 'trunk' } }, { port: 'Gi0/2', channel: 'active', trunk: { mode: 'trunk' } }] }
+    const s = createSim({ kind: 'switch', env, now: clock() })
+    run(s, 'en', 'conf t', 'int range g0/1 - 2', 'switchport mode trunk', 'channel-group 1 mode active', 'int g0/2')
+    const r = run(s, 'switchport trunk allowed vlan 10')
+    expect(r.output).toContain('%EC-5-CANNOT_BUNDLE2: Gi0/2 is not compatible with Po1 and will be suspended (vlan mask is different)')
+    expect(run(s, 'do show etherchannel summary').output).toMatch(/Gi0\/1\(P\)\s+Gi0\/2\(s\)/)
+  })
+
+  it('relays DHCP with ip helper-address and shows the client in ARP', () => {
+    const env = {
+      connected: ['Gi0/0', 'Gi0/1'],
+      neighbors: [{ port: 'Gi0/1', ip: '10.0.12.1' }],
+      dhcpClients: [{ port: 'Gi0/0', mac: '0050.7966.6801' }],
+      dhcpServers: [{ ip: '10.0.12.1', pools: [{ network: '10.0.2.0', len: 24, start: '10.0.2.11' }] }]
+    }
+    const s = router({ env })
+    run(s, 'en', 'conf t', 'int g0/1', 'ip add 10.0.12.2 255.255.255.252', 'no shut', 'int g0/0', 'ip add 10.0.2.1 255.255.255.0', 'no shut', 'end')
+    expect(run(s, 'show ip arp').output).not.toContain('10.0.2.11')
+    run(s, 'conf t', 'int g0/0', 'ip helper-address 10.0.12.1', 'end')
+    expect(run(s, 'show ip interface g0/0').output).toContain('  Helper address is 10.0.12.1')
+    expect(run(s, 'show ip arp').output).toMatch(/Internet {2}10\.0\.2\.11\s+0\s+0050\.7966\.6801\s+ARPA\s+GigabitEthernet0\/0/)
+    expect(run(s, 'ping 10.0.2.11').output).toContain('Success rate is 100 percent')
+  })
+
+  it('warns when the local HSRP virtual IP differs from the active router', () => {
+    const env = { connected: ['Gi0/0'], neighbors: [{ port: 'Gi0/0', ip: '192.168.1.3', hsrp: { group: 10, priority: 100, active: true, ip: '192.168.1.254' } }] }
+    const s = router({ env })
+    run(s, 'en', 'conf t', 'int g0/0', 'ip add 192.168.1.2 255.255.255.0', 'no shut')
+    const r = run(s, 'standby 10 ip 192.168.1.253')
+    expect(r.output).toContain('%HSRP-4-DIFFVIP1: GigabitEthernet0/0 Grp 10 active routers virtual IP address 192.168.1.254 is different to the locally configured address 192.168.1.253')
+    expect(run(s, 'no standby 10').output).toContain('state Standby -> Init')
+  })
+
+  it('shows !.!.! when only some equal-cost paths reach the destination', () => {
+    const env = { connected: ['Gi0/0', 'Gi0/1'], neighbors: [{ port: 'Gi0/0', ip: '10.0.1.2', behind: ['192.168.9.0/24'] }, { port: 'Gi0/1', ip: '10.0.2.2', behind: [] }] }
+    const s = router({ env })
+    run(s, 'en', 'conf t', 'int g0/0', 'ip add 10.0.1.1 255.255.255.252', 'no shut', 'int g0/1', 'ip add 10.0.2.1 255.255.255.252', 'no shut', 'exit', 'ip route 0.0.0.0 0.0.0.0 10.0.1.2', 'ip route 0.0.0.0 0.0.0.0 10.0.2.2', 'end')
+    expect(run(s, 'ping 192.168.9.9').output).toContain('!.!.!\nSuccess rate is 60 percent (3/5)')
+    expect(s.op.pingOk).toEqual([])
+  })
+
+  it('offers a multilayer switch model with routed ports', () => {
+    const s = createSim({ kind: 'switch', model: 'l3switch', now: clock() })
+    expect(run(s, 'en', 'show version').output).toContain('C3560 Software (C3560-IPSERVICESK9-M)')
+    run(s, 'conf t', 'int g0/24')
+    expect(run(s, 'ip address 10.0.0.2 255.255.255.252').output).toBe('% IP addresses may not be configured on L2 links.')
+    run(s, 'no switchport', 'ip address 10.0.0.2 255.255.255.252')
+    expect(run(s, 'do show running-config interface g0/24').output).toContain('interface GigabitEthernet0/24\n no switchport\n ip address 10.0.0.2 255.255.255.252')
+  })
+})

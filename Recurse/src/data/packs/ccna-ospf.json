@@ -1,7 +1,7 @@
 {
   "id": "ccna-ospf",
   "name": "OSPF",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "author": "Recurse",
   "subject": "networking",
   "level": "intermediate",
@@ -20,14 +20,53 @@
     "link-state",
     "dr-bdr"
   ],
+  "resources": [
+    {
+      "title": "Free CCNA 200-301 course (Jeremy's IT Lab)",
+      "url": "https://www.youtube.com/playlist?list=PLxbwE86jKRgMpuZuLBivzlM8s2Dk5lXBQ",
+      "kind": "video",
+      "note": "Free video course; its OSPF days follow the same order as this pack."
+    },
+    {
+      "title": "Understand OSPF Neighbor States",
+      "url": "https://www.cisco.com/c/en/us/support/docs/ip/open-shortest-path-first-ospf/13685-13.html",
+      "kind": "docs",
+      "note": "Cisco walks through Down to Full and what each stuck state means."
+    },
+    {
+      "title": "Understand Show IP OSPF Neighbor Command Output",
+      "url": "https://www.cisco.com/c/en/us/support/docs/ip/open-shortest-path-first-ospf/13688-16.html",
+      "kind": "docs",
+      "note": "Every column of the neighbor table, including DR, BDR and DROTHER roles."
+    },
+    {
+      "title": "What Does the show ip ospf interface Command Reveal",
+      "url": "https://www.cisco.com/c/en/us/support/docs/ip/open-shortest-path-first-ospf/13689-17.html",
+      "kind": "docs",
+      "note": "Line-by-line guide to network type, timers, priority and DR fields."
+    },
+    {
+      "title": "Troubleshoot OSPF Neighbor Problems",
+      "url": "https://www.cisco.com/c/en/us/support/docs/ip/open-shortest-path-first-ospf/13699-29.html",
+      "kind": "docs",
+      "note": "Cisco checklist for neighbors that never appear or never reach Full."
+    },
+    {
+      "title": "CCNA 200-301 Official Cert Guide, Volume 1 (Wendell Odom)",
+      "url": "https://www.ciscopress.com/store/ccna-200-301-official-cert-guide-volume-1-9780135792735",
+      "kind": "book",
+      "note": "Chapters 19 to 21 cover single-area OSPFv2; the source this pack follows."
+    }
+  ],
   "lesson": {
-    "estimatedMinutes": 40,
-    "intro": "OSPF is the routing protocol the CCNA tests in depth: how routers become neighbors, how they share a map of the network and calculate the best paths, and how you configure and verify it on Cisco IOS. This lesson covers single-area OSPFv2 from the link-state idea through router IDs, neighbor states, DR/BDR elections, cost, configuration and troubleshooting.",
+    "estimatedMinutes": 48,
+    "intro": "OSPF is the routing protocol the CCNA tests in depth: how routers become neighbors, how they share a map of the network and calculate the best paths, and how you configure and verify it on Cisco IOS. This lesson covers single-area OSPFv2 from the link-state idea through router IDs, neighbor states and requirements, broadcast and point-to-point network types, DR/BDR elections, cost, configuration and troubleshooting, with the show output you will meet on the exam.",
     "objectives": [
       "Explain how link-state routing uses LSAs, the LSDB and SPF to build routes",
       "Predict a router ID, a DR/BDR election and a route's OSPF cost from given settings",
+      "List the neighbor requirements and tell a missing neighbor from a stuck one, including MTU and network type mismatches",
       "Configure single-area OSPFv2 with network commands or interface commands, passive interfaces and a default route",
-      "Diagnose missing or stuck neighbors and missing routes from show command output"
+      "Read show ip ospf neighbor, show ip ospf interface, show ip protocols and show ip ospf database to diagnose problems"
     ],
     "sections": [
       {
@@ -51,10 +90,18 @@
       },
       {
         "title": "Hellos, timers and the router ID",
-        "body": "The moment OSPF is enabled on an interface, the router starts sending **Hello** packets out of it, by default every 10 seconds, to the multicast address **224.0.0.5** (all OSPF routers). OSPF runs directly over IP as protocol 89, not over TCP or UDP. Hellos do two jobs: they discover neighbors, and they keep proving each neighbor is still alive.\n\nA Hello carries the sender's router ID, its area ID, its Hello and dead intervals, the subnet mask of the interface, authentication data, its priority, the DR and BDR it knows about, and the list of neighbors it has heard on that link. Several of those fields must match before two routers become neighbors (next section).\n\nThe **dead interval** defaults to 40 seconds, four times the Hello. If a router hears no Hello from a neighbor for that long, it declares the neighbor down, floods the change and reruns SPF.\n\nEvery OSPF router needs a **router ID (RID)**: a 32-bit number written like an IPv4 address that must be unique in the OSPF domain. It shows up everywhere (neighbor lists, LSAs, the DR election). A router picks its RID once, when the OSPF process starts, in this order:\n\n- The value of the `router-id` command under `router ospf`, if configured.\n- Otherwise, the highest IP address on any loopback interface that is up.\n- Otherwise, the highest IP address on any other interface whose status is up.\n\nLoopbacks are popular for RIDs because they never go down on their own. Most engineers simply set the RID with `router-id`, so it is predictable and easy to read in output.\n\nBecause the RID is chosen only at startup, changing it on a running process does nothing until the process restarts. IOS even tells you so: use `clear ip ospf process` (which briefly resets every adjacency) or reload.",
+        "body": "The moment OSPF is enabled on an interface, the router starts sending **Hello** packets out of it, by default every 10 seconds, to the multicast address **224.0.0.5** (all OSPF routers). OSPF runs directly over IP as protocol 89, not over TCP or UDP. Hellos do two jobs: they discover neighbors, and they keep proving each neighbor is still alive.\n\nA Hello carries the sender's router ID, its area ID, its Hello and dead intervals, the subnet mask of the interface, authentication data, its priority, the DR and BDR it knows about, and the list of neighbors it has heard on that link. Several of those fields must match before two routers become neighbors (two sections ahead).\n\nThe **dead interval** defaults to 40 seconds, four times the Hello. If a router hears no Hello from a neighbor for that long, it declares the neighbor down, floods the change and reruns SPF.\n\nEvery OSPF router needs a **router ID (RID)**: a 32-bit number written like an IPv4 address that must be unique in the OSPF domain. It shows up everywhere (neighbor lists, LSAs, the DR election). A router picks its RID once, when the OSPF process starts, in this order:\n\n- The value of the `router-id` command under `router ospf`, if configured.\n- Otherwise, the highest IP address on any loopback interface that is up.\n- Otherwise, the highest IP address on any other interface whose status is up.\n\nLoopbacks are popular for RIDs because they never go down on their own. Most engineers simply set the RID with `router-id`, so it is predictable and easy to read in output.\n\nBecause the RID is chosen only at startup, changing it on a running process does nothing until the process restarts. IOS even tells you so: use `clear ip ospf process` (which briefly resets every adjacency) or reload.",
         "code": "! OSPF process 1 is already running with RID 192.168.1.1\nR1(config)# router ospf 1\nR1(config-router)# router-id 1.1.1.1\n% OSPF: Reload or use \"clear ip ospf process\" command, for this to take effect\nR1(config-router)# end\nR1# clear ip ospf process\nReset ALL OSPF processes? [no]: yes\nR1# show ip ospf | include ID\n Routing Process \"ospf 1\" with ID 1.1.1.1",
         "tip": "Set the RID explicitly with router-id. Predictable RIDs make every show command easier to read and avoid surprises in DR elections.",
         "pitfall": "Adding a loopback or a router-id command and expecting the RID to change immediately. It changes only after clear ip ospf process or a reload.",
+        "activity": {
+          "type": "ios-console",
+          "title": "Watch the router ID change",
+          "prompt": "In this free sandbox, R2 (router ID 2.2.2.2) waits on G0/1. Address G0/1 as 10.0.12.1 255.255.255.252 and bring it up, then configure router ospf 1 with network 10.0.12.0 0.0.0.3 area 0. Run show ip ospf and explain the router ID R1 chose. Now add router-id 1.1.1.1, read the warning, run clear ip ospf process (answer yes) and check show ip ospf and show ip ospf neighbor again.",
+          "props": {
+            "device": "router"
+          }
+        },
         "check": {
           "question": "R2 has no router-id command. Loopback0 is 2.2.2.2 (up), G0/0 is 10.1.12.2 (up) and G0/1 is 192.168.2.1 (up). Which RID does R2 choose?",
           "choices": [
@@ -68,9 +115,27 @@
         }
       },
       {
-        "title": "Becoming neighbors: states and requirements",
-        "body": "R1 and R2 are cabled together and OSPF is enabled on both ends. Before they share a single route, they walk through a series of **neighbor states**. You can see each one in `show ip ospf neighbor` and in log messages, so knowing them tells you exactly where a relationship is stuck.\n\n- **Down:** no Hello heard from this neighbor yet (or it timed out).\n- **Init:** R1 has received a Hello from R2, but R2's Hello does not yet list R1's RID. Communication is one-way so far.\n- **2-Way:** each router sees its own RID in the other's Hello. Two-way communication works. On a LAN the DR/BDR election happens here, and two routers that are neither DR nor BDR stay in 2-Way permanently.\n- **ExStart:** the two routers decide who leads the database exchange (the higher RID becomes master) and agree on sequence numbers.\n- **Exchange:** they send Database Description (DBD) packets that summarize the LSAs each one holds.\n- **Loading:** each router requests the LSAs it is missing (Link-State Requests) and receives them in Link-State Updates, acknowledged with Link-State Acks.\n- **Full:** the LSDBs are synchronized. They are now fully adjacent.\n\nTwo routers become neighbors only when their Hellos agree on several things. If any of these is wrong, the neighbor never appears in `show ip ospf neighbor`:\n\n- Both interfaces up/up, OSPF enabled on them, not passive, and no ACL blocking OSPF.\n- Same subnet and mask on the link.\n- Same area ID.\n- Same Hello and dead intervals.\n- Matching authentication, if configured.\n- Unique router IDs (a duplicate RID breaks the relationship and logs an error).\n\nTwo more mismatches let the neighbor appear but break the exchange: an **MTU mismatch** leaves the pair stuck in ExStart or Exchange, and a **network type mismatch** (broadcast on one end, point-to-point on the other) can reach Full while routes go missing.\n\nOne thing that does not need to match: the **process ID** in `router ospf 1`. It is local to each router, so R1 can run process 1 while R2 runs process 10.",
-        "code": "*Oct 14 10:02:11.427: %OSPF-5-ADJCHG: Process 1, Nbr 2.2.2.2 on GigabitEthernet0/0 from LOADING to FULL, Loading Done\n\n! A neighbor stuck partway through (here, an MTU mismatch)\nR1# show ip ospf neighbor\nNeighbor ID     Pri   State           Dead Time   Address         Interface\n2.2.2.2           1   EXSTART/DR      00:00:36    10.1.12.2       GigabitEthernet0/0",
+        "title": "Becoming neighbors: states and the packets behind them",
+        "body": "R1 and R2 are cabled together and OSPF is enabled on both ends. Before they share a single route, they walk through a series of **neighbor states**. You can see each one in `show ip ospf neighbor` and in log messages, so knowing them tells you exactly where a relationship is stuck.\n\n- **Down:** no Hello heard from this neighbor yet (or it timed out).\n- **Init:** R1 has received a Hello from R2, but R2's Hello does not yet list R1's RID. Communication is one-way so far.\n- **2-Way:** each router sees its own RID in the other's Hello. Two-way communication works. On a LAN the DR/BDR election happens here, and two routers that are neither DR nor BDR stay in 2-Way permanently.\n- **ExStart:** the two routers decide who leads the database exchange (the higher RID becomes master) and agree on sequence numbers.\n- **Exchange:** they send Database Description packets that summarize the LSAs each one holds.\n- **Loading:** each router requests the LSAs it is missing and receives them.\n- **Full:** the LSDBs are synchronized. The two routers are now **fully adjacent**.\n\nFive OSPF packet types drive those states, all carried directly in IP as protocol 89:\n\n- **Hello:** discovers neighbors and keeps proving they are alive (Down, Init, 2-Way).\n- **Database Description (DBD):** summarizes the LSAs a router holds (ExStart, Exchange).\n- **Link-State Request (LSR):** asks for LSAs the router is missing (Loading).\n- **Link-State Update (LSU):** carries complete LSAs, during Loading and whenever something changes later.\n- **Link-State Acknowledgment (LSAck):** confirms each LSU, which makes flooding reliable.\n\nOnce two routers are Full they stay quiet apart from Hellos; LSUs flow only when a link changes or an LSA's 30-minute refresh comes due. The log message `from LOADING to FULL, Loading Done` marks a completed adjacency, and the reverse message usually names the reason, such as `Dead timer expired`.",
+        "code": "*Oct 14 10:02:11.427: %OSPF-5-ADJCHG: Process 1, Nbr 2.2.2.2 on GigabitEthernet0/0 from LOADING to FULL, Loading Done\n*Oct 14 11:47:03.112: %OSPF-5-ADJCHG: Process 1, Nbr 2.2.2.2 on GigabitEthernet0/0 from FULL to DOWN, Neighbor Down: Dead timer expired\n\nPacket   States it drives          Job\nHello    Down, Init, 2-Way         discover neighbors, keepalive\nDBD      ExStart, Exchange         summarize the LSDB\nLSR      Loading                   request missing LSAs\nLSU      Loading, later changes    carry the LSAs themselves\nLSAck    after every LSU           acknowledge, so flooding is reliable",
+        "tip": "Read the state like a progress bar: stuck before 2-Way points at Hello problems, stuck after 2-Way points at the database exchange.",
+        "pitfall": "Treating 2-Way as a failure on a LAN. Two DROthers stay 2-Way with each other by design; only the DR and BDR need Full with everyone.",
+        "check": {
+          "question": "During the Loading state, which OSPF packet does a router send to ask its neighbor for the LSAs it is missing?",
+          "choices": [
+            "Hello",
+            "Database Description (DBD)",
+            "Link-State Request (LSR)",
+            "Link-State Acknowledgment (LSAck)"
+          ],
+          "answer": 2,
+          "explanation": "DBD packets in Exchange tell each router what the other has; in Loading it asks for what it lacks with LSRs and receives the LSAs in LSUs, each acknowledged with an LSAck. Hellos only handle discovery and keepalives."
+        }
+      },
+      {
+        "title": "Neighbor requirements: missing or stuck",
+        "body": "When an expected neighbor is not working, ask one question first: does it appear in `show ip ospf neighbor` at all? The source book sorts every OSPF neighbor requirement by that symptom.\n\n**The neighbor never appears** if any of these is wrong, because Hellos are not sent, not received or rejected:\n\n- Both interfaces are up/up, OSPF is enabled on them and not passive, and no ACL filters OSPF.\n- Same subnet and mask on the link.\n- Same area ID.\n- Same Hello and dead intervals.\n- Matching authentication, if configured.\n- Unique router IDs. A duplicate logs `%OSPF-4-DUP_RTRID_NBR`.\n- The OSPF process is not shut down. `shutdown` under `router ospf 1` keeps the configuration but drops every neighbor, empties the LSDB and removes the OSPF routes. `show ip ospf` then says `Routing Process is shutdown`, and `show ip ospf interface brief` still lists the interfaces, in state DOWN.\n\n**The neighbor appears but the relationship does not work** in two cases:\n\n- The **IP MTU** differs. The routers reach 2-Way, then stall in ExStart or Exchange because the database exchange fails, and the attempt eventually times out.\n- The **OSPF network type** differs (broadcast on one end, point-to-point on the other). The routers reach Full but do not install each other's routes. The next two sections explain the types.\n\nEach requirement has a quick check: `show ip ospf interface` shows area, timers and network type; `show ip ospf interface brief` shows the area per interface; `show ip ospf` shows the RID and whether the process is shut down; `show interfaces` shows the MTU.\n\nSome settings do **not** need to match. The process ID in `router ospf 1` is local to each router, so R1 can run process 1 while R2 runs process 10. Priorities and interface costs can differ too.",
+        "code": "! Listed, but stuck before Full (here, an MTU mismatch)\nR1# show ip ospf neighbor\nNeighbor ID     Pri   State           Dead Time   Address         Interface\n2.2.2.2           1   EXSTART/DR      00:00:36    10.1.12.2       GigabitEthernet0/0\n\n! Not listed at all: the OSPF process was shut down on R5\nR5# show ip ospf\n Routing Process \"ospf 1\" with ID 5.5.5.5\n Start time: 5d23h, Time elapsed: 1d04h\n Routing Process is shutdown\nR5# show ip ospf interface brief\nInterface    PID   Area            IP Address/Mask    Cost  State Nbrs F/C\nGi0/1        1     0               10.1.12.1/24       1     DOWN  0/0\nGi0/2        1     0               10.1.13.1/24       1     DOWN  0/0",
         "tip": "Neighbor missing entirely: check Hello parameters (area, subnet, timers, authentication, RID). Neighbor stuck in ExStart or Exchange: check MTU.",
         "pitfall": "Changing the OSPF process ID to \"match\" the neighbor. Process IDs are locally significant and never need to match.",
         "check": {
@@ -86,9 +151,9 @@
         }
       },
       {
-        "title": "Network types: broadcast, point-to-point, DR and BDR",
-        "body": "Five routers share one Ethernet VLAN. If every router formed a full adjacency with every other, that would be 10 adjacencies, and one link change would trigger a storm of duplicate LSAs. OSPF prevents this on multiaccess links by electing a **designated router (DR)** and a **backup designated router (BDR)**.\n\nOn such a link every router becomes fully adjacent with the DR and BDR only. Routers that are neither (called **DROthers**) stay in the 2-Way state with each other, and that is normal. DROthers send their updates to the DR and BDR at **224.0.0.6**, and the DR refloods them to everyone at 224.0.0.5. The DR also creates the type 2 Network LSA for the subnet.\n\nThe election:\n\n- Highest OSPF interface **priority** wins (0 to 255, default 1).\n- If priorities tie, the highest **router ID** wins.\n- Priority 0 means the router never becomes DR or BDR on that link.\n\nThe election is **not preemptive**. Once a DR and BDR exist, a router that joins later with a higher priority does not take over. If the DR fails, the BDR is promoted and a new BDR is elected. So setting `ip ospf priority 100` on a running LAN changes nothing until the next election.\n\nWhether a link uses a DR depends on its **OSPF network type**, a per-interface setting:\n\n- **broadcast:** the default on Ethernet. Discovers neighbors with multicast Hellos and elects a DR/BDR. Timers 10/40.\n- **point-to-point:** the default on serial links (HDLC, PPP). Discovers neighbors dynamically but never elects a DR/BDR, since only two routers can be on the link. Timers 10/40.\n\nAn Ethernet link between exactly two routers gains nothing from a DR, so engineers often set `ip ospf network point-to-point` on both ends. Adjacencies form faster (no election and no wait timer), and `show ip ospf neighbor` shows `FULL/  -`, the dash meaning \"no DR on this link\".",
-        "code": "R3(config)# interface g0/0\nR3(config-if)# ip ospf priority 100\nR3(config-if)# interface g0/1\nR3(config-if)# ip ospf network point-to-point\nR3(config-if)# end\nR3# show ip ospf neighbor\nNeighbor ID     Pri   State           Dead Time   Address         Interface\n1.1.1.1           1   2WAY/DROTHER    00:00:35    10.1.1.1        GigabitEthernet0/0\n2.2.2.2           1   2WAY/DROTHER    00:00:33    10.1.1.2        GigabitEthernet0/0\n4.4.4.4           1   FULL/BDR        00:00:39    10.1.1.4        GigabitEthernet0/0\n5.5.5.5           1   FULL/DR         00:00:31    10.1.1.5        GigabitEthernet0/0\n6.6.6.6           0   FULL/  -        00:00:38    10.1.36.6       GigabitEthernet0/1\n! R3 is still a DROTHER on G0/0: priority 100 waits for the next election",
+        "title": "Broadcast networks: DR and BDR",
+        "body": "Five routers share one Ethernet VLAN. If every router formed a full adjacency with every other, that would be 10 adjacencies, and one link change would trigger a storm of duplicate LSAs. OSPF avoids this with the network type Ethernet interfaces use by default, **broadcast**: routers discover neighbors with multicast Hellos to 224.0.0.5 and elect a **designated router (DR)** and a **backup designated router (BDR)**.\n\nEvery router becomes fully adjacent with the DR and BDR only. Routers that are neither, called **DROthers**, stay in the 2-Way state with each other, and that is normal. DROthers send their updates to the DR and BDR at **224.0.0.6**, and the DR refloods them to everyone at 224.0.0.5. The DR also creates the type 2 Network LSA for the subnet.\n\nThe election:\n\n- Highest OSPF interface **priority** wins (0 to 255, default 1), set per interface with `ip ospf priority`.\n- If priorities tie, the highest **router ID** wins.\n- Priority 0 means the router never becomes DR or BDR on that link.\n\nThe election is **not preemptive**. Once a DR and BDR exist, a router that joins later with a higher priority does not take over. If the DR fails, the BDR is promoted and a new BDR is elected. So `ip ospf priority 100` on a running LAN changes nothing until the next election. Compare STP, where the lowest value wins and a better switch takes the root role at once.\n\nReading the roles from output:\n\n- `show ip ospf neighbor` shows each neighbor's role after the slash: `FULL/DR`, `FULL/BDR`, `2WAY/DROTHER`. A router that is itself the DR or BDR shows `FULL/DROTHER` for the others.\n- `show ip ospf interface brief` shows your own role (`DR`, `BDR`, `DROTH`) and `Nbrs F/C`, full adjacencies over total neighbors. A DROther on a four-router LAN shows `2/3`.\n- `show ip ospf interface` names the DR and BDR by router ID and interface address.",
+        "code": "R1# show ip ospf neighbor\nNeighbor ID     Pri   State           Dead Time   Address         Interface\n2.2.2.2           1   2WAY/DROTHER    00:00:35    10.1.1.2        GigabitEthernet0/0\n3.3.3.3           1   FULL/BDR        00:00:33    10.1.1.3        GigabitEthernet0/0\n4.4.4.4           1   FULL/DR         00:00:35    10.1.1.4        GigabitEthernet0/0\n\nR1# show ip ospf interface brief\nInterface    PID   Area            IP Address/Mask    Cost  State Nbrs F/C\nGi0/1        1     0               10.1.11.1/24       1     DR    0/0\nGi0/0        1     0               10.1.1.1/24        1     DROTH 2/3\n\nR1# show ip ospf interface g0/0\nGigabitEthernet0/0 is up, line protocol is up\n  Internet Address 10.1.1.1/24, Area 0, Attached via Interface Enable\n  Process ID 1, Router ID 1.1.1.1, Network Type BROADCAST, Cost: 1\n  Transmit Delay is 1 sec, State DROTHER, Priority 1\n  Designated Router (ID) 4.4.4.4, Interface address 10.1.1.4\n  Backup Designated router (ID) 3.3.3.3, Interface address 10.1.1.3\n  Timer intervals configured, Hello 10, Dead 40, Wait 40, Retransmit 5\n  ! lines omitted\n  Neighbor Count is 3, Adjacent neighbor count is 2\n    Adjacent with neighbor 3.3.3.3  (Backup Designated Router)\n    Adjacent with neighbor 4.4.4.4  (Designated Router)",
         "tip": "2WAY/DROTHER between two DROthers is healthy. FULL is expected only with the DR and BDR on a LAN, and with the one neighbor on a point-to-point link.",
         "pitfall": "Expecting a new higher-priority router to take over as DR at once. DR elections never preempt; the role changes only when the DR or BDR fails or the process restarts.",
         "check": {
@@ -101,6 +166,24 @@
           ],
           "answer": 1,
           "explanation": "Priority is compared first, so R2's 50 beats everyone's 1 and R2 is DR. The rest tie at priority 1, so the highest RID, 4.4.4.4, becomes BDR. Lowest values never win an OSPF election."
+        }
+      },
+      {
+        "title": "Point-to-point networks",
+        "body": "Some links can only ever hold two routers: a serial link running HDLC or PPP, or an Ethernet WAN service (an E-Line) that connects exactly two sites. Electing a DR there gains nothing and costs time, because the routers wait for the election before they become adjacent.\n\nThe OSPF **point-to-point** network type is built for these links. It still discovers the neighbor dynamically with Hellos to 224.0.0.5 and the same 10/40 timers, but it never elects a DR or BDR, and the one neighbor goes straight to Full. It is the default on serial interfaces. Ethernet interfaces default to broadcast even when only two routers are connected, so engineers commonly add `ip ospf network point-to-point` on both ends of router-to-router Ethernet links.\n\nHow it looks:\n\n- `show ip ospf interface` says `Network Type POINT_TO_POINT` and `State POINT_TO_POINT`, with no DR or BDR lines.\n- `show ip ospf interface brief` shows the state `P2P` and `1/1` neighbors.\n- `show ip ospf neighbor` shows `FULL/  -`. The dash means \"no DR on this link\", and the Pri column shows 0 because priority is irrelevant without an election.\n\nConfigure it on **both** ends. If one side is point-to-point and the other broadcast, the symptom is unusual: the routers still reach Full and exchange their databases, but they do not add each other's routes, because each expects the link to be described differently in the LSAs. IOS logs `%OSPF-4-NET_TYPE_MISMATCH`, and the giveaway in `show ip ospf neighbor` is that one router lists the neighbor as `FULL/  -` while the other lists `FULL/DR` or `FULL/BDR`.",
+        "code": "R1(config)# interface g0/0/0\nR1(config-if)# ip ospf network point-to-point\nR1(config-if)# end\nR1# show ip ospf interface g0/0/0\nGigabitEthernet0/0/0 is up, line protocol is up\n  Internet Address 10.1.12.1/24, Area 0, Attached via Interface Enable\n  Process ID 1, Router ID 1.1.1.1, Network Type POINT_TO_POINT, Cost: 1\n  Transmit Delay is 1 sec, State POINT_TO_POINT\n  Timer intervals configured, Hello 10, Dead 40, Wait 40, Retransmit 5\n  ! lines omitted\n  Neighbor Count is 1, Adjacent neighbor count is 1\n    Adjacent with neighbor 2.2.2.2\nR1# show ip ospf neighbor\nNeighbor ID     Pri   State           Dead Time   Address         Interface\n2.2.2.2           0   FULL/  -        00:00:39    10.1.12.2       GigabitEthernet0/0/0\nR1# show ip ospf interface brief\nInterface    PID   Area            IP Address/Mask    Cost  State Nbrs F/C\nGi0/0/0      1     0               10.1.12.1/24       1     P2P   1/1\n\nNetwork type     Default on            DR/BDR   Hello/Dead\nbroadcast        Ethernet              yes      10/40\npoint-to-point   serial (HDLC, PPP)    no       10/40",
+        "tip": "Two routers on an Ethernet link? Set ip ospf network point-to-point on both ends: no election, a faster adjacency and FULL/ - in the neighbor table.",
+        "pitfall": "Configuring point-to-point on only one end. Both routers still show FULL, so the mismatch hides until you notice the routes are missing.",
+        "check": {
+          "question": "R1 lists its neighbor on G0/1 as `FULL/  -`. What does the dash mean?",
+          "choices": [
+            "The neighbor is down and will be removed when the dead timer expires",
+            "The neighbor has priority 0 on a broadcast link and lost the DR election",
+            "G0/1 uses the point-to-point network type, so no DR or BDR exists on the link",
+            "The neighbor is the DR, shown in short form"
+          ],
+          "answer": 2,
+          "explanation": "On point-to-point links there is no election, so the role field is a dash. A priority 0 router on a broadcast link is still a DROther and shows FULL/DROTHER or 2WAY/DROTHER, and a down neighbor is not listed as FULL."
         }
       },
       {
@@ -155,7 +238,7 @@
       },
       {
         "title": "Interface configuration, passive interfaces and the default route",
-        "body": "Wildcard math is error prone, so IOS offers a second style: enable OSPF directly on each interface with `ip ospf 1 area 0`. The effect is identical (Hellos on that interface, its subnet advertised), and the configuration sits right next to the interface's address, where nobody can misread it. `show ip protocols` then lists the interfaces under \"Routing on Interfaces Configured Explicitly\". You can mix both styles, though most networks pick one.\n\nNow look at R1's G0/1, a LAN full of PCs. OSPF is enabled there so the 192.168.1.0/24 subnet gets advertised, which also means R1 sends Hellos to the PCs every 10 seconds. That is wasted traffic, and worse, anyone who plugs a router into that LAN could form an adjacency and inject routes. The fix is a **passive interface**:\n\n- `passive-interface g0/1` under `router ospf 1`. OSPF still advertises the interface's subnet but stops sending Hellos on it and ignores Hellos received there, so no neighbor can form.\n- Or flip the default: `passive-interface default`, then `no passive-interface g0/0` for each interface that really needs neighbors. This is shorter on a router with many LAN interfaces.\n\nLoopback interfaces are advertised too, and OSPF advertises them as /32 host routes by default, whatever mask you configured.\n\nFinally, the **default route**. R1 connects to the internet with a static default route toward the ISP. The other routers need a default route pointing toward R1. Rather than configuring each one, add `default-information originate` under `router ospf 1` on R1. R1 then advertises 0.0.0.0/0 into OSPF, and the other routers learn it as `O*E2` (an external type 2 route, metric 1 by default). R1 advertises it only while R1 itself has a default route; `default-information originate always` advertises it regardless.",
+        "body": "Wildcard math is error prone, so IOS offers a second style: enable OSPF directly on each interface with `ip ospf 1 area 0`. The effect is identical (Hellos on that interface, its subnet advertised), and the configuration sits right next to the interface's address, where nobody can misread it. `show ip protocols` then lists the interfaces under \"Routing on Interfaces Configured Explicitly\". You can mix both styles, though most networks pick one.\n\nNow look at R1's G0/1, a LAN full of PCs. OSPF is enabled there so the 192.168.1.0/24 subnet gets advertised, which also means R1 sends Hellos to the PCs every 10 seconds. That is wasted traffic, and worse, anyone who plugs a router into that LAN could form an adjacency and inject routes. The fix is a **passive interface**:\n\n- `passive-interface g0/1` under `router ospf 1`. OSPF still advertises the interface's subnet but stops sending Hellos on it and ignores Hellos received there, so no neighbor can form.\n- Or flip the default: `passive-interface default`, then `no passive-interface g0/0` for each interface that really needs neighbors. This is shorter on a router with many LAN interfaces.\n\nTo spot a passive interface without the running config: `show ip protocols` lists it under `Passive Interface(s):`, and `show ip ospf interface` for it says `No Hellos (Passive interface)`. `show ip ospf interface brief` still lists it, because OSPF is enabled there.\n\nLoopback interfaces are advertised too, and OSPF advertises them as /32 host routes by default, whatever mask you configured.\n\nFinally, the **default route**. R1 connects to the internet with a static default route toward the ISP. The other routers need a default route pointing toward R1. Rather than configuring each one, add `default-information originate` under `router ospf 1` on R1. R1 then advertises 0.0.0.0/0 into OSPF, and the other routers learn it as `O*E2` (an external type 2 route, metric 1 by default). R1 advertises it only while R1 itself has a default route; `default-information originate always` advertises it regardless.",
         "code": "R1(config)# interface g0/0\nR1(config-if)# ip ospf 1 area 0\nR1(config-if)# interface g0/1\nR1(config-if)# ip ospf 1 area 0\nR1(config-if)# exit\nR1(config)# router ospf 1\nR1(config-router)# passive-interface g0/1\nR1(config-router)# exit\nR1(config)# ip route 0.0.0.0 0.0.0.0 203.0.113.1\nR1(config)# router ospf 1\nR1(config-router)# default-information originate\n\nR2# show ip route ospf\n! legend omitted\nGateway of last resort is 10.0.0.1 to network 0.0.0.0\n\nO*E2  0.0.0.0/0 [110/1] via 10.0.0.1, 00:00:12, GigabitEthernet0/0\nO     192.168.1.0/24 [110/2] via 10.0.0.1, 00:05:40, GigabitEthernet0/0",
         "tip": "Make every host-only LAN passive. You keep the advertisement and lose the Hellos and the risk of a rogue neighbor.",
         "pitfall": "Making the router-to-router link passive by accident (easy with passive-interface default). The neighbor on that link disappears and so do all routes through it.",
@@ -173,8 +256,8 @@
       },
       {
         "title": "Verifying and troubleshooting OSPF",
-        "body": "Users on R1's LAN complain that the branch cannot reach them. R1 and R2 are OSPF neighbors, so what is wrong? This is where four show commands earn their keep:\n\n- `show ip ospf neighbor`: one line per neighbor. **Neighbor ID** is the neighbor's RID, **Pri** its priority, **State** the neighbor state with its DR/BDR role, **Dead Time** a countdown reset by each Hello, **Address** the neighbor's IP on the shared link, **Interface** your local interface.\n- `show ip ospf interface brief`: every interface where OSPF is enabled (including passive ones), with process, area, address, cost, state (DR, BDR, DROTH, P2P, LOOP) and neighbor counts as full/total.\n- `show ip protocols`: the OSPF RID, the network commands or explicitly configured interfaces, passive interfaces, the neighbors routes are learned from and the AD. It works from user mode, handy when you cannot see the running config.\n- `show ip route ospf`: the routes OSPF actually installed, as `O` lines with [110/cost].\n\n`show ip ospf interface g0/0` adds the details: network type, Hello and dead timers, priority, DR and BDR, and \"No Hellos (Passive interface)\" for passive interfaces. `show ip ospf database` lists the LSAs.\n\nTroubleshoot in layers:\n\n- **Neighbor missing:** is the interface up/up and listed in `show ip ospf interface brief`? Is it passive? Do area, subnet, timers and authentication match? Are the RIDs unique?\n- **Neighbor stuck before FULL:** MTU (ExStart or Exchange) or network type.\n- **Neighbor FULL but a route missing:** the subnet is not in OSPF on its own router (no network command or `ip ospf` for that interface), or the route lost to a lower-AD source.\n\nIn the exhibit, the neighbor is fine and the LAN is the problem: show ip protocols lists only the 10.0.0.0 network, and G0/1 does not appear in show ip ospf interface brief. OSPF was never enabled on the LAN, so nobody hears about 192.168.1.0/24. Adding `network 192.168.1.0 0.0.0.255 area 0` fixes it.",
-        "code": "R1# show ip protocols\n*** IP Routing is NSF aware ***\n\nRouting Protocol is \"ospf 1\"\n  Outgoing update filter list for all interfaces is not set\n  Incoming update filter list for all interfaces is not set\n  Router ID 1.1.1.1\n  Number of areas in this router is 1. 1 normal 0 stub 0 nssa\n  Maximum path: 4\n  Routing for Networks:\n    10.0.0.0 0.0.0.3 area 0\n  Routing Information Sources:\n    Gateway         Distance      Last Update\n    2.2.2.2              110      00:03:12\n  Distance: (default is 110)\n\nR1# show ip ospf interface brief\nInterface    PID   Area            IP Address/Mask    Cost  State Nbrs F/C\nGi0/0        1     0               10.0.0.1/30        1     BDR   1/1\n\nR1# show ip ospf neighbor\nNeighbor ID     Pri   State           Dead Time   Address         Interface\n2.2.2.2           1   FULL/DR         00:00:34    10.0.0.2        GigabitEthernet0/0",
+        "body": "Users on R1's LAN complain that the branch cannot reach them. R1 and R2 are OSPF neighbors, so what is wrong? This is where four show commands earn their keep:\n\n- `show ip ospf neighbor`: one line per neighbor. **Neighbor ID** is the neighbor's RID, **Pri** its priority, **State** the neighbor state with its DR/BDR role, **Dead Time** a countdown reset by each Hello, **Address** the neighbor's IP on the shared link, **Interface** your local interface.\n- `show ip ospf interface brief`: every interface where OSPF is enabled (including passive ones), with process, area, address, cost, state (DR, BDR, DROTH, P2P, LOOP) and neighbor counts as full/total.\n- `show ip protocols`: the OSPF RID, the network commands or explicitly configured interfaces, passive interfaces, the neighbors routes are learned from and the AD. It works from user mode, handy when you cannot see the running config.\n- `show ip route ospf`: the routes OSPF actually installed, as `O` lines with [110/cost].\n\n`show ip ospf interface g0/0` adds the details: network type, Hello and dead timers, priority, DR and BDR, and \"No Hellos (Passive interface)\" for passive interfaces. `show ip ospf database` lists the LSDB: one Router LSA per router in the area (Link ID and ADV Router are both that router's RID) and one Net LSA per multiaccess subnet that has a DR (Link ID is the DR's interface address, ADV Router its RID). In a single area every router shows the same database, so it also tells you how many routers the area holds.\n\nTroubleshoot in layers:\n\n- **Neighbor missing:** is the interface up/up and listed in `show ip ospf interface brief`? Is it passive? Do area, subnet, timers and authentication match? Are the RIDs unique?\n- **Neighbor stuck before FULL:** MTU (ExStart or Exchange) or network type.\n- **Neighbor FULL but a route missing:** the subnet is not in OSPF on its own router (no network command or `ip ospf` for that interface), or the route lost to a lower-AD source.\n\nIn the exhibit, the neighbor is fine and the LAN is the problem: show ip protocols lists only the 10.0.0.0 network, and G0/1 does not appear in show ip ospf interface brief. OSPF was never enabled on the LAN, so nobody hears about 192.168.1.0/24. Adding `network 192.168.1.0 0.0.0.255 area 0` fixes it.",
+        "code": "R1# show ip protocols\n*** IP Routing is NSF aware ***\n\nRouting Protocol is \"ospf 1\"\n  Outgoing update filter list for all interfaces is not set\n  Incoming update filter list for all interfaces is not set\n  Router ID 1.1.1.1\n  Number of areas in this router is 1. 1 normal 0 stub 0 nssa\n  Maximum path: 4\n  Routing for Networks:\n    10.0.0.0 0.0.0.3 area 0\n  Routing Information Sources:\n    Gateway         Distance      Last Update\n    2.2.2.2              110      00:03:12\n  Distance: (default is 110)\n\nR1# show ip ospf interface brief\nInterface    PID   Area            IP Address/Mask    Cost  State Nbrs F/C\nGi0/0        1     0               10.0.0.1/30        1     BDR   1/1\n\nR1# show ip ospf neighbor\nNeighbor ID     Pri   State           Dead Time   Address         Interface\n2.2.2.2           1   FULL/DR         00:00:34    10.0.0.2        GigabitEthernet0/0\n\nR1# show ip ospf database\n\n            OSPF Router with ID (1.1.1.1) (Process ID 1)\n\n                Router Link States (Area 0)\n\nLink ID         ADV Router      Age         Seq#       Checksum Link count\n1.1.1.1         1.1.1.1         192         0x80000004 0x00A1B2 1\n2.2.2.2         2.2.2.2         195         0x80000006 0x00C3D4 2\n\n                Net Link States (Area 0)\n\nLink ID         ADV Router      Age         Seq#       Checksum\n10.0.0.2        2.2.2.2         195         0x80000001 0x00E5F6",
         "tip": "Neighbor Address is the neighbor's interface IP; Neighbor ID is its RID. They are often different numbers, and exam questions count on you mixing them up.",
         "pitfall": "Assuming a FULL neighbor means every subnet is advertised. Adjacency and advertisement are separate: a subnet is advertised only if OSPF is enabled on its interface.",
         "activity": {
@@ -242,15 +325,27 @@
       {
         "term": "default-information originate",
         "definition": "Makes a router advertise its default route into OSPF, learned by others as O*E2."
+      },
+      {
+        "term": "DROther",
+        "definition": "A router on a broadcast link that is neither DR nor BDR; it stays 2-Way with other DROthers."
+      },
+      {
+        "term": "Network type",
+        "definition": "Per-interface OSPF setting: broadcast (Ethernet default, elects a DR/BDR) or point-to-point (serial default, no DR)."
+      },
+      {
+        "term": "DBD, LSR, LSU, LSAck",
+        "definition": "OSPF packets for database summaries, requests for missing LSAs, the LSAs themselves and their acknowledgments."
       }
     ],
     "summary": [
       "Link state: routers flood LSAs into identical LSDBs and each runs SPF; OSPF routes have AD 110 and a metric equal to total cost.",
-      "Hellos go to 224.0.0.5 every 10 s (dead 40 s); area, subnet, timers and authentication must match and RIDs must be unique, but process IDs need not.",
-      "States run Down, Init, 2-Way, ExStart, Exchange, Loading, Full; stuck in ExStart or Exchange usually means MTU.",
-      "Broadcast links elect a DR/BDR (highest priority, then highest RID, no preemption, priority 0 never); point-to-point links do not.",
+      "Hellos go to 224.0.0.5 every 10 s (dead 40 s); states run Down, Init, 2-Way, ExStart, Exchange, Loading, Full, driven by Hello, DBD, LSR, LSU and LSAck.",
+      "Area, subnet, timers, authentication, unique RIDs and a running process are required or the neighbor never appears; MTU or network type mismatches leave it listed but broken.",
+      "Broadcast links elect a DR/BDR (highest priority, then highest RID, no preemption, priority 0 never); point-to-point links show FULL/ - and need the type on both ends.",
       "Cost = reference bandwidth / interface bandwidth; raise it with auto-cost reference-bandwidth on every router or set ip ospf cost.",
-      "Configure with network <address> <wildcard> area 0 or ip ospf 1 area 0, make host LANs passive, and verify with show ip ospf neighbor, show ip ospf interface brief, show ip protocols and show ip route ospf."
+      "Configure with network <address> <wildcard> area 0 or ip ospf 1 area 0, make host LANs passive, and verify with show ip ospf neighbor, interface, protocols, database and route."
     ],
     "feynmanPrompt": "Explain to a new network engineer what happens from the moment you type ip ospf 1 area 0 on two connected routers until each has a route to the other's LAN, including what could leave them stuck along the way."
   },
@@ -482,7 +577,7 @@
       ],
       "explanation": "Area, timers and subnet are carried in Hellos and must agree. Process IDs are local and may differ, router IDs must be different (unique), and priorities only influence the DR election.",
       "concept": "neighbor requirements",
-      "section": 2
+      "section": 3
     },
     {
       "id": "ccna-ospf-q14",
@@ -500,7 +595,7 @@
       "answer": 2,
       "explanation": "Hellos work (the neighbor is listed) but the pair cannot get past the database description exchange, the classic symptom of an MTU mismatch. Process IDs never matter, priority 0 only stops R2 from being DR, and the network type is not what stalls ExStart.",
       "concept": "MTU mismatch",
-      "section": 2
+      "section": 3
     },
     {
       "id": "ccna-ospf-q15",
@@ -534,7 +629,7 @@
       "answer": 3,
       "explanation": "Two routers are using RID 1.1.1.1, which OSPF cannot tolerate. Fix it on one of them with a unique router-id plus clear ip ospf process. Process IDs and priority have nothing to do with RID uniqueness.",
       "concept": "duplicate router ID",
-      "section": 2
+      "section": 3
     },
     {
       "id": "ccna-ospf-q17",
@@ -550,7 +645,7 @@
       "answer": 1,
       "explanation": "The process ID only identifies the OSPF process inside one router and is never sent in Hellos. It does not need to match between neighbors.",
       "concept": "process ID is local",
-      "section": 2
+      "section": 3
     },
     {
       "id": "ccna-ospf-q18",
@@ -568,7 +663,7 @@
       "answer": 1,
       "explanation": "Changing the Hello interval on IOS also sets the dead interval to four times that value, so R1 uses 5/20 while R2 uses 10/40. Timers must match, so R2 discards R1's Hellos. Fix it by matching the timers on both ends.",
       "concept": "timer mismatch",
-      "section": 2
+      "section": 3
     },
     {
       "id": "ccna-ospf-q19",
@@ -584,7 +679,7 @@
       "answer": 3,
       "explanation": "The broadcast type discovers neighbors with multicast Hellos and elects a DR/BDR. Point-to-point (default on serial links) discovers neighbors but never elects a DR.",
       "concept": "network types",
-      "section": 3
+      "section": 4
     },
     {
       "id": "ccna-ospf-q20",
@@ -597,7 +692,7 @@
       ],
       "explanation": "Priority ranges from 0 to 255, default 1. A router with priority 0 takes part in the link as a DROther but is never elected.",
       "concept": "priority 0",
-      "section": 3
+      "section": 4
     },
     {
       "id": "ccna-ospf-q21",
@@ -615,7 +710,7 @@
       "answer": 0,
       "explanation": "R5 is FULL with every DROther, and only the DR and BDR form full adjacencies with DROthers. The BDR is 4.4.4.4, so R5 must be the DR. A DROther would show 2WAY with the other DROthers.",
       "concept": "reading DR role",
-      "section": 3
+      "section": 4
     },
     {
       "id": "ccna-ospf-q22",
@@ -631,7 +726,7 @@
       "answer": 2,
       "explanation": "OSPF DR elections do not preempt. Priority matters only at the next election, which happens when the DR or BDR goes away (if the DR fails, the BDR is promoted and the new router could become BDR then).",
       "concept": "DR non-preemption",
-      "section": 3
+      "section": 4
     },
     {
       "id": "ccna-ospf-q23",
@@ -642,7 +737,7 @@
       "answer": "ip ospf network point-to-point",
       "explanation": "With the point-to-point type there is no DR/BDR election or wait timer, so the adjacency forms faster. Configure it on both ends to keep the network types consistent.",
       "concept": "point-to-point network type",
-      "section": 3
+      "section": 5
     },
     {
       "id": "ccna-ospf-q24",
@@ -662,7 +757,7 @@
       ],
       "explanation": "DROthers form full adjacencies with the DR and BDR and stay 2-Way with each other. They send updates to 224.0.0.6 (DR and BDR only), keep sending Hellos to 224.0.0.5, and learn every route through the DR.",
       "concept": "DROther behavior",
-      "section": 3
+      "section": 4
     },
     {
       "id": "ccna-ospf-q25",
@@ -676,7 +771,7 @@
       ],
       "explanation": "Cost = 100 Mbps / interface bandwidth by default, which makes every link of 100 Mbps or faster cost 1.",
       "concept": "reference bandwidth",
-      "section": 4
+      "section": 6
     },
     {
       "id": "ccna-ospf-q26",
@@ -686,7 +781,7 @@
       "answer": "10",
       "explanation": "The reference is now 10,000 Mbps, so 10,000 / 1,000 = 10. A 10 Gbps link would cost 1 and a 100 Mbps link 100.",
       "concept": "cost with new reference",
-      "section": 4
+      "section": 6
     },
     {
       "id": "ccna-ospf-q27",
@@ -704,7 +799,7 @@
       "answer": 1,
       "explanation": "Path A: 10 + 10 + 1 = 21. Path B: 1 + 19 + 1 = 21. Equal total cost means OSPF installs both (up to four by default). Only the total matters, not any single link.",
       "concept": "equal-cost paths",
-      "section": 4
+      "section": 6
     },
     {
       "id": "ccna-ospf-q28",
@@ -715,7 +810,7 @@
       "answer": "ip ospf cost 50",
       "explanation": "ip ospf cost overrides the reference-bandwidth calculation for that interface only. Valid values are 1 to 65535.",
       "concept": "set interface cost",
-      "section": 4
+      "section": 6
     },
     {
       "id": "ccna-ospf-q29",
@@ -731,7 +826,7 @@
       "answer": 2,
       "explanation": "Raising the reference (for example to 10,000 or 100,000 Mbps) spreads costs so Gigabit and 10 Gigabit links are no longer equal. It does not affect adjacencies, SPF speed or AD, and it should be set the same on every router.",
       "concept": "why change reference bandwidth",
-      "section": 4
+      "section": 6
     },
     {
       "id": "ccna-ospf-q30",
@@ -741,7 +836,7 @@
       "answer": "0.0.0.3",
       "explanation": "255.255.255.255 minus 255.255.255.252 is 0.0.0.3: the last two bits can vary, everything else must match.",
       "concept": "wildcard mask",
-      "section": 5
+      "section": 7
     },
     {
       "id": "ccna-ospf-q31",
@@ -757,7 +852,7 @@
       "answer": 0,
       "explanation": "The wildcard 0.0.255.255 requires the first two octets to be 10.1, so 10.1.1.1 and 10.1.2.1 match and 10.2.1.1 does not. The network command matches interface addresses against a range; the range itself does not need to be an interface subnet.",
       "concept": "network command matching",
-      "section": 5
+      "section": 7
     },
     {
       "id": "ccna-ospf-q32",
@@ -775,7 +870,7 @@
       "answer": 0,
       "explanation": "A /24 needs wildcard 0.0.0.255: the first three octets must match and the last can be anything. 255.255.255.0 is a subnet mask, not a wildcard, 0.0.0.3 matches only 192.168.1.0 to 192.168.1.3, and 0.0.255.255 matches every 192.168.x.x address.",
       "concept": "network command wildcard",
-      "section": 5
+      "section": 7
     },
     {
       "id": "ccna-ospf-q33",
@@ -786,7 +881,7 @@
       "answer": "network 172.16.0.0 0.0.255.255 area 0",
       "explanation": "The /16 wildcard is 0.0.255.255, so any interface whose address starts with 172.16 is enabled. Each interface then advertises its own subnet, not a /16.",
       "concept": "network command",
-      "section": 5
+      "section": 7
     },
     {
       "id": "ccna-ospf-q34",
@@ -797,7 +892,7 @@
       "answer": "ip ospf 1 area 0",
       "explanation": "ip ospf <process-id> area <area-id> enables OSPF on the interface directly, with no network command or wildcard mask needed.",
       "concept": "interface OSPF config",
-      "section": 6
+      "section": 8
     },
     {
       "id": "ccna-ospf-q35",
@@ -815,7 +910,7 @@
       "answer": 2,
       "explanation": "passive-interface default makes every OSPF interface passive, and no passive-interface re-enables Hellos where neighbors are needed. That takes two lines instead of twelve passive-interface commands.",
       "concept": "passive-interface default",
-      "section": 6
+      "section": 8
     },
     {
       "id": "ccna-ospf-q36",
@@ -831,7 +926,7 @@
       "answer": 1,
       "explanation": "Without the always keyword, default-information originate depends on R1 having a working default route (static, DHCP or learned). Add ip route 0.0.0.0 0.0.0.0 <ISP> on R1, or use default-information originate always.",
       "concept": "default-information originate",
-      "section": 6
+      "section": 8
     },
     {
       "id": "ccna-ospf-q37",
@@ -849,7 +944,7 @@
       "answer": 3,
       "explanation": "Routing for Networks lists only 10.0.0.0 0.0.0.3, so OSPF is not enabled on G0/1 and its subnet is never advertised. Passive-interface would apply only after OSPF is enabled there, and the RID or a process reset would not add the LAN.",
       "concept": "missing network statement",
-      "section": 7
+      "section": 9
     },
     {
       "id": "ccna-ospf-q38",
@@ -880,7 +975,7 @@
       ],
       "explanation": "Neighbors, interfaces, configuration summary, resulting routes and the raw LSDB: five commands that cover nearly every OSPF exam exhibit.",
       "concept": "OSPF show commands",
-      "section": 7
+      "section": 9
     },
     {
       "id": "ccna-ospf-q39",
@@ -898,7 +993,7 @@
       "answer": 2,
       "explanation": "The Area column shows 1 for G0/0 while R1 uses area 0 on the same subnet. Area IDs must match on a link, so no neighbor forms (0/0). Being DR with no neighbors is just what a router does alone on a link.",
       "concept": "area mismatch",
-      "section": 7
+      "section": 9
     },
     {
       "id": "ccna-ospf-q40",
@@ -916,7 +1011,110 @@
       "answer": 0,
       "explanation": "\"No Hellos (Passive interface)\" means OSPF is enabled on G0/1 (it is in area 0 already) but passive, so no neighbor can form. Removing passive-interface for that interface restores Hellos.",
       "concept": "passive uplink",
-      "section": 7
+      "section": 9
+    },
+    {
+      "id": "ccna-ospf-q41",
+      "type": "mcq",
+      "difficulty": "hard",
+      "question": "R1 and R2 share an Ethernet link and both show the other as FULL, but neither installs any OSPF routes through the other. Based on the output, what is wrong?",
+      "code": "R1# show ip ospf neighbor\nNeighbor ID     Pri   State           Dead Time   Address         Interface\n2.2.2.2           0   FULL/  -        00:00:38    10.1.12.2       GigabitEthernet0/0/0\n\nR2# show ip ospf neighbor\nNeighbor ID     Pri   State           Dead Time   Address         Interface\n1.1.1.1           1   FULL/BDR        00:00:30    10.1.12.1       GigabitEthernet0/1/0",
+      "language": "cisco",
+      "choices": [
+        "The routers have mismatched Hello and dead timers",
+        "R1 uses the point-to-point network type and R2 uses broadcast, so they reach Full but do not install routes",
+        "R1 has priority 0, so it cannot learn routes from the DR",
+        "The MTU differs, so the database exchange never completes"
+      ],
+      "answer": 1,
+      "explanation": "R1 shows no DR role (a dash) while R2 shows R1 as BDR, the signature of a network type mismatch. Timer mismatches stop the neighbor from appearing, an MTU mismatch stalls in ExStart or Exchange rather than reaching Full, and priority 0 does not stop a router learning routes.",
+      "concept": "network type mismatch",
+      "section": 5
+    },
+    {
+      "id": "ccna-ospf-q42",
+      "type": "mcq",
+      "difficulty": "medium",
+      "question": "What does the Gi0/0 line of this output tell you?",
+      "code": "R1# show ip ospf interface brief\nInterface    PID   Area            IP Address/Mask    Cost  State Nbrs F/C\nGi0/1        1     0               10.1.11.1/24       1     DR    0/0\nGi0/0        1     0               10.1.1.1/24        1     DROTH 2/3",
+      "language": "cisco",
+      "choices": [
+        "R1 is a DROther on G0/0 with three neighbors, two of them fully adjacent (the DR and BDR)",
+        "Two of R1's three neighbors on G0/0 are down",
+        "R1 is the DR on G0/0 and has two DROther neighbors",
+        "G0/0 is in area 2 with three interfaces"
+      ],
+      "answer": 0,
+      "explanation": "State is R1's own role, and F/C means fully adjacent over total neighbors. A DROther is Full only with the DR and BDR and stays 2-Way with the other DROther, so 2/3 is healthy. On G0/1 R1 is DR simply because it is alone on that subnet.",
+      "concept": "interface brief F/C",
+      "section": 4
+    },
+    {
+      "id": "ccna-ospf-q43",
+      "type": "match",
+      "difficulty": "medium",
+      "question": "Match each OSPF packet type to its job.",
+      "pairs": [
+        {
+          "left": "Hello",
+          "right": "Discovers neighbors and keeps them alive"
+        },
+        {
+          "left": "DBD",
+          "right": "Summarizes the LSAs a router holds"
+        },
+        {
+          "left": "LSR",
+          "right": "Asks a neighbor for specific missing LSAs"
+        },
+        {
+          "left": "LSU",
+          "right": "Carries complete LSAs"
+        },
+        {
+          "left": "LSAck",
+          "right": "Confirms that an LSU arrived"
+        }
+      ],
+      "explanation": "Hellos build and keep the neighbor relationship, DBDs compare databases in ExStart and Exchange, LSRs and LSUs fill the gaps in Loading, and LSAcks make every update reliable.",
+      "concept": "OSPF packet types",
+      "section": 2
+    },
+    {
+      "id": "ccna-ospf-q44",
+      "type": "mcq",
+      "difficulty": "hard",
+      "question": "R5 suddenly has no OSPF neighbors and no OSPF routes, yet its interfaces are up/up. Based on the output, what happened?",
+      "code": "R5# show ip ospf\n Routing Process \"ospf 1\" with ID 5.5.5.5\n Start time: 5d23h, Time elapsed: 1d04h\n Routing Process is shutdown\n\nR5# show ip ospf interface brief\nInterface    PID   Area            IP Address/Mask    Cost  State Nbrs F/C\nGi0/1        1     0               10.1.12.1/24       1     DOWN  0/0\nGi0/2        1     0               10.1.13.1/24       1     DOWN  0/0",
+      "language": "cisco",
+      "choices": [
+        "Someone removed the network commands from router ospf 1",
+        "Both interfaces were made passive",
+        "R5's router ID now duplicates a neighbor's",
+        "Someone entered shutdown under router ospf 1, which keeps the configuration but stops the process"
+      ],
+      "answer": 3,
+      "explanation": "\"Routing Process is shutdown\" is the giveaway. A shut process keeps its configuration (the interfaces are still listed, in state DOWN) but drops every neighbor, clears the LSDB and removes OSPF routes. no shutdown under router ospf 1 restores it. Removed network commands would remove the interfaces from the list.",
+      "concept": "OSPF process shutdown",
+      "section": 3
+    },
+    {
+      "id": "ccna-ospf-q45",
+      "type": "mcq",
+      "difficulty": "hard",
+      "question": "Every router in this single-area network shows the same database. Which statement is true?",
+      "code": "R1# show ip ospf database\n\n            OSPF Router with ID (1.1.1.1) (Process ID 1)\n\n                Router Link States (Area 0)\n\nLink ID         ADV Router      Age         Seq#       Checksum Link count\n1.1.1.1         1.1.1.1         431         0x8000008F 0x00DCCA 5\n2.2.2.2         2.2.2.2         1167        0x8000007F 0x009DA1 2\n3.3.3.3         3.3.3.3         441         0x80000005 0x002FB1 1\n4.4.4.4         4.4.4.4         530         0x80000004 0x007F39 2\n\n                Net Link States (Area 0)\n\nLink ID         ADV Router      Age         Seq#       Checksum\n10.1.12.2       2.2.2.2         1167        0x8000007C 0x00BBD5",
+      "language": "cisco",
+      "choices": [
+        "R1 has exactly four OSPF neighbors",
+        "The area contains four routers, and R2 (2.2.2.2) is the DR on the subnet where its interface is 10.1.12.2",
+        "1.1.1.1 is the DR for the area because its LSA lists the most links",
+        "There are five routers, because the Net LSA counts as a router"
+      ],
+      "answer": 1,
+      "explanation": "Each router originates one Router LSA, so four Router LSAs mean four routers in the area (not four neighbors of R1). A Net LSA is created by the DR of a multiaccess subnet: its Link ID is the DR's interface address and ADV Router is the DR's RID. DRs are elected per subnet, never for a whole area.",
+      "concept": "reading the LSDB",
+      "section": 9
     }
   ]
 }

@@ -1,7 +1,7 @@
 {
   "id": "ccna-ntp-snmp-syslog",
   "name": "NTP, SNMP and Syslog",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "author": "Recurse",
   "subject": "networking",
   "level": "intermediate",
@@ -21,12 +21,50 @@
     "syslog",
     "ip-services"
   ],
+  "resources": [
+    {
+      "title": "Free CCNA 200-301 course (Jeremy's IT Lab)",
+      "url": "https://www.youtube.com/playlist?list=PLxbwE86jKRgMpuZuLBivzlM8s2Dk5lXBQ",
+      "kind": "video",
+      "note": "Free video course with labs; includes lessons on NTP, syslog and SNMP."
+    },
+    {
+      "title": "Use Best Practices for Network Time Protocol",
+      "url": "https://www.cisco.com/c/en/us/support/docs/availability/high-availability/19643-ntpm.html",
+      "kind": "docs",
+      "note": "Cisco white paper on stratum, NTP design and reading show ntp output."
+    },
+    {
+      "title": "System Message Logging",
+      "url": "https://www.cisco.com/c/en/us/td/docs/routers/access/wireless/software/guide/SysMsgLogging.html",
+      "kind": "docs",
+      "note": "Cisco guide to message format, severity levels and logging destinations."
+    },
+    {
+      "title": "Configure SNMP Community Strings",
+      "url": "https://www.cisco.com/c/en/us/support/docs/ip/simple-network-management-protocol-snmp/7282-12.html",
+      "kind": "docs",
+      "note": "Read-only and read-write communities on Cisco devices."
+    },
+    {
+      "title": "RFC 5424: The Syslog Protocol",
+      "url": "https://www.rfc-editor.org/rfc/rfc5424",
+      "kind": "docs",
+      "note": "The standard behind facilities and the eight severities."
+    },
+    {
+      "title": "RFC 3414: SNMPv3 User-based Security Model",
+      "url": "https://www.rfc-editor.org/rfc/rfc3414",
+      "kind": "docs",
+      "note": "Where noAuthNoPriv, authNoPriv and authPriv come from."
+    }
+  ],
   "lesson": {
-    "estimatedMinutes": 30,
+    "estimatedMinutes": 42,
     "intro": "When something breaks at 2 a.m., three quiet protocols decide whether you can work out what happened. NTP keeps every device's clock in agreement, syslog records what each device saw, and SNMP lets a management station watch the whole network and raise alerts. The CCNA expects you to configure NTP, know syslog facilities and all eight severity levels, and explain how SNMP works and how its versions differ in security.",
     "objectives": [
-      "Configure NTP client/server and server mode and read show ntp status and show ntp associations",
-      "Explain why synchronized time matters for logs, certificates and security",
+      "Configure NTP client/server and server mode, and explain stratum and reference clocks",
+      "Read show ntp status and show ntp associations, and design NTP with redundant servers, a fallback clock and loopbacks",
       "Decode a syslog message and list the eight severity levels in order with their numbers",
       "Send log messages to the console, vty sessions, the buffer and a syslog server at the right level",
       "Explain SNMP managers, agents, MIBs, OIDs and messages, and compare the security of versions 1, 2c and 3"
@@ -52,10 +90,11 @@
         }
       },
       {
-        "title": "NTP client and server mode",
-        "body": "Cisco devices use two main NTP commands, and the exam wants you to know exactly what each one makes the device do.\n\n- `ntp server 10.0.0.1` puts the device in **client/server mode**. It acts as an NTP client and synchronizes its clock to 10.0.0.1. Once synchronized, it is also willing to serve time to any device that points at it.\n- `ntp master [stratum]` puts the device in **server mode**, using its own internal clock as the reference. It serves time without synchronizing to anyone. The stratum defaults to 8.\n\n**Stratum** measures distance from an authoritative time source. A stratum 1 server is directly attached to a reference clock such as GPS or an atomic clock (that reference clock itself counts as stratum 0). A device that synchronizes to a stratum 1 server becomes stratum 2, its clients stratum 3, and so on: each client adds 1 to its server's stratum. Lower is better, and a device prefers the best (lowest) stratum it can reach. Stratum 16 means unsynchronized, so 15 is the highest usable value.\n\nA typical enterprise design: two core routers point at reliable public or internal servers, and every other device points at the core routers. Two or three `ntp server` lines give redundancy, and NTP picks the best one. Pointing clients at the core routers' **loopback** addresses, and setting `ntp source loopback0` on them, keeps time working when any single physical interface fails. A device can also combine `ntp server` lines with `ntp master 10` as a fallback: while the real servers are reachable they win, because their stratum is lower.\n\nVerify with two commands:\n\n- `show ntp status`: the first line says whether the clock is **synchronized**, the device's own stratum, and its reference (the server it follows). A device that has not synchronized yet shows `Clock is unsynchronized, stratum 16, no reference clock`. Synchronizing can take several minutes after you configure it.\n- `show ntp associations`: one line per server. `*` marks the server currently in use (sys.peer) and `~` means configured. The **st** column is that server's stratum, and **ref clock** is where the server gets its own time. On a device running `ntp master` you will see `127.127.1.1` with ref clock `.LOCL.`, its internal clock.",
-        "code": "! R3: NTP server only, from its own clock, at stratum 2\nR3(config)# ntp master 2\n! R2: client of R3, and a server for R1\nR2(config)# ntp server 172.16.3.3\n! R1: client of R2\nR1(config)# ntp server 172.16.2.2\n\nR1# show ntp status\nClock is synchronized, stratum 4, reference is 172.16.2.2\nnominal freq is 250.0000 Hz, actual freq is 250.0000 Hz, precision is 2**21\nclock offset is 0.0986 msec, root delay is 2.46 msec\n\nR1# show ntp associations\n  address         ref clock       st   when   poll reach  delay  offset   disp\n*~172.16.2.2      172.16.3.3       3     50     64   377  1.223   0.090  4.469\n * sys.peer, # selected, + candidate, - outlyer, x falseticker, ~ configured",
+        "title": "NTP modes and stratum",
+        "body": "Cisco devices use two main NTP commands, and the exam wants you to know exactly what each one makes the device do.\n\n- `ntp server 10.0.0.1` puts the device in **client/server mode**. It acts as an NTP client and synchronizes its clock to 10.0.0.1. Once synchronized, it is also willing to serve time to any device that points at it. Most routers and switches run this way.\n- `ntp master [stratum]` puts the device in **server mode**: it serves time from its own internal clock and synchronizes to nobody. The stratum defaults to **8** and can be set from 1 to 15.\n\nA third mode is less common: `ntp peer 10.0.0.2` (symmetric active mode) makes two devices exchange time with each other, so either can synchronize to the other. Two core routers that follow the same outside servers sometimes peer as a backup.\n\n**Stratum** measures distance from an authoritative time source. A **reference clock**, such as a GPS receiver or an atomic clock, is the source of truth, and a server attached directly to one is **stratum 1**. A device that synchronizes to a stratum 1 server becomes stratum 2, its clients stratum 3, and so on: **each client adds 1 to its server's stratum**. Lower is better, and a device that can reach several servers prefers the lowest stratum. NTP treats 15 as the highest usable value; a device that would end up at 16 considers the time unusable, which is why an unsynchronized clock shows stratum 16.\n\nThe example builds the chain used in the official guide. R3 runs `ntp master 2`, so it serves time at stratum 2. R2 is a client of R3, so it becomes stratum 3, and it is also the server for R1. R1 is a client of R2 and ends up at stratum 4.\n\nThe NTP standards use two more names you may meet: a **primary server** takes its time from a reference clock and runs at stratum 1, and a **secondary server** is one in client/server mode, getting its time from another NTP server.",
+        "code": "R1 ------------ R2 ------------ R3\nclient/server   client/server   server only\nstratum 4       stratum 3       stratum 2\n\n! R3: server mode, from its own clock, at stratum 2\nR3(config)# ntp master 2\n! R2: client of R3, then a server for R1\nR2(config)# ntp server 172.16.3.3\n! R1: client of R2\nR1(config)# ntp server 172.16.2.2",
         "language": "cisco",
+        "tip": "ntp server means \"I am a client of that address.\" ntp master means \"I am the clock.\"",
         "pitfall": "Reading ntp server as 'make this router a server'. It makes the router a client of that server. Server-only mode is ntp master.",
         "activity": {
           "type": "ios-console",
@@ -75,6 +114,44 @@
           ],
           "answer": 2,
           "explanation": "ntp server puts the device in client/server mode: it synchronizes to 10.1.1.1 and, once synchronized, can serve time to other devices. Server-only mode from the internal clock is ntp master."
+        }
+      },
+      {
+        "title": "Reading show ntp status and show ntp associations",
+        "body": "Two commands prove NTP works, and exam exhibits use both.\n\n**show ntp status** describes this device's own clock, and its first line carries what matters:\n\n- `Clock is synchronized` or `Clock is unsynchronized`. Every client shows unsynchronized until it finishes synchronizing with at least one server, which can take several minutes after you configure it.\n- `stratum 4`: this device's own stratum, its server's plus 1.\n- `reference is 172.16.2.2`: the server it follows. A device running `ntp master` shows `127.127.1.1`, the address IOS uses to mean its own internal clock.\n\nA device that has never synchronized shows `Clock is unsynchronized, stratum 16, no reference clock`.\n\n**show ntp associations** lists one line per time source the device knows about:\n\n- **address**: the server, as configured.\n- **ref clock**: where that server gets its own time. `.LOCL.` means the server's internal clock, and `.INIT.` means the association is still initializing because the server has not answered.\n- **st**: the server's stratum, not this device's. R1's line for R2 shows st 3, so R1 itself is 4.\n- **when** and **poll**: seconds since the last reply, and the polling interval, which starts at 64 seconds and grows toward 1024 when the clock is stable.\n- **reach**: an octal record of the last eight polls. 377 means all eight were answered; 0 means none were.\n- The marks before the address: `*` is the **sys.peer**, the server the clock is actually following; `+` a candidate; `#` selected; `x` a falseticker it distrusts; `~` means the server was configured with a command.\n\nOn a server running `ntp master`, the association list shows its internal clock as `127.127.1.1` with ref clock `.LOCL.`, listed one stratum better than the stratum the router advertises.\n\nA broken client usually reveals itself in these lines. A server stuck at `.INIT.` with reach 0 is not answering: check routing, an ACL that blocks UDP 123 or a mistyped address. A reachable server at stratum 16 has no good time to give.",
+        "code": "R1# show ntp status\nClock is synchronized, stratum 4, reference is 172.16.2.2\nnominal freq is 250.0000 Hz, actual freq is 250.0000 Hz, precision is 2**21\nclock offset is 0.0986 msec, root delay is 2.46 msec\n\nR1# show ntp associations\n  address         ref clock       st   when   poll reach  delay  offset   disp\n*~172.16.2.2      172.16.3.3       3     50     64   377  1.223   0.090  4.469\n * sys.peer, # selected, + candidate, - outlyer, x falseticker, ~ configured\n\nR3# show ntp associations\n  address         ref clock       st   when   poll reach  delay  offset   disp\n*~127.127.1.1     .LOCL.           1     15     16   377  0.000   0.000  0.232",
+        "language": "cisco",
+        "tip": "st in show ntp associations is the server's stratum. Your own stratum is in show ntp status.",
+        "pitfall": "Expecting a * the moment you type ntp server. Synchronization takes minutes; check reach and .INIT. before changing the configuration.",
+        "check": {
+          "question": "R1's association line for 10.1.1.1 reads `*~10.1.1.1  192.0.2.10  2  33  64  377`. What is R1's own stratum?",
+          "choices": [
+            "2",
+            "3",
+            "1",
+            "16"
+          ],
+          "answer": 1,
+          "explanation": "The st column shows the server's stratum, 2, and the * says R1 follows that server. A client adds 1, so R1 is stratum 3. Stratum 16 would mean unsynchronized, which the * rules out."
+        }
+      },
+      {
+        "title": "Designing NTP: redundancy, fallback and loopbacks",
+        "body": "One router as the only clock for a whole company is fragile. The official guide builds a sturdier design in four moves.\n\n**Good, redundant sources.** Point a few core devices at two or more good servers, such as public stratum 1 servers or a GPS-based NTP appliance, with one `ntp server` line each. NTP compares them and follows the best. Every other router and switch then points at those core devices, never straight at the internet.\n\n**A fallback clock.** If the core routers lose the internet, they lose their reference and stop being useful servers. Add `ntp master 7` (any stratum clearly worse than the real servers) as well. While the real servers answer, their lower stratum wins; when they disappear, the routers fall back to their own clocks, so the rest of the network still agrees on one time even if it drifts a little from true time.\n\n**Loopback addresses.** A client points at one specific address of its server. If that address sits on a physical interface that fails, the client loses NTP even though the server is still reachable through other links. A loopback interface stays up as long as the router is up, so give the server one, advertise it in the routing protocol, point the clients at it, and add `ntp source loopback 0` on the server so its NTP packets always come from that address.\n\n**Peers.** Two core routers can also be `ntp peer` of each other, so if one loses its servers it can follow the other.\n\nProduction networks also enable NTP authentication with `ntp authenticate`, `ntp authentication-key` and `ntp trusted-key`, so a device only accepts time from servers that know a shared key. A rogue time source is a real attack: shift a device's clock and you can make valid certificates look expired or blur when an intrusion happened.",
+        "code": "! Core router R2: two outside servers and a fallback clock\nR2(config)# ntp server 192.0.2.10\nR2(config)# ntp server 192.0.2.11\nR2(config)# ntp master 7\n! R2 serves the site from a loopback that stays up\nR2(config)# interface loopback 0\nR2(config-if)# ip address 172.16.9.9 255.255.255.255\nR2(config-if)# exit\nR2(config)# ntp source loopback 0\n\n! Every other router and switch\nSW1(config)# ntp server 172.16.9.9",
+        "language": "cisco",
+        "tip": "Clients point at the server's loopback; the server sends NTP from that loopback with ntp source.",
+        "pitfall": "Giving the fallback ntp master a stratum as good as the real servers. The router may then trust its own drifting clock over them; use a clearly worse value such as 7 or 8.",
+        "check": {
+          "question": "Two core routers follow internet NTP servers. Which added command keeps them serving one consistent time to the site if the internet link fails?",
+          "choices": [
+            "ntp master 1",
+            "ntp source loopback 0",
+            "ntp server 127.127.1.1",
+            "ntp master 7"
+          ],
+          "answer": 3,
+          "explanation": "ntp master with a stratum worse than the real servers is ignored while they answer and takes over when they do not. ntp master 1 would make the router's own clock compete with real stratum 1 servers, ntp source only picks the address NTP packets come from, and 127.127.1.1 is the internal clock, not a server to configure."
         }
       },
       {
@@ -183,6 +260,25 @@
           "answer": 1,
           "explanation": "Only SNMPv3 offers authentication (with integrity checking) and privacy (encryption), at the authPriv level. SNMPv1 and v2c rely on community strings sent in clear text."
         }
+      },
+      {
+        "title": "Putting it together: one outage, three protocols",
+        "body": "Follow a single failure through all three services. At 02:14 the primary WAN link on branch router BR1 fails; BR1 still reaches headquarters over a backup link.\n\n1. **Syslog.** BR1 generates `%LINK-3-UPDOWN` (severity 3, errors) for the serial interface, then `%LINEPROTO-5-UPDOWN` (severity 5, notifications). With `logging trap informational` both reach the syslog server at headquarters over UDP 514; with `logging trap errors` only the level 3 message would. Had the failed link been BR1's only path, both messages would have been lost on the way, which is why devices also keep a local copy with `logging buffered`.\n2. **SNMP.** With `snmp-server enable traps` configured, BR1 sends a linkDown trap to the NMS on UDP 162 at once, and the router's icon turns red. If the trap were lost, the NMS would still notice at its next poll (to UDP 161) that the interface's status had changed. Polling catches what a lost trap misses.\n3. **NTP.** The engineer on call now reads messages from BR1 and the hub router HQ1. BR1 follows the company NTP servers. HQ1 does not: its timestamp starts with an asterisk and reads March 1, the default date after its last reload. Nobody can tell from the logs whether HQ1 lost its OSPF neighbor at the same moment or hours earlier.\n\nThe fix is one command on HQ1, `ntp server` pointing at the company servers. Once it is synchronized, the two routers' messages line up to the millisecond and the story reads in order: the circuit failed, BR1's interface went down, and HQ1's OSPF neighbor timed out shortly after.\n\nThat is the division of labor to remember. Syslog records what each device saw, at a severity that decides where the message goes. SNMP raises the alarm and lets the NMS measure the network over time. NTP makes their timestamps agree, so the records from many devices tell one story.",
+        "code": "Syslog server view (UDP 514), oldest first\nOct 21 02:14:07.311 BR1: %LINK-3-UPDOWN: Interface Serial0/0/0,\n  changed state to down\nOct 21 02:14:08.315 BR1: %LINEPROTO-5-UPDOWN: Line protocol on\n  Interface Serial0/0/0, changed state to down\n*Mar  1 00:41:55.120 HQ1: %OSPF-5-ADJCHG: Process 1, Nbr 10.9.9.1\n  on Serial0/1/0 from FULL to DOWN, Neighbor Down: Dead timer expired\n\nNMS view, traps received (UDP 162)\n02:14:07  BR1  linkDown  Serial0/0/0",
+        "language": "cisco",
+        "tip": "Syslog says what happened, SNMP says it right away, and NTP lets you put the two in order.",
+        "pitfall": "Relying on traps alone. A trap is sent once over UDP and is lost if the path to the NMS is down; polling and a local log buffer fill the gap.",
+        "check": {
+          "question": "In the exhibit, why can't the engineer tell whether HQ1's OSPF neighbor went down at the same moment as BR1's link?",
+          "choices": [
+            "OSPF messages are severity 5, which the server stores without a timestamp",
+            "HQ1's clock was never synchronized, as the asterisk and the March 1 date show",
+            "HQ1 sends syslog over TCP, so its messages arrive late",
+            "Traps and syslog messages use different ports"
+          ],
+          "answer": 1,
+          "explanation": "An asterisk marks a clock that is not authoritative, and March 1 is a typical default date after a reload, so HQ1's timestamp cannot be compared with BR1's. Configuring NTP on HQ1 fixes it. Severity has nothing to do with timestamps, syslog uses UDP 514, and different ports do not affect correlation."
+        }
       }
     ],
     "keyTerms": [
@@ -233,15 +329,28 @@
       {
         "term": "Community string",
         "definition": "The clear-text shared password of SNMPv1 and v2c, read-only (RO) or read-write (RW)."
+      },
+      {
+        "term": "Reference clock",
+        "definition": "An authoritative time source such as GPS or an atomic clock. A server attached to one is stratum 1; IOS calls its own internal clock 127.127.1.1."
+      },
+      {
+        "term": "sys.peer",
+        "definition": "The server marked * in show ntp associations: the one the clock is actually following."
+      },
+      {
+        "term": "Trap and inform",
+        "definition": "Agent-initiated SNMP notifications sent to the manager on UDP 162. A trap is never acknowledged; an inform is acknowledged and resent if needed."
       }
     ],
     "summary": [
-      "NTP (UDP 123) keeps clocks in sync so logs line up and certificates validate; ntp server makes a device a client (then a server), ntp master serves time from its own clock at default stratum 8.",
-      "Stratum counts hops from a reference clock: each client adds 1, lower wins and 16 means unsynchronized. Check show ntp status and show ntp associations, where * marks the server in use.",
-      "Syslog messages read timestamp, %FACILITY-SEVERITY-MNEMONIC, description; servers receive them on UDP 514 with protocol facility local7 by default.",
-      "Severities run 0 to 7: emergencies, alerts, critical, errors, warnings, notifications, informational, debugging. A configured level sends that level and everything more severe.",
+      "NTP (UDP 123) keeps clocks in sync so logs line up and certificates validate; ntp server makes a device a client (then a server), ntp master serves time from its own clock at default stratum 8, and ntp peer lets two devices back each other up.",
+      "Stratum counts hops from a reference clock: each client adds 1, lower wins and 16 means unsynchronized. In show ntp associations, * marks the sys.peer, st is the server's stratum and reach 377 means the last eight polls were answered.",
+      "Robust NTP uses two or more good servers on a few core devices, ntp master with a worse stratum as a fallback, and clients pointing at a loopback that the server sources NTP from.",
+      "Syslog messages read sequence number, timestamp, %FACILITY-SEVERITY-MNEMONIC, description; servers receive them on UDP 514 with protocol facility local7 by default.",
+      "Severities run 0 to 7: emergencies, alerts, critical, errors, warnings, notifications, informational, debugging (Every Awesome Cisco Engineer Will Need Ice cream Daily). A configured level sends that level and everything more severe.",
       "Logs go to the console, vty sessions (with terminal monitor), the RAM buffer (show logging) and syslog servers (logging host plus logging trap).",
-      "SNMP managers poll agents with Get and Set on UDP 161, agents send traps and informs to UDP 162; v1 and v2c use clear-text communities while v3 adds authentication and encryption."
+      "SNMP managers poll agents with Get and Set on UDP 161, agents send traps and informs to UDP 162; v1 and v2c use clear-text communities while v3 adds integrity, authentication and encryption."
     ],
     "feynmanPrompt": "Explain to a new junior engineer what happens when a WAN link fails at 2 a.m.: what message the router logs and at what severity, where that message goes, how the monitoring system finds out through SNMP, and why all the clocks have to agree."
   },
@@ -350,7 +459,7 @@
       "answer": 0,
       "explanation": "The * marks the sys.peer, the server in use: 10.1.1.1. 10.9.9.9 shows .INIT., stratum 16 and reach 0, so it has never responded. R2 synchronizes to a stratum 2 server, which makes R2 stratum 3. The + on 10.1.1.2 means candidate, not falseticker (x).",
       "concept": "reading NTP associations",
-      "section": 1
+      "section": 2
     },
     {
       "id": "ccna-ntp-snmp-syslog-q08",
@@ -368,7 +477,7 @@
       "answer": 2,
       "explanation": "Stratum 16 with no reference clock means unsynchronized. Either no server is configured, none is reachable, or synchronization has not finished yet. An ntp master device would show synchronized, stratum 8 by default.",
       "concept": "unsynchronized status",
-      "section": 1
+      "section": 2
     },
     {
       "id": "ccna-ntp-snmp-syslog-q09",
@@ -404,7 +513,7 @@
       "answer": 1,
       "explanation": "NTP prefers the lowest stratum available. The servers at stratum 2 beat the internal clock at 10, so R1 follows a server and only falls back to its own clock if both become unreachable. That is exactly why the fallback uses a high stratum.",
       "concept": "ntp master as fallback",
-      "section": 1
+      "section": 3
     },
     {
       "id": "ccna-ntp-snmp-syslog-q11",
@@ -420,7 +529,7 @@
       "answer": 3,
       "explanation": "The pattern is %FACILITY-SEVERITY-MNEMONIC: LINEPROTO is the facility, 5 the severity and UPDOWN the mnemonic.",
       "concept": "syslog mnemonic",
-      "section": 2
+      "section": 4
     },
     {
       "id": "ccna-ntp-snmp-syslog-q12",
@@ -436,7 +545,7 @@
       "answer": 0,
       "explanation": "Syslog uses UDP 514. 162 receives SNMP traps, 123 is NTP and 69 is TFTP.",
       "concept": "syslog port",
-      "section": 2
+      "section": 4
     },
     {
       "id": "ccna-ntp-snmp-syslog-q13",
@@ -452,7 +561,7 @@
       "answer": 2,
       "explanation": "IOS tags messages sent to syslog servers with facility local7 unless you change it with logging facility. Network devices conventionally use local0 to local7, and kern and user are used by operating systems.",
       "concept": "syslog protocol facility",
-      "section": 2
+      "section": 4
     },
     {
       "id": "ccna-ntp-snmp-syslog-q14",
@@ -471,7 +580,7 @@
       ],
       "explanation": "Every Awesome Cisco Engineer Will Need Ice cream Daily: 0 Emergency, 1 Alert, 2 Critical, 3 Error, 4 Warning, 5 Notification, 6 Informational, 7 Debugging.",
       "concept": "syslog severity order",
-      "section": 3
+      "section": 5
     },
     {
       "id": "ccna-ntp-snmp-syslog-q15",
@@ -506,7 +615,7 @@
       ],
       "explanation": "The full list is emergencies 0, alerts 1, critical 2, errors 3, warnings 4, notifications 5, informational 6, debugging 7. Lower numbers are more severe.",
       "concept": "severity keywords and numbers",
-      "section": 3
+      "section": 5
     },
     {
       "id": "ccna-ntp-snmp-syslog-q16",
@@ -519,7 +628,7 @@
       ],
       "explanation": "Level 3 is errors (error condition). Level 2 is critical and level 4 is warnings.",
       "concept": "severity keyword",
-      "section": 3
+      "section": 5
     },
     {
       "id": "ccna-ntp-snmp-syslog-q17",
@@ -535,7 +644,7 @@
       "answer": 1,
       "explanation": "Notifications is level 5, and a configured level includes itself and all more severe (lower-numbered) levels, so 0 through 5 are sent.",
       "concept": "level includes more severe",
-      "section": 3
+      "section": 5
     },
     {
       "id": "ccna-ntp-snmp-syslog-q18",
@@ -551,7 +660,7 @@
       "answer": 3,
       "explanation": "Configuration changes are level 5. Notifications (5) captures levels 0 through 5 and excludes 6 and 7. Warnings or errors would miss the level 5 messages, and informational would also include level 6.",
       "concept": "choosing a trap level",
-      "section": 3
+      "section": 5
     },
     {
       "id": "ccna-ntp-snmp-syslog-q19",
@@ -565,7 +674,7 @@
       "shell": "ios",
       "explanation": "logging host names a syslog server. The level sent to it is set separately with logging trap, which defaults to informational.",
       "concept": "logging host",
-      "section": 4
+      "section": 6
     },
     {
       "id": "ccna-ntp-snmp-syslog-q20",
@@ -579,7 +688,7 @@
       "shell": "ios",
       "explanation": "logging trap sets the level for syslog servers. Warnings is level 4, so levels 0 through 4 are sent.",
       "concept": "logging trap",
-      "section": 4
+      "section": 6
     },
     {
       "id": "ccna-ntp-snmp-syslog-q21",
@@ -595,7 +704,7 @@
       "answer": 0,
       "explanation": "show logging lists the logging settings for every destination and then the contents of the RAM log buffer. show buffers is about packet memory buffers, not log messages.",
       "concept": "reading the buffer",
-      "section": 4
+      "section": 6
     },
     {
       "id": "ccna-ntp-snmp-syslog-q22",
@@ -611,7 +720,7 @@
       "answer": 2,
       "explanation": "terminal monitor is an EXEC command that asks IOS to copy log messages to this vty session (subject to the logging monitor level). logging monitor is the global setting for the level; on its own it does not turn on messages for a session.",
       "concept": "terminal monitor",
-      "section": 4
+      "section": 6
     },
     {
       "id": "ccna-ntp-snmp-syslog-q23",
@@ -629,7 +738,7 @@
       "answer": 0,
       "explanation": "LINEPROTO is level 5. The console logs up to debugging (7), so it shows it. The buffer keeps only 0 to 4 (warnings) and the server gets only 0 to 3 (errors), so neither records it. The level 3 LINK message, by contrast, reaches all three.",
       "concept": "levels per destination",
-      "section": 4
+      "section": 6
     },
     {
       "id": "ccna-ntp-snmp-syslog-q24",
@@ -645,7 +754,7 @@
       "answer": 1,
       "explanation": "The agent runs on each managed device and exposes its MIB. The manager runs on the Network Management Station and polls agents.",
       "concept": "SNMP agent",
-      "section": 5
+      "section": 7
     },
     {
       "id": "ccna-ntp-snmp-syslog-q25",
@@ -676,7 +785,7 @@
       ],
       "explanation": "Get, GetBulk and Set come from the manager; Trap and Inform come from the agent. Inform and GetBulk were added in SNMPv2.",
       "concept": "SNMP message types",
-      "section": 5
+      "section": 7
     },
     {
       "id": "ccna-ntp-snmp-syslog-q26",
@@ -692,7 +801,7 @@
       "answer": 3,
       "explanation": "Polling goes to the agent on UDP 161, and notifications go to the manager on UDP 162. SNMP runs over UDP, and 514 belongs to syslog.",
       "concept": "SNMP ports",
-      "section": 5
+      "section": 7
     },
     {
       "id": "ccna-ntp-snmp-syslog-q27",
@@ -708,7 +817,7 @@
       "answer": 0,
       "explanation": "Each MIB variable has an object identifier such as 1.3.6.1.2.1.1.5.0 (sysName). Passwords are community strings or SNMPv3 user credentials.",
       "concept": "OID meaning",
-      "section": 5
+      "section": 7
     },
     {
       "id": "ccna-ntp-snmp-syslog-q28",
@@ -724,7 +833,7 @@
       "answer": 2,
       "explanation": "Informs add application-layer reliability: the manager acknowledges each one and the agent retries if it hears nothing. Traps are fire and forget over UDP, like every SNMP message.",
       "concept": "trap versus inform",
-      "section": 5
+      "section": 7
     },
     {
       "id": "ccna-ntp-snmp-syslog-q29",
@@ -740,7 +849,7 @@
       "answer": 1,
       "explanation": "v1 and v2c authenticate with community strings carried in clear text, so anyone who captures a packet learns the community. SNMPv2c does send traps (and informs), runs over UDP and supports read-only communities.",
       "concept": "SNMPv2c weakness",
-      "section": 6
+      "section": 8
     },
     {
       "id": "ccna-ntp-snmp-syslog-q30",
@@ -762,7 +871,7 @@
       ],
       "explanation": "SNMPv3 replaces communities with users and adds integrity, authentication and optional privacy (encryption). Communities and UDP existed before, and Inform arrived with SNMPv2.",
       "concept": "SNMPv3 features",
-      "section": 6
+      "section": 8
     },
     {
       "id": "ccna-ntp-snmp-syslog-q31",
@@ -773,13 +882,15 @@
       "shell": "ios",
       "explanation": "snmp-server community name ro creates a read-only community (rw would allow Set). You can add an ACL number at the end to limit which hosts may use it.",
       "concept": "SNMP read-only community",
-      "section": 6
+      "section": 8
     },
     {
       "id": "ccna-ntp-snmp-syslog-q32",
       "type": "mcq",
       "difficulty": "medium",
-      "question": "An NMS graphs R1's interfaces fine, but every attempt to shut down an interface through SNMP fails. R1 has `snmp-server community MONITOR ro`. Why?",
+      "question": "An NMS graphs R1's interfaces fine, but every attempt to shut down an interface through SNMP fails. Based on the exhibit, why?",
+      "code": "R1# show running-config | include snmp-server\nsnmp-server community MONITOR RO\nsnmp-server location HQ rack 4\nsnmp-server host 10.0.0.60 version 2c MONITOR",
+      "language": "cisco",
       "choices": [
         "SNMP cannot change interface state",
         "The NMS must use traps to change settings",
@@ -789,7 +900,7 @@
       "answer": 3,
       "explanation": "A read-only community permits Get but not Set. Changing a device through SNMP needs a read-write community or an SNMPv3 user with write access. Set exists in every SNMP version.",
       "concept": "RO community blocks Set",
-      "section": 6
+      "section": 8
     },
     {
       "id": "ccna-ntp-snmp-syslog-q33",
@@ -805,7 +916,7 @@
       "answer": 2,
       "explanation": "authPriv provides both authentication and privacy (encryption). authNoPriv authenticates without encrypting, noAuthNoPriv uses only a username, and privNoAuth does not exist.",
       "concept": "SNMPv3 security levels",
-      "section": 6
+      "section": 8
     },
     {
       "id": "ccna-ntp-snmp-syslog-q34",
@@ -816,6 +927,194 @@
       "explanation": "NTP over UDP 123 provides this automatically; an asterisk on a timestamp warns you the clock was never synchronized.",
       "concept": "why synchronized time matters",
       "section": 0
+    },
+    {
+      "id": "ccna-ntp-snmp-syslog-q35",
+      "type": "cli",
+      "difficulty": "easy",
+      "question": "Type the global command that makes R3 serve time from its own internal clock at stratum 3.",
+      "answer": "ntp master 3",
+      "shell": "ios",
+      "explanation": "ntp master puts the device in server mode using its internal clock. The number sets the stratum it advertises; without one it uses 8.",
+      "concept": "ntp master with a stratum",
+      "section": 1
+    },
+    {
+      "id": "ccna-ntp-snmp-syslog-q36",
+      "type": "cli",
+      "difficulty": "medium",
+      "question": "R2 serves NTP to the site from its Loopback0 address. Type the global command that makes R2 send its NTP packets from that loopback.",
+      "answer": "ntp source loopback0",
+      "shell": "ios",
+      "explanation": "ntp source sets the interface whose address NTP packets come from. Pairing it with clients that point at the loopback keeps NTP working when any single physical interface fails.",
+      "concept": "ntp source",
+      "section": 3
+    },
+    {
+      "id": "ccna-ntp-snmp-syslog-q37",
+      "type": "mcq",
+      "difficulty": "hard",
+      "question": "R2 shows the exhibit. What does it tell you about 10.1.1.2?",
+      "code": "R2# show ntp associations\n  address         ref clock       st   when   poll reach  delay  offset   disp\n*~10.1.1.1        192.0.2.10       2     33     64   377  1.102   0.231  2.118\n+~10.1.1.2        192.0.2.11       2     41     64    17  1.394   0.402  3.507\n * sys.peer, # selected, + candidate, - outlyer, x falseticker, ~ configured",
+      "language": "cisco",
+      "choices": [
+        "It is the server R2 is following right now",
+        "It has answered only its last four polls, typical of a server that was just configured or just came back",
+        "It is a falseticker that R2 refuses to use",
+        "It is 17 milliseconds away from R2"
+      ],
+      "answer": 1,
+      "explanation": "Reach is an 8-bit record of the last eight polls, shown in octal. 377 is 11111111 in binary, so 10.1.1.1 answered all of its last eight polls; 17 is 00001111, so 10.1.1.2 answered only the last four. A newly configured or recovered server climbs 1, 3, 7, 17, 37, 77, 177, 377. The * marks 10.1.1.1 as the sys.peer, the + makes 10.1.1.2 a candidate rather than a falseticker (x), and delay has its own column.",
+      "concept": "reading reach",
+      "section": 2
+    },
+    {
+      "id": "ccna-ntp-snmp-syslog-q38",
+      "type": "mcq",
+      "difficulty": "medium",
+      "question": "Which NTP command on R3 best explains the exhibit?",
+      "code": "R3# show ntp status\nClock is synchronized, stratum 8, reference is 127.127.1.1",
+      "language": "cisco",
+      "choices": [
+        "ntp server 127.127.1.1",
+        "ntp peer 127.127.1.1",
+        "ntp master",
+        "ntp source loopback 0"
+      ],
+      "answer": 2,
+      "explanation": "127.127.1.1 is how IOS names its own internal clock, so R3 serves time from itself: server mode. Stratum 8 is the default for ntp master with no value. 127.127.1.1 is not a server you configure, and ntp source only picks the address NTP packets are sent from.",
+      "concept": "recognizing ntp master",
+      "section": 2
+    },
+    {
+      "id": "ccna-ntp-snmp-syslog-q39",
+      "type": "mcq",
+      "difficulty": "medium",
+      "question": "Core routers R1 and R2 use `ntp server` to two internet stratum 1 servers and also run `ntp master 7`. The internet link fails for an hour. What happens to time in the enterprise?",
+      "choices": [
+        "Every client becomes unsynchronized until the link returns",
+        "R1 and R2 fall back to their own clocks at stratum 7, so clients stay synchronized to one consistent time",
+        "R1 and R2 announce stratum 1 because they are now the only reference",
+        "NTP stops on R1 and R2 because ntp master and ntp server conflict"
+      ],
+      "answer": 1,
+      "explanation": "With the servers unreachable, the internal clock at stratum 7 is the best source left, so R1 and R2 keep serving time and their clients stay in step, perhaps drifting slightly from true time. When the internet servers return, their lower stratum wins again. The two commands are meant to work together.",
+      "concept": "fallback clock during an outage",
+      "section": 3
+    },
+    {
+      "id": "ccna-ntp-snmp-syslog-q40",
+      "type": "mcq",
+      "difficulty": "hard",
+      "question": "Clients use `ntp server 10.1.4.4`, the address of R4's G0/0. G0/0 fails, but routing converges and R4 is still reachable through G0/1. What happens, and what is the better design?",
+      "choices": [
+        "Nothing changes, because NTP follows the routing table to R4",
+        "The clients switch to R4's G0/1 address automatically",
+        "The clients lose that server because 10.1.4.4 is down; point them at a loopback on R4 and add ntp source loopback 0 on R4",
+        "The clients become stratum 1, because R4 is no longer in the path"
+      ],
+      "answer": 2,
+      "explanation": "Clients send to one specific address, and an address on a down interface cannot answer even if the router is reachable another way. A loopback stays up as long as the router does, so clients that point at it, plus ntp source on the server, survive any single interface failure.",
+      "concept": "loopbacks for NTP",
+      "section": 3
+    },
+    {
+      "id": "ccna-ntp-snmp-syslog-q41",
+      "type": "order",
+      "difficulty": "medium",
+      "question": "With timestamps and sequence numbers turned on, put the fields of an IOS log message in the order they appear.",
+      "items": [
+        "Sequence number",
+        "Timestamp",
+        "Facility",
+        "Severity level",
+        "Mnemonic",
+        "Description"
+      ],
+      "explanation": "For example `000045: *Mar  1 09:14:07.123: %LINK-3-UPDOWN: Interface Gi0/1, changed state to down`: sequence number, timestamp, then %FACILITY-SEVERITY-MNEMONIC and the readable description. Sequence numbers are off by default and turned on with service sequence-numbers.",
+      "concept": "syslog message fields",
+      "section": 4
+    },
+    {
+      "id": "ccna-ntp-snmp-syslog-q42",
+      "type": "match",
+      "difficulty": "medium",
+      "question": "Match each log destination to how it is configured.",
+      "pairs": [
+        {
+          "left": "Console port",
+          "right": "logging console"
+        },
+        {
+          "left": "SSH and Telnet sessions",
+          "right": "logging monitor, plus terminal monitor in the session"
+        },
+        {
+          "left": "RAM on the device",
+          "right": "logging buffered, read with show logging"
+        },
+        {
+          "left": "A central syslog server",
+          "right": "logging host, with the level set by logging trap"
+        }
+      ],
+      "explanation": "Each destination has its own level. Remote sessions need both the global logging monitor level and terminal monitor in that session, and the buffer is lost at reload, which is why production networks also send to a server.",
+      "concept": "logging destinations",
+      "section": 6
+    },
+    {
+      "id": "ccna-ntp-snmp-syslog-q43",
+      "type": "mcq",
+      "difficulty": "hard",
+      "question": "Which OID prefix leads to Cisco's vendor-specific MIB variables?",
+      "choices": [
+        "1.3.6.1.2.1.1",
+        "1.3.6.1.4.1.9",
+        "1.3.6.1.2.1.2",
+        "1.3.6.1.6.3.15"
+      ],
+      "answer": 1,
+      "explanation": "1.3.6.1.4.1 is the private enterprises branch and 9 is Cisco's number, so Cisco-specific variables live under 1.3.6.1.4.1.9. 1.3.6.1.2.1 is the standard MIB-2 tree, where .1 is the system group (sysName, sysUpTime) and .2 the interfaces group, and 1.3.6.1.6.3.15 belongs to the SNMPv3 security model.",
+      "concept": "OID tree",
+      "section": 7
+    },
+    {
+      "id": "ccna-ntp-snmp-syslog-q44",
+      "type": "multi",
+      "difficulty": "easy",
+      "question": "Which two SNMP messages does an agent send to the manager without being asked first? (Choose two.)",
+      "choices": [
+        "Trap",
+        "Inform",
+        "Get",
+        "Set",
+        "GetBulk"
+      ],
+      "answers": [
+        0,
+        1
+      ],
+      "explanation": "Traps and informs are notifications the agent sends when something happens, to the manager on UDP 162. Get, GetBulk and Set are requests the manager sends to the agent on UDP 161.",
+      "concept": "agent-initiated messages",
+      "section": 7
+    },
+    {
+      "id": "ccna-ntp-snmp-syslog-q45",
+      "type": "mcq",
+      "difficulty": "hard",
+      "question": "R1's only WAN link, its path to the NMS, failed and later recovered. Based on the exhibit, what most likely happened to the linkDown trap?",
+      "code": "R1# show logging | include UPDOWN\nOct 21 02:14:07.311: %LINK-3-UPDOWN: Interface Serial0/0/0, changed state to down\nOct 21 02:31:44.902: %LINK-3-UPDOWN: Interface Serial0/0/0, changed state to up\n\nNMS event log for R1\n02:18:00  poll failed, no response (UDP 161)\n02:32:00  poll succeeded, Serial0/0/0 up",
+      "language": "cisco",
+      "choices": [
+        "R1 never sends traps for severity 3 events",
+        "R1 sent the trap, but it was lost on the failed path, and traps are never acknowledged or resent",
+        "The NMS listens for traps on UDP 161, the port it polls",
+        "R1 needs SNMPv3 before it can send traps"
+      ],
+      "answer": 1,
+      "explanation": "The local buffer proves the interface went down at 02:14:07, yet the NMS only learned of trouble at 02:18 when a poll went unanswered. Traps are fire and forget over UDP: if the path is down, the trap is lost and nothing resends it. Informs would be retried, and polling caught the failure anyway. Severity levels belong to syslog, managers receive traps on UDP 162, and every SNMP version supports traps.",
+      "concept": "lost traps",
+      "section": 9
     }
   ]
 }
