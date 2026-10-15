@@ -1,7 +1,7 @@
 {
   "id": "ccna-dhcp-dns",
   "name": "DHCP and DNS",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "author": "Recurse",
   "subject": "networking",
   "level": "intermediate",
@@ -20,15 +20,53 @@
     "dns",
     "ip-services"
   ],
+  "resources": [
+    {
+      "title": "Free CCNA 200-301 course (Jeremy's IT Lab)",
+      "url": "https://www.youtube.com/playlist?list=PLxbwE86jKRgMpuZuLBivzlM8s2Dk5lXBQ",
+      "kind": "video",
+      "note": "Free video course with labs; includes lessons on DHCP and DNS."
+    },
+    {
+      "title": "How DNS works (illustrated)",
+      "url": "https://howdns.works/",
+      "kind": "article",
+      "note": "A short comic that walks one lookup from the browser to the authoritative server."
+    },
+    {
+      "title": "Troubleshoot DHCP in Enterprise Networks",
+      "url": "https://www.cisco.com/c/en/us/support/docs/ip/dynamic-address-allocation-resolution/27470-100.html",
+      "kind": "docs",
+      "note": "Cisco guide to relay agents, show commands and common DHCP faults."
+    },
+    {
+      "title": "RFC 2131: Dynamic Host Configuration Protocol",
+      "url": "https://www.rfc-editor.org/rfc/rfc2131",
+      "kind": "docs",
+      "note": "The DHCP standard: DORA, giaddr, T1 and T2."
+    },
+    {
+      "title": "RFC 1034: Domain Names, Concepts and Facilities",
+      "url": "https://www.rfc-editor.org/rfc/rfc1034",
+      "kind": "docs",
+      "note": "How the DNS hierarchy, resolvers and caching fit together."
+    },
+    {
+      "title": "Cisco Packet Tracer",
+      "url": "https://www.netacad.com/cisco-packet-tracer",
+      "kind": "tool",
+      "note": "Free Cisco simulator for practicing DHCP pools, relays and DNS servers."
+    }
+  ],
   "lesson": {
-    "estimatedMinutes": 30,
+    "estimatedMinutes": 36,
     "intro": "Plug a laptop into a network and within seconds it has an address, a gateway and a way to turn names like www.cisco.com into addresses. DHCP and DNS do that quietly for every device you will ever manage. This lesson covers what each one does, the DORA exchange, DHCP relay with ip helper-address, a router as DHCP server and client, DNS resolution and record types, and how to troubleshoot them the way the exam expects.",
     "objectives": [
       "Describe the role of DHCP and DNS and the four settings a host needs",
-      "Put the DORA messages in order and explain why they need a relay to cross a router",
-      "Configure a router as a DHCP server, a DHCP client and a DHCP relay agent",
-      "Explain recursive DNS resolution and identify A, AAAA, CNAME, MX and PTR records",
-      "Troubleshoot DHCP and DNS failures from symptoms and show output"
+      "Put the DORA messages in order and trace them through a relay agent in both directions",
+      "Configure a router as a DHCP server, a DHCP client and a DHCP relay agent, and verify each",
+      "Explain recursive DNS resolution, caching and TTL, and identify A, AAAA, CNAME, MX and PTR records",
+      "Troubleshoot DHCP and DNS failures from symptoms, show output, ipconfig and nslookup"
     ],
     "sections": [
       {
@@ -71,8 +109,8 @@
       },
       {
         "title": "DHCP relay with ip helper-address",
-        "body": "Most companies run one or two central DHCP servers in a data center, not one per subnet. That collides with DORA: a Discover sent to 255.255.255.255 stops at the first router, because routers do not forward local broadcasts. Without help, a client on a remote subnet never reaches the server and ends up with a 169.254.x.x address.\n\nThe fix is a **DHCP relay agent** on the router interface that faces the clients, configured with one interface command:\n\n`ip helper-address 172.16.2.11`\n\nWith it, the router does four things for each DHCP broadcast that arrives on that interface:\n\n1. It notices the incoming DHCP message sent to 255.255.255.255.\n2. It changes the source IP address to its own address on that interface, and writes the same address into a field of the DHCP message called **giaddr** (the relay or gateway address).\n3. It changes the destination IP address to the server address from the helper command.\n4. It routes the packet, now a normal unicast, to the server.\n\nThe server reads giaddr to learn which subnet the client is on and picks an address from the matching pool. Its reply goes back to the relay address as a unicast, and the router forwards it onto the client's subnet. The Request and Acknowledge follow the same path.\n\nRules worth remembering:\n\n- Configure the helper on **every** client-facing interface, subinterface or SVI whose subnet has no local DHCP server. The interface facing the server needs nothing.\n- You can configure several helper addresses for redundancy; the router relays to each one.\n- The server needs a pool for the client's subnet and a route back to the relay's interface address.\n- By default `ip helper-address` also relays a few other UDP broadcasts, such as TFTP and DNS. That is rarely a problem, just something to know.\n\nVerify with `show running-config` or `show ip interface g0/0`, which includes a line such as `Helper address is 172.16.2.11`. With no helper, the same line reads `Helper address is not set`.",
-        "code": "      Clients 172.16.1.0/24                      DHCP server 172.16.2.11\n  PC ---[SW]--- G0/0  R1  G0/1 ---- WAN ---- R2 ---[ 172.16.2.0/24 ]\n                172.16.1.1\n\nR1(config)# interface GigabitEthernet0/0\nR1(config-if)# ip helper-address 172.16.2.11\n\nDiscover from PC : src 0.0.0.0      dst 255.255.255.255\nRelayed by R1    : src 172.16.1.1   dst 172.16.2.11     giaddr 172.16.1.1",
+        "body": "Most companies run one or two central DHCP servers in a data center, not one per subnet. That collides with DORA: a Discover sent to 255.255.255.255 stops at the first router, because routers do not forward local broadcasts. Without help, a client on a remote subnet never reaches the server and ends up with a 169.254.x.x address.\n\nThe fix is a **DHCP relay agent** on the router interface that faces the clients, configured with one interface command:\n\n`ip helper-address 172.16.2.11`\n\nWith it, the router does four things for each DHCP broadcast that arrives on that interface:\n\n1. It notices the incoming DHCP message sent to 255.255.255.255.\n2. It changes the source IP address to its own address on that interface, and writes the same address into a field of the DHCP message called **giaddr** (the relay or gateway address).\n3. It changes the destination IP address to the server address from the helper command.\n4. It routes the packet, now a normal unicast, to the server.\n\nThe server reads giaddr to learn which subnet the client is on and picks an address from the matching pool. Its Offer goes back as a unicast to the relay address, 172.16.1.1. R1 sees a DHCP message addressed to one of its own interface addresses, recognizes relayed traffic, and sends it out G0/0 to 255.255.255.255, because the client still has no address to unicast to; the client recognizes its Offer by the client ID inside. The Request and Acknowledge cross the router the same way, so every DORA message travels in two legs: a broadcast on the client's subnet and a routed unicast between the relay and the server.\n\nRules worth remembering:\n\n- Configure the helper on **every** client-facing interface, subinterface or SVI whose subnet has no local DHCP server. The interface facing the server needs nothing.\n- You can configure several helper addresses for redundancy; the router relays to each one.\n- The server needs a pool for the client's subnet and a route back to the relay's interface address.\n- By default `ip helper-address` also relays a few other UDP broadcasts, such as TFTP and DNS. That is rarely a problem, just something to know.\n\nVerify with `show running-config` or `show ip interface g0/0`, which includes a line such as `Helper address is 172.16.2.11`. With no helper, the same line reads `Helper address is not set`.",
+        "code": "      Clients 172.16.1.0/24                      DHCP server 172.16.2.11\n  PC ---[SW]--- G0/0  R1  G0/1 ---- WAN ---- R2 ---[ 172.16.2.0/24 ]\n                172.16.1.1\n\nR1(config)# interface GigabitEthernet0/0\nR1(config-if)# ip helper-address 172.16.2.11\n\nDiscover from PC : src 0.0.0.0      dst 255.255.255.255\nRelayed by R1    : src 172.16.1.1   dst 172.16.2.11     giaddr 172.16.1.1\nOffer to R1      : src 172.16.2.11  dst 172.16.1.1\nOffer onto G0/0  : src 172.16.2.11  dst 255.255.255.255",
         "language": "plaintext",
         "pitfall": "Putting ip helper-address on the interface that faces the DHCP server. It belongs on the interface where the clients' broadcasts arrive.",
         "activity": {
@@ -120,8 +158,8 @@
       },
       {
         "title": "Routers and switches as DHCP clients",
-        "body": "Network devices can be DHCP clients too. Two cases come up on the exam.\n\n**A router's internet interface.** Many ISPs give the customer router its address with DHCP, exactly like a home router gets one. On the router you configure `ip address dhcp` on the interface instead of a fixed address. The router runs DORA out that interface and installs the leased address and mask.\n\nIt also receives a default gateway, the ISP router's address. Routers do not use a default gateway setting the way hosts do, so IOS turns it into a **default route** instead. That route appears as a static route with an **administrative distance of 254**: `S* 0.0.0.0/0 [254/0] via 203.0.113.1`. The 254 is how you recognize a DHCP-learned default route, compared with AD 1 for one you typed with `ip route`. Because 254 is so high, any configured or routing-protocol default route wins over it. The router can then advertise that default route into OSPF for the rest of the site.\n\n**A switch's management address.** A Layer 2 switch needs an IP address only for management traffic such as SSH, SNMP and syslog. Put `ip address dhcp` on its management SVI, usually `interface vlan 1`, and make sure the SVI is not shut down: the switch only tries DHCP once the SVI is up/up. The switch learns its default gateway from DHCP as well.\n\nVerify with:\n\n- `show ip interface brief`: the Method column reads **DHCP** for a leased address and manual for a configured one.\n- `show dhcp lease`: the leased address, mask, lease server, lease, renewal and rebind timers, and the default gateway.\n- `show ip route`: on a router, the S* route with [254/0].\n\nA DHCP-learned address is not written into the running configuration as an address; the configuration only says `ip address dhcp`. And keep the two commands apart: `ip helper-address` relays other hosts' requests, while `ip address dhcp` makes the device itself a client.",
-        "code": "R1(config)# interface GigabitEthernet0/0\nR1(config-if)# ip address dhcp\nR1(config-if)# no shutdown\nR1(config-if)# end\n%DHCP-6-ADDRESS_ASSIGN: Interface GigabitEthernet0/0 assigned DHCP address 203.0.113.2, mask 255.255.255.0, hostname R1\n\nR1# show ip interface brief | include 0/0\nGigabitEthernet0/0     203.0.113.2     YES DHCP   up                    up\n\nR1# show ip route static\nGateway of last resort is 203.0.113.1 to network 0.0.0.0\nS*    0.0.0.0/0 [254/0] via 203.0.113.1",
+        "body": "Network devices can be DHCP clients too. Two cases come up on the exam.\n\n**A router's internet interface.** Many ISPs give the customer router its address with DHCP, exactly like a home router gets one. On the router you configure `ip address dhcp` on the interface instead of a fixed address. The router runs DORA out that interface and installs the leased address and mask.\n\nIt also receives a default gateway, the ISP router's address. Routers do not use a default gateway setting the way hosts do, so IOS turns it into a **default route** instead. That route appears as a static route with an **administrative distance of 254**: `S* 0.0.0.0/0 [254/0] via 203.0.113.1`. The 254 is how you recognize a DHCP-learned default route, compared with AD 1 for one you typed with `ip route`. Because 254 is so high, any configured or routing-protocol default route wins over it. The router can then advertise that default route into OSPF for the rest of the site.\n\n**A switch's management address.** A Layer 2 switch needs an IP address only for management traffic such as SSH, SNMP and syslog. Put `ip address dhcp` on its management SVI, usually `interface vlan 1`, and make sure the SVI is not shut down: the switch only tries DHCP once the SVI is up/up. The switch learns its default gateway from DHCP as well.\n\nVerify with:\n\n- `show ip interface brief`: the Method column reads **DHCP** for a leased address and manual for a configured one.\n- `show dhcp lease`: the leased address, mask, lease server, the lease, renewal and rebind timers, and the default gateway. In the exhibit the one-day lease (86,400 seconds) renews at 43,200 seconds (T1, 50 percent) and rebinds at 75,600 (T2, 87.5 percent).\n- `show ip route`: on a router, the S* route with [254/0].\n\nA DHCP-learned address is not written into the running configuration as an address; the configuration only says `ip address dhcp`. And keep the two commands apart: `ip helper-address` relays other hosts' requests, while `ip address dhcp` makes the device itself a client.",
+        "code": "R1(config)# interface GigabitEthernet0/0\nR1(config-if)# ip address dhcp\nR1(config-if)# no shutdown\nR1(config-if)# end\n%DHCP-6-ADDRESS_ASSIGN: Interface GigabitEthernet0/0 assigned DHCP address 203.0.113.2, mask 255.255.255.0, hostname R1\n\nR1# show ip interface brief | include 0/0\nGigabitEthernet0/0     203.0.113.2     YES DHCP   up                    up\n\nR1# show ip route static\nGateway of last resort is 203.0.113.1 to network 0.0.0.0\nS*    0.0.0.0/0 [254/0] via 203.0.113.1\n\nSW1# show dhcp lease\nTemp IP addr: 192.168.1.101  for peer on Interface: Vlan1\nTemp  sub net mask: 255.255.255.0\n   DHCP Lease server: 192.168.1.1, state: 3 Bound\n   Lease: 86400 secs,  Renewal: 43200 secs,  Rebind: 75600 secs\nTemp default-gateway addr: 192.168.1.1",
         "language": "cisco",
         "pitfall": "Confusing ip address dhcp with ip helper-address. The first makes this interface a DHCP client; the second relays other hosts' DHCP messages to a server.",
         "check": {
@@ -171,6 +209,25 @@
           ],
           "answer": 0,
           "explanation": "The MX record names the mail exchangers for a domain, with a preference value where lower wins. PTR maps an address back to a name, CNAME creates an alias and AAAA maps a name to an IPv6 address."
+        }
+      },
+      {
+        "title": "DNS from the host's side: caches, hosts files and nslookup",
+        "body": "When a user types a name, the host's own **resolver** checks local sources before any DNS packet leaves:\n\n- its **DNS cache**, which holds answers it received recently, each kept for the record's **TTL** (time to live);\n- the **hosts file** (`C:\\Windows\\System32\\drivers\\etc\\hosts` on Windows, `/etc/hosts` on macOS and Linux), a static list of names and addresses.\n\nOnly if neither has the answer does it send a query over UDP 53 to the DNS server it learned from DHCP or was given statically. If the first server does not respond, it tries the next one in its list.\n\nThe answer usually comes from a recursive server that does not own the zone, so tools label it a **non-authoritative answer**: correct, but supplied secondhand, often from that server's cache. An **authoritative** answer comes from a server that holds the zone itself.\n\nTools you will meet in exhibits and at work:\n\n- `nslookup www.example.com` queries the configured DNS server and prints which server answered and the addresses returned.\n- `nslookup www.example.com 8.8.8.8` asks a specific server instead. If that works while the plain query times out, the name is fine and the host's usual DNS server is the problem.\n- `ipconfig /displaydns` lists the Windows cache, and `ipconfig /flushdns` empties it, handy after a record changes.\n- `ipconfig /all` shows which DNS servers the host is using and whether they came from DHCP.\n\nCaching explains a classic support call. An administrator moves a web server to a new address and updates its A record, yet some users still reach the old address for hours. Their PCs, or their recursive server, cached the old answer and will keep using it until the TTL runs out. Flushing the PC's cache fixes that PC; lowering the TTL a day before planned changes fixes everyone.\n\nOn a Cisco router or switch, `show hosts` plays the same role: it lists the default domain, the configured name servers, the static `ip host` entries and names cached from earlier lookups.",
+        "code": "C:\\> nslookup www.example.com\nServer:  dns1.corp.example.net\nAddress:  10.1.99.53\n\nNon-authoritative answer:\nName:    www.example.com\nAddresses:  2001:db8::80\n          198.51.100.80\n\nC:\\> ipconfig /flushdns\nWindows IP Configuration\nSuccessfully flushed the DNS Resolver Cache.",
+        "language": "plaintext",
+        "tip": "Ask a second server with nslookup name server-address. If it answers, the record is fine and the usual DNS server is the problem.",
+        "pitfall": "Changing a DNS record and testing straight away from a PC that cached the old answer. Flush the cache or wait out the TTL before deciding the change failed.",
+        "check": {
+          "question": "nslookup prints \"Non-authoritative answer\" above the address. What does that mean?",
+          "choices": [
+            "The address is probably wrong and should be checked",
+            "The PC has no DNS server configured",
+            "The answer came from a server that does not own the zone, such as a recursive server relaying or caching it",
+            "The name has an AAAA record but no A record"
+          ],
+          "answer": 2,
+          "explanation": "Non-authoritative only describes who answered: a server that is not authoritative for example.com, typically the recursive server the PC asked, answering from its cache or from what it learned. The answer is normally correct. A missing DNS server would make nslookup fail entirely."
         }
       },
       {
@@ -240,15 +297,27 @@
       {
         "term": "CNAME, MX and PTR records",
         "definition": "CNAME is an alias for another name, MX names a domain's mail servers, PTR maps an address back to a name."
+      },
+      {
+        "term": "Static allocation (reservation)",
+        "definition": "A DHCP server always gives one specific client, identified by its MAC address or client ID, the same address."
+      },
+      {
+        "term": "TTL and DNS cache",
+        "definition": "Hosts and DNS servers keep answers for the record's time to live, so repeat lookups are fast and changed records take time to be seen everywhere."
+      },
+      {
+        "term": "nslookup",
+        "definition": "A command-line tool that sends DNS queries to the configured server, or to a server you name, and shows which server answered."
       }
     ],
     "summary": [
       "DHCP leases hosts an address, mask, default gateway and DNS servers, using UDP 67 on the server and 68 on the client.",
       "DORA: the client sends Discover and Request, the server sends Offer and Acknowledge, and the exchange starts as broadcasts that routers do not forward.",
-      "ip helper-address on the client-facing interface relays DHCP to a server on another subnet as a unicast, with giaddr telling the server which pool to use.",
+      "ip helper-address on the client-facing interface relays DHCP as a unicast to a server on another subnet, with giaddr telling the server which pool to use; replies come back to the relay address and go onto the LAN as broadcasts.",
       "A router serves DHCP with ip dhcp excluded-address and ip dhcp pool (network, default-router, dns-server); verify with show ip dhcp binding and show ip dhcp pool.",
-      "ip address dhcp makes an interface a DHCP client; on a router the learned gateway becomes a static default route with AD 254.",
-      "DNS resolves names through recursive, root, TLD and authoritative servers; know A, AAAA, CNAME, MX and PTR, and ip name-server and ip domain-lookup on IOS."
+      "ip address dhcp makes an interface a DHCP client; on a router the learned gateway becomes a static default route with AD 254, and show dhcp lease shows the lease and its timers.",
+      "DNS resolves names through caches, the hosts file and then recursive, root, TLD and authoritative servers; know A, AAAA, CNAME, MX and PTR, nslookup, and ip name-server and ip domain-lookup on IOS."
     ],
     "feynmanPrompt": "Explain to a friend everything that happens between plugging a new laptop into an office network and that laptop loading www.example.com: DORA, the relay when the DHCP server is in another building, and the DNS lookup."
   },
@@ -534,7 +603,9 @@
       "id": "ccna-dhcp-dns-q18",
       "type": "mcq",
       "difficulty": "medium",
-      "question": "A switch's interface vlan 1 has ip address dhcp but never gets an address. show ip interface brief lists Vlan1 as administratively down. What is missing?",
+      "question": "SW1's interface vlan 1 is configured with ip address dhcp but never gets an address. Based on the exhibit, what is missing?",
+      "code": "SW1# show ip interface brief | include Vlan1\nVlan1                  unassigned      YES DHCP   administratively down down",
+      "language": "cisco",
       "choices": [
         "ip helper-address on the switch",
         "ip default-gateway on the switch",
@@ -716,7 +787,7 @@
       "answer": 0,
       "explanation": "The router leases from a pool whose network matches the subnet of the interface where the request arrived. No pool covers 10.1.30.0/24, so nobody gets an answer. Excluding the gateway is correct, and the DNS server can be anywhere reachable.",
       "concept": "pool network mismatch",
-      "section": 7
+      "section": 8
     },
     {
       "id": "ccna-dhcp-dns-q29",
@@ -732,7 +803,7 @@
       "answer": 1,
       "explanation": "Name resolution depends on the DNS server address handed out by the pool. A wrong default-router would break all off-subnet traffic, and a wrong network or lease would stop clients getting addresses at all.",
       "concept": "names fail, addresses work",
-      "section": 7
+      "section": 8
     },
     {
       "id": "ccna-dhcp-dns-q30",
@@ -748,7 +819,7 @@
       "answer": 3,
       "explanation": "The printer's static address lies inside the pool. Excluding it stops the server from ever offering it. Clearing the conflict list only forgets the problem, so the server could offer .40 again later.",
       "concept": "static device inside the pool",
-      "section": 7
+      "section": 8
     },
     {
       "id": "ccna-dhcp-dns-q31",
@@ -779,7 +850,7 @@
       ],
       "explanation": "Any of the first three means the client never gets an Offer. A wrong DNS option still gives clients an address (only names fail), and a long lease does not stop leasing.",
       "concept": "causes of APIPA addresses",
-      "section": 7
+      "section": 8
     },
     {
       "id": "ccna-dhcp-dns-q33",
@@ -812,6 +883,169 @@
       "explanation": "DHCP servers listen on UDP 67 and clients on UDP 68. UDP 53 is DNS, 123 is NTP, 69 is TFTP and 161 is SNMP. DHCP never uses TCP.",
       "concept": "DHCP ports",
       "section": 0
+    },
+    {
+      "id": "ccna-dhcp-dns-q35",
+      "type": "mcq",
+      "difficulty": "hard",
+      "question": "The DHCP server at 172.16.2.11 answers a Discover that R1 relayed from its G0/0 (172.16.1.1). How is the Offer addressed when it leaves the server, and what does R1 do with it?",
+      "choices": [
+        "From 172.16.2.11 to 255.255.255.255; R1 routes the broadcast onto G0/0",
+        "From 172.16.1.1 to 172.16.2.11; R1 drops it because R1 is not the client",
+        "From 172.16.2.11 to the client's MAC address; R1 bridges it unchanged",
+        "From 172.16.2.11 to 172.16.1.1; R1 forwards it out G0/0 to 255.255.255.255"
+      ],
+      "answer": 3,
+      "explanation": "The server simply replies to the source of the relayed packet, the relay address 172.16.1.1, as a routable unicast. R1 recognizes a DHCP message sent to its own address and broadcasts it on the client subnet, because the client has no address yet. Routers never route broadcasts, which is the whole reason the relay exists.",
+      "concept": "relay return path",
+      "section": 2
+    },
+    {
+      "id": "ccna-dhcp-dns-q36",
+      "type": "mcq",
+      "difficulty": "medium",
+      "question": "Clients on G0/1 receive 169.254.x.x addresses. The company DHCP server is 10.0.0.50 and has a pool for 10.1.30.0/24. Based on the exhibit, what is wrong?",
+      "code": "R1# show ip interface g0/1\nGigabitEthernet0/1 is up, line protocol is up\n  Internet address is 10.1.30.1/24\n  Broadcast address is 255.255.255.255\n  Address determined by non-volatile memory\n  MTU is 1500 bytes\n  Helper address is 10.0.0.5",
+      "language": "cisco",
+      "choices": [
+        "G0/1 needs ip address dhcp instead of a static address",
+        "The helper address points to 10.0.0.5 instead of the server at 10.0.0.50",
+        "The helper must be configured on the interface that faces the server",
+        "The broadcast address must be changed to 10.1.30.255 for DHCP to work"
+      ],
+      "answer": 1,
+      "explanation": "The relay is on the right interface, but it forwards to 10.0.0.5, where no DHCP server answers, so clients never get an Offer and fall back to APIPA. Replace it with ip helper-address 10.0.0.50. ip address dhcp would make the router itself a client.",
+      "concept": "reading the helper setting",
+      "section": 2
+    },
+    {
+      "id": "ccna-dhcp-dns-q37",
+      "type": "mcq",
+      "difficulty": "medium",
+      "question": "Based on the exhibit, when will SW1 first try to renew its lease, and why then?",
+      "code": "SW1# show dhcp lease\nTemp IP addr: 192.168.1.101  for peer on Interface: Vlan1\nTemp  sub net mask: 255.255.255.0\n   DHCP Lease server: 192.168.1.1, state: 3 Bound\n   Lease: 86400 secs,  Renewal: 43200 secs,  Rebind: 75600 secs\nTemp default-gateway addr: 192.168.1.1",
+      "language": "cisco",
+      "choices": [
+        "After 75,600 seconds, because that is the rebind time",
+        "After 86,400 seconds, when the lease expires",
+        "After 43,200 seconds, half of the 86,400-second lease",
+        "Every 3 seconds, because the state is 3 Bound"
+      ],
+      "answer": 2,
+      "explanation": "Renewal (T1) happens at 50 percent of the lease: 43,200 of 86,400 seconds, with a unicast Request to the lease server 192.168.1.1. Rebind (T2) at 75,600 seconds, 87.5 percent, is the fallback broadcast if renewal fails. \"3 Bound\" is a state number, not a timer.",
+      "concept": "reading show dhcp lease",
+      "section": 4
+    },
+    {
+      "id": "ccna-dhcp-dns-q38",
+      "type": "cli",
+      "difficulty": "easy",
+      "question": "Type the command that lists the leases the router's DHCP server has handed out.",
+      "answer": "show ip dhcp binding",
+      "shell": "ios",
+      "explanation": "show ip dhcp binding lists each leased address with the client ID or MAC, the expiry and the type. show ip dhcp pool shows the pool totals instead.",
+      "concept": "show ip dhcp binding",
+      "section": 3
+    },
+    {
+      "id": "ccna-dhcp-dns-q39",
+      "type": "cli",
+      "difficulty": "medium",
+      "question": "You are in DHCP pool configuration mode. Type the command that gives clients the DNS servers 10.1.99.53 and 10.1.99.54.",
+      "answer": "dns-server 10.1.99.53 10.1.99.54",
+      "shell": "ios",
+      "explanation": "dns-server takes one or more addresses, listed in order of preference. It sets what the clients use; the router's own lookups use ip name-server instead.",
+      "concept": "dns-server in a pool",
+      "section": 3
+    },
+    {
+      "id": "ccna-dhcp-dns-q40",
+      "type": "match",
+      "difficulty": "medium",
+      "question": "Match each IOS command to what it does.",
+      "pairs": [
+        {
+          "left": "ip helper-address 10.0.0.5",
+          "right": "Relays other hosts' DHCP broadcasts to a server"
+        },
+        {
+          "left": "ip address dhcp",
+          "right": "Makes this interface a DHCP client"
+        },
+        {
+          "left": "ip dhcp pool LAN",
+          "right": "Starts the router's DHCP server settings for one subnet"
+        },
+        {
+          "left": "ip dhcp excluded-address 10.1.1.1 10.1.1.10",
+          "right": "Keeps addresses out of the leases"
+        },
+        {
+          "left": "ip name-server 10.1.99.53",
+          "right": "Tells the router itself which DNS server to ask"
+        }
+      ],
+      "explanation": "Two pairs cause most mix-ups: helper-address (relay for others) versus address dhcp (the device is a client), and the pool's dns-server (for clients) versus ip name-server (for the router's own lookups).",
+      "concept": "DHCP and DNS command roles",
+      "section": 4
+    },
+    {
+      "id": "ccna-dhcp-dns-q41",
+      "type": "mcq",
+      "difficulty": "hard",
+      "question": "`nslookup www.example.com` times out on a PC, but `nslookup www.example.com 8.8.8.8` returns 198.51.100.80. What does that tell you?",
+      "choices": [
+        "The A record for www.example.com is missing",
+        "The PC's default gateway is wrong",
+        "The PC's configured DNS server is not answering; the record itself is fine",
+        "The hosts file on the PC overrides DNS"
+      ],
+      "answer": 2,
+      "explanation": "Asking 8.8.8.8 directly worked, which proves the record exists and that the PC can reach the internet through its gateway. Only the default query to the configured server fails, so that server (or the path to it) is the problem. A hosts file entry would not make nslookup time out.",
+      "concept": "isolating a DNS server fault",
+      "section": 7
+    },
+    {
+      "id": "ccna-dhcp-dns-q42",
+      "type": "mcq",
+      "difficulty": "easy",
+      "question": "Which Windows command clears the local DNS resolver cache?",
+      "choices": [
+        "ipconfig /release",
+        "ipconfig /flushdns",
+        "ipconfig /renew",
+        "nslookup /clear"
+      ],
+      "answer": 1,
+      "explanation": "ipconfig /flushdns empties the cache, so the next lookup goes to the DNS server again. /release and /renew act on the DHCP lease, and nslookup has no clear option.",
+      "concept": "flushing the DNS cache",
+      "section": 7
+    },
+    {
+      "id": "ccna-dhcp-dns-q43",
+      "type": "mcq",
+      "difficulty": "medium",
+      "question": "A printer must always receive 10.1.1.40 from the DHCP server, which identifies it by its MAC address. Which allocation method is that?",
+      "choices": [
+        "Automatic allocation",
+        "Dynamic allocation",
+        "APIPA",
+        "Static (manual) allocation, often called a reservation"
+      ],
+      "answer": 3,
+      "explanation": "Static allocation ties one address to one client identifier. Dynamic allocation leases any free address for a limited time, automatic allocation leases one with an infinite lease, and APIPA is what a host does when no DHCP server answers at all.",
+      "concept": "DHCP allocation methods",
+      "section": 0
+    },
+    {
+      "id": "ccna-dhcp-dns-q44",
+      "type": "recall",
+      "difficulty": "medium",
+      "question": "A PC resolves a name it has never looked up before. What happens, in order?",
+      "answer": "It checks its DNS cache and hosts file and finds nothing, then sends a query over UDP 53 to the DNS server it learned from DHCP. That recursive server answers from its cache or walks root, TLD and authoritative servers, and returns the address, which the PC caches for the record's TTL.",
+      "explanation": "Knowing the local steps explains why a stale cache or a hosts file entry can override DNS, and why changes take a TTL to spread.",
+      "concept": "host name resolution steps",
+      "section": 7
     }
   ]
 }
