@@ -83,7 +83,7 @@ function Topology({ ifs, linkState, badges, settled, current, selected, onSelect
         const len = Math.hypot(nx, ny) || 1
         const side = (mid.x - center.x) * nx + (mid.y - center.y) * ny >= 0 ? 1 : -1
         // On the phone the label must clear the line at any angle, so the offset grows with its width.
-        const off = phone ? 7 + (SHORT[link.kind].length * 3.6 * Math.abs(nx)) / len + (6 * Math.abs(ny)) / len : 13
+        const off = phone ? 7 + (SHORT[link.kind].length * 3.75 * Math.abs(nx)) / len + (6 * Math.abs(ny)) / len : 13
         const lx = mid.x + (nx / len) * off * side
         const ly = mid.y + (ny / len) * off * side + (phone ? 4 : 3)
         return (

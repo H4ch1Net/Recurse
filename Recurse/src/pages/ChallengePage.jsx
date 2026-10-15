@@ -25,7 +25,7 @@ export default function ChallengePage() {
 
   return (
     <div className="page wide-page">
-      <div className="row between wrap">
+      <div className="row between wrap page-links">
         <Link to="/practice?tab=challenges" className="back-link small"><ChevronLeft size={16} /> Coding challenges</Link>
         {topic && <Link to={`/topic/${topic.id}/lesson`} className="small"><BookOpen size={14} style={{ verticalAlign: '-2px' }} /> Lesson: {topic.name}</Link>}
       </div>
