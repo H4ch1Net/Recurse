@@ -130,11 +130,13 @@ export function gradeAttempt(exercise, sql, { base, baseRef, extra, extraRef } =
   if (extra && extraRef) {
     const second = gradeRun(exercise, extra, extraRef)
     if (!second.pass) {
-      if (second.kind === 'internal' || second.kind === 'error') return second
+      if (second.kind === 'internal') return second
+      const what = second.kind === 'error' ? 'your SQL fails' : 'your SQL gives a different answer'
       return {
         pass: false,
         kind: 'second-check',
-        message: `Right on this data, but a second check adds a few rows to the tables, and there your SQL gives a different answer. Make sure it does not depend on particular ids, names or values. (On the second check: ${second.message})`
+        message: `Right on this data, but a second check adds a few rows to the tables, and there ${what}. Make sure it does not depend on particular ids, names or values. (On the second check: ${second.message})`,
+        hint: second.hint || ''
       }
     }
   }
