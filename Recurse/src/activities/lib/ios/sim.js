@@ -51,7 +51,7 @@ import {
   UDP_PORTS
 } from './device.js'
 import { MODE_LABELS, formatHelpList, formatPartialHelp } from './help.js'
-import { clearErrDisable, errDisable, ipInterfaces, isUp, lookupRoute, observe, pingResult, pingV6Result, startupNotices, stpForVlan } from './model.js'
+import { clearErrDisable, dhcpLeases, errDisable, ipInterfaces, isUp, lookupRoute, observe, pingResult, pingV6Result, startupNotices, stpForVlan } from './model.js'
 import * as S from './show.js'
 
 // =====================================================================
@@ -564,7 +564,7 @@ function execPing(ctx) {
   if (isIPv4(target)) {
     const res = pingResult(sim, target)
     const hop = arpTarget(sim, target)
-    const firstMiss = res.ok && hop && !sim.op.arp.includes(hop)
+    const firstMiss = res.ok && hop && !sim.op.arp.includes(hop) && !dhcpLeases(sim).some((l) => l.ip === hop)
     if (res.ok) {
       if (hop && !sim.op.arp.includes(hop)) sim.op.arp.push(hop)
       if (!sim.op.pingOk.includes(target)) sim.op.pingOk.push(target)
@@ -2702,7 +2702,8 @@ function normalizeEnv(env = {}) {
     ...env,
     connected: env.connected ? env.connected.map(fix) : undefined,
     neighbors,
-    dhcpClients: (env.dhcpClients || []).map((c) => ({ ...c, port: fix(c.port) }))
+    dhcpClients: (env.dhcpClients || []).map((c) => ({ ...c, port: fix(c.port) })),
+    errdisabled: (env.errdisabled || []).map((e) => ({ ...e, port: fix(e.port) }))
   }
 }
 

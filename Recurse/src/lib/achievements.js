@@ -28,6 +28,7 @@ export const ACHIEVEMENTS = [
   { id: 'Solver', title: 'Problem solver', description: 'Solve twenty-five coding challenges.', check: ({ practice }) => Object.keys(practice?.challenges || {}).length >= 25 },
   { id: 'Shipped', title: 'Shipped it', description: 'Finish a portfolio project.', check: ({ practice }) => Object.values(practice?.projects || {}).some((p) => p.status === 'done') },
   { id: 'ExamReady', title: 'Exam ready', description: 'Score 85% or more on a full practice exam.', check: ({ practice }) => (practice?.exams || []).some((e) => e.mode === 'exam' && e.score >= 85) },
+  { id: 'MockPass', title: 'Interview ready', description: 'Pass your first mock interview.', check: ({ practice }) => (practice?.interviews || []).some((i) => i.passed) },
   { id: 'PopQuiz', title: 'Sharp memory', description: 'Answer twenty pop quiz cards from older topics.', check: ({ stats }) => (stats.sessions || []).reduce((sum, s) => sum + (s.pops || 0), 0) >= 20 }
 ]
 

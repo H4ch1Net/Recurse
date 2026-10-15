@@ -1,7 +1,7 @@
 // Output of the IOS simulator's show commands. Each function returns an array of lines
 // laid out like real Cisco IOS 15 output, trimmed where real output is very long.
 
-import { cdpIf, compareIf, formatVlanList, inPrefix, ipv6ToStr, isPhysical, isSubif, maskToPrefix, parentIf, parseIPv6, shortIf } from './addr.js'
+import { cdpIf, compareIf, formatVlanList, inPrefix, ipCompare, ipv6ToStr, isPhysical, isSubif, maskToPrefix, parentIf, parseIPv6, shortIf } from './addr.js'
 import { aclRuleText, configBytes, configLines, ifMac, interfaceConfigLines, modelOf, sortedIfNames } from './device.js'
 import {
   areaText,
@@ -10,6 +10,7 @@ import {
   channelGroups,
   classfulGroups,
   dhcpBindings,
+  dhcpLeases,
   etherchannelMembers,
   fmtAge,
   hsrpGroups,
@@ -991,8 +992,10 @@ export function showArp(sim) {
       if (!sim.op.arp.includes(nb.ip)) continue
       rows.push([nb.ip, '0', nb.mac ?? '0c8f.1a2b.9a01', n])
     }
+    // A client that just leased an address ARPs for its gateway, so the router learns it.
+    for (const l of dhcpLeases(sim)) if (l.port === parentIf(n) && !isSubif(n) && !rows.some((r) => r[0] === l.ip)) rows.push([l.ip, '0', l.mac, n])
   }
-  rows.sort((a, b) => (a[0] < b[0] ? -1 : 1))
+  rows.sort((a, b) => ipCompare(a[0], b[0]))
   for (const r of rows) out.push(`Internet  ${pad(r[0], 17)}${rpad(r[1], 9)}   ${pad(r[2], 16)}ARPA   ${r[3]}`)
   return out
 }

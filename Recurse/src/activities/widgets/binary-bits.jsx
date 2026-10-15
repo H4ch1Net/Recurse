@@ -65,7 +65,7 @@ export default function BinaryBits({ props, onComplete }) {
         </button>
       </div>
       <div className="w-stage bits-stage" ref={stageRef}>
-        <div className="bits-row" style={{ '--cols': bits }}>
+        <div className={`bits-row bits-${bits}`} style={{ '--cols': bits }}>
           {places.map((place) => {
             const on = Boolean(value & (1 << place))
             return (

@@ -1162,6 +1162,11 @@ export function observe(sim, { silent = false } = {}) {
     const from = before === 'Init' ? (state === 'Active' ? 'Standby' : 'Speak') : before
     msgs.push(`%HSRP-5-STATECHANGE: ${iface} Grp ${group} state ${from} -> ${state}`)
   }
+  for (const [key, state] of Object.entries(prev.hsrp)) {
+    if (next.hsrp[key] || state === 'Init') continue
+    const [iface, group] = key.split('|')
+    msgs.push(`%HSRP-5-STATECHANGE: ${iface} Grp ${group} state ${state} -> Init`)
+  }
   for (const [name, m] of Object.entries(next.mismatch)) {
     if (prev.mismatch[name]) continue
     msgs.push(mismatchMessage(name, m))

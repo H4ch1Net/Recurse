@@ -3,6 +3,7 @@ import { Check, Pause, Play, RotateCcw, StepBack, StepForward } from 'lucide-rea
 import { feedbackCorrect, feedbackSuccess, feedbackWrong } from '../../lib/juice'
 import { sfx } from '../../lib/sfx'
 import { ADDR, CHECKPOINTS, buildSteps, changedFields, formatDuration, leaseTimers, relayConfig } from '../lib/dhcp-dora'
+import { useNarrow } from '../lib/use-width'
 import './dhcp-dora.css'
 
 // Diagram (viewBox 0 0 400 200).
@@ -12,6 +13,14 @@ const NODES = {
   sw: { x: 124, y: 104 },
   r1: { x: 222, y: 104 },
   server: { x: 352, y: 104 }
+}
+// Phone diagram (viewBox 0 0 300 352): the same network stood on end, with labels big enough to read.
+const PHONE_NODES = {
+  client: { x: 64, y: 86 },
+  pc2: { x: 236, y: 86 },
+  sw: { x: 150, y: 152 },
+  r1: { x: 150, y: 228 },
+  server: { x: 150, y: 314 }
 }
 const SPEEDS = [0.5, 1, 2]
 const MSG_NAME = { Discover: 'Discover', Offer: 'Offer', Request: 'Request', Ack: 'Acknowledge' }
@@ -62,55 +71,88 @@ function dropAt(node, p) {
     .finished.catch(() => {})
 }
 
-function Router({ x, y, relay, active }) {
+function Router({ x, y, relay, active, phone }) {
   return (
     <g className={`dhcp-dev${active ? ' active' : ''}`} transform={`translate(${x} ${y})`} aria-hidden="true">
       <circle r="20" className="dhcp-dev-body" />
       <path className="dhcp-dev-mark" d="M0 -4 V-13 M-3.5 -9.5 L0 -13 L3.5 -9.5 M0 4 V13 M-3.5 9.5 L0 13 L3.5 9.5 M-13 0 H-4 M-7.5 -3.5 L-4 0 L-7.5 3.5 M13 0 H4 M7.5 -3.5 L4 0 L7.5 3.5" />
-      <text y="36" className="dhcp-dev-name" textAnchor="middle">R1</text>
-      <text y="48" className={`dhcp-helper ${relay ? 'on' : 'off'}`} textAnchor="middle">{relay ? 'helper 10.0.0.10' : 'no helper'}</text>
-      <text x="-26" y="-26" className="dhcp-if" textAnchor="end">Gi0/0 .10.1</text>
-      <text x="26" y="-26" className="dhcp-if" textAnchor="start">Gi0/1 10.0.0.1</text>
+      {phone ? (
+        <>
+          <text x="-30" y="5" className="dhcp-dev-name" textAnchor="end">R1</text>
+          <text x="28" y="6" className={`dhcp-helper ${relay ? 'on' : 'off'}`}>{relay ? 'helper 10.0.0.10' : 'no helper'}</text>
+          <text x="24" y="-20" className="dhcp-if">Gi0/0 .10.1</text>
+          <text x="24" y="36" className="dhcp-if">Gi0/1 10.0.0.1</text>
+        </>
+      ) : (
+        <>
+          <text y="36" className="dhcp-dev-name" textAnchor="middle">R1</text>
+          <text y="48" className={`dhcp-helper ${relay ? 'on' : 'off'}`} textAnchor="middle">{relay ? 'helper 10.0.0.10' : 'no helper'}</text>
+          <text x="-26" y="-26" className="dhcp-if" textAnchor="end">Gi0/0 .10.1</text>
+          <text x="26" y="-26" className="dhcp-if" textAnchor="start">Gi0/1 10.0.0.1</text>
+        </>
+      )}
     </g>
   )
 }
 
-function Pc({ x, y, name, sub, active }) {
+function Pc({ x, y, name, sub, active, phone }) {
+  // On the phone layout the labels sit above the PC, clear of the links below it.
   return (
     <g className={`dhcp-dev${active ? ' active' : ''}`} transform={`translate(${x} ${y})`} aria-hidden="true">
       <rect x="-15" y="-14" width="30" height="20" rx="3" className="dhcp-dev-body" />
       <path className="dhcp-dev-mark" d="M0 6 V11 M-7 12 H7" />
-      <text y="26" className="dhcp-dev-name" textAnchor="middle">{name}</text>
-      <text y="37" className="dhcp-dev-sub" textAnchor="middle">{sub}</text>
+      <text y={phone ? -37 : 26} className="dhcp-dev-name" textAnchor="middle">{name}</text>
+      <text y={phone ? -22 : 37} className="dhcp-dev-sub" textAnchor="middle">{sub}</text>
     </g>
   )
 }
 
-function Topology({ relay, step, mainRef, copyRef, leased }) {
+function Topology({ relay, step, mainRef, copyRef, leased, phone }) {
   const letter = step?.letter || 'D'
   const at = step ? step.path[step.path.length - 1] : null
+  const N = phone ? PHONE_NODES : NODES
   return (
-    <svg className="dhcp-topo" viewBox="0 0 400 200" role="img" aria-label={`Client and PC2 on a switch, router R1 ${relay ? 'with ip helper-address 10.0.0.10' : 'without a helper address'}, and the DHCP server 10.0.0.10 on another subnet.`}>
-      <rect x="4" y="18" width="250" height="176" rx="10" className="dhcp-subnet" />
-      <rect x="254" y="58" width="142" height="96" rx="10" className="dhcp-subnet alt" />
-      <text x="12" y="32" className="dhcp-subnet-label">192.168.10.0/24</text>
-      <text x="388" y="72" className="dhcp-subnet-label" textAnchor="end">10.0.0.0/24</text>
+    <svg className={`dhcp-topo${phone ? ' phone' : ''}`} viewBox={phone ? '0 0 300 352' : '0 0 400 200'} role="img" aria-label={`Client and PC2 on a switch, router R1 ${relay ? 'with ip helper-address 10.0.0.10' : 'without a helper address'}, and the DHCP server 10.0.0.10 on another subnet.`}>
+      {phone ? (
+        <>
+          <rect x="4" y="4" width="292" height="252" rx="10" className="dhcp-subnet" />
+          <rect x="4" y="256" width="292" height="92" rx="10" className="dhcp-subnet alt" />
+          <text x="12" y="22" className="dhcp-subnet-label">192.168.10.0/24</text>
+          <text x="12" y="276" className="dhcp-subnet-label">10.0.0.0/24</text>
+        </>
+      ) : (
+        <>
+          <rect x="4" y="18" width="250" height="176" rx="10" className="dhcp-subnet" />
+          <rect x="254" y="58" width="142" height="96" rx="10" className="dhcp-subnet alt" />
+          <text x="12" y="32" className="dhcp-subnet-label">192.168.10.0/24</text>
+          <text x="388" y="72" className="dhcp-subnet-label" textAnchor="end">10.0.0.0/24</text>
+        </>
+      )}
       {[['client', 'sw'], ['pc2', 'sw'], ['sw', 'r1'], ['r1', 'server']].map(([a, b]) => (
-        <line key={a + b} x1={NODES[a].x} y1={NODES[a].y} x2={NODES[b].x} y2={NODES[b].y} className="dhcp-link" />
+        <line key={a + b} x1={N[a].x} y1={N[a].y} x2={N[b].x} y2={N[b].y} className="dhcp-link" />
       ))}
-      <Pc x={NODES.client.x} y={NODES.client.y} name="Client" sub={leased ? ADDR.offered : 'no IP yet'} active={at === 'client'} />
-      <Pc x={NODES.pc2.x} y={NODES.pc2.y} name="PC2" sub="192.168.10.50" />
-      <g className="dhcp-dev" transform={`translate(${NODES.sw.x} ${NODES.sw.y})`} aria-hidden="true">
+      <Pc x={N.client.x} y={N.client.y} name="Client" sub={leased ? ADDR.offered : 'no IP yet'} active={at === 'client'} phone={phone} />
+      <Pc x={N.pc2.x} y={N.pc2.y} name="PC2" sub="192.168.10.50" phone={phone} />
+      <g className="dhcp-dev" transform={`translate(${N.sw.x} ${N.sw.y})`} aria-hidden="true">
         <rect x="-22" y="-12" width="44" height="24" rx="5" className="dhcp-dev-body" />
         <path className="dhcp-dev-mark" d="M-12 -4.5 H12 M8 -8 L12 -4.5 L8 -1 M12 4.5 H-12 M-8 1 L-12 4.5 L-8 8" />
-        <text y="28" className="dhcp-dev-name" textAnchor="middle">SW1</text>
+        {phone ? <text x="-32" y="5" className="dhcp-dev-name" textAnchor="end">SW1</text> : <text y="28" className="dhcp-dev-name" textAnchor="middle">SW1</text>}
       </g>
-      <Router x={NODES.r1.x} y={NODES.r1.y} relay={relay} active={at === 'r1'} />
-      <g className={`dhcp-dev${at === 'server' ? ' active' : ''}`} transform={`translate(${NODES.server.x} ${NODES.server.y})`} aria-hidden="true">
+      <Router x={N.r1.x} y={N.r1.y} relay={relay} active={at === 'r1'} phone={phone} />
+      <g className={`dhcp-dev${at === 'server' ? ' active' : ''}`} transform={`translate(${N.server.x} ${N.server.y})`} aria-hidden="true">
         <rect x="-12" y="-18" width="24" height="36" rx="3" className="dhcp-dev-body" />
         <path className="dhcp-dev-mark" d="M-7 -9 H7 M-7 -2 H7 M-7 5 H7" />
-        <text y="32" className="dhcp-dev-name" textAnchor="middle">DHCP server</text>
-        <text y="44" className="dhcp-dev-sub" textAnchor="middle">10.0.0.10</text>
+        {phone ? (
+          <>
+            <text x="24" y="-2" className="dhcp-dev-name">DHCP server</text>
+            <text x="24" y="14" className="dhcp-dev-sub">10.0.0.10</text>
+          </>
+        ) : (
+          <>
+            <text y="32" className="dhcp-dev-name" textAnchor="middle">DHCP server</text>
+            <text y="44" className="dhcp-dev-sub" textAnchor="middle">10.0.0.10</text>
+          </>
+        )}
       </g>
       {[copyRef, mainRef].map((ref, i) => (
         <g key={i} ref={ref} className={`dhcp-packet ${step?.cast || 'broadcast'}${i === 0 ? ' copy' : ''}`} style={{ opacity: 0 }} aria-hidden="true">

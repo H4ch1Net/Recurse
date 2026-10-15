@@ -58,7 +58,7 @@ export const DEFAULTS = {
   lastSession: null,
   // Labs, coding challenges, projects and exams. Labs and challenges carry an FSRS card
   // so they come back for a redo on a spaced schedule, like question cards.
-  practice: { labs: {}, challenges: {}, projects: {}, exams: [], activities: {} }
+  practice: { labs: {}, challenges: {}, projects: {}, exams: [], activities: {}, interviews: [] }
 }
 
 const clone = (value) => JSON.parse(JSON.stringify(value))
@@ -138,6 +138,7 @@ export function loadPractice() {
   const practice = { ...clone(DEFAULTS.practice), ...(isObject(value) ? value : {}) }
   for (const key of ['labs', 'challenges', 'projects', 'activities']) if (!isObject(practice[key])) practice[key] = {}
   if (!Array.isArray(practice.exams)) practice.exams = []
+  if (!Array.isArray(practice.interviews)) practice.interviews = []
   return practice
 }
 

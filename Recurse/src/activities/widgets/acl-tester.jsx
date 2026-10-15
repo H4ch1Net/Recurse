@@ -23,6 +23,7 @@ import {
   wildcardFromPrefix,
   wildcardRange
 } from '../lib/acl-tester'
+import { useNarrow } from '../lib/use-width'
 import './acl-tester.css'
 
 const FREE = {
@@ -41,6 +42,26 @@ const NODE = {
   R2: { x: 264, y: 100 },
   servers: { x: 356, y: 100 }
 }
+// Phone diagram (viewBox 0 0 300 404): the same network stood on end, so labels can be big enough to read.
+const PHONE_NODE = {
+  sales: { x: 74, y: 62 },
+  guest: { x: 226, y: 62 },
+  R1: { x: 150, y: 148 },
+  R2: { x: 150, y: 256 },
+  servers: { x: 150, y: 350 }
+}
+const GEO = {
+  desktop: { viewBox: '0 0 400 200', node: NODE, hit: 13, lan: { sales: 'above', guest: 'below', servers: 'below' }, routerLabel: { x: 0, y: 34, anchor: 'middle' } },
+  phone: { viewBox: '0 0 300 404', node: PHONE_NODE, hit: 17, lan: { sales: 'above', guest: 'above', servers: 'below' }, routerLabel: { x: -30, y: 6, anchor: 'end' } }
+}
+// Phone marker labels sit beside the marker instead of above it.
+const PHONE_LABEL = {
+  'R1 Gi0/0': { x: -14, y: 14, anchor: 'end' },
+  'R1 Gi0/1': { x: 14, y: 14, anchor: 'start' },
+  'R1 Gi0/2': { x: 16, y: 5, anchor: 'start' },
+  'R2 Gi0/2': { x: 16, y: 5, anchor: 'start' },
+  'R2 Gi0/0': { x: 16, y: 5, anchor: 'start' }
+}
 const IFACE_LINKS = {
   'R1 Gi0/0': 'sales',
   'R1 Gi0/1': 'guest',
@@ -58,28 +79,28 @@ const SPEEDS = [0.5, 1, 2]
 
 const reducedMotion = () => typeof window !== 'undefined' && Boolean(window.matchMedia?.('(prefers-reduced-motion: reduce)').matches)
 
-function markerPos(router, iface) {
-  const a = NODE[router]
-  const b = NODE[IFACE_LINKS[`${router} ${iface}`]]
+function markerPos(router, iface, node = NODE) {
+  const a = node[router]
+  const b = node[IFACE_LINKS[`${router} ${iface}`]]
   const k = iface === 'Gi0/2' ? 0.36 : 0.34
   return { x: a.x + (b.x - a.x) * k, y: a.y + (b.y - a.y) * k }
 }
 
-const lanOf = (ip) => {
+const lanOf = (ip, node = NODE) => {
   const host = HOSTS.find((h) => h.ip === ip)
-  return host ? NODE[host.subnet] : null
+  return host ? node[host.subnet] : null
 }
 
 /** Waypoints for a packet, and the waypoint index of each interface crossing. */
-function waypoints(path, packet) {
-  const pts = [lanOf(packet.src)]
+function waypoints(path, packet, node = NODE) {
+  const pts = [lanOf(packet.src, node)]
   const crossingAt = []
   for (const c of path) {
-    pts.push(markerPos(c.router, c.iface))
+    pts.push(markerPos(c.router, c.iface, node))
     crossingAt.push(pts.length - 1)
-    if (c.dir === 'in') pts.push(NODE[c.router])
+    if (c.dir === 'in') pts.push(node[c.router])
   }
-  pts.push(lanOf(packet.dst))
+  pts.push(lanOf(packet.dst, node))
   return { pts, crossingAt }
 }
 
@@ -111,56 +132,61 @@ function dropAt(node, p) {
 
 const pause = (ms, speed) => new Promise((r) => setTimeout(r, reducedMotion() ? 60 : ms / speed))
 
-function DeviceRouter({ x, y, label }) {
+function DeviceRouter({ x, y, label, at }) {
   return (
     <g className="acl-dev" transform={`translate(${x} ${y})`}>
       <circle r="19" className="acl-dev-body" />
       <path className="acl-dev-mark" d="M0 -4 V-13 M-3.5 -9.5 L0 -13 L3.5 -9.5 M0 4 V13 M-3.5 9.5 L0 13 L3.5 9.5 M-13 0 H-4 M-7.5 -3.5 L-4 0 L-7.5 3.5 M13 0 H4 M7.5 -3.5 L4 0 L7.5 3.5" />
-      <text y="34" className="acl-dev-name" textAnchor="middle">{label}</text>
+      <text x={at.x} y={at.y} className="acl-dev-name" textAnchor={at.anchor}>{label}</text>
     </g>
   )
 }
 
-function DeviceLan({ x, y, lines, below }) {
+function DeviceLan({ x, y, lines, below, phone }) {
+  // Phone labels are bigger, so they sit a little further from the box.
+  const name = below ? (phone ? 32 : 29) : phone ? -35 : -32
+  const sub = below ? (phone ? 47 : 41) : -20
   return (
     <g className="acl-dev" transform={`translate(${x} ${y})`}>
       <rect x="-24" y="-13" width="48" height="26" rx="5" className="acl-dev-body" />
       <path className="acl-dev-mark" d="M-14 -5 H14 M10 -8.5 L14 -5 L10 -1.5 M14 5 H-14 M-10 1.5 L-14 5 L-10 8.5" />
-      <text y={below ? 29 : -32} className="acl-dev-name" textAnchor="middle">{lines[0]}</text>
-      <text y={below ? 41 : -20} className="acl-dev-sub" textAnchor="middle">{lines[1]}</text>
+      <text y={name} className="acl-dev-name" textAnchor="middle">{lines[0]}</text>
+      <text y={sub} className="acl-dev-sub" textAnchor="middle">{lines[1]}</text>
     </g>
   )
 }
 
-function Topology({ applied, onPick, packetRef, verdict }) {
+function Topology({ applied, onPick, packetRef, verdict, phone }) {
+  const geo = phone ? GEO.phone : GEO.desktop
+  const node = geo.node
   const links = [
     ['sales', 'R1'],
     ['guest', 'R1'],
     ['R1', 'R2'],
     ['R2', 'servers']
   ]
-  const ap = markerPos(applied.router, applied.iface)
-  const routerPos = NODE[applied.router]
+  const ap = markerPos(applied.router, applied.iface, node)
+  const routerPos = node[applied.router]
   const angle = (Math.atan2(routerPos.y - ap.y, routerPos.x - ap.x) * 180) / Math.PI
   const arrowAngle = applied.dir === 'in' ? angle : angle + 180
   return (
-    <svg className="acl-topo" viewBox="0 0 400 200" role="group" aria-label="Topology: Sales and Guest LANs on R1, R1 linked to R2, Servers LAN on R2. Interface markers can be clicked to apply the ACL.">
+    <svg className={`acl-topo${phone ? ' phone' : ''}`} viewBox={geo.viewBox} role="group" aria-label="Topology: Sales and Guest LANs on R1, R1 linked to R2, Servers LAN on R2. Interface markers can be selected to apply the ACL.">
       {links.map(([a, b]) => (
-        <line key={`${a}-${b}`} x1={NODE[a].x} y1={NODE[a].y} x2={NODE[b].x} y2={NODE[b].y} className="acl-link" />
+        <line key={`${a}-${b}`} x1={node[a].x} y1={node[a].y} x2={node[b].x} y2={node[b].y} className="acl-link" />
       ))}
-      <DeviceLan x={NODE.sales.x} y={NODE.sales.y} lines={LAN_LABEL.sales} />
-      <DeviceLan x={NODE.guest.x} y={NODE.guest.y} lines={LAN_LABEL.guest} below />
-      <DeviceLan x={NODE.servers.x} y={NODE.servers.y} lines={LAN_LABEL.servers} below />
-      <DeviceRouter x={NODE.R1.x} y={NODE.R1.y} label="R1" />
-      <DeviceRouter x={NODE.R2.x} y={NODE.R2.y} label="R2" />
+      {['sales', 'guest', 'servers'].map((lan) => (
+        <DeviceLan key={lan} x={node[lan].x} y={node[lan].y} lines={LAN_LABEL[lan]} below={geo.lan[lan] === 'below'} phone={phone} />
+      ))}
+      <DeviceRouter x={node.R1.x} y={node.R1.y} label="R1" at={geo.routerLabel} />
+      <DeviceRouter x={node.R2.x} y={node.R2.y} label="R2" at={geo.routerLabel} />
       <g className="acl-dir" transform={`translate(${ap.x} ${ap.y}) rotate(${arrowAngle})`} aria-hidden="true">
         <path d="M-15 0 H9 M3 -6 L10 0 L3 6" />
       </g>
       {INTERFACES.map((it) => {
-        const p = markerPos(it.router, it.iface)
+        const p = markerPos(it.router, it.iface, node)
         const on = it.router === applied.router && it.iface === applied.iface
         const label = `${it.router} ${it.iface}`
-        const ty = LABEL_DY[label] ?? -11
+        const at = phone ? PHONE_LABEL[label] : { x: 0, y: LABEL_DY[label] ?? -11, anchor: 'middle' }
         return (
           <g
             key={label}
@@ -178,9 +204,9 @@ function Topology({ applied, onPick, packetRef, verdict }) {
               }
             }}
           >
-            <circle r="13" className="acl-marker-hit" />
+            <circle r={geo.hit} className="acl-marker-hit" />
             <circle r="6.5" className="acl-marker-dot" />
-            <text y={ty} className="acl-marker-label" textAnchor="middle">{it.iface}</text>
+            <text x={at.x} y={at.y} className="acl-marker-label" textAnchor={at.anchor}>{it.iface}</text>
           </g>
         )
       })}
@@ -282,6 +308,8 @@ export default function AclTester({ onComplete }) {
   const packetRef = useRef(null)
   const gradeRef = useRef(null)
   const runRef = useRef(0)
+  const stageRef = useRef(null)
+  const phone = useNarrow(stageRef)
 
   const errors = useMemo(() => validateAcl(acl), [acl])
   const lines = useMemo(() => configLines(acl, applied), [acl, applied])
@@ -363,7 +391,7 @@ export default function AclTester({ onComplete }) {
       setBusy(false)
       return
     }
-    const { pts, crossingAt } = waypoints(run.path, packet)
+    const { pts, crossingAt } = waypoints(run.path, packet, phone ? PHONE_NODE : NODE)
     const name = aclName(acl)
     if (run.filterAt === -1) {
       setCaption({ text: `${srcHost.name} sends ${service.label} to ${dstHost.name}. Its path never crosses ${applied.router} ${applied.iface} ${applied.dir}bound, so ACL ${name} never checks it.`, tone: '' })
@@ -470,8 +498,8 @@ export default function AclTester({ onComplete }) {
         </div>
       </div>
 
-      <div className="w-stage acl-stage">
-        <Topology applied={applied} onPick={pickIface} packetRef={packetRef} verdict={verdict} />
+      <div className="w-stage acl-stage" ref={stageRef}>
+        <Topology applied={applied} onPick={pickIface} packetRef={packetRef} verdict={verdict} phone={phone} />
         <div className="acl-apply">
           <label className="acl-field">
             <span className="xsmall subtle">Applied to</span>

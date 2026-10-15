@@ -7,6 +7,7 @@ import { emptyTopic, pruneOrphans, summarizeTopic, topicOf } from '../lib/progre
 import { sanitizePack } from '../lib/packSchema'
 import { applyStudyDay, currentStreak, xpForReview } from '../lib/gamification'
 import { achievementTitle, newlyUnlocked } from '../lib/achievements'
+import { HISTORY_LIMIT, interviewXP } from '../lib/interview'
 import { dayKey } from '../lib/dates'
 import { uid } from '../lib/random'
 import { callNumbers } from '../lib/subjects'
@@ -339,6 +340,22 @@ export function AppProvider({ children }) {
     return xp
   }, [apply])
 
+  /** Save a finished mock interview (see lib/interview) and award its XP. Returns the record. */
+  const recordInterview = useCallback((interview) => {
+    const at = new Date()
+    const record = { id: uid(), date: at.toISOString(), ...interview }
+    record.xp = interviewXP(record)
+    apply(({ practice: pr, stats: st }) => ({
+      practice: { ...pr, interviews: [record, ...(pr.interviews || [])].slice(0, HISTORY_LIMIT) },
+      stats: {
+        ...creditDay(st, at, record.xp),
+        interviewsDone: (st.interviewsDone || 0) + 1,
+        totalSeconds: (st.totalSeconds || 0) + Math.min(Math.max(0, interview.seconds || 0), 3 * 3600)
+      }
+    }))
+    return record
+  }, [apply])
+
   const updateProject = useCallback((id, patch) => {
     const at = new Date()
     apply(({ practice: pr, stats: st }) => {
@@ -485,6 +502,7 @@ export function AppProvider({ children }) {
     recordActivity,
     recordSandbox,
     recordPractice,
+    recordInterview,
     updateProject,
     recordExam,
     resetTopic,

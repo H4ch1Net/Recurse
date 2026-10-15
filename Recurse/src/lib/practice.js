@@ -4,6 +4,7 @@ import { CONSOLE_LABS } from '../activities/lib/ios/labs'
 import { ALL_CHALLENGES } from './challenges'
 import { isDue } from './memory'
 import { availableTopics, stageProgress, topicStep } from './collections'
+import { interviewReadiness } from './interview'
 
 const projectModules = import.meta.glob('../data/projects/*.json', { eager: true, import: 'default' })
 const LEVEL_RANK = { beginner: 0, intermediate: 1, advanced: 2 }
@@ -100,6 +101,11 @@ export function readiness(collection, { packMap, summaries, practice }) {
   if (challengeTotal) parts.push({ id: 'challenges', label: 'Coding challenges solved', value: challengesSolved / challengeTotal, weight: 0.3, detail: `${challengesSolved} of ${challengeTotal}` })
   if (collection.projectIds.length) parts.push({ id: 'projects', label: 'Projects finished', value: Math.min(1, projectsDone / Math.min(3, collection.projectIds.length)), weight: 0.2, detail: `${projectsDone} of ${collection.projectIds.length}` })
   if (collection.exam) parts.push({ id: 'exam', label: 'Practice exam average', value: examAverage ?? 0, weight: 0.5, detail: exams.length ? `last ${exams.length}` : 'no exam yet' })
+  // Interviews test talking through a problem under time pressure, which solving alone does not.
+  if (collection.id === 'swe-internship') {
+    const mock = interviewReadiness(practice?.interviews)
+    parts.push({ id: 'interviews', label: 'Mock interviews', value: mock.value, weight: 0.2, detail: mock.detail })
+  }
 
   const totalPartWeight = parts.reduce((sum, p) => sum + p.weight, 0)
   let score = parts.reduce((sum, p) => sum + p.value * p.weight, 0) / totalPartWeight

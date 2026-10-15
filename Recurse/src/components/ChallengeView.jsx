@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useEffectEvent, useRef, useState } from 'react'
 import {
   Check,
   CircleAlert,
@@ -35,7 +35,8 @@ const REVEAL_MS = 70
 const secondsSince = (start) => Math.max(1, Math.round((Date.now() - start) / 1000))
 const now = () => Date.now()
 
-const draftKey = (id, language) => `recurse_code_${id}_${language}`
+// `scope` keeps separate drafts for one challenge, e.g. 'mock_' for mock interviews.
+const draftKey = (id, language, scope = '') => `recurse_code_${scope}${id}_${language}`
 
 function readStorage(key) {
   try {
@@ -55,8 +56,8 @@ function writeStorage(key, value) {
 }
 
 /** Save a draft; a draft equal to the starter code is removed instead. */
-function saveDraft(challenge, language, code) {
-  writeStorage(draftKey(challenge.id, language), code === starterFor(challenge, language) ? null : code)
+function saveDraft(challenge, language, code, scope = '') {
+  writeStorage(draftKey(challenge.id, language, scope), code === starterFor(challenge, language) ? null : code)
 }
 
 const STATUS = {
@@ -89,6 +90,13 @@ function formatDuration(seconds) {
  *   onSolved({ id, language, hintsUsed, solutionViewed, seconds })   for progress tracking
  *   solvedBefore          the learner solved it on an earlier visit: the solution is one click away
  *   language              preferred starting language
+ *
+ * Mock interviews (all optional; the defaults keep the normal behavior):
+ *   hideHints, hideSolution   leave out the hints and the reference solution
+ *   locked                    read-only editor, Run and Submit disabled (time is up)
+ *   draftScope                a separate set of saved drafts, e.g. 'mock_'
+ *   onResult({ kind, passed, total, hiddenPassed, hiddenTotal, allPassed, language })   after each Run or Submit
+ *   onCode(code, language)    shortly after the code changes
  */
 export default function ChallengeView({ id, challenge: given, ...rest }) {
   const [state, setState] = useState({ id: null, challenge: null, failed: false })
@@ -118,7 +126,20 @@ export default function ChallengeView({ id, challenge: given, ...rest }) {
   return <ChallengeWorkspace key={challenge.id} challenge={challenge} {...rest} />
 }
 
-function ChallengeWorkspace({ challenge, standalone = false, onComplete, onSolved, solvedBefore = false, language: preferred }) {
+function ChallengeWorkspace({
+  challenge,
+  standalone = false,
+  onComplete,
+  onSolved,
+  solvedBefore = false,
+  language: preferred,
+  hideHints = false,
+  hideSolution = false,
+  locked = false,
+  draftScope = '',
+  onResult,
+  onCode
+}) {
   const languages = languagesFor(challenge)
   const [language, setLanguage] = useState(() => {
     const stored = readStorage(LANGUAGE_KEY)
@@ -127,7 +148,7 @@ function ChallengeWorkspace({ challenge, standalone = false, onComplete, onSolve
     return languages[0] || 'javascript'
   })
   const [drafts, setDrafts] = useState(() =>
-    Object.fromEntries(languages.map((lang) => [lang, readStorage(draftKey(challenge.id, lang)) ?? starterFor(challenge, lang)]))
+    Object.fromEntries(languages.map((lang) => [lang, readStorage(draftKey(challenge.id, lang, draftScope)) ?? starterFor(challenge, lang)]))
   )
   const code = drafts[language] ?? starterFor(challenge, language)
   const [run, setRun] = useState(null)
@@ -157,7 +178,7 @@ function ChallengeWorkspace({ challenge, standalone = false, onComplete, onSolve
   const hintsRef = useRef(0)
   const viewedRef = useRef(false)
   const solvedLanguages = useRef(new Set())
-  const latest = useRef({ challenge, language, code })
+  const latest = useRef({ challenge, language, code, draftScope })
 
   const hints = Array.isArray(challenge.hints) ? challenge.hints : []
   const H = standalone ? 'h2' : 'h4'
@@ -176,16 +197,21 @@ function ChallengeWorkspace({ challenge, standalone = false, onComplete, onSolve
       jobRef.current = null
       clearTimeout(pumpTimer.current)
       const last = latest.current
-      saveDraft(last.challenge, last.language, last.code)
+      saveDraft(last.challenge, last.language, last.code, last.draftScope)
     }
   }, [])
 
+  const reportCode = useEffectEvent((value, lang) => onCode?.(value, lang))
+
   // Drafts are saved shortly after typing stops.
   useEffect(() => {
-    latest.current = { challenge, language, code }
-    const timer = setTimeout(() => saveDraft(challenge, language, code), 300)
+    latest.current = { challenge, language, code, draftScope }
+    const timer = setTimeout(() => {
+      saveDraft(challenge, language, code, draftScope)
+      reportCode(code, language)
+    }, 300)
     return () => clearTimeout(timer)
-  }, [challenge, language, code])
+  }, [challenge, language, code, draftScope])
 
   const setCode = (next) => {
     setDrafts((d) => ({ ...d, [language]: next }))
@@ -195,7 +221,7 @@ function ChallengeWorkspace({ challenge, standalone = false, onComplete, onSolve
   const switchLanguage = (next) => {
     if (next === language) return
     jobRef.current?.cancel()
-    saveDraft(challenge, language, code)
+    saveDraft(challenge, language, code, draftScope)
     writeStorage(LANGUAGE_KEY, next)
     setLanguage(next)
     setSolutionLanguage(next)
@@ -210,7 +236,7 @@ function ChallengeWorkspace({ challenge, standalone = false, onComplete, onSolve
   const resetCode = () => {
     const starter = starterFor(challenge, language)
     setDrafts((d) => ({ ...d, [language]: starter }))
-    writeStorage(draftKey(challenge.id, language), null)
+    writeStorage(draftKey(challenge.id, language, draftScope), null)
     setConfirmReset(false)
     setErrorLine(null)
     sfx.flip()
@@ -274,6 +300,8 @@ function ChallengeWorkspace({ challenge, standalone = false, onComplete, onSolve
       setAnnounce(fatal?.message || 'The runner is not available.')
       return
     }
+    const hiddenResults = results.filter((r) => r.hidden)
+    onResult?.({ kind, passed: summary.passed, total: results.length, hiddenPassed: hiddenResults.filter((r) => r.passed).length, hiddenTotal: hiddenResults.length, allPassed: !fatal && summary.allPassed, language })
     if (fatal) {
       setAnnounce(`Your code could not run. ${fatal.line ? `Line ${fatal.line}: ` : ''}${fatal.message}`)
       if (kind === 'submit') {
@@ -323,7 +351,7 @@ function ChallengeWorkspace({ challenge, standalone = false, onComplete, onSolve
   }
 
   const start = (kind) => {
-    if (jobRef.current) return
+    if (jobRef.current || locked) return
     const scope = kind === 'submit' ? 'all' : 'visible'
     clearTimeout(pumpTimer.current)
     pumpTimer.current = null
@@ -435,7 +463,7 @@ function ChallengeWorkspace({ challenge, standalone = false, onComplete, onSolve
           </div>
         )}
 
-        {hints.length > 0 && (
+        {!hideHints && hints.length > 0 && (
           <div className="challenge-block challenge-hints">
             <Sub className="challenge-subhead">Hints</Sub>
             {hintsShown > 0 && (
@@ -460,7 +488,7 @@ function ChallengeWorkspace({ challenge, standalone = false, onComplete, onSolve
           </div>
         )}
 
-        <div className="challenge-block challenge-solution">
+        {!hideSolution && <div className="challenge-block challenge-solution">
           <Sub className="challenge-subhead">Solution</Sub>
           {solutionOpen ? (
             <Solution challenge={challenge} language={solutionLanguage} languages={languages} onLanguage={setSolutionLanguage} />
@@ -488,7 +516,7 @@ function ChallengeWorkspace({ challenge, standalone = false, onComplete, onSolve
               <Lock size={14} aria-hidden="true" /> The reference solution unlocks when you solve the challenge, or after {SOLUTION_UNLOCK_SUBMITS} submits that do not pass ({failedSubmits} of {SOLUTION_UNLOCK_SUBMITS} so far).
             </p>
           )}
-        </div>
+        </div>}
       </section>
 
       <section className="challenge-work" aria-label="Your solution">
@@ -512,7 +540,7 @@ function ChallengeWorkspace({ challenge, standalone = false, onComplete, onSolve
               <button type="button" className="btn btn-sm btn-ghost" onClick={() => setConfirmReset(false)}>Cancel</button>
             </span>
           ) : (
-            <button type="button" className="btn btn-sm btn-ghost" onClick={() => setConfirmReset(true)} disabled={code === starterFor(challenge, language)}>
+            <button type="button" className="btn btn-sm btn-ghost" onClick={() => setConfirmReset(true)} disabled={locked || code === starterFor(challenge, language)}>
               <RotateCcw size={14} /> Reset code
             </button>
           )}
@@ -526,6 +554,7 @@ function ChallengeWorkspace({ challenge, standalone = false, onComplete, onSolve
           onRun={() => start('run')}
           onSubmit={() => start('submit')}
           errorLine={errorLine}
+          readOnly={locked}
           minLines={standalone ? 14 : 10}
           label={`${LANGUAGE_LABELS[language]} solution for ${challenge.title}`}
           onFocus={language === 'python' ? () => loadPython().catch(() => {}) : undefined}
@@ -538,10 +567,10 @@ function ChallengeWorkspace({ challenge, standalone = false, onComplete, onSolve
             </button>
           ) : (
             <>
-              <button type="button" className="btn" onClick={() => start('run')} title="Run the example tests">
+              <button type="button" className="btn" onClick={() => start('run')} disabled={locked} title="Run the example tests">
                 <Play size={15} /> Run <span className="kbd challenge-kbd" aria-hidden="true">{mod} Enter</span>
               </button>
-              <button type="button" className="btn btn-primary" onClick={() => start('submit')} title="Run every test, hidden ones included">
+              <button type="button" className="btn btn-primary" onClick={() => start('submit')} disabled={locked} title="Run every test, hidden ones included">
                 <Send size={14} /> Submit <span className="kbd challenge-kbd" aria-hidden="true">{mod} Shift Enter</span>
               </button>
             </>
