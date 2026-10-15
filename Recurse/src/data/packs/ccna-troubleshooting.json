@@ -77,7 +77,7 @@
         "body": "A user reports that \"the network is down.\" Before you type a command, turn that into a precise problem: which host, which destination, what works, what does not, and since when. \"PC1 in VLAN 10 cannot reach the file server 10.2.2.50 but can reach its gateway\" already rules out half the network.\n\nThen choose a method that fits what you know:\n\n- **Bottom-up:** start at Layer 1 (cables, interface status) and climb. Best when you suspect something physical or the symptom is broad (\"nothing on this switch works\"). Thorough, but slow.\n- **Top-down:** start at the application and work down. Best when the lower layers clearly work (other applications are fine) and one service fails, such as DNS or an ACL blocking one port.\n- **Divide and conquer:** start in the middle, usually with a ping. If a ping to the destination IP works, Layers 1 to 3 are fine along that path, so move up; if it fails, move down. The fastest choice for most exam scenarios.\n- **Follow the path:** trace the packet hop by hop from source to destination (host, access switch, trunk, gateway, each router) and check each device's forwarding decision. traceroute does part of this for you.\n- **Compare configurations:** compare the broken device with a working one: the other end of a trunk, the HSRP peer, a branch built from the same template. Most CCNA faults are mismatches (VLAN, native VLAN, allowed list, OSPF area, mask, timers).\n\nWhatever the method, the loop is the same: gather information, form a hypothesis, test it with one change, verify that the original symptom is gone, and document what you changed. Change one thing at a time, or you will never know which change fixed it.\n\nIn exam simlets you may only get user EXEC mode (R1>), which means no show running-config. Learn the show commands that reveal configuration indirectly: show ip interface (ACLs and helper addresses), show ip protocols (OSPF networks), show interfaces switchport (VLAN settings). When you can see the configuration, filter it instead of scrolling: `| section` shows a parent line with all its children, `| include` shows only matching lines (without the interface they belong to), and `| begin` starts the output at the first match.",
         "code": "R1# show running-config | section router ospf\nrouter ospf 1\n router-id 1.1.1.1\n network 10.0.0.0 0.0.0.3 area 0\n\nR1# show running-config interface g0/1\nBuilding configuration...\n\nCurrent configuration : 122 bytes\n!\ninterface GigabitEthernet0/1\n ip address 192.168.1.1 255.255.255.0\n ip access-group 10 out\n duplex auto\n speed auto\nend\n\nR1# show running-config | include helper|access-group\n ip helper-address 10.9.9.9\n ip access-group 10 out",
         "language": "cisco",
-        "tip": "Output filters are case sensitive regular expressions: | include Helper finds nothing, | include helper finds the line, and helper|access-group matches either word.",
+        "tip": "Output filters are case-sensitive regular expressions. In the running configuration, | include Helper finds nothing while | include helper finds ip helper-address, and helper|access-group matches either word.",
         "pitfall": "Changing several settings at once. If the symptom disappears you do not know which change fixed it, and an unneeded change can cause the next outage. Make one change, then retest.",
         "check": {
           "question": "A ping from PC1 to the server's IP address works, but browsing to the server by name fails. Using divide and conquer, where do you look next?",
@@ -266,7 +266,7 @@
       },
       {
         "title": "IP services: NAT, DHCP and NTP",
-        "body": "**NAT.** `show ip nat translations` lists the inside local address (the private address of the inside host), the inside global address (what it is translated to), and the outside addresses. With PAT, many inside local addresses share one inside global address and are told apart by port numbers, as in the exhibit. An empty table while users are sending traffic means NAT is not matching. Check `show ip nat statistics` for the inside and outside interfaces (swapped ip nat inside and ip nat outside is a classic), confirm that the ACL in ip nat inside source list permits the inside subnet (its match counters help), and confirm overload is present when one address must serve many hosts. A dynamic pool without overload runs out once every address is in use: the first hosts keep working and new ones fail.\n\n**DHCP.** A client showing 169.254.x.x never got an answer. If the server is on another subnet, the router interface facing the clients needs `ip helper-address` pointing to the server; show ip interface shows it as Helper address is. On an IOS DHCP server, `show ip dhcp binding` lists the leases (address, client ID or MAC, expiry), `show ip dhcp pool` shows how many addresses are in use, and `show ip dhcp conflict` lists addresses the server found already taken. Forgetting ip dhcp excluded-address for the router and server addresses causes those conflicts.\n\n**NTP.** `show ntp status` says Clock is synchronized, with the stratum and the reference, or Clock is unsynchronized. `show ntp associations` lists the configured servers: an asterisk marks the one in use (sys.peer), a tilde marks a configured server, and reach shows recent replies as an octal bit map (377 means the last eight polls were all answered, 0 means none). In the exhibit, R1 is unsynchronized and reach is 0: it has never heard from 10.9.9.123, so check routing, ACLs and the server address. Synchronizing also takes a few minutes after configuration, so wait before you call it broken.",
+        "body": "**NAT.** `show ip nat translations` lists the inside local address (the private address of the inside host), the inside global address (what it is translated to), and the outside addresses. With PAT, many inside local addresses share one inside global address and are told apart by port numbers, as in the exhibit. An empty table while users are sending traffic means NAT is not matching. Check `show ip nat statistics` for the inside and outside interfaces (swapped ip nat inside and ip nat outside is a classic), confirm that the ACL in ip nat inside source list permits the inside subnet, and confirm overload is present when one address must serve many hosts. A dynamic pool without overload runs out once every address is in use: the first hosts keep working and new ones fail.\n\n**DHCP.** A client showing 169.254.x.x never got an answer. If the server is on another subnet, the router interface facing the clients needs `ip helper-address` pointing to the server; show ip interface shows it as Helper address is. On an IOS DHCP server, `show ip dhcp binding` lists the leases (address, client ID or MAC, expiry), `show ip dhcp pool` shows how many addresses are in use, and `show ip dhcp conflict` lists addresses the server found already taken. Forgetting ip dhcp excluded-address for the router and server addresses causes those conflicts.\n\n**NTP.** `show ntp status` says Clock is synchronized, with the stratum and the reference, or Clock is unsynchronized. `show ntp associations` lists the configured servers: an asterisk marks the one in use (sys.peer), a tilde marks a configured server, and reach shows recent replies as an octal bit map (377 means the last eight polls were all answered, 0 means none). In the exhibit, R1 is unsynchronized and reach is 0: it has never heard from 10.9.9.123, so check routing, ACLs and the server address. Synchronizing also takes a few minutes after configuration, so wait before you call it broken.",
         "code": "R1# show ip nat translations\nPro Inside global         Inside local          Outside local         Outside global\ntcp 203.0.113.2:51000     192.168.1.10:51000    93.184.216.34:443     93.184.216.34:443\ntcp 203.0.113.2:51001     192.168.1.11:51001    93.184.216.34:443     93.184.216.34:443\nudp 203.0.113.2:1024      192.168.1.12:53211    8.8.8.8:53            8.8.8.8:53\n\nR1# show ntp status\nClock is unsynchronized, stratum 16, no reference clock\n\nR1# show ntp associations\n\n  address         ref clock       st   when   poll reach  delay  offset   disp\n ~10.9.9.123      .INIT.          16      -     64     0  0.000   0.000 15937.\n * sys.peer, # selected, + candidate, - outlyer, x falseticker, ~ configured",
         "language": "cisco",
         "tip": "Inside local and inside global are the same inside host before and after translation: local is the address used inside the network, global is the address the outside world sees.",
@@ -872,7 +872,7 @@
         "BPDU guard err-disabled it; shutdown and no shutdown are needed",
         "It is an alternate port, which is normal",
         "Loop guard blocked it because BPDUs stopped arriving",
-        "Root guard is blocking it because superior BPDUs arrive on it; it recovers by itself when they stop"
+        "Root guard is blocking it until superior BPDUs stop arriving"
       ],
       "answer": 3,
       "explanation": "*ROOT_Inc marks root guard's root-inconsistent state: a switch beyond Gi0/3 is claiming to be a better root. Root guard blocks the port without err-disabling it and releases it automatically. Loop guard shows *LOOP_Inc, and BPDU guard shows err-disabled.",
@@ -1236,8 +1236,8 @@
       "code": "R2# show ip interface g0/0\nGigabitEthernet0/0 is up, line protocol is up\n  Internet address is 10.1.12.2/30\n! lines omitted for brevity\n  Outgoing access list is not set\n  Inbound  access list is 101\n\nR2# show access-lists\nExtended IP access list 101\n    10 permit tcp 10.1.1.0 0.0.0.255 host 10.2.2.50 eq www (214 matches)\n    20 deny ip 10.1.1.0 0.0.0.255 any (37 matches)\n    30 permit ospf any any (1290 matches)",
       "language": "cisco",
       "choices": [
-        "Line 20 denies them",
-        "No line matches their source addresses, so the implicit deny drops their packets",
+        "Line 20 denies them along with 10.1.1.0/24",
+        "No line matches them, so the implicit deny drops their packets",
         "Line 30 drops them because they are not OSPF packets",
         "The ACL is applied in the wrong direction for them"
       ],
@@ -1256,7 +1256,7 @@
       "choices": [
         "Change line 30 to permit ip any any",
         "Apply the ACL in the other direction",
-        "Add the deny for host 10.1.1.25 with a sequence number lower than 10, such as 5",
+        "Add the host deny before line 10, for example as sequence 5",
         "Replace line 20 with deny tcp any host 10.1.1.25 eq 22"
       ],
       "answer": 2,
@@ -1272,10 +1272,10 @@
       "code": "SW1# show port-security interface g0/3\nPort Security              : Enabled\nPort Status                : Secure-shutdown\nViolation Mode             : Shutdown\nAging Time                 : 0 mins\nAging Type                 : Absolute\nSecureStatic Address Aging : Disabled\nMaximum MAC Addresses      : 1\nTotal MAC Addresses        : 1\nConfigured MAC Addresses   : 0\nSticky MAC Addresses       : 1\nLast Source Address:Vlan   : 0050.7966.6812:10\nSecurity Violation Count   : 1",
       "language": "cisco",
       "choices": [
-        "A second MAC address (0050.7966.6812) appeared; the port is err-disabled until shutdown and no shutdown",
-        "The port is working normally and dropping one unknown device silently",
-        "The sticky MAC address expired; it relearns automatically",
-        "The port is in restrict mode and only logs the violation"
+        "An unknown MAC appeared; it stays err-disabled until shutdown and no shutdown",
+        "The port works normally and silently drops one unknown device",
+        "The sticky MAC address expired and will be relearned automatically",
+        "The port is in restrict mode and only logs each violation"
       ],
       "answer": 0,
       "explanation": "Secure-shutdown with Violation Mode Shutdown and a count of 1 means the port is err-disabled after a frame from an unknown MAC. Remove the extra device (or raise the maximum), then shutdown and no shutdown.",

@@ -347,7 +347,7 @@ function ExerciseView({ exercise, number, total, item, status, onItem, onSolved,
     if (!edit) return
     const expected = area.value.slice(0, edit.from) + edit.text + area.value.slice(edit.to)
     area.setSelectionRange(edit.from, edit.to)
-    let inserted = false
+    let inserted
     try {
       inserted = document.execCommand('insertText', false, edit.text)
     } catch {

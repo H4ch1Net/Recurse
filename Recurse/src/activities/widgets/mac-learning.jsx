@@ -4,6 +4,7 @@ import { feedbackCorrect, feedbackSuccess, feedbackWrong, floatText } from '../.
 import { sfx } from '../../lib/sfx'
 import { BROADCAST_MAC } from '../lib/net'
 import { useTokens } from '../lib/net-anim'
+import { useNarrow } from '../lib/use-width'
 import { Device, Label, LinkLine, SpeedControl, Token } from '../lib/net-svg'
 import { AGING_CHOICES, BROADCAST, DEFAULT_AGING, HOSTS, advanceTime, createSwitch, framePhases, hostById, macOf, sendFrame, setAging, tableComplete } from '../lib/mac-learning'
 import './mac-learning.css'
@@ -20,6 +21,20 @@ const POS = {
   D: { x: 380, y: 236 }
 }
 const PORT_POINT = { 'Fa0/1': { x: 180, y: 70 }, 'Fa0/2': { x: 210, y: 70 }, 'Fa0/3': { x: 240, y: 70 } }
+// Phone diagram (viewBox 0 0 300 376): hosts in two columns so every name and MAC fits at a readable size.
+// Fa0/3 sits in the middle of the switch so its link to the hub runs straight down between A and B.
+const PHONE_POS = {
+  SW: { x: 150, y: 42 },
+  A: { x: 75, y: 142 },
+  B: { x: 225, y: 142 },
+  HUB: { x: 150, y: 236 },
+  C: { x: 75, y: 318 },
+  D: { x: 225, y: 318 }
+}
+const PHONE_PORT_POINT = { 'Fa0/1': { x: 120, y: 56 }, 'Fa0/2': { x: 180, y: 56 }, 'Fa0/3': { x: 150, y: 56 } }
+// Port numbers sit beside their links on the phone layout instead of under them.
+const PHONE_PORT_LABEL = { 'Fa0/1': { dx: -16, dy: 17, anchor: 'end' }, 'Fa0/2': { dx: 16, dy: 17, anchor: 'start' }, 'Fa0/3': { dx: 7, dy: 19, anchor: 'start' } }
+const GEO = { desktop: { pos: POS, ports: PORT_POINT }, phone: { pos: PHONE_POS, ports: PHONE_PORT_POINT } }
 const PORT_OF = { A: 'Fa0/1', B: 'Fa0/2', HUB: 'Fa0/3' }
 const LINKS = [
   ['SW', 'A'],
@@ -31,9 +46,9 @@ const LINKS = [
 const linkKey = (a, b) => [a, b].sort().join('-')
 
 /** Where a link attaches to a node: the switch uses the port's spot on its edge. */
-function anchor(node, other) {
-  if (node === 'SW') return PORT_POINT[PORT_OF[other]]
-  const p = POS[node]
+function anchor(node, other, g = GEO.desktop) {
+  if (node === 'SW') return g.ports[PORT_OF[other]]
+  const p = g.pos[node]
   if (node === 'HUB') return p
   return { x: p.x, y: p.y - 14 }
 }
@@ -59,6 +74,9 @@ export default function MacLearning({ onComplete }) {
   const [flash, setFlash] = useState(null)
   const stageRef = useRef(null)
   const tableRef = useRef(null)
+  const phone = useNarrow(stageRef)
+  const g = phone ? GEO.phone : GEO.desktop
+  const P = g.pos
   const { tokens, play, busy } = useTokens()
 
   const pickSrc = (id) => {
@@ -78,7 +96,7 @@ export default function MacLearning({ onComplete }) {
     setLit(new Set(phases.flat().map(([a, b]) => linkKey(a, b))))
     setMessage({ text: `Sending a frame from ${hostById(src).name} to ${dst === BROADCAST ? 'the broadcast address' : hostById(dst).name}...`, tone: '' })
     const segments = phases.map((phase, i) =>
-      phase.map(([a, b]) => ({ from: anchor(a, b), to: anchor(b, a), tone: i > atSwitch && flooded ? 'warn' : 'accent' }))
+      phase.map(([a, b]) => ({ from: anchor(a, b, g), to: anchor(b, a, g), tone: i > atSwitch && flooded ? 'warn' : 'accent' }))
     )
     const ok = await play(segments, {
       duration: 640 / speed,
@@ -187,23 +205,24 @@ export default function MacLearning({ onComplete }) {
 
       <div className="mac-layout">
         <div className="w-stage grid-bg mac-stage" ref={stageRef}>
-          <svg viewBox="0 0 440 292" className="mac-svg" role="img" aria-label="PC A on Fa0/1, PC B on Fa0/2, and PC C and PC D on a hub connected to Fa0/3 of the switch">
+          <svg viewBox={phone ? '0 0 300 376' : '0 0 440 292'} className={`mac-svg${phone ? ' phone' : ''}`} role="img" aria-label="PC A on Fa0/1, PC B on Fa0/2, and PC C and PC D on a hub connected to Fa0/3 of the switch">
             {LINKS.map(([a, b]) => (
-              <LinkLine key={linkKey(a, b)} a={anchor(a, b)} b={anchor(b, a)} state={lit.has(linkKey(a, b)) ? 'active' : 'idle'} />
+              <LinkLine key={linkKey(a, b)} a={anchor(a, b, g)} b={anchor(b, a, g)} state={lit.has(linkKey(a, b)) ? 'active' : 'idle'} />
             ))}
-            <Device kind="switch" x={POS.SW.x} y={POS.SW.y} w={100} h={30} state={filtered ? 'bad' : busy ? 'active' : 'idle'} />
-            <Label x={POS.SW.x - 60} y={POS.SW.y + 4} anchor="end" lines={['SW1']} size={12} />
-            {Object.entries(PORT_POINT).map(([port, p]) => (
-              <text key={port} x={p.x} y={p.y + 14} textAnchor="middle" className="mac-port">{port.replace('Fa', '')}</text>
-            ))}
-            <Device kind="hub" x={POS.HUB.x} y={POS.HUB.y} />
-            <Label x={POS.HUB.x + 28} y={POS.HUB.y + 4} anchor="start" lines={[{ text: 'Hub', strong: true }]} size={11} />
+            <Device kind="switch" x={P.SW.x} y={P.SW.y} w={100} h={30} state={filtered ? 'bad' : busy ? 'active' : 'idle'} />
+            <Label x={P.SW.x - 60} y={P.SW.y + 4} anchor="end" lines={['SW1']} size={phone ? 14 : 12} />
+            {Object.entries(g.ports).map(([port, p]) => {
+              const at = phone ? PHONE_PORT_LABEL[port] : { dx: 0, dy: 14, anchor: 'middle' }
+              return <text key={port} x={p.x + at.dx} y={p.y + at.dy} textAnchor={at.anchor} className="mac-port">{port.replace('Fa', '')}</text>
+            })}
+            <Device kind="hub" x={P.HUB.x} y={P.HUB.y} />
+            <Label x={P.HUB.x + 28} y={P.HUB.y + 4} anchor="start" lines={[{ text: 'Hub', strong: true }]} size={phone ? 14 : 11} />
             {HOSTS.map((h) => (
               <g key={h.id}>
-                <Device kind="pc" x={POS[h.id].x} y={POS[h.id].y} state={deviceState(h.id)} />
-                <Label x={POS[h.id].x} y={POS[h.id].y + 30} lines={[h.name, { text: h.mac, mono: true }]} size={11.5} />
+                <Device kind="pc" x={P[h.id].x} y={P[h.id].y} state={deviceState(h.id)} />
+                <Label x={P[h.id].x} y={P[h.id].y + (phone ? 32 : 30)} lines={[h.name, { text: h.mac, mono: true, size: phone ? 12.5 : undefined }]} size={phone ? 14 : 11.5} gap={phone ? 15 : 13} />
                 {badges[h.id] && (
-                  <g transform={`translate(${POS[h.id].x + 20} ${POS[h.id].y - 18})`} className="mac-badge">
+                  <g transform={`translate(${P[h.id].x + 20} ${P[h.id].y - 18})`} className="mac-badge">
                     <circle r="8" style={{ fill: badges[h.id] === 'kept' ? 'var(--good)' : 'var(--ink-3)' }} />
                     <path d={badges[h.id] === 'kept' ? 'M-3.5 0 L-1 2.8 L3.8 -2.6' : 'M-3 -3 L3 3 M3 -3 L-3 3'} style={{ stroke: 'var(--card)', strokeWidth: 2, fill: 'none', strokeLinecap: 'round' }} />
                   </g>
@@ -211,9 +230,9 @@ export default function MacLearning({ onComplete }) {
               </g>
             ))}
             {filtered && (
-              <g className="mac-badge" transform={`translate(${POS.SW.x + 62} ${POS.SW.y - 12})`}>
-                <rect x="-4" y="-10" width="56" height="18" rx="9" style={{ fill: 'var(--bad)' }} />
-                <text x="24" y="3" textAnchor="middle" style={{ fill: 'var(--card)', fontSize: 10, fontWeight: 700 }}>Filtered</text>
+              <g className="mac-badge" transform={`translate(${P.SW.x + 62} ${P.SW.y - 12})`}>
+                <rect x="-4" y="-10" width={phone ? 66 : 56} height={phone ? 20 : 18} rx="9" style={{ fill: 'var(--bad)' }} />
+                <text x={phone ? 29 : 24} y={phone ? 4.5 : 3} textAnchor="middle" style={{ fill: 'var(--card)', fontSize: phone ? 12.5 : 10, fontWeight: 700 }}>Filtered</text>
               </g>
             )}
             {tokens.map((t) => <Token key={t.id} token={t} />)}
