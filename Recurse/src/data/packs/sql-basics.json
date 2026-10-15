@@ -1,7 +1,7 @@
 {
   "id": "sql-basics",
   "name": "SQL Basics",
-  "version": "3.0.0",
+  "version": "3.1.0",
   "author": "Recurse",
   "subject": "programming",
   "level": "beginner",
@@ -26,6 +26,13 @@
         "body": "A spreadsheet with one tab per kind of thing is a decent first picture of a relational database. Each **table** holds one kind of thing (customers, orders, products), each **row** is one of them, and each **column** is one attribute with a declared type. What a database adds is rules (every order must belong to a real customer), a query language, and the ability to stay fast and correct with millions of rows and many users at once.\n\n**SQL** (Structured Query Language) is that language. It's **declarative**: you describe the result you want, and the database's query planner decides how to fetch it, which indexes to use and in what order to read the tables. You never write the loops.\n\nEvery read starts with `SELECT columns FROM table`:\n- List the columns you need. `SELECT *` (all columns) is handy for exploring, but in application code name the columns, so a column added later can't break or slow your code.\n- Compute new columns with expressions, such as `price * 1.2`.\n- Rename output columns with `AS`: `SELECT price * 1.2 AS gross`.\n- `SELECT DISTINCT city` removes duplicate result rows.\n\nKeywords aren't case sensitive, but writing them in uppercase is the common convention. Text values go in single quotes, `'Paris'`; double quotes are for identifiers such as column names. Statements end with a semicolon.\n\nIt helps to know the order in which a query is logically evaluated, because it explains many errors: FROM (with any JOINs) picks the rows, WHERE filters them, GROUP BY groups them, HAVING filters the groups, SELECT computes the output columns, ORDER BY sorts and LIMIT cuts. That's why most databases reject an alias from SELECT inside WHERE, while ORDER BY can use it.\n\nThe examples use a small shop: `customers(id, name, city)`, `orders(id, customer_id, total, status)` and `products(id, name, category, price)`. They run in SQLite and PostgreSQL, and nearly unchanged in MySQL.",
         "code": "SELECT name, city\nFROM customers;\n\nSELECT name, price, price * 1.2 AS price_with_tax\nFROM products;\n\nSELECT DISTINCT city\nFROM customers;\n\n-- Logical order of evaluation:\n-- FROM -> WHERE -> GROUP BY -> HAVING -> SELECT -> ORDER BY -> LIMIT",
         "pitfall": "Using double quotes for text. In standard SQL and PostgreSQL, `\"Paris\"` means a column named Paris; text values take single quotes.",
+        "activity": {
+          "type": "sql-lab",
+          "title": "Your first real queries",
+          "prompt": "This is a real SQLite database running in your browser, filled with a small online store. Open a table to see its columns and rows, write each query, press Run to see what comes back, then Check it.",
+          "goal": "Solve both queries.",
+          "props": { "set": "basics", "exercises": ["select-columns", "distinct"] }
+        },
         "check": {
           "question": "SQL is declarative. What does that mean when you write a SELECT?",
           "choices": [
@@ -43,6 +50,13 @@
         "body": "\"The five cheapest books under $20\" is a filter, a sort and a cut, and those three clauses appear in more queries than any others.\n\n`WHERE` keeps only the rows for which its condition is true. Conditions use `=`, `<>` (not equal; most databases also accept `!=`), `<`, `<=`, `>` and `>=`, combined with `AND`, `OR` and `NOT`. A few shortcuts keep them readable:\n- `city IN ('Paris', 'Lyon')` instead of a chain of ORs.\n- `price BETWEEN 10 AND 20`, which includes both ends.\n- `name LIKE 'Pro%'` for patterns: `%` matches any run of characters and `_` exactly one.\n\n`AND` binds tighter than `OR`, just as multiplication binds tighter than addition. `a OR b AND c` means `a OR (b AND c)`. Whenever you mix them, add parentheses; it's one of the most common query bugs.\n\n`ORDER BY` sorts the result, ascending by default; add `DESC` for descending. You can sort by several columns: `ORDER BY category, price DESC` sorts by category, then by price within each category. Without ORDER BY the database may return rows in any order, and that order can change between runs, so never rely on it.\n\n`LIMIT n` keeps the first n rows of the sorted result, and `OFFSET m` skips m rows first, which is how simple pagination works: page 3 at 10 rows per page is `LIMIT 10 OFFSET 20`. LIMIT always comes last. SQL Server spells it differently (`SELECT TOP 5 ...`, or `OFFSET ... FETCH NEXT ...`), but the idea is the same.\n\nLIKE is case sensitive in PostgreSQL but not for plain letters in SQLite or MySQL's default setup. PostgreSQL offers `ILIKE` for case-insensitive matching, and comparing lowercased values, `WHERE LOWER(name) LIKE 'pro%'`, works everywhere.",
         "code": "SELECT name, price\nFROM products\nWHERE category = 'books' AND price < 20\nORDER BY price\nLIMIT 5;\n\nSELECT name, city\nFROM customers\nWHERE (city = 'Paris' OR city = 'Lyon') AND name LIKE 'A%'\nORDER BY city, name;\n\n-- Page 3 of a product list, 10 per page\nSELECT name\nFROM products\nORDER BY name\nLIMIT 10 OFFSET 20;",
         "pitfall": "Mixing AND and OR without parentheses. `WHERE a OR b AND c` means `a OR (b AND c)`, which is rarely what was meant.",
+        "activity": {
+          "type": "sql-lab",
+          "title": "Filter, sort and cut",
+          "prompt": "Four requests from the store team, each one a WHERE, an ORDER BY with LIMIT, or a pattern. When row order matters, the exercise says so and Check compares the order too.",
+          "goal": "Solve all four queries.",
+          "props": { "set": "basics", "exercises": ["where-and", "order-limit", "like", "in-between"] }
+        },
         "check": {
           "question": "A query ends with ORDER BY price and no DESC. Which product comes first?",
           "choices": ["The most expensive", "The cheapest", "The one added first", "A random one"],
@@ -129,6 +143,13 @@
         "body": "\"Which products cost more than the average product?\" You can't write `WHERE price > AVG(price)`, because WHERE works on single rows before any aggregation happens. You need the average first, and a **subquery**, a SELECT inside another statement, gives it to you.\n\nSubqueries come in a few shapes:\n- A **scalar subquery** returns one value (one row, one column) and can go anywhere a value can: `WHERE price > (SELECT AVG(price) FROM products)`.\n- An **IN subquery** returns one column of many rows, used as a list: `WHERE id IN (SELECT customer_id FROM orders WHERE total > 100)`.\n- **EXISTS** is true if the subquery returns any row at all. A **correlated** subquery refers to the outer row, as in `WHERE EXISTS (SELECT 1 FROM orders o WHERE o.customer_id = c.id)`, and is conceptually evaluated once per outer row.\n- A **derived table** is a subquery in FROM, used like a temporary table and given an alias.\n\n`WITH name AS (SELECT ...)` defines a **common table expression** (CTE): a named subquery placed at the top, so the query reads in steps from top to bottom. For anything beyond a one-liner, CTEs make complex queries far easier to follow and review.\n\nThe famous trap is `NOT IN` with a NULL. `id NOT IN (1, 2, NULL)` asks whether id differs from 1, from 2 and from an unknown value, and \"differs from unknown\" is unknown, so no row ever passes. If the subquery's column can contain NULL (say, orders with no customer), `NOT IN` silently returns nothing. Use `NOT EXISTS`, or filter the NULLs out inside the subquery.\n\nMany subqueries can also be written as joins, and modern planners often run both forms the same way. Pick the one that states your question most clearly: \"customers who have an order\" reads naturally as EXISTS, while \"each order with its customer's name\" is a JOIN.",
         "code": "-- Products above the average price\nSELECT name, price\nFROM products\nWHERE price > (SELECT AVG(price) FROM products);\n\n-- Customers with at least one big order\nSELECT name\nFROM customers\nWHERE id IN (SELECT customer_id FROM orders WHERE total > 100);\n\n-- Customers with no orders, safe even if customer_id has NULLs\nSELECT c.name\nFROM customers c\nWHERE NOT EXISTS (SELECT 1 FROM orders o WHERE o.customer_id = c.id);\n\n-- A CTE: name a step, then use it like a table\nWITH totals AS (\n  SELECT customer_id, SUM(total) AS spent\n  FROM orders\n  GROUP BY customer_id\n)\nSELECT c.name, t.spent\nFROM customers c\nJOIN totals t ON t.customer_id = c.id\nORDER BY t.spent DESC;",
         "pitfall": "Using `NOT IN (subquery)` when the subquery can return NULL. The condition becomes unknown for every row and nothing comes back; use NOT EXISTS.",
+        "activity": {
+          "type": "sql-lab",
+          "title": "Subqueries on real data",
+          "prompt": "Answer each question with the kind of subquery it names. Check also runs your SQL on the same tables with a few extra rows, so a query that only fits this data will not pass.",
+          "goal": "Solve all five queries.",
+          "props": { "set": "subqueries", "exercises": ["scalar", "in-subquery", "exists", "correlated", "cte"] }
+        },
         "check": {
           "question": "What must a subquery used with =, as in WHERE price = (SELECT ...), return?",
           "choices": ["Any number of rows", "A whole table with several columns", "Only NULL", "Exactly one value: one row and one column"],
@@ -141,6 +162,13 @@
         "body": "Reading data can't hurt anything. Changing it can, and the classic disaster is an UPDATE or DELETE that hits every row because its WHERE clause was missing or wrong. A few habits make writes safe.\n\n`INSERT INTO table (columns) VALUES (...)` adds rows. Always list the columns: the statement then keeps working when columns are added, and values can't silently land in the wrong place. One INSERT can add several rows, `VALUES (...), (...)`, and columns you leave out get their DEFAULT, or NULL.\n\n`UPDATE table SET column = value WHERE condition` changes the matching rows, and `DELETE FROM table WHERE condition` removes them. Without WHERE, both affect **every row** in the table. Inside SET, `=` assigns; in WHERE it compares.\n\nHabits that prevent disasters:\n- Write the WHERE clause first, and run it as a SELECT to preview exactly which rows will change.\n- Wrap risky changes in a **transaction**: `BEGIN`, make the change, check the row count the database reports, then `COMMIT` to keep it or `ROLLBACK` to undo it. Until you commit, other connections don't see the change.\n- Target rows by primary key when you mean one row: `WHERE id = 42`, not `WHERE name = 'Ada'`.\n\nTransactions also make several changes **atomic**. Moving money between accounts is two UPDATEs, and they must both happen or neither. If anything fails between BEGIN and COMMIT, roll back and the database is exactly as it was.\n\nFrom application code, never build SQL by pasting user input into the string. A name like `'; DROP TABLE users; --` turns into SQL code. That's **SQL injection**, one of the most exploited vulnerabilities on the web. Use **parameterized queries**, where the SQL contains placeholders and the values travel separately: `cur.execute(\"SELECT * FROM users WHERE email = ?\", (email,))` with Python's sqlite3, or `$1` placeholders with node-postgres.",
         "code": "INSERT INTO customers (name, city)\nVALUES ('Ada', 'London'), ('Bo', 'Paris');\n\nBEGIN;\nSELECT * FROM orders WHERE status = 'cancelled';   -- preview the rows\nDELETE FROM orders WHERE status = 'cancelled';     -- same WHERE\nCOMMIT;                                            -- or ROLLBACK to undo\n\nBEGIN;\nUPDATE accounts SET balance = balance - 50 WHERE id = 1;\nUPDATE accounts SET balance = balance + 50 WHERE id = 2;\nCOMMIT;                                            -- both or neither",
         "pitfall": "Running UPDATE or DELETE without a WHERE clause. Every row changes; preview with SELECT first and work inside a transaction.",
+        "activity": {
+          "type": "sql-lab",
+          "title": "Change data without breaking it",
+          "prompt": "Every exercise starts from a fresh copy of the database, so experiment freely. These are graded on the data you leave behind: add a row, update one category, delete orders in the order the foreign keys allow, and undo a mistake with ROLLBACK.",
+          "goal": "Solve all four.",
+          "props": { "set": "modify", "exercises": ["insert", "update", "delete", "rollback"] }
+        },
         "check": {
           "question": "Which part of an UPDATE statement decides which rows change?",
           "choices": ["SET", "WHERE", "FROM", "VALUES"],
@@ -153,6 +181,13 @@
         "body": "The best place to enforce a rule about your data is the database itself. Application code has bugs, there may be several applications, and someone will eventually run a manual fix in a console. A **constraint** is a rule the database checks on every insert and update, rejecting any change that would break it.\n\n`CREATE TABLE` defines the columns, their types and the constraints:\n- `PRIMARY KEY` identifies each row: unique and never NULL. Most tables use an auto-generated integer (`INTEGER PRIMARY KEY` in SQLite, `GENERATED ALWAYS AS IDENTITY` in PostgreSQL).\n- `NOT NULL`: the column must always have a value.\n- `UNIQUE`: no two rows may share the value, like an email address.\n- `CHECK (condition)`: any rule you can express, such as `CHECK (total >= 0)`.\n- `DEFAULT value`: used when an INSERT leaves the column out.\n- `REFERENCES other_table(column)`: a **foreign key**, guaranteeing the value exists in the other table. By default the database refuses to delete a parent row that still has children; `ON DELETE CASCADE` deletes the children with it. SQLite only enforces foreign keys after `PRAGMA foreign_keys = ON`.\n\nCommon types are `INTEGER`, `NUMERIC(10, 2)` for exact money amounts, `TEXT` or `VARCHAR(n)`, `BOOLEAN` and `TIMESTAMP`. Type names vary between databases more than any other part of SQL.\n\nAn **index** is a separate sorted structure, like the index at the back of a book, that lets the database find rows by a column without scanning the whole table. Primary keys and UNIQUE columns are indexed automatically. Add indexes for columns you often filter or join on, such as foreign keys. The trade-off: every insert, update and delete must also update each index, and indexes take space, so don't index everything.\n\nChange existing tables with `ALTER TABLE` and remove them with `DROP TABLE`. In real projects these changes live in versioned **migration** files, so every environment's schema evolves the same way.",
         "code": "CREATE TABLE customers (\n  id    INTEGER PRIMARY KEY,\n  name  TEXT NOT NULL,\n  email TEXT NOT NULL UNIQUE,\n  city  TEXT\n);\n\nCREATE TABLE orders (\n  id          INTEGER PRIMARY KEY,\n  customer_id INTEGER NOT NULL REFERENCES customers(id),\n  total       NUMERIC(10, 2) NOT NULL CHECK (total >= 0),\n  status      TEXT NOT NULL DEFAULT 'pending',\n  created_at  TIMESTAMP DEFAULT CURRENT_TIMESTAMP\n);\n\nCREATE INDEX idx_orders_customer ON orders (customer_id);\n\nINSERT INTO orders (customer_id, total) VALUES (1, -5);\n-- rejected: CHECK constraint failed",
         "pitfall": "Relying only on application code for rules like unique emails. Two requests at the same moment can both pass an app-side check; a UNIQUE constraint can't be raced.",
+        "activity": {
+          "type": "sql-lab",
+          "title": "Let the database enforce the rules",
+          "prompt": "Write the CREATE TABLE statement. Check then tries seven test inserts, valid and invalid, and your constraints must accept and reject exactly the right ones.",
+          "goal": "Build a reviews table that passes every test insert.",
+          "props": { "set": "modify", "exercises": ["create-table"] }
+        },
         "check": {
           "question": "Which statement about a primary key is true?",
           "choices": [
@@ -659,5 +694,11 @@
       "concept": "UNIQUE constraint",
       "section": 7
     }
+  ],
+  "resources": [
+    { "title": "SQLBolt", "url": "https://sqlbolt.com/", "kind": "practice", "note": "Free interactive lessons with a query box after each one, from SELECT to joins and aggregates." },
+    { "title": "Select Star SQL", "url": "https://selectstarsql.com/", "kind": "course", "note": "A free interactive book that teaches SQL on one real dataset, joins and subqueries included." },
+    { "title": "SQLite: SQL as understood by SQLite", "url": "https://www.sqlite.org/lang.html", "kind": "docs", "note": "The reference for the SQLite dialect the SQL lab runs, with a diagram for every statement." },
+    { "title": "PostgreSQL tutorial: the SQL language", "url": "https://www.postgresql.org/docs/current/tutorial-sql.html", "kind": "docs", "note": "The official PostgreSQL walkthrough of tables, queries, joins and aggregates." }
   ]
 }
