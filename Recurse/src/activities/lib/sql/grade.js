@@ -1,6 +1,6 @@
 // Grading a learner's SQL against the reference solution, with messages that say what to fix.
 // Each "run" is one entry of the worker's results (see executeRuns in worker.js).
-import { compareResults } from './compare.js'
+import { compareResults, rowsEqual } from './compare.js'
 import { changesData } from './exercises.js'
 import { formatRow } from './lab.js'
 
@@ -63,7 +63,8 @@ export function describeMismatch(cmp, expected) {
     }
     case 'row-count': {
       let text = `Your query returned ${count(cmp.actualCount, 'row')}; the expected result has ${cmp.expectedCount}.`
-      if (cmp.actualCount > cmp.expectedCount && !cmp.missing.length) text += ' Some rows appear more than once: do you need DISTINCT, or is a join multiplying rows?'
+      const repeats = cmp.extra.length > 0 && cmp.extra.every((row) => expected.rows.some((want) => rowsEqual(row, want)))
+      if (cmp.actualCount > cmp.expectedCount && !cmp.missing.length && repeats) text += ' Some rows appear more than once: do you need DISTINCT, or is a join multiplying rows?'
       else if (cmp.missing.length) text += ` Missing, for example: ${formatRow(cmp.missing[0])}.`
       else if (cmp.extra.length) text += ` This one should not be there: ${formatRow(cmp.extra[0])}.`
       return text

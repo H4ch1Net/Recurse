@@ -32,24 +32,27 @@ const LAYOUTS = {
       { x: 464, y: 134, lines: [{ text: `G0/1 ${G1.ip}`, mono: true, strong: true }, { text: G1.mac, mono: true }], size: 10.5 }
     ]
   },
+  // Phone layout: 300 wide, so at phone width type renders at about its own size.
   tall: {
-    box: [360, 470],
-    font: 11,
-    pos: { A: { x: 60, y: 66 }, SW1: { x: 180, y: 66 }, C: { x: 300, y: 66 }, R1: { x: 180, y: 226 }, B: { x: 60, y: 386 }, SW2: { x: 180, y: 386 }, D: { x: 300, y: 386 } },
+    box: [300, 480],
+    font: 13.5,
+    gap: 15,
+    tokenSize: 1.3,
+    pos: { A: { x: 60, y: 74 }, SW1: { x: 150, y: 74 }, C: { x: 240, y: 74 }, R1: { x: 150, y: 246 }, B: { x: 60, y: 398 }, SW2: { x: 150, y: 398 }, D: { x: 240, y: 398 } },
     zones: [
-      { x: 6, y: 8, w: 348, h: 146, label: 'LAN 192.168.1.0/24', lx: 14, ly: 24 },
-      { x: 6, y: 300, w: 348, h: 164, label: 'LAN 192.168.2.0/24', lx: 14, ly: 316 }
+      { x: 4, y: 8, w: 292, h: 146, label: 'LAN 192.168.1.0/24', lx: 12, ly: 26 },
+      { x: 4, y: 336, w: 292, h: 138, label: 'LAN 192.168.2.0/24', lx: 12, ly: 354 }
     ],
     labels: [
-      { x: 60, y: 98, lines: [A.name, { text: A.ip, mono: true }, { text: A.mac, mono: true }] },
-      { x: 300, y: 98, lines: [C.name, { text: C.ip, mono: true }, { text: C.mac, mono: true }] },
-      { x: 180, y: 46, lines: ['SW1'] },
-      { x: 148, y: 230, anchor: 'end', lines: ['R1'] },
-      { x: 204, y: 186, anchor: 'start', lines: [{ text: `G0/0 ${G0.ip}`, mono: true, strong: true }, { text: G0.mac, mono: true }], size: 10.5 },
-      { x: 204, y: 258, anchor: 'start', lines: [{ text: `G0/1 ${G1.ip}`, mono: true, strong: true }, { text: G1.mac, mono: true }], size: 10.5 },
-      { x: 180, y: 418, lines: ['SW2'] },
-      { x: 60, y: 418, lines: [B.name, { text: B.ip, mono: true }, { text: B.mac, mono: true }] },
-      { x: 300, y: 418, lines: [D.name, { text: D.ip, mono: true }, { text: D.mac, mono: true }] }
+      { x: 60, y: 106, lines: [A.name, { text: A.ip, mono: true }, { text: A.mac, mono: true }] },
+      { x: 240, y: 106, lines: [C.name, { text: C.ip, mono: true }, { text: C.mac, mono: true }] },
+      { x: 150, y: 52, lines: ['SW1'] },
+      { x: 120, y: 251, anchor: 'end', lines: ['R1'] },
+      { x: 162, y: 196, anchor: 'start', lines: [{ text: `G0/0 ${G0.ip}`, mono: true, strong: true }, { text: G0.mac, mono: true }] },
+      { x: 162, y: 284, anchor: 'start', lines: [{ text: `G0/1 ${G1.ip}`, mono: true, strong: true }, { text: G1.mac, mono: true }] },
+      { x: 150, y: 430, lines: ['SW2'] },
+      { x: 60, y: 430, lines: [B.name, { text: B.ip, mono: true }, { text: B.mac, mono: true }] },
+      { x: 240, y: 430, lines: [D.name, { text: D.ip, mono: true }, { text: D.mac, mono: true }] }
     ]
   }
 }
@@ -314,7 +317,7 @@ export default function PacketJourney({ onComplete }) {
       </div>
 
       <div className="w-stage journey-stage" ref={stageRef}>
-        <svg viewBox={`0 0 ${vw} ${vh}`} className="journey-svg" role="img" aria-label={`Network: PC A and PC C on SW1, router R1, PC B and PC D on SW2. Current step: ${step.title}.`}>
+        <svg viewBox={`0 0 ${vw} ${vh}`} className={`journey-svg${layout === LAYOUTS.tall ? ' tall' : ''}`} role="img" aria-label={`Network: PC A and PC C on SW1, router R1, PC B and PC D on SW2. Current step: ${step.title}.`}>
           {layout.zones.map((z) => (
             <g key={z.label}>
               <rect x={z.x} y={z.y} width={z.w} height={z.h} rx="12" className="journey-zone" />
@@ -328,9 +331,9 @@ export default function PacketJourney({ onComplete }) {
             <Device key={d.id} kind={d.kind} x={layout.pos[d.id].x} y={layout.pos[d.id].y} state={deviceState(d.id)} />
           ))}
           {layout.labels.map((l, i) => (
-            <Label key={i} x={l.x} y={l.y} anchor={l.anchor} lines={l.lines} size={l.size || layout.font} />
+            <Label key={i} x={l.x} y={l.y} anchor={l.anchor} lines={l.lines} size={l.size || layout.font} gap={layout.gap} />
           ))}
-          {tokens.map((t) => <Token key={t.id} token={t} />)}
+          {tokens.map((t) => <Token key={t.id} token={t} size={layout.tokenSize} />)}
         </svg>
       </div>
 

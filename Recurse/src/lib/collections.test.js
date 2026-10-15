@@ -8,7 +8,8 @@ describe('collections', () => {
   it('loads the built-in paths with stages and topic lists', () => {
     expect(COLLECTIONS.length).toBeGreaterThanOrEqual(4)
     const ccna = getCollection('ccna')
-    expect(ccna.stages).toHaveLength(6)
+    // Six blueprint domains weighted like the exam, plus a final review stage with weight 0.
+    expect(ccna.stages.filter((s) => s.weight > 0)).toHaveLength(6)
     expect(ccna.stages.reduce((sum, s) => sum + s.weight, 0)).toBe(100)
     expect(ccna.packIds.length).toBeGreaterThan(30)
     expect(getCollection('swe-internship').projectIds.length).toBeGreaterThan(3)

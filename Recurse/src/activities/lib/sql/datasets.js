@@ -77,7 +77,7 @@ const STORE_DATA = [
     [9, 'Cast Iron Skillet', 3, 34.9, 9],
     [10, 'French Press', 3, 27.5, 25],
     [11, 'Garden Hose', 4, 31.0, 14],
-    [12, 'Pruning Shears', 4, 18.75, 30],
+    [12, 'Pruning Shears', 4, 18.75, 0],
     [13, 'Gift Card', null, 25.0, 100]
   ]),
   insertSql('customers', ['id', 'name', 'email', 'city', 'signup_date'], [

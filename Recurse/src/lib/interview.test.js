@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   BEHAVIORAL_QUESTIONS,
+  createSession,
   crossedWarning,
   feedbackPrompt,
   formatClock,
@@ -21,6 +22,7 @@ import {
   secondsLeft,
   starCheck,
   testRate,
+  timeUsed,
   wantedDifficulties
 } from './interview'
 import { createRandom } from './random'
@@ -326,5 +328,24 @@ describe('AI feedback', () => {
     expect(out.strengths).toEqual(['Clear plan'])
     expect(out.improvements).toEqual(['Test edge cases'])
     expect(out.rubric).toEqual({ coding: 3 })
+  })
+})
+
+describe('sessions', () => {
+  it('sets the clock from the format', () => {
+    const coding = createSession({ id: 'a', format: 'coding', problems: [c('x', 'medium')], now: NOW })
+    expect(coding.limit).toBe(45 * 60)
+    expect(coding.problems).toEqual([{ id: 'x', title: 'x', difficulty: 'medium', set: 'hash-maps', topic: null }])
+    expect(createSession({ id: 'b', format: 'oa', problems: [], now: NOW }).limit).toBe(70 * 60)
+    const behavioral = createSession({ id: 'c', format: 'behavioral', questions: BEHAVIORAL_QUESTIONS.slice(0, 4), now: NOW })
+    expect(behavioral.limit).toBe(4 * 180)
+    expect(behavioral.answers[BEHAVIORAL_QUESTIONS[0].id].startedAt).toBe(NOW)
+  })
+
+  it('counts the time used, capped at the limit', () => {
+    const s = createSession({ id: 'a', format: 'coding', now: NOW })
+    expect(timeUsed({ ...s, endedAt: NOW + 600000 })).toBe(600)
+    expect(timeUsed(s, NOW + 99 * 60000)).toBe(45 * 60)
+    expect(timeUsed({ format: 'behavioral', answers: { a: { seconds: 100 }, b: { seconds: 500 } } })).toBe(280)
   })
 })

@@ -231,6 +231,7 @@ function ExerciseView({ exercise, number, total, item, status, onItem, onSolved,
   const [busy, setBusy] = useState(null)
   const [output, setOutput] = useState(null)
   const [verdict, setVerdict] = useState(null)
+  const [attempt, setAttempt] = useState(0)
   const [schema, setSchema] = useState(null)
   const [refs, setRefs] = useState(null)
   const [confirmReveal, setConfirmReveal] = useState(false)
@@ -281,6 +282,8 @@ function ExerciseView({ exercise, number, total, item, status, onItem, onSolved,
     if (busy) return
     sfx.tap()
     setBusy('check')
+    setVerdict(null)
+    setAttempt((n) => n + 1)
     setAnnounce('Checking')
     const reference = await loadRefs(exercise)
     if (reference.problem) {
@@ -450,7 +453,7 @@ function ExerciseView({ exercise, number, total, item, status, onItem, onSolved,
 
       <div ref={feedbackRef} className="sqllab-feedback-anchor">
         {verdict && (
-          <div className={`callout ${verdict.pass ? 'good' : verdict.kind === 'second-check' || verdict.kind === 'missing' ? 'warn' : 'bad'} sqllab-verdict`}>
+          <div key={attempt} data-attempt={attempt} className={`callout ${verdict.pass ? 'good' : verdict.kind === 'second-check' || verdict.kind === 'missing' ? 'warn' : 'bad'} sqllab-verdict`}>
             {verdict.pass ? <Check size={18} /> : <X size={18} />}
             <div className="grow">
               <p>{verdict.message}</p>
