@@ -845,7 +845,8 @@ export function createSession({ id, format, shape = 'medium', pattern = 'surpris
     notes: {},
     results: {},
     code: {},
-    answers: {},
+    // The first answer's clock starts now; each later one starts when the learner moves on.
+    answers: questions.length ? { [questions[0].id]: { text: '', startedAt: now } } : {},
     rubric: {},
     feedback: null,
     endedAt: null

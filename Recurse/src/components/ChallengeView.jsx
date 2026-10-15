@@ -92,7 +92,7 @@ function formatDuration(seconds) {
  *   language              preferred starting language
  *
  * Mock interviews (all optional; the defaults keep the normal behavior):
- *   hideHints, hideSolution   leave out the hints and the reference solution
+ *   hideHints, hideSolution   leave out the hints (and the pattern name) and the reference solution
  *   locked                    read-only editor, Run and Submit disabled (time is up)
  *   draftScope                a separate set of saved drafts, e.g. 'mock_'
  *   onResult({ kind, passed, total, hiddenPassed, hiddenTotal, allPassed, language })   after each Run or Submit
@@ -416,7 +416,7 @@ function ChallengeWorkspace({
           <H className="challenge-title">{challenge.title}</H>
           <div className="row wrap challenge-meta">
             {challenge.difficulty && <span className={`chip ${DIFFICULTY_TONE[challenge.difficulty] || 'outline'}`}>{challenge.difficulty}</span>}
-            {challenge.pattern && <span className="chip outline">{challenge.pattern}</span>}
+            {!hideHints && challenge.pattern && <span className="chip outline">{challenge.pattern}</span>}
             {solved && (
               <span className="stamp good press">
                 <Check size={12} /> Solved
