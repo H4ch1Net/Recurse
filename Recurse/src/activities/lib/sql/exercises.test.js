@@ -15,7 +15,7 @@ try {
   DatabaseSync = null
 }
 
-const DASHES = /[–—]/
+const DASHES = /[\u2013\u2014]/
 
 describe('exercise sets', () => {
   it('has the six sets with 6 to 10 exercises each', () => {

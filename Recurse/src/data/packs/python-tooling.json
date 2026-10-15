@@ -1,0 +1,964 @@
+{
+  "id": "python-tooling",
+  "name": "Python Tooling: Environments, Packaging and Quality",
+  "version": "1.0.0",
+  "author": "Recurse",
+  "subject": "tools",
+  "level": "intermediate",
+  "description": "venv and pip, pyproject.toml, packaging and publishing, ruff, mypy, pytest in depth, logging, config and CI.",
+  "icon": "Py+",
+  "language": "python",
+  "prereqs": [
+    "python-intermediate",
+    "swe-testing",
+    "git-basics"
+  ],
+  "tags": [
+    "python",
+    "pip",
+    "pyproject",
+    "pytest",
+    "ruff",
+    "mypy",
+    "logging",
+    "ci"
+  ],
+  "lesson": {
+    "estimatedMinutes": 45,
+    "intro": "Writing Python is half of a Python developer's job. The other half is the tooling around it: environments that do not break, dependencies that install the same everywhere, a package others can install, and automatic checks (formatting, linting, type checking and tests) that run on every commit. This pack covers the modern Python toolchain that job postings expect you to know.",
+    "objectives": [
+      "Create and manage virtual environments, and declare dependencies in pyproject.toml with a lock file",
+      "Lay out, build and publish a package with a src layout, entry points and TestPyPI",
+      "Use ruff, black and mypy, and read their findings",
+      "Write pytest suites with fixtures, conftest, parametrize and mocks",
+      "Replace prints with logging, load configuration from environment variables, and automate checks with pre-commit and CI"
+    ],
+    "sections": [
+      {
+        "title": "Virtual environments and pip, properly",
+        "body": "\"It works on my machine\" usually means two machines have different packages installed. Python's answer is one **virtual environment** per project, and a few habits that keep you from installing into the wrong one.\n\nA venv is just a folder, usually `.venv` in the project root. It holds a `python` that points at a base interpreter and its own `site-packages` folder for installed packages. Activating it only puts `.venv/bin` at the front of your PATH, so `python` and `pip` now mean the venv's copies. You can skip activation entirely and call `.venv/bin/python` directly, which is what editors, scripts and Dockerfiles often do.\n\nHabits that prevent most environment bugs:\n- Use `python -m pip`, not bare `pip`. It guarantees that packages go into the interpreter you are actually running; a bare `pip` on your PATH can belong to a different Python.\n- Never `sudo pip install`. On many Linux distributions and on Homebrew Python, pip refuses with **error: externally-managed-environment**, because installing into the system Python can break the operating system's own tools. The fix is a venv, not a flag that overrides the check.\n- Treat venvs as disposable. Do not commit them (add `.venv/` to `.gitignore`), do not copy them between machines, and when one gets strange, delete it and recreate it from your dependency files.\n- Install command-line tools you want everywhere, such as ruff or httpie, with `pipx install` or `uv tool install`. Each tool gets its own hidden venv.\n- Point your editor at the venv's interpreter, or its imports and linting will not match what runs.\n\n**uv** is a newer tool, written in Rust, that does all of this much faster: `uv venv` creates the environment, `uv pip install` mirrors pip, `uv python install 3.12` downloads interpreters, and `uv add` plus `uv run` manage a whole project with a lock file. Plain venv and pip still work everywhere, and the concepts are identical, so learn both.\n\nWhen you need several Python versions side by side, `uv python install` or pyenv provide them, and each venv is tied to the version that created it.",
+        "code": "python3 -m venv .venv                 # create once per project\nsource .venv/bin/activate             # Windows: .venv\\Scripts\\activate\nwhich python                          # /home/ana/weather-cli/.venv/bin/python\npython -m pip install --upgrade pip\npython -m pip install httpx           # installs into .venv only\npython -m pip list                    # what is installed here\npython -m pip show httpx              # version, location, requirements\npython -c \"import sys; print(sys.prefix)\"   # the venv folder\ndeactivate\n\n# The same with uv\nuv venv                               # creates .venv\nuv pip install httpx\nuv run python app.py                  # runs inside the project's environment\n\n# Tools you want on every project, each in its own isolated venv\npipx install ruff                     # or: uv tool install ruff",
+        "language": "bash",
+        "pitfall": "Fixing \"externally-managed-environment\" with --break-system-packages or sudo. Create a venv for the project instead, or use pipx for a global tool.",
+        "check": {
+          "question": "Why prefer python -m pip install over pip install?",
+          "choices": [
+            "It installs packages faster",
+            "It installs into the interpreter you are running, not whichever pip is first on PATH",
+            "It installs packages globally for all users",
+            "It is the only way to install from PyPI"
+          ],
+          "answer": 1,
+          "explanation": "python -m pip runs pip as a module of that exact python, so the package lands where your code will import it from. A bare pip can belong to another Python installation."
+        }
+      },
+      {
+        "title": "Dependencies: pyproject.toml, requirements and lock files",
+        "body": "A teammate clones your project, installs it, and the tests fail: they got httpx 1.0 where you have 0.28. Nobody changed the code; the dependencies moved. Managing dependencies means separating what your code **needs** from exactly what you **tested with**.\n\n**pyproject.toml** is the standard home for a project's metadata, its dependencies and most tool configuration. Its `[project]` table lists runtime dependencies as **ranges**: the versions your code is known to work with. Version specifiers:\n- `==2.31.0` exactly this version, `!=2.30.0` anything but this one.\n- `>=0.27,<1` at least 0.27 and below 1.0.\n- `~=13.7` a **compatible release**: at least 13.7 and below 14.0.\n\nMost packages follow **semantic versioning**, MAJOR.MINOR.PATCH: a major bump may break your code, a minor one adds features, and a patch fixes bugs. That is why an upper bound below the next major version is a common range.\n\nRanges alone are not reproducible, because new releases keep appearing, including new releases of your dependencies' own dependencies (**transitive** dependencies). So applications also keep a **lock file**: every package, direct and transitive, pinned to an exact version, often with hashes. `uv lock` writes `uv.lock`, Poetry writes `poetry.lock`, and pip-tools' `pip-compile` or `pip freeze > requirements.txt` produce a pinned requirements file. CI, teammates and production install from the lock file, so they all get identical packages. Upgrades become deliberate: regenerate the lock (`uv lock --upgrade`), run the tests, commit. Bots such as Dependabot or Renovate open those upgrade pull requests for you.\n\nThe rule of thumb:\n- A **library** you publish declares ranges and does not ship a lock file, so it can coexist with other packages in someone else's environment.\n- An **application** or service declares ranges and commits a lock file, so every deploy is reproducible.\n\nDevelopment tools (pytest, ruff, mypy) go in a separate group, such as `[project.optional-dependencies] dev = [...]`, installed with `pip install -e \".[dev]\"`, or in uv's `[dependency-groups]`. `pip-audit` checks your pinned versions against known vulnerabilities.",
+        "code": "[project]\nname = \"weather-cli\"\nversion = \"0.3.0\"\nrequires-python = \">=3.11\"\ndependencies = [\n    \"httpx>=0.27,<1\",     # a range the code is known to work with\n    \"rich~=13.7\",         # compatible release: >=13.7, <14\n]\n\n[project.optional-dependencies]\ndev = [\"pytest>=8\", \"pytest-cov\", \"ruff\", \"mypy\"]   # pip install -e \".[dev]\"\n\n# Exact versions of everything, direct and transitive, live in a lock file:\n#   uv lock                       -> uv.lock\n#   pip freeze > requirements.txt -> httpx==0.28.1, anyio==4.6.2, ...",
+        "language": "plaintext",
+        "pitfall": "Committing only loose ranges for an application. Every fresh install can pick up new versions of something deep in the dependency tree; commit a lock file and upgrade on purpose.",
+        "activity": {
+          "type": "code-runner",
+          "title": "Read a pyproject.toml",
+          "prompt": "tomllib (standard library since 3.11) parses TOML into dicts. Split each requirement into a name and a constraint with a small regex such as ([A-Za-z0-9_.-]+)(.*), then print the lines described in the comment instead of the whole dict.",
+          "props": {
+            "language": "python",
+            "code": "import tomllib\n\nPYPROJECT = \"\"\"\n[project]\nname = \"weather-cli\"\nversion = \"0.3.0\"\nrequires-python = \">=3.11\"\ndependencies = [\"httpx>=0.27,<1\", \"rich~=13.7\", \"platformdirs\"]\n\n[project.optional-dependencies]\ndev = [\"pytest>=8\", \"ruff\", \"mypy\"]\n\"\"\"\n\ndata = tomllib.loads(PYPROJECT)\n# Print \"NAME VERSION\", then one line per runtime dependency:\n#   NAME: CONSTRAINT   (or \"NAME: any version\" if there is no constraint)\n# and finally the dev extras by name only: \"dev: pytest, ruff, mypy\"\nprint(data)\n",
+            "task": "Print weather-cli 0.3.0, then httpx: >=0.27,<1, rich: ~=13.7, platformdirs: any version, and dev: pytest, ruff, mypy.",
+            "expectOutput": "weather-cli 0.3.0\nhttpx: >=0.27,<1\nrich: ~=13.7\nplatformdirs: any version\ndev: pytest, ruff, mypy"
+          }
+        },
+        "check": {
+          "question": "Which versions does the specifier rich~=13.7 allow?",
+          "choices": [
+            "Exactly 13.7",
+            "13.7 or newer, below 14.0",
+            "Any version from 13.0 to 13.7",
+            "13.7 or newer, with no upper bound"
+          ],
+          "answer": 1,
+          "explanation": "~= is the compatible release operator: ~=13.7 means >=13.7 and ==13.*, so 13.9 is fine and 14.0 is not. ~=13.7.2 would mean >=13.7.2 and below 13.8."
+        }
+      },
+      {
+        "title": "Project layout, packaging and publishing",
+        "body": "Sooner or later your code needs to be installable: a CLI your team runs, a library several services share, or a package on PyPI that proves you can ship. That means a standard layout and a build configuration.\n\nThe widely recommended **src layout** puts the importable package under `src/`, with tests beside it. Because `src/` is not on the import path, your tests import the **installed** package rather than the folder they happen to sit next to, so a missing file or a broken package configuration fails in your tests instead of on a user's machine. Inside the package, `__init__.py` marks the folder as a package, and `__main__.py` makes `python -m weather_cli` work.\n\nWatch the two names. The **distribution name** in pyproject (`weather-cli`) is what you pip install; the **import name** (`weather_cli`) is the folder you import. Dashes are not allowed in import names.\n\npyproject.toml gains two more tables:\n- `[build-system]` names the **build backend** that turns your source into installable files: hatchling, setuptools, flit-core, poetry-core or uv's own. Any of them works with pip.\n- `[project.scripts]` declares console commands: `weather = \"weather_cli.cli:main\"` installs a `weather` command that calls `main()`.\n\nDuring development, install the project in **editable** mode, `python -m pip install -e \".[dev]\"`, so code changes apply without reinstalling.\n\nTo release, build two files with `python -m build` or `uv build`:\n- a **wheel** (`.whl`), a ready-to-install archive that pip simply unpacks;\n- a **source distribution** (`.tar.gz`), the source plus metadata, used when no suitable wheel exists.\n\nUpload them with `twine upload` or `uv publish`, first to **TestPyPI**, a separate practice index, then install from it into a fresh venv and try the command. Then publish to PyPI for real. Authenticate with an API token, or better, **trusted publishing**, where a CI workflow proves its identity to PyPI and no long-lived token exists. A version can be uploaded only once: a broken 0.3.0 cannot be replaced, so release 0.3.1 and yank the bad one.",
+        "code": "weather-cli/\n|-- pyproject.toml\n|-- README.md\n|-- src/\n|   `-- weather_cli/          import name: weather_cli\n|       |-- __init__.py\n|       |-- __main__.py       python -m weather_cli\n|       |-- cli.py            def main(): ...\n|       `-- client.py\n`-- tests/\n    |-- conftest.py\n    `-- test_client.py\n\n# added to pyproject.toml\n[project.scripts]\nweather = \"weather_cli.cli:main\"   # installs a `weather` command\n\n[build-system]\nrequires = [\"hatchling\"]\nbuild-backend = \"hatchling.build\"\n\n$ python -m pip install -e \".[dev]\"   # editable install for development\n$ uv build                            # or: python -m build\nSuccessfully built dist/weather_cli-0.3.0.tar.gz\nSuccessfully built dist/weather_cli-0.3.0-py3-none-any.whl\n$ uv publish --publish-url https://test.pypi.org/legacy/   # or: twine upload -r testpypi dist/*",
+        "language": "plaintext",
+        "pitfall": "Running tests from a flat layout and never installing the package. Everything imports fine from the project folder, then the published wheel is missing a module; the src layout plus an install catches it.",
+        "check": {
+          "question": "You published weather-cli 0.3.0 with a bug. What do you do?",
+          "choices": [
+            "Delete the release and upload a fixed file as 0.3.0",
+            "Release 0.3.1 with the fix, and yank 0.3.0 if it is harmful",
+            "Upload the fixed file as 0.3.0-fixed to the same version",
+            "Ask users to reinstall 0.3.0 with --force"
+          ],
+          "answer": 1,
+          "explanation": "PyPI never lets you reuse a version number, even after deleting it, so caches and lock files can trust that a version always means the same files. Yanking hides a release from new installs without breaking existing pins."
+        }
+      },
+      {
+        "title": "Formatting and linting with ruff and black",
+        "body": "Code review time is precious. Spending it on spacing, quote styles and import order wastes it and causes arguments that never end. Teams hand those decisions to tools.\n\nA **formatter** rewrites code into one consistent style. **Black** made this mainstream in Python: it has almost no options, so there is nothing to debate, and every file in every project looks the same. **Ruff** includes a formatter, `ruff format`, designed to produce essentially the same output as Black, much faster.\n\nA **linter** reads code without running it and reports likely bugs and bad patterns. **Ruff**, written in Rust, reimplements hundreds of rules from older tools (flake8, isort, pyupgrade, flake8-bugbear and more) and runs fast enough to check a large codebase on every save. Rules are grouped by prefix, and you choose groups in `pyproject.toml`:\n- `F` (Pyflakes): unused imports and variables, undefined names. These are real bugs.\n- `E` and `W` (pycodestyle): style errors such as `== None` (E711) or a bare `except:` (E722).\n- `I` (isort): sorted, grouped imports.\n- `B` (bugbear): likely bugs, such as a mutable default argument (B006).\n- `UP` (pyupgrade): modern syntax for your Python version.\n- `SIM` (simplify): simpler equivalents, such as using a with statement for files.\n\nEach finding shows a code, a location and a message. Many are fixable automatically: `ruff check --fix .` applies the safe fixes. When a rule is wrong for one line, silence it on that line with `# noqa: E722` and the code, ideally with a reason, not with a blanket `# noqa`.\n\nRun these tools in three places: in your editor on save (instant feedback), in pre-commit before each commit, and in CI with check-only flags (`ruff check .` and `ruff format --check .`), so nothing unformatted or lint-failing can merge. Ruff's set of default rules has changed between versions, so list the groups you want explicitly instead of relying on defaults.",
+        "code": "import os, sys\nimport json\n\ndef load(path, cache={}):\n    if path in cache: return cache[path]\n    f = open(path)\n    data = json.load(f)\n    cache[path] = data\n    return data\n\ndef check(x):\n    if x == None:\n        return False\n    try:\n        return int(x) > 0\n    except:\n        return False\n\n# pyproject.toml\n[tool.ruff]\nline-length = 88\n\n[tool.ruff.lint]\nselect = [\"E\", \"F\", \"I\", \"B\", \"UP\", \"SIM\"]\n\n$ ruff check --output-format concise messy.py\nmessy.py:1:1: E401 [*] Multiple imports on one line\nmessy.py:1:1: I001 [*] Import block is un-sorted or un-formatted\nmessy.py:1:8: F401 [*] `os` imported but unused\nmessy.py:1:12: F401 [*] `sys` imported but unused\nmessy.py:4:22: B006 Do not use mutable data structures for argument defaults\nmessy.py:5:21: E701 Multiple statements on one line (colon)\nmessy.py:6:9: SIM115 Use a context manager for opening files\nmessy.py:12:13: E711 Comparison to `None` should be `cond is None`\nmessy.py:16:5: E722 Do not use bare `except`\nFound 9 errors.\n[*] 4 fixable with the `--fix` option (2 hidden fixes can be enabled with the `--unsafe-fixes` option).",
+        "language": "plaintext",
+        "pitfall": "Sprinkling bare `# noqa` comments to make the linter quiet. They hide every rule on that line, including future real bugs; fix the code, or silence one named rule with a reason.",
+        "check": {
+          "question": "What is the difference between a formatter and a linter?",
+          "choices": [
+            "A formatter runs tests and a linter compiles code",
+            "A formatter rewrites layout into one consistent style; a linter reports likely bugs and bad patterns",
+            "They are two names for the same tool",
+            "A linter changes code automatically and a formatter only warns"
+          ],
+          "answer": 1,
+          "explanation": "black and ruff format change whitespace, quotes and line breaks without changing behavior. ruff check finds problems like unused imports or bare excepts, some of which it can also fix."
+        }
+      },
+      {
+        "title": "Type checking with mypy",
+        "body": "A function that can return None, a caller that forgets: in production that is `AttributeError: 'NoneType' object has no attribute 'total_cents'` at 3 a.m. A type checker finds it in your editor, before the code ever runs.\n\n**mypy** reads your type hints and reports code that cannot work with them. Run it on your source folder, `mypy src`, and configure it in pyproject.toml. Each error names a file, a line, a message and an error code in brackets, such as `[union-attr]`.\n\nPython typing is **gradual**: you can add hints a module at a time, and mypy only reasons about what is annotated. One consequence surprises everyone: by default mypy **does not check the body of a function with no annotations at all**, so the `total()` below passes silently. Turn on `check_untyped_defs`, or use `strict = true` for new projects, which also requires annotations on every function and flags functions that leak `Any`.\n\nDay-to-day techniques:\n- `reveal_type(expr)` in your code makes mypy print the type it inferred, which is the fastest way to understand a confusing error. Remove it afterwards.\n- Fix a None error by narrowing (`if order is None: ...`), not by ignoring it.\n- When you must silence one line, write `# type: ignore[union-attr]` with the specific code, so other errors on that line still show.\n- Third-party libraries either ship their own hints (marked by a `py.typed` file) or have separate stub packages named `types-...`. When mypy says \"Library stubs not installed for yaml\", install `types-PyYAML` as a dev dependency.\n- Libraries you publish should include `py.typed` so their users get your hints.\n\n**Pyright** is the other major checker; VS Code's Pylance runs it as you type. It is faster and slightly stricter in places, and many teams use Pyright in the editor and mypy in CI, or one of them everywhere. Like formatting and linting, type checking only protects you if it runs in CI on every pull request.",
+        "code": "from dataclasses import dataclass\n\n\n@dataclass\nclass Order:\n    id: int\n    total_cents: int\n    coupon: str | None = None\n\n\ndef find(orders: list[Order], order_id: int) -> Order | None:\n    for order in orders:\n        if order.id == order_id:\n            return order\n    return None\n\n\ndef discount(order: Order) -> int:\n    if order.coupon.startswith(\"VIP\"):        # coupon may be None\n        return order.total_cents // 10\n    return 0\n\n\ndef label(order_id: int) -> str:\n    return \"Order #\" + order_id               # str + int\n\n\ndef total(items):                             # no hints: body not checked\n    return sum(items) + \"x\"\n\n\no = find([Order(1, 500)], 1)\nprint(o.total_cents)                          # o may be None\n\n$ mypy orders.py\norders.py:19: error: Item \"None\" of \"str | None\" has no attribute \"startswith\"  [union-attr]\norders.py:25: error: Unsupported operand types for + (\"str\" and \"int\")  [operator]\norders.py:33: error: Item \"None\" of \"Order | None\" has no attribute \"total_cents\"  [union-attr]\nFound 3 errors in 1 file (checked 1 source file)\n\n# pyproject.toml\n[tool.mypy]\npython_version = \"3.12\"\nstrict = true      # also reports total(): Function is missing a type annotation",
+        "language": "plaintext",
+        "pitfall": "Assuming a clean mypy run means the code is checked. Unannotated functions are skipped by default; enable check_untyped_defs or strict, and annotate as you go.",
+        "check": {
+          "question": "mypy reports nothing for def total(items): return sum(items) + \"x\". Why?",
+          "choices": [
+            "The code is actually correct",
+            "mypy only checks files named test_*.py",
+            "The function has no annotations, so by default mypy does not check its body",
+            "mypy only checks code that has already run once"
+          ],
+          "answer": 2,
+          "explanation": "Gradual typing means unannotated code is left alone unless you turn on check_untyped_defs or strict. Adding a signature such as (items: list[int]) -> int makes mypy check the body and report the str + int problem."
+        }
+      },
+      {
+        "title": "pytest in depth: fixtures, conftest and markers",
+        "body": "Testing Your Code introduced pytest: plain asserts, `pytest.raises`, parametrize and a first fixture. In a real codebase, the test suite is a program of its own, and fixtures are how you keep it fast, isolated and readable.\n\nA **fixture** is a function marked `@pytest.fixture` that builds something a test needs. A test asks for it by naming it as a parameter, and pytest calls the fixture and passes in the result. Fixtures can request other fixtures, so a `client` fixture can depend on an `app` fixture that depends on a `database` fixture.\n\n**Teardown with yield.** Code before `yield` is setup, the yielded value goes to the test, and code after `yield` runs when the test finishes, pass or fail. Use it to close connections, delete records or restore state.\n\n**Scope** controls how often a fixture is built:\n- `function` (the default): a fresh one for every test. Safest, because no test can see another's changes.\n- `module`, `package` or `session`: built once and shared. Use these for expensive, read-only resources such as starting a database container, and never let a test mutate them, or tests start depending on their order.\n\n**conftest.py** files hold fixtures shared by every test in their folder and below. pytest discovers them automatically; you never import them.\n\nBuilt-in fixtures worth knowing: `tmp_path` (a new temporary directory), `monkeypatch` (temporarily replace attributes, environment variables or dict entries), `capsys` (capture printed output), and `caplog` (capture log records).\n\n**Markers** label tests: `@pytest.mark.skip`, `@pytest.mark.skipif(sys.platform == \"win32\", reason=...)`, `@pytest.mark.xfail` for a known bug, or your own such as `@pytest.mark.slow`, registered in `[tool.pytest.ini_options]` and deselected with `pytest -m \"not slow\"`.\n\nEveryday flags: `-x` stops at the first failure, `-k name` filters by name, `--lf` reruns only the last failures, `-v` lists each test, `-s` shows prints, and `--pdb` opens the debugger at the failing line.",
+        "code": "# tests/conftest.py: fixtures here are shared by every test in the folder\nimport pytest\n\nfrom inventory import Inventory\n\n\n@pytest.fixture\ndef inventory():\n    inv = Inventory()                  # fresh for every test that asks for it\n    inv.add(\"pen\", 10)\n    return inv\n\n\n@pytest.fixture\ndef stock_file(tmp_path):              # fixtures can request other fixtures\n    path = tmp_path / \"stock.csv\"\n    path.write_text(\"pen,10\\npad,4\\n\")\n    yield path                         # the test runs here\n    print(\"cleaning up\", path.name)    # teardown, even if the test failed\n\n\n@pytest.fixture(scope=\"session\")\ndef price_table():\n    return {\"pen\": 150, \"pad\": 300}    # built once for the whole run\n\n\n# tests/test_inventory.py\nimport pytest\n\n\ndef test_remove_reduces_stock(inventory):\n    inventory.remove(\"pen\", 3)\n    assert inventory.count(\"pen\") == 7\n\n\ndef test_each_test_gets_a_fresh_inventory(inventory):\n    assert inventory.count(\"pen\") == 10      # the removal above is gone\n\n\ndef test_cannot_remove_more_than_stock(inventory):\n    with pytest.raises(ValueError, match=\"only 10 pen left\"):\n        inventory.remove(\"pen\", 11)\n\n\ndef test_report_prints_each_item(inventory, capsys):\n    inventory.add(\"ink\", 2)\n    inventory.report()\n    assert capsys.readouterr().out == \"ink: 2\\npen: 10\\n\"\n\n\ndef test_stock_value(stock_file, price_table):\n    rows = [line.split(\",\") for line in stock_file.read_text().splitlines()]\n    assert sum(price_table[item] * int(qty) for item, qty in rows) == 2700\n\n$ pytest -q\n.....                                                       [100%]\n5 passed in 0.01s",
+        "pitfall": "Sharing a mutable object through a session-scoped fixture. One test changes it, and others pass or fail depending on the order they run in; keep wide-scope fixtures read-only.",
+        "check": {
+          "question": "Two tests both request the inventory fixture, which has the default scope. The first test removes 3 pens. What does the second test see?",
+          "choices": [
+            "7 pens, because fixtures are shared",
+            "10 pens, because each test gets a fresh inventory",
+            "It depends on which test runs first",
+            "An error, because a fixture can be used only once"
+          ],
+          "answer": 1,
+          "explanation": "Function scope means the fixture function runs again for every test, so changes never leak between tests. That isolation is why it is the default."
+        }
+      },
+      {
+        "title": "Parametrize and mocking in practice",
+        "body": "Most functions need many input cases, and most interesting code talks to something slow or dangerous: an email server, a payment API, the clock. Parametrize handles the first problem and mocks handle the second.\n\n**Parametrize** turns one test body into a table. `@pytest.mark.parametrize((\"a\", \"b\", \"expected\"), rows)` runs the test once per row, and each row is reported as its own test, so one failing case does not hide the others. Give rows readable names with `pytest.param(..., id=\"boundary-express\")` or an `ids=` list, and attach marks to single rows, such as `marks=pytest.mark.xfail`. Stacking two parametrize decorators runs every combination: 3 rows times 2 rows is 6 tests.\n\n**Mocks.** `unittest.mock.Mock` creates an object that accepts any call and records it. You configure it, run the code, then assert on it:\n- `m.return_value = {...}` sets what a call returns.\n- `m.side_effect = SomeError(...)` makes every call raise; a list makes successive calls return or raise each item in turn; a function computes the result.\n- `m.assert_called_once_with(...)`, `m.call_count` and `m.call_args` check how it was used.\n- `create_autospec(real_function)`, or `patch(..., autospec=True)`, gives the mock the real signature, so calling it with wrong arguments fails the test instead of passing silently.\n\n**Replacing a collaborator.** `patch(\"shipping.send_email\")` (as a context manager or decorator) and pytest's `monkeypatch.setattr(\"shipping.send_email\", fake)` both swap a name for the duration of one test and restore it afterwards. Patch the name **where it is looked up**: shipping.py did `from emails import send_email`, so shipping has its own reference, and patching `emails.send_email` would leave shipping calling the real function. The pytest-mock plugin wraps the same API in a `mocker` fixture.\n\n`monkeypatch.setenv(\"API_KEY\", \"test\")` and `monkeypatch.delenv(...)` are the clean way to test configuration code.\n\nKeep Testing Your Code's warning in mind: mock at the boundaries of your system, not every internal function, or the tests break on every refactor while real bugs slip through.",
+        "code": "from unittest.mock import Mock, patch\n\nimport pytest\n\nfrom shipping import notify_shipped, shipping_cost\n\n\n@pytest.mark.parametrize(\n    (\"weight_kg\", \"express\", \"expected\"),\n    [\n        (0.5, False, 5.0),\n        (2.0, False, 8.0),\n        (2.0, True, 16.0),\n        pytest.param(1.0, True, 10.0, id=\"boundary-express\"),\n    ],\n)\ndef test_shipping_cost(weight_kg, express, expected):\n    assert shipping_cost(weight_kg, express) == expected\n\n\ndef test_notify_sends_email(monkeypatch):\n    sent = Mock()\n    monkeypatch.setattr(\"shipping.send_email\", sent)    # where it is looked up\n    assert notify_shipped(\"ana@example.com\", order_id=42) is True\n    sent.assert_called_once_with(\"ana@example.com\", \"Order 42 has shipped\")\n\n\ndef test_notify_survives_email_outage():\n    with patch(\"shipping.send_email\", side_effect=ConnectionError(\"smtp down\")):\n        assert notify_shipped(\"ana@example.com\", order_id=42) is False\n\n$ pytest -v\ntest_shipping.py::test_shipping_cost[0.5-False-5.0] PASSED\ntest_shipping.py::test_shipping_cost[2.0-False-8.0] PASSED\ntest_shipping.py::test_shipping_cost[2.0-True-16.0] PASSED\ntest_shipping.py::test_shipping_cost[boundary-express] PASSED\ntest_shipping.py::test_notify_sends_email PASSED\ntest_shipping.py::test_notify_survives_email_outage PASSED",
+        "pitfall": "Patching the name where it is defined instead of where it is used. If shipping.py did from emails import send_email, patch shipping.send_email; patching emails.send_email changes nothing for shipping.",
+        "activity": {
+          "type": "code-runner",
+          "title": "Mock a flaky payment gateway",
+          "prompt": "Mock() accepts any call. Set gateway.charge.return_value for the first case. For the others, create a new Mock and set gateway.charge.side_effect to a list [ConnectionError(), {\"id\": \"r2\"}] or to a single exception, then print the result and gateway.charge.call_count.",
+          "props": {
+            "language": "python",
+            "code": "from unittest.mock import Mock\n\ndef charge(gateway, amount_cents):\n    \"\"\"Charge once, retry once on ConnectionError, return the receipt id or None.\"\"\"\n    for attempt in range(2):\n        try:\n            return gateway.charge(amount_cents)[\"id\"]\n        except ConnectionError:\n            continue\n    return None\n\ngateway = Mock()\n# 1. Make gateway.charge return {\"id\": \"r1\"}; print charge(gateway, 500).\n# 2. New Mock: fail once, then return {\"id\": \"r2\"}; print the result and charge.call_count.\n# 3. New Mock: always raise ConnectionError; print the result and charge.call_count.\nprint(gateway.charge(500))   # an unconfigured Mock returns another Mock\n",
+            "task": "Print r1, then r2 2, then None 2.",
+            "expectOutput": "r1\nr2 2\nNone 2"
+          }
+        },
+        "check": {
+          "question": "shipping.py does from emails import send_email. Which target makes a test's fake replace the call inside shipping?",
+          "choices": [
+            "patch(\"emails.send_email\")",
+            "patch(\"shipping.send_email\")",
+            "patch(\"send_email\")",
+            "patch(\"emails\")"
+          ],
+          "answer": 1,
+          "explanation": "The import created a name send_email inside the shipping module, and that is the name notify_shipped looks up. Patching emails.send_email replaces a different reference."
+        }
+      },
+      {
+        "title": "Logging instead of print",
+        "body": "At 2 a.m. the import job fails in production. With print statements, you have no timestamps, no severity, no idea which module spoke, and no way to see more detail without redeploying. The `logging` module solves all four.\n\nEvery message has a **level**: DEBUG (detail for developers), INFO (normal milestones), WARNING (something odd, but the program carries on), ERROR (an operation failed) and CRITICAL (the program cannot continue). The configuration decides which levels appear and where they go, so you can turn on DEBUG for one module without touching code.\n\nThe pattern:\n- In every module, `logger = logging.getLogger(__name__)`. Loggers form a tree by dotted name (`app.db` sits under `app`), so you can tune whole packages at once.\n- Configure logging **once**, at the application's entry point: `logging.basicConfig(...)` for simple programs, or `logging.config.dictConfig` for handlers (console, file, a log service) and formatters. Without any configuration, Python shows only WARNING and above, which is why a lone `logger.info` seems to vanish.\n- **Libraries never configure logging.** They create loggers and log; the application that uses them decides what to show.\n- Pass values as arguments, `logger.info(\"imported %d rows\", n)`, rather than pre-formatting with an f-string. Formatting is skipped when the level is disabled, and log tools can group every \"imported %d rows\" message together.\n- Inside an except block, `logger.exception(\"...\")` logs at ERROR with the full traceback attached.\n\nWhat not to log: passwords, tokens, full card numbers, and personal data you do not need. Logs are copied to many places and kept for a long time (Secure Coding for the Web covers this).\n\nProduction systems usually emit **structured logs**: one JSON object per line with fields such as level, logger, message, request id and user id, so a log platform can search and filter them. A JSON formatter or a library such as structlog does this without changing your logging calls.",
+        "code": "import logging\nimport sys\n\nlogger = logging.getLogger(__name__)           # one logger per module\n\ndef import_rows(rows):\n    ok = 0\n    for n, row in enumerate(rows, start=1):\n        try:\n            int(row[\"qty\"])\n            ok += 1\n        except (KeyError, ValueError):\n            logger.warning(\"skipping row %d: bad qty %r\", n, row.get(\"qty\"))\n    logger.info(\"imported %d of %d rows\", ok, len(rows))\n    return ok\n\ndef main():\n    logging.basicConfig(                       # configure once, in the application\n        level=logging.INFO,\n        format=\"%(levelname)s %(name)s: %(message)s\",\n        stream=sys.stdout,\n    )\n    import_rows([{\"qty\": \"3\"}, {\"qty\": \"x\"}, {}])\n    logger.debug(\"not shown: below the INFO level\")\n    try:\n        1 / 0\n    except ZeroDivisionError:\n        logger.exception(\"report failed\")      # ERROR plus the full traceback\n\nmain()\n# WARNING __main__: skipping row 2: bad qty 'x'\n# WARNING __main__: skipping row 3: bad qty None\n# INFO __main__: imported 1 of 3 rows\n# ERROR __main__: report failed\n# Traceback (most recent call last): ... ZeroDivisionError: division by zero",
+        "pitfall": "Calling logging.basicConfig inside a library or in many modules. Only the first call takes effect, and libraries that configure logging override the application's choices; configure once, at the entry point.",
+        "activity": {
+          "type": "code-runner",
+          "title": "Replace prints with log calls",
+          "prompt": "Swap each print for logger.warning, logger.info or logger.debug, passing values as arguments (\"charging %s %d\", customer, cents). The basicConfig line is already set to INFO, so the debug message should disappear.",
+          "props": {
+            "language": "python",
+            "code": "import logging\nimport sys\n\nlogging.basicConfig(level=logging.INFO, format=\"%(levelname)s %(name)s: %(message)s\",\n                    stream=sys.stdout, force=True)   # force: replace handlers from earlier runs\nlogger = logging.getLogger(\"billing\")\n\ndef charge(customer, cents):\n    if cents <= 0:\n        print(\"refusing charge for\", customer)       # should be a WARNING\n        return False\n    print(\"charging\", customer, cents)               # should be INFO\n    print(\"card token tok_123\")                      # DEBUG: must not show at INFO level\n    return True\n\ncharge(\"ana\", 500)\ncharge(\"bo\", 0)\n",
+            "task": "Print exactly two lines: INFO billing: charging ana 500 and WARNING billing: refusing charge for bo.",
+            "expectOutput": "INFO billing: charging ana 500\nWARNING billing: refusing charge for bo"
+          }
+        },
+        "check": {
+          "question": "A module calls logger.info(\"started\"), but nothing appears, and the program never configures logging. Why?",
+          "choices": [
+            "info messages are always discarded",
+            "Without configuration, only WARNING and above are shown",
+            "getLogger(__name__) creates a disabled logger",
+            "print and logging cannot be used in the same program"
+          ],
+          "answer": 1,
+          "explanation": "The root logger defaults to WARNING, and the fallback handler prints only warnings and errors. Calling basicConfig(level=logging.INFO) at the entry point makes info messages appear."
+        }
+      },
+      {
+        "title": "Configuration with environment variables",
+        "body": "The same code runs on your laptop, in CI, in staging and in production, but the database, the API keys and the debug switch differ in each. Hard-coding them means editing code per environment and, sooner or later, committing a secret. The widely followed **twelve-factor** approach keeps configuration in **environment variables**, set by whatever runs the program: your shell, Docker Compose, the CI system, or the hosting platform.\n\nA solid pattern:\n- Read all configuration **once at startup** into a typed, immutable object (a frozen dataclass, or a pydantic-settings model), not with `os.environ` calls scattered through the code.\n- **Fail fast.** If a required variable is missing or malformed, stop at startup with a clear message naming it. Crashing on the first request, an hour later, is far worse.\n- Every environment variable is a **string**. Convert explicitly: `int(env[\"WORKERS\"])`, and parse booleans yourself, because `bool(\"false\")` is True (any non-empty string is truthy).\n- Give defaults only to harmless settings such as a port or a worker count. Secrets and database URLs get no defaults, so a forgotten setting cannot silently point production at a development database.\n- Keep secrets out of logs and tracebacks: mark them `field(repr=False)`, or use pydantic's SecretStr.\n\nFor local development, put the variables in a `.env` file loaded by python-dotenv, `uv run --env-file .env`, or Docker Compose's `env_file`. Add `.env` to `.gitignore` and commit a `.env.example` listing every variable with fake values, so a new teammate knows what to set. In production, a secret manager (AWS Secrets Manager, GCP Secret Manager, HashiCorp Vault) or the platform's secret settings inject the real values.\n\nTaking the environment as a parameter, `load_settings(env=os.environ)`, also makes configuration code trivial to test: pass a plain dict, or use `monkeypatch.setenv` in pytest.",
+        "code": "import os\nfrom dataclasses import dataclass, field\n\nclass ConfigError(Exception):\n    pass\n\ndef env_bool(value: str) -> bool:\n    text = value.strip().lower()\n    if text in (\"1\", \"true\", \"yes\", \"on\"):\n        return True\n    if text in (\"0\", \"false\", \"no\", \"off\", \"\"):\n        return False\n    raise ConfigError(f\"not a boolean: {value!r}\")\n\n@dataclass(frozen=True)\nclass Settings:\n    database_url: str = field(repr=False)     # may contain a password: keep it out of logs\n    debug: bool = False\n    workers: int = 4\n\ndef load_settings(env=os.environ) -> Settings:\n    try:\n        url = env[\"DATABASE_URL\"]             # required: fail fast at startup\n    except KeyError:\n        raise ConfigError(\"DATABASE_URL is not set\") from None\n    return Settings(\n        database_url=url,\n        debug=env_bool(env.get(\"DEBUG\", \"false\")),\n        workers=int(env.get(\"WORKERS\", \"4\")),\n    )\n\nprint(load_settings({\"DATABASE_URL\": \"postgresql://app:s3cret@db/app\", \"DEBUG\": \"false\"}))\nprint(bool(\"false\"))      # True: why you cannot just call bool() on an env value\n# Settings(debug=False, workers=4)\n# True",
+        "pitfall": "Reading booleans with bool(os.environ.get(\"DEBUG\")). Any non-empty string, including \"false\" and \"0\", is True, so debug mode turns on in production. Parse the text explicitly.",
+        "activity": {
+          "type": "code-runner",
+          "title": "Parse settings from the environment",
+          "prompt": "Run it first and spot the bugs: port is None, \"false\" becomes True and hosts is one string. Convert PORT with int() and a default of \"8000\", treat only 1, true, yes or on (any case) as True, and split ALLOWED_HOSTS on commas, stripping spaces and dropping empty names.",
+          "props": {
+            "language": "python",
+            "code": "def load(env):\n    \"\"\"Return {\"port\": int (default 8000), \"debug\": bool (default False),\n    \"hosts\": list of names from a comma-separated ALLOWED_HOSTS (default [])}.\"\"\"\n    return {\n        \"port\": env.get(\"PORT\"),\n        \"debug\": bool(env.get(\"DEBUG\")),\n        \"hosts\": env.get(\"ALLOWED_HOSTS\"),\n    }\n\nprint(load({}))\nprint(load({\"PORT\": \"9000\", \"DEBUG\": \"false\", \"ALLOWED_HOSTS\": \"example.com, api.example.com\"}))\nprint(load({\"DEBUG\": \"TRUE\"}))\n",
+            "task": "Print {'port': 8000, 'debug': False, 'hosts': []}, then {'port': 9000, 'debug': False, 'hosts': ['example.com', 'api.example.com']}, then {'port': 8000, 'debug': True, 'hosts': []}.",
+            "expectOutput": "{'port': 8000, 'debug': False, 'hosts': []}\n{'port': 9000, 'debug': False, 'hosts': ['example.com', 'api.example.com']}\n{'port': 8000, 'debug': True, 'hosts': []}"
+          }
+        },
+        "check": {
+          "question": "Where should a production database password live?",
+          "choices": [
+            "In settings.py, committed to the repository",
+            "In an environment variable injected by a secret manager or the hosting platform",
+            "In a comment in the README",
+            "In the .env.example file"
+          ],
+          "answer": 1,
+          "explanation": "Secrets stay out of the code and the repository; the platform injects them at runtime. .env.example holds placeholder values only, so people know which variables to set."
+        }
+      },
+      {
+        "title": "pre-commit hooks and CI for Python",
+        "body": "You now have formatters, linters, a type checker and tests. They only help if they run every time, for everyone, without anyone remembering to. Two layers make that happen.\n\n**pre-commit** runs checks on the files you are committing, before the commit is created. You list hooks in `.pre-commit-config.yaml`, each pinned to a release tag (`rev`), and run `pre-commit install` once per clone to hook it into git. From then on, `git commit` runs ruff, the formatter and mypy on staged files; if a hook fails or rewrites a file, the commit stops so you can look and stage again. `pre-commit run --all-files` checks the whole repository, and `pre-commit autoupdate` bumps the pinned versions.\n\nHooks are a convenience, not a guarantee: anyone can skip them with `git commit --no-verify`, or never install them. So **CI is the source of truth**. A workflow, here GitHub Actions, runs on every push and pull request:\n- check out the code and set up Python, caching downloaded packages between runs;\n- install the project with its dev dependencies (from the lock file, so CI matches your machine);\n- run the fast checks first: `ruff check`, `ruff format --check`, `mypy`;\n- run the tests with coverage, such as `pytest --cov`.\n\nA **matrix** runs the same job on several Python versions (or operating systems) in parallel, which matters for libraries that promise support for 3.11 through 3.13. **Branch protection** on main then requires the checks to pass before the merge button works, so a red build cannot be merged by accident.\n\nKeep CI fast, ideally a few minutes: slow pipelines tempt people to batch changes into huge pull requests. A release workflow can build the package and publish it with trusted publishing when you push a version tag. Deployments, environments and the rest of continuous delivery are covered in the cloud and DevOps topic.",
+        "code": "# .pre-commit-config.yaml  (run `pre-commit install` once per clone)\nrepos:\n  - repo: https://github.com/astral-sh/ruff-pre-commit\n    rev: v0.17.0               # pin a release; `pre-commit autoupdate` bumps it\n    hooks:\n      - id: ruff\n        args: [--fix]\n      - id: ruff-format\n  - repo: https://github.com/pre-commit/mirrors-mypy\n    rev: v2.4.0\n    hooks:\n      - id: mypy\n\n# .github/workflows/ci.yml\nname: CI\non:\n  push:\n    branches: [main]\n  pull_request:\n\njobs:\n  test:\n    runs-on: ubuntu-latest\n    strategy:\n      matrix:\n        python-version: [\"3.11\", \"3.12\", \"3.13\"]\n    steps:\n      - uses: actions/checkout@v5\n      - uses: actions/setup-python@v6\n        with:\n          python-version: ${{ matrix.python-version }}\n          cache: pip\n      - run: python -m pip install -e \".[dev]\"\n      - run: ruff check .\n      - run: ruff format --check .\n      - run: mypy src\n      - run: pytest --cov=weather_cli --cov-report=term-missing",
+        "language": "yaml",
+        "pitfall": "Relying on pre-commit hooks as the only gate. They can be skipped with --no-verify or never installed; run the same checks in CI and require them before merging.",
+        "check": {
+          "question": "Your team uses pre-commit hooks. Why run the same checks again in CI?",
+          "choices": [
+            "CI runs them faster",
+            "Hooks can be skipped or never installed, so only CI guarantees every merged change was checked",
+            "pre-commit cannot run mypy",
+            "GitHub requires it"
+          ],
+          "answer": 1,
+          "explanation": "pre-commit gives fast local feedback, but it depends on each developer's setup. CI plus branch protection is the gate nobody can forget."
+        }
+      }
+    ],
+    "keyTerms": [
+      {
+        "term": "Virtual environment",
+        "definition": "A per-project folder with its own Python and site-packages, so projects cannot break each other's dependencies."
+      },
+      {
+        "term": "pyproject.toml",
+        "definition": "The standard file for a Python project's metadata, dependencies, build backend and tool configuration."
+      },
+      {
+        "term": "Lock file",
+        "definition": "A file pinning every direct and transitive dependency to an exact version, so every install is identical."
+      },
+      {
+        "term": "Transitive dependency",
+        "definition": "A package your dependencies depend on, installed even though you never listed it."
+      },
+      {
+        "term": "Compatible release (~=)",
+        "definition": "A version specifier such as ~=13.7, meaning at least 13.7 and below 14.0."
+      },
+      {
+        "term": "Semantic versioning",
+        "definition": "MAJOR.MINOR.PATCH numbering where major bumps may break callers, minor bumps add features and patch bumps fix bugs."
+      },
+      {
+        "term": "src layout",
+        "definition": "A project structure with the package under src/, so tests run against the installed package."
+      },
+      {
+        "term": "Wheel",
+        "definition": "A built Python package archive (.whl) that pip installs by unpacking, without running build steps."
+      },
+      {
+        "term": "Editable install",
+        "definition": "pip install -e: installs a project so imports point at its source folder and edits apply immediately."
+      },
+      {
+        "term": "Linter",
+        "definition": "A tool such as ruff that reads code without running it and reports likely bugs and style problems."
+      },
+      {
+        "term": "Type checker",
+        "definition": "A tool such as mypy or Pyright that checks type hints statically and reports code that cannot work with them."
+      },
+      {
+        "term": "Fixture (pytest)",
+        "definition": "A function marked @pytest.fixture that builds test setup; tests request it by parameter name, and code after yield is teardown."
+      },
+      {
+        "term": "conftest.py",
+        "definition": "A file pytest discovers automatically that holds fixtures and hooks shared by the tests in its folder."
+      },
+      {
+        "term": "Mock",
+        "definition": "A stand-in object that records how it is called and returns configured values, used to replace slow or risky collaborators in tests."
+      },
+      {
+        "term": "Twelve-factor config",
+        "definition": "Keeping deployment-specific configuration such as URLs and secrets in environment variables rather than in code."
+      },
+      {
+        "term": "pre-commit hook",
+        "definition": "A check that runs automatically on staged files before git creates a commit."
+      }
+    ],
+    "summary": [
+      "One venv per project, python -m pip, and never sudo pip; uv and pipx speed up the same ideas.",
+      "Declare ranges in pyproject.toml, pin everything in a lock file for applications, and upgrade on purpose.",
+      "A src layout, a build backend and entry points make a package; rehearse on TestPyPI, and never reuse a version.",
+      "ruff and black end style debates and catch bugs; mypy only checks what is annotated unless you enable strict.",
+      "Fixtures with yield, sensible scopes, parametrize and boundary mocks keep test suites fast and trustworthy.",
+      "Log with levels and loggers per module, read config from the environment once at startup, and enforce everything in CI."
+    ],
+    "feynmanPrompt": "Explain to a new teammate why the project has both a pyproject.toml and a lock file, what each one is for, and what would go wrong if you deleted the lock file."
+  },
+  "questions": [
+    {
+      "id": "python-tooling-q01",
+      "type": "mcq",
+      "difficulty": "easy",
+      "question": "pip install requests fails with \"error: externally-managed-environment\". What is the right fix?",
+      "choices": [
+        "Run it again with sudo",
+        "Add --break-system-packages",
+        "Create and activate a virtual environment for the project, then install there",
+        "Download the package by hand and copy it into site-packages"
+      ],
+      "answer": 2,
+      "explanation": "The system Python belongs to the operating system, so pip refuses to change it. A venv gives the project its own site-packages. sudo and --break-system-packages override the protection and can break system tools.",
+      "concept": "externally managed Python",
+      "section": 0
+    },
+    {
+      "id": "python-tooling-q02",
+      "type": "cli",
+      "difficulty": "easy",
+      "question": "Create a virtual environment in a folder named .venv in the current directory, using python3.",
+      "answer": "python3 -m venv .venv",
+      "accept": [
+        "python -m venv .venv"
+      ],
+      "shell": "bash",
+      "explanation": "The standard library's venv module creates the folder with its own interpreter link and site-packages. uv venv does the same thing faster if you use uv.",
+      "concept": "creating a venv",
+      "section": 0
+    },
+    {
+      "id": "python-tooling-q03",
+      "type": "mcq",
+      "difficulty": "medium",
+      "question": "What does running source .venv/bin/activate actually change?",
+      "choices": [
+        "It copies the packages into the system Python",
+        "It puts .venv/bin first on your PATH, so python and pip refer to the venv's copies",
+        "It starts a new Python process that stays running",
+        "It is required before .venv/bin/python can import anything"
+      ],
+      "answer": 1,
+      "explanation": "Activation is a convenience that edits PATH and the prompt in your shell. Calling .venv/bin/python directly uses the venv without activating, which is how scripts and Dockerfiles usually do it.",
+      "concept": "what activation does",
+      "section": 0
+    },
+    {
+      "id": "python-tooling-q04",
+      "type": "multi",
+      "difficulty": "easy",
+      "question": "Which of these belong in your git repository? Select all that apply.",
+      "choices": [
+        "pyproject.toml",
+        "The lock file (uv.lock or a pinned requirements.txt)",
+        "The .venv folder",
+        "A .env file with real API keys",
+        ".env.example with placeholder values",
+        "__pycache__ folders"
+      ],
+      "answers": [
+        0,
+        1,
+        4
+      ],
+      "explanation": "Commit what lets someone rebuild the project: the dependency declaration, the lock file and an example config. Environments and caches are machine-specific and rebuildable, and real secrets never go in git.",
+      "concept": "what to commit",
+      "section": 0
+    },
+    {
+      "id": "python-tooling-q05",
+      "type": "typed",
+      "difficulty": "easy",
+      "question": "Which pip subcommand prints every installed package with its exact version, in a form you can redirect into requirements.txt?",
+      "answer": "pip freeze",
+      "accept": [
+        "freeze",
+        "python -m pip freeze",
+        "pip freeze > requirements.txt",
+        "python -m pip freeze > requirements.txt"
+      ],
+      "explanation": "pip freeze lists name==version for everything in the environment, including transitive dependencies, which makes a simple lock file. pip list shows the same packages in a table that pip cannot install from.",
+      "concept": "pip freeze",
+      "section": 1
+    },
+    {
+      "id": "python-tooling-q06",
+      "type": "mcq",
+      "difficulty": "medium",
+      "question": "You are publishing a library on PyPI that uses httpx. How should its pyproject.toml declare that dependency?",
+      "choices": [
+        "httpx==0.28.1, pinned exactly",
+        "httpx with no version at all, always",
+        "A range such as httpx>=0.27,<1, with no lock file shipped",
+        "Vendor a copy of httpx inside the library"
+      ],
+      "answer": 2,
+      "explanation": "A library is installed next to other packages, and an exact pin would conflict with anyone who needs a different patch release. Applications pin exactly in a lock file; libraries declare the range they support.",
+      "concept": "libraries use ranges",
+      "section": 1
+    },
+    {
+      "id": "python-tooling-q07",
+      "type": "recall",
+      "difficulty": "medium",
+      "question": "What is a transitive dependency, and why does it make lock files necessary?",
+      "answer": "A dependency of one of your dependencies. Your ranges do not pin them, so a fresh install can pick up a new version deep in the tree; a lock file pins every package exactly so all installs match.",
+      "explanation": "Many surprise breakages come from a package you never listed. Locking everything and upgrading on purpose, with tests, turns those surprises into reviewed changes.",
+      "concept": "transitive dependencies",
+      "section": 1
+    },
+    {
+      "id": "python-tooling-q08",
+      "type": "typed",
+      "difficulty": "easy",
+      "question": "In semantic versioning, which part of 4.2.7 changes for a release that may break existing code? Answer with the word.",
+      "answer": "major",
+      "accept": [
+        "the major version",
+        "major version",
+        "4"
+      ],
+      "explanation": "MAJOR.MINOR.PATCH: breaking changes bump the major number (4 to 5), new features bump the minor, and bug fixes bump the patch.",
+      "concept": "semantic versioning",
+      "section": 1
+    },
+    {
+      "id": "python-tooling-q09",
+      "type": "order",
+      "difficulty": "medium",
+      "question": "Put the steps of a first release in order.",
+      "items": [
+        "Bump the version in pyproject.toml",
+        "Build the sdist and wheel with uv build or python -m build",
+        "Upload to TestPyPI",
+        "Install from TestPyPI into a fresh venv and try it",
+        "Upload the same files to PyPI"
+      ],
+      "explanation": "TestPyPI is a dress rehearsal: the fresh-venv install proves the package works for someone who does not have your source folder. Only then publish the identical files for real.",
+      "concept": "release workflow",
+      "section": 2
+    },
+    {
+      "id": "python-tooling-q10",
+      "type": "mcq",
+      "difficulty": "medium",
+      "question": "What is the main benefit of the src layout?",
+      "choices": [
+        "It makes imports faster at runtime",
+        "Tests import the installed package, so packaging mistakes fail in your tests instead of for users",
+        "It is required by PyPI",
+        "It lets you skip writing pyproject.toml"
+      ],
+      "answer": 1,
+      "explanation": "With the package under src/, it is not importable from the project root by accident. You must install it (usually editable), which exercises the same packaging users get.",
+      "concept": "src layout",
+      "section": 2
+    },
+    {
+      "id": "python-tooling-q11",
+      "type": "match",
+      "difficulty": "medium",
+      "question": "Match each file or setting with its job.",
+      "pairs": [
+        {
+          "left": "pyproject.toml",
+          "right": "Project metadata, dependencies and tool configuration"
+        },
+        {
+          "left": "__init__.py",
+          "right": "Marks a folder as an importable package"
+        },
+        {
+          "left": "__main__.py",
+          "right": "Runs when you type python -m package_name"
+        },
+        {
+          "left": "[project.scripts]",
+          "right": "Declares console commands created at install time"
+        },
+        {
+          "left": ".whl file",
+          "right": "A built archive that pip installs by unpacking"
+        },
+        {
+          "left": "[build-system]",
+          "right": "Names the backend that builds the package"
+        }
+      ],
+      "explanation": "These six pieces cover nearly every modern Python package, whichever build backend you choose.",
+      "concept": "packaging vocabulary",
+      "section": 2
+    },
+    {
+      "id": "python-tooling-q12",
+      "type": "cli",
+      "difficulty": "medium",
+      "question": "Install the project in the current folder in editable mode, together with its dev extra, using pip through the interpreter.",
+      "answer": "python -m pip install -e \".[dev]\"",
+      "accept": [
+        "python -m pip install -e .[dev]",
+        "pip install -e \".[dev]\"",
+        "pip install -e .[dev]",
+        "python3 -m pip install -e \".[dev]\"",
+        "python3 -m pip install -e .[dev]"
+      ],
+      "shell": "bash",
+      "explanation": "-e (editable) links the installed package to your source folder, and .[dev] means this project plus its dev optional dependencies. The quotes stop shells such as zsh from treating the brackets as a pattern.",
+      "concept": "editable install",
+      "section": 2
+    },
+    {
+      "id": "python-tooling-q13",
+      "type": "typed",
+      "difficulty": "easy",
+      "question": "In the ruff output above, which rule code flags an unused import?",
+      "answer": "F401",
+      "explanation": "F rules come from Pyflakes and catch real mistakes. F401 is \"imported but unused\", and ruff check --fix can remove the import automatically.",
+      "concept": "F401 unused import",
+      "section": 3
+    },
+    {
+      "id": "python-tooling-q14",
+      "type": "multi",
+      "difficulty": "medium",
+      "question": "With select = [\"E\", \"F\", \"B\"] in the ruff config, which problems in this code are reported? Select all that apply.",
+      "code": "import os\n\ndef ratio(a, b, seen=[]):\n    if b == None:\n        return None\n    try:\n        return a / b\n    except:\n        return 0",
+      "choices": [
+        "os is imported but unused (F401)",
+        "b == None should use is None (E711)",
+        "The bare except: (E722)",
+        "The mutable default seen=[] (B006)",
+        "The function has no docstring",
+        "The function has no type hints"
+      ],
+      "answers": [
+        0,
+        1,
+        2,
+        3
+      ],
+      "explanation": "All four are reported with those groups selected. Docstrings and type hints are checked only by other rule groups (D and ANN), which this configuration does not enable.",
+      "concept": "lint findings",
+      "section": 3
+    },
+    {
+      "id": "python-tooling-q15",
+      "type": "cli",
+      "difficulty": "medium",
+      "question": "In CI, check that every file is already formatted, without changing any file, using ruff on the current folder.",
+      "answer": "ruff format --check .",
+      "accept": [
+        "ruff format --check",
+        "black --check ."
+      ],
+      "shell": "bash",
+      "explanation": "--check reports files that would be reformatted and exits non-zero, failing the build, while leaving files untouched. Locally you run ruff format . to apply the changes.",
+      "concept": "format check in CI",
+      "section": 3
+    },
+    {
+      "id": "python-tooling-q16",
+      "type": "mcq",
+      "difficulty": "easy",
+      "question": "Why do teams adopt an opinionated formatter such as Black or ruff format?",
+      "choices": [
+        "It ends style debates in review, and every file looks the same",
+        "It finds logic bugs in the code",
+        "It makes the code run faster",
+        "It is required to publish on PyPI"
+      ],
+      "answer": 0,
+      "explanation": "With formatting automated, diffs only show real changes, and reviewers spend their attention on behavior and design. Finding bugs is the linter's job.",
+      "concept": "why auto-format",
+      "section": 3
+    },
+    {
+      "id": "python-tooling-q17",
+      "type": "typed",
+      "difficulty": "medium",
+      "question": "mypy says: Library stubs not installed for \"yaml\". Which package do you add as a dev dependency? Use the name pip installs.",
+      "answer": "types-PyYAML",
+      "accept": [
+        "types-pyyaml"
+      ],
+      "explanation": "Libraries without built-in hints get community stubs on PyPI named types-<distribution>. PyYAML's are types-PyYAML. Libraries that ship a py.typed file need nothing extra.",
+      "concept": "stub packages",
+      "section": 4
+    },
+    {
+      "id": "python-tooling-q18",
+      "type": "mcq",
+      "difficulty": "medium",
+      "question": "Which way of silencing one mypy error is best when you really must?",
+      "choices": [
+        "# type: ignore",
+        "# type: ignore[union-attr]",
+        "Annotating the variable as Any",
+        "Deleting the type hints from the function"
+      ],
+      "answer": 1,
+      "explanation": "A coded ignore silences only that error on that line, so a new, different mistake there is still reported. A bare ignore or Any hides everything.",
+      "concept": "targeted ignores",
+      "section": 4
+    },
+    {
+      "id": "python-tooling-q19",
+      "type": "code-fill",
+      "difficulty": "easy",
+      "question": "Complete the configuration so mypy requires annotations everywhere and enables its strictest checks.",
+      "code": "[tool.mypy]\npython_version = \"3.12\"\n_____ = true",
+      "language": "plaintext",
+      "choices": [
+        "warn_unused_ignores",
+        "ignore_missing_imports",
+        "strict",
+        "follow_imports"
+      ],
+      "answer": 2,
+      "explanation": "strict turns on a bundle of flags, including disallow_untyped_defs and check_untyped_defs. ignore_missing_imports does the opposite of tightening: it silences missing-module errors.",
+      "concept": "strict mode",
+      "section": 4
+    },
+    {
+      "id": "python-tooling-q20",
+      "type": "recall",
+      "difficulty": "easy",
+      "question": "What does reveal_type(x) do, and when do you use it?",
+      "answer": "When mypy checks the file, it prints the type it inferred for x. Use it to understand a confusing error, then remove it.",
+      "explanation": "Many confusing errors come from an inferred type you did not expect, such as int | None after a dict.get(). Seeing the inferred type points straight at the missing check.",
+      "concept": "reveal_type",
+      "section": 4
+    },
+    {
+      "id": "python-tooling-q21",
+      "type": "code-fill",
+      "difficulty": "medium",
+      "question": "Complete the fixture so the connection is closed after each test, even when the test fails.",
+      "code": "@pytest.fixture\ndef db():\n    conn = connect_test_database()\n    _____ conn\n    conn.close()",
+      "choices": [
+        "return",
+        "yield",
+        "await",
+        "raise"
+      ],
+      "answer": 1,
+      "explanation": "Code after yield is teardown, and pytest runs it after the test finishes, pass or fail. With return, the close() line would never run.",
+      "concept": "yield fixtures",
+      "section": 5
+    },
+    {
+      "id": "python-tooling-q22",
+      "type": "debug",
+      "difficulty": "hard",
+      "question": "These tests pass alone but fail when run together in a different order. What is wrong?",
+      "code": "@pytest.fixture(scope=\"session\")\ndef cart():\n    return []\n\ndef test_add_item(cart):\n    cart.append(\"pen\")\n    assert cart == [\"pen\"]\n\ndef test_cart_starts_empty(cart):\n    assert cart == []",
+      "choices": [
+        "Session fixtures cannot return lists",
+        "The tests need the @pytest.mark.order marker",
+        "The session-scoped list is shared and mutated, so each test sees what earlier tests did; use function scope",
+        "assert cannot compare lists"
+      ],
+      "answer": 2,
+      "explanation": "A session fixture is created once and the same list is handed to every test. test_add_item leaves \"pen\" in it, so whichever test runs second fails. Function scope gives each test its own list.",
+      "concept": "shared fixture state",
+      "section": 5
+    },
+    {
+      "id": "python-tooling-q23",
+      "type": "mcq",
+      "difficulty": "easy",
+      "question": "What is conftest.py for?",
+      "choices": [
+        "Configuring Python's import path for production code",
+        "Holding fixtures (and hooks) shared by every test in its folder and below, discovered automatically",
+        "Listing which tests to skip",
+        "Storing test data files"
+      ],
+      "answer": 1,
+      "explanation": "pytest loads conftest.py files on its own, so fixtures defined there are available to tests without imports. Put widely used fixtures in the top-level tests/conftest.py.",
+      "concept": "conftest",
+      "section": 5
+    },
+    {
+      "id": "python-tooling-q24",
+      "type": "cli",
+      "difficulty": "medium",
+      "question": "Rerun only the tests that failed in the previous pytest run.",
+      "answer": "pytest --lf",
+      "accept": [
+        "pytest --last-failed",
+        "python -m pytest --lf"
+      ],
+      "shell": "bash",
+      "explanation": "--lf (last failed) uses pytest's cache of the previous run. --ff runs the failures first and then everything else.",
+      "concept": "rerun failures",
+      "section": 5
+    },
+    {
+      "id": "python-tooling-q25",
+      "type": "typed",
+      "difficulty": "medium",
+      "question": "A test has @pytest.mark.parametrize with 3 rows stacked on another @pytest.mark.parametrize with 2 rows. How many tests does pytest collect?",
+      "answer": "6",
+      "explanation": "Stacked parametrize decorators produce every combination of their rows: 3 times 2 is 6 test cases.",
+      "concept": "stacked parametrize",
+      "section": 6
+    },
+    {
+      "id": "python-tooling-q26",
+      "type": "mcq",
+      "difficulty": "medium",
+      "question": "m = Mock(); m.side_effect = [ConnectionError(), \"ok\"]. What happens on the first and second calls to m()?",
+      "choices": [
+        "The first call raises ConnectionError; the second returns \"ok\"",
+        "Both calls return the list",
+        "Both calls raise ConnectionError",
+        "The first returns ConnectionError as a value; the second returns \"ok\""
+      ],
+      "answer": 0,
+      "explanation": "A list (any iterable) as side_effect is consumed one item per call: exception instances are raised and other values are returned. A third call would raise StopIteration.",
+      "concept": "side_effect sequences",
+      "section": 6
+    },
+    {
+      "id": "python-tooling-q27",
+      "type": "debug",
+      "difficulty": "hard",
+      "question": "This test sends a real email. Why?",
+      "code": "# shipping.py\nfrom emails import send_email\ndef notify_shipped(email, order_id):\n    send_email(email, f\"Order {order_id} has shipped\")\n\n# test_shipping.py\nfrom unittest.mock import patch\nfrom shipping import notify_shipped\n\ndef test_notify():\n    with patch(\"emails.send_email\") as fake:\n        notify_shipped(\"a@example.com\", 1)\n        fake.assert_called_once()",
+      "choices": [
+        "patch only works as a decorator",
+        "The with block exits before notify_shipped runs",
+        "shipping holds its own reference to send_email, so patching emails.send_email does not affect it",
+        "assert_called_once sends the email"
+      ],
+      "answer": 2,
+      "explanation": "from emails import send_email copies the reference into shipping's namespace when shipping is imported. Patch shipping.send_email instead, or have shipping do import emails and call emails.send_email.",
+      "concept": "patch where looked up",
+      "section": 6
+    },
+    {
+      "id": "python-tooling-q28",
+      "type": "code-fill",
+      "difficulty": "easy",
+      "question": "Complete the assertion so the test checks the mock was called exactly once with these arguments.",
+      "code": "sent = Mock()\nnotify_shipped(\"ana@example.com\", order_id=42, send=sent)\nsent._____(\"ana@example.com\", \"Order 42 has shipped\")",
+      "choices": [
+        "assert_called_once_with",
+        "called_with",
+        "return_value",
+        "assert_any_call_once"
+      ],
+      "answer": 0,
+      "explanation": "assert_called_once_with fails unless there was exactly one call with exactly these arguments. called_with is not a real assertion method: on a plain Mock it is just another auto-created attribute, so it checks nothing.",
+      "concept": "asserting calls",
+      "section": 6
+    },
+    {
+      "id": "python-tooling-q29",
+      "type": "mcq",
+      "difficulty": "medium",
+      "question": "Why write logger.info(\"loaded %d rows\", n) instead of logger.info(f\"loaded {n} rows\")?",
+      "choices": [
+        "f-strings are not allowed in log calls",
+        "Formatting is skipped when INFO is disabled, and log tools can group messages that share a template",
+        "%d rounds the number",
+        "It makes the message appear at a higher level"
+      ],
+      "answer": 1,
+      "explanation": "logging only merges the arguments into the message if a handler will emit it. The constant template also lets aggregation tools count every \"loaded %d rows\" together. The f-string version works, it is just less efficient and less searchable.",
+      "concept": "lazy log formatting",
+      "section": 7
+    },
+    {
+      "id": "python-tooling-q30",
+      "type": "order",
+      "difficulty": "easy",
+      "question": "Put the logging levels in order from least to most severe.",
+      "items": [
+        "DEBUG",
+        "INFO",
+        "WARNING",
+        "ERROR",
+        "CRITICAL"
+      ],
+      "explanation": "Setting a level shows that level and everything more severe. With level=WARNING you see WARNING, ERROR and CRITICAL.",
+      "concept": "log levels",
+      "section": 7
+    },
+    {
+      "id": "python-tooling-q31",
+      "type": "multi",
+      "difficulty": "medium",
+      "question": "You are writing a reusable library. Which logging practices are right? Select all that apply.",
+      "choices": [
+        "Create loggers with logging.getLogger(__name__)",
+        "Call logging.basicConfig(level=logging.DEBUG) on import",
+        "Use logger.exception inside except blocks that handle an error",
+        "Log the user's password on failed logins to help debugging",
+        "Let the application decide which levels are shown"
+      ],
+      "answers": [
+        0,
+        2,
+        4
+      ],
+      "explanation": "Libraries log and leave configuration to the application. Configuring on import overrides the application's setup, and passwords must never be written to logs.",
+      "concept": "logging in libraries",
+      "section": 7
+    },
+    {
+      "id": "python-tooling-q32",
+      "type": "typed",
+      "difficulty": "easy",
+      "question": "What does print(bool(\"false\")) output?",
+      "answer": "True",
+      "explanation": "bool() of any non-empty string is True. Environment variables are always strings, so booleans need explicit parsing such as value.lower() in (\"1\", \"true\", \"yes\", \"on\").",
+      "concept": "string truthiness",
+      "section": 8
+    },
+    {
+      "id": "python-tooling-q33",
+      "type": "debug",
+      "difficulty": "easy",
+      "question": "This crashes with TypeError at startup. What is the bug?",
+      "code": "import os\nport = os.environ.get(\"PORT\", \"8000\")\nnext_port = port + 1",
+      "choices": [
+        "os.environ.get cannot take a default",
+        "PORT must be lowercase",
+        "Environment values are strings; convert with int() before adding",
+        "8000 is not a valid port"
+      ],
+      "answer": 2,
+      "explanation": "\"8000\" + 1 mixes a str and an int. int(os.environ.get(\"PORT\", \"8000\")) converts once, at the point where configuration is loaded.",
+      "concept": "env values are strings",
+      "section": 8
+    },
+    {
+      "id": "python-tooling-q34",
+      "type": "recall",
+      "difficulty": "medium",
+      "question": "Why should a service validate its configuration at startup and exit if something is missing?",
+      "answer": "A clear error at deploy time names the missing or bad setting immediately. Otherwise the service starts, looks healthy, and fails later on some request, far from the cause.",
+      "explanation": "Failing fast turns a confusing production incident into a failed deploy with an obvious message, which the pipeline can catch before users see anything.",
+      "concept": "fail fast",
+      "section": 8
+    },
+    {
+      "id": "python-tooling-q35",
+      "type": "cli",
+      "difficulty": "easy",
+      "question": "In a fresh clone, install the git hook so pre-commit runs on every commit.",
+      "answer": "pre-commit install",
+      "shell": "bash",
+      "explanation": "pre-commit install writes a hook script into .git/hooks. It is per clone, which is one reason CI must run the same checks.",
+      "concept": "pre-commit install",
+      "section": 9
+    },
+    {
+      "id": "python-tooling-q36",
+      "type": "mcq",
+      "difficulty": "easy",
+      "question": "What does the matrix in the workflow above do?",
+      "choices": [
+        "Runs the job once per listed Python version, in parallel",
+        "Runs the steps in random order",
+        "Retries failed steps three times",
+        "Installs three copies of every dependency in one job"
+      ],
+      "answer": 0,
+      "explanation": "Each matrix value creates its own job. A library that claims to support 3.11 to 3.13 proves it by testing all three.",
+      "concept": "CI matrix",
+      "section": 9
+    },
+    {
+      "id": "python-tooling-q37",
+      "type": "order",
+      "difficulty": "medium",
+      "question": "Put these CI steps in a sensible order.",
+      "items": [
+        "Check out the code",
+        "Set up Python",
+        "Install the project and dev dependencies",
+        "Run ruff and mypy",
+        "Run the tests with coverage"
+      ],
+      "explanation": "Each step needs the previous one, and the fast static checks run before the slower test suite so obvious problems fail within seconds.",
+      "concept": "CI pipeline order",
+      "section": 9
+    }
+  ],
+  "resources": [
+    {
+      "title": "Python Packaging User Guide: Packaging Python Projects",
+      "url": "https://packaging.python.org/en/latest/tutorials/packaging-projects/",
+      "kind": "docs",
+      "note": "The official walkthrough from pyproject.toml to an upload on TestPyPI."
+    },
+    {
+      "title": "pytest documentation",
+      "url": "https://docs.pytest.org/en/stable/",
+      "kind": "docs",
+      "note": "Fixtures, parametrize, monkeypatch and every command-line flag, with examples."
+    },
+    {
+      "title": "Ruff documentation",
+      "url": "https://docs.astral.sh/ruff/",
+      "kind": "docs",
+      "note": "Every lint rule explained with an example of the problem and the fix."
+    },
+    {
+      "title": "mypy documentation",
+      "url": "https://mypy.readthedocs.io/en/stable/",
+      "kind": "docs",
+      "note": "Getting started, configuration options and how to fix common errors."
+    },
+    {
+      "title": "uv documentation",
+      "url": "https://docs.astral.sh/uv/",
+      "kind": "docs",
+      "note": "The fast all-in-one tool for Python versions, environments, lock files and publishing."
+    },
+    {
+      "title": "pre-commit",
+      "url": "https://pre-commit.com/",
+      "kind": "tool",
+      "note": "How to install the framework and find ready-made hooks."
+    }
+  ]
+}
