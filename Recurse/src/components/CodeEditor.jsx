@@ -17,6 +17,11 @@ if (!hljs.getLanguage('javascript')) hljs.registerLanguage('javascript', javascr
 if (!hljs.getLanguage('python')) hljs.registerLanguage('python', python)
 
 const LABELS = { javascript: 'JavaScript', python: 'Python' }
+// Symbols that are slow to reach on a phone keyboard, one row under the editor on touch screens.
+const TOUCH_SYMBOLS = {
+  javascript: ['(', ')', '{', '}', '[', ']', ';', '=', "'", '"', '`', '<', '>', '!', '&', '|'],
+  python: ['(', ')', '[', ']', ':', '=', "'", '"', '{', '}', '<', '>', '_', '.', ',']
+}
 const MAX_HIGHLIGHT = 40000
 
 function execEdit(text) {
@@ -186,6 +191,22 @@ export default function CodeEditor({
     }
   }
 
+  // On-screen keys (touch screens): the same edits as Tab, Shift+Tab, Ctrl+/ and typed brackets.
+  const touchKey = (key) => {
+    const area = textareaRef.current
+    if (!area || readOnly) return
+    if (document.activeElement !== area) area.focus({ preventScroll: true })
+    const { value: current, selectionStart: start, selectionEnd: end } = area
+    let edit
+    if (key === 'indent') edit = indentEdit(current, start, end, language)
+    else if (key === 'outdent') edit = indentEdit(current, start, end, language, true)
+    else if (key === 'comment') edit = toggleCommentEdit(current, start, end, language)
+    else edit = typeCharEdit(current, start, end, key, language) || { from: start, to: end, text: key, selStart: start + key.length, selEnd: start + key.length }
+    apply(area, edit)
+    revealCaret()
+  }
+  const keepFocus = (event) => event.preventDefault()
+
   // The textarea is exactly as big as its content, so it should never scroll by itself.
   // If a browser nudges it anyway (keeping the caret in view), hand the scroll to the container.
   const onTextareaScroll = (event) => {
@@ -249,6 +270,20 @@ export default function CodeEditor({
           />
         </div>
       </div>
+      {!readOnly && (
+        <div className="ce-keys" role="group" aria-label="Code keys">
+          <button type="button" className="ce-key wide" onPointerDown={keepFocus} onMouseDown={keepFocus} onClick={() => touchKey('indent')} title="Indent (Tab)">indent</button>
+          <button type="button" className="ce-key wide" onPointerDown={keepFocus} onMouseDown={keepFocus} onClick={() => touchKey('outdent')} title="Outdent (Shift+Tab)">outdent</button>
+          <button type="button" className="ce-key" onPointerDown={keepFocus} onMouseDown={keepFocus} onClick={() => touchKey('comment')} title="Comment or uncomment the line">
+            {language === 'python' ? '#' : '//'}
+          </button>
+          {(TOUCH_SYMBOLS[language] || TOUCH_SYMBOLS.javascript).map((ch) => (
+            <button key={ch} type="button" className="ce-key" onPointerDown={keepFocus} onMouseDown={keepFocus} onClick={() => touchKey(ch)} aria-label={`Type ${ch}`}>
+              {ch}
+            </button>
+          ))}
+        </div>
+      )}
       <p id={hintId} className="sr-only">
         Tab indents. Press Escape, then Tab, to move focus out of the editor. {mod} plus Enter runs the code.
         {onSubmit ? ` ${mod} plus Shift plus Enter submits.` : ''} {mod} plus slash comments a line.
