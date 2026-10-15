@@ -4,6 +4,7 @@ import { feedbackCorrect, feedbackSuccess, feedbackWrong } from '../../lib/juice
 import { sfx } from '../../lib/sfx'
 import { useTokens, wait } from '../lib/net-anim'
 import { StepControls, Token } from '../lib/net-svg'
+import { useNarrow } from '../lib/use-width'
 import { CLIENT, buildTcpScript, buildUdpScript, checkAnswer, headerFields, segmentLabel } from '../lib/tcp-handshake'
 import './tcp-handshake.css'
 
@@ -31,7 +32,7 @@ function arrowTone(ev) {
 const STROKE = { accent: 'var(--accent)', good: 'var(--good)', bad: 'var(--bad)', warn: 'var(--warn)' }
 
 /** One arrow on the sequence diagram, with its label pill. */
-function Arrow({ ev, index, hide, ghost, latest }) {
+function Arrow({ ev, index, hide, ghost, latest, phone }) {
   if (ev.kind === 'timeout') {
     const y = TOP + index * ROW + ROW / 2 - 6
     return (
@@ -52,7 +53,8 @@ function Arrow({ ev, index, hide, ghost, latest }) {
   const stroke = STROKE[tone]
   const end = ev.lost ? { x: g.x1 + (g.x2 - g.x1) * 0.55, y: g.y1 + (g.y2 - g.y1) * 0.55 } : { x: g.x2, y: g.y2 }
   const lines = segmentLabel(ev, hide)
-  const width = Math.max(...lines.map((l) => l.length)) * 6.1 + 14
+  // The phone diagram uses bigger type, so the label pill grows with it.
+  const width = Math.max(...lines.map((l) => l.length)) * (phone ? 8.1 : 6.1) + 14
   const mid = { x: (g.x1 + g.x2) / 2, y: (g.y1 + g.y2) / 2 }
   return (
     <g className={`${ghost ? 'tcp-ghost' : ''}${latest ? ' tcp-fresh' : ''}`}>
@@ -62,9 +64,9 @@ function Arrow({ ev, index, hide, ghost, latest }) {
         <path d={`M${end.x - 6} ${end.y - 6} L${end.x + 6} ${end.y + 6} M${end.x + 6} ${end.y - 6} L${end.x - 6} ${end.y + 6}`} style={{ stroke: 'var(--bad)', strokeWidth: 2.6, strokeLinecap: 'round' }} />
       )}
       <g transform={`translate(${mid.x} ${mid.y - 2})`}>
-        <rect x={-width / 2} y="-15" width={width} height="28" rx="6" style={{ fill: 'var(--card)', stroke: latest || ghost ? stroke : 'var(--rule)', strokeWidth: 1 }} />
-        <text textAnchor="middle" y="-3" className="tcp-label-a" style={{ fill: stroke }}>{lines[0]}</text>
-        <text textAnchor="middle" y="9" className="tcp-label-b">{lines[1]}</text>
+        <rect x={-width / 2} y={phone ? -19 : -15} width={width} height={phone ? 36 : 28} rx="6" style={{ fill: 'var(--card)', stroke: latest || ghost ? stroke : 'var(--rule)', strokeWidth: 1 }} />
+        <text textAnchor="middle" y={phone ? -4 : -3} className="tcp-label-a" style={{ fill: stroke }}>{lines[0]}</text>
+        <text textAnchor="middle" y={phone ? 12 : 9} className="tcp-label-b">{lines[1]}</text>
       </g>
     </g>
   )
@@ -97,6 +99,7 @@ export default function TcpHandshake({ onComplete }) {
   const scrollRef = useRef(null)
   const qRef = useRef(null)
   const diagramRef = useRef(null)
+  const phone = useNarrow(diagramRef)
 
   useEffect(() => {
     speedRef.current = speed
@@ -288,7 +291,7 @@ export default function TcpHandshake({ onComplete }) {
             <div><strong>Server</strong><span className="chip outline tcp-state" key={states.server}>{states.server}</span></div>
           </div>
           <div className="tcp-scroll" ref={scrollRef}>
-            <svg viewBox={`0 0 ${W} ${height}`} className="tcp-svg" role="img" aria-label={`${proto.toUpperCase()} sequence diagram, ${count} of ${events.length} steps shown`}>
+            <svg viewBox={`0 0 ${W} ${height}`} className={`tcp-svg${phone ? ' phone' : ''}`} role="img" aria-label={`${proto.toUpperCase()} sequence diagram, ${count} of ${events.length} steps shown`}>
               <defs>
                 {Object.entries(STROKE).map(([tone, color]) => (
                   <marker key={tone} id={`tcp-head-${tone}`} markerWidth="9" markerHeight="9" refX="7" refY="4" orient="auto">
@@ -299,14 +302,14 @@ export default function TcpHandshake({ onComplete }) {
               <line x1={CX} y1="0" x2={CX} y2={height} className="tcp-lane" />
               <line x1={SX} y1="0" x2={SX} y2={height} className="tcp-lane" />
               {events.slice(0, count).map((ev, i) => (
-                <Arrow key={`${proto}-${ev.id}`} ev={ev} index={i} latest={i === count - 1} />
+                <Arrow key={`${proto}-${ev.id}`} ev={ev} index={i} latest={i === count - 1} phone={phone} />
               ))}
-              {pending && <Arrow ev={pending} index={count} hide={pending.question.field} ghost />}
+              {pending && <Arrow ev={pending} index={count} hide={pending.question.field} ghost phone={phone} />}
               {trail && (
                 <line x1={trail.g.x1} y1={trail.g.y1} x2={trail.t.dropped ? trail.g.x1 + (trail.g.x2 - trail.g.x1) * 0.55 : trail.t.x} y2={trail.t.dropped ? trail.g.y1 + (trail.g.y2 - trail.g.y1) * 0.55 : trail.t.y}
                   style={{ stroke: STROKE[trail.tone], strokeWidth: 2, opacity: 0.5 }} />
               )}
-              {tokens.map((t) => <Token key={t.id} token={t} />)}
+              {tokens.map((t) => <Token key={t.id} token={t} size={phone ? 1.3 : 1} />)}
             </svg>
           </div>
         </div>
