@@ -31,7 +31,6 @@ import {
   normIPv6,
   parentIf,
   parseIPv4,
-  parseIPv6,
   parseIPv6Prefix,
   parseVlanList
 } from './addr.js'
@@ -324,7 +323,10 @@ function makeCtx(sim, parsed, out, raw, promptLen) {
       const i = words.indexOf(word)
       return i >= 0 ? words[i + k] : undefined
     },
-    print: (lines) => out.add(applyPipe(lines, parsed.st.pipe).join('\n')),
+    print: (lines) => {
+      const shown = applyPipe(lines, parsed.st.pipe)
+      if (shown.length) out.add(shown.join('\n'))
+    },
     say: (text) => out.add(text),
     fail: (text) => out.err(text),
     invalidAt: (i) => {
@@ -500,7 +502,7 @@ function modified(sim) {
 
 function execReload(ctx) {
   const { sim } = ctx
-  if (modified(sim) && sim.startup !== undefined) sim.pending = { kind: 'reload-save', prompt: 'System configuration has been modified. Save? [yes/no]: ' }
+  if (modified(sim)) sim.pending = { kind: 'reload-save', prompt: 'System configuration has been modified. Save? [yes/no]: ' }
   else sim.pending = { kind: 'reload-confirm', prompt: 'Proceed with reload? [confirm]' }
 }
 
@@ -648,11 +650,7 @@ function cfgInterface(ctx) {
     return
   }
   if (/^Vlan/.test(name) && dev.kind !== 'switch') return ctx.invalidAt(1)
-  const isNew = !dev.interfaces[name]
   ensureIf(dev, name)
-  if (isNew && /^Port-channel/.test(name) && dev.kind === 'switch') {
-    /* a bare Port-channel interface starts with default switchport settings */
-  }
   sim.mode = { name: 'if', targets: [name] }
 }
 
@@ -760,7 +758,7 @@ function cfgRouterOspf(ctx) {
 }
 
 function cfgIpRoute(ctx) {
-  const { dev, w, sim } = ctx
+  const { dev, w } = ctx
   const [prefix, mask] = [w[2], w[3]]
   const len = maskToPrefix(mask)
   if (ctx.negate && w.length === 4) {
@@ -787,7 +785,6 @@ function cfgIpRoute(ctx) {
   }
   dev.routes = dev.routes.filter((r) => !(r.prefix === prefix && r.mask === mask && r.nextHop === nextHop && r.iface === iface))
   dev.routes.push({ prefix, mask, nextHop, iface, ad })
-  void sim
 }
 
 function cfgIpv6Route(ctx) {
@@ -1051,7 +1048,7 @@ function cfgCryptoKey(ctx) {
   }
   out.add(`The name for the keys will be: ${keyName(dev)}`)
   if (bits) {
-    out.add('', `% The key modulus size is ${bits} bits`)
+    out.add(`\n% The key modulus size is ${bits} bits`)
     generateKeys(sim, out, bits)
   } else {
     out.add('Choose the size of the key modulus in the range of 360 to 4096 for your\n  General Purpose Keys. Choosing a key modulus greater than 512 may take\n  a few minutes.\n')
@@ -1233,7 +1230,7 @@ function ifShutdown(ctx) {
 }
 
 function ifIpAddress(ctx) {
-  const { sim, dev, w } = ctx
+  const { dev, w } = ctx
   const ifs = targets(ctx)
   if (ifs.some((i) => i.switchport === true)) {
     ctx.fail('% IP addresses may not be configured on L2 links.')
@@ -1290,7 +1287,6 @@ function ifIpAddress(ctx) {
       i.dhcpClient = false
     }
   }
-  void sim
 }
 
 function ipNetwork(ip, len) {
@@ -1800,10 +1796,6 @@ function dhcpLease(ctx) {
   poolOf(ctx).lease = ctx.negate ? null : ctx.w.slice(1).join(' ')
 }
 
-function aclOf(ctx) {
-  return ctx.dev.acls[ctx.sim.mode.key]
-}
-
 function aclEntry(ctx) {
   const acl = ensureAcl(ctx.dev, ctx.sim.mode.key, ctx.sim.mode.type, !/^\d+$/.test(ctx.sim.mode.key))
   const w = ctx.w
@@ -1959,18 +1951,18 @@ function showTree(kind, priv) {
     nodes.push(
       SH('etherchannel|EtherChannel information', (c) => S.showEtherchannelSummary(c.sim), [SH('summary|One-line summary per channel-group', (c) => S.showEtherchannelSummary(c.sim))]),
       K('mac|MAC configuration', [SH('address-table|MAC forwarding table', (c) => S.showMacAddressTable(c.sim))]),
-      SH('port-security|Show secure port information', (c) => S.showPortSecurity(c.sim), [K('interface|Show secure interface', IFACE(kind, [PIPE], { run: (c) => c.print(S.showPortSecurityInterface(c.sim, c.w[2])) }, { types: ['GigabitEthernet'] }))]),
-      SH('spanning-tree|Spanning tree topology', (c) => S.showSpanningTree(c.sim), [K('vlan|VLAN Switch Spanning Trees', [A('<1-4094>|VLAN ID', [PIPE], (c) => c.print(S.showSpanningTree(c.sim, Number(c.w[2]))))])]),
+      SH('port-security|Show secure port information', (c) => S.showPortSecurity(c.sim), [K('interface|Show secure interface', IFACE(kind, [PIPE], { run: (c) => c.print(S.showPortSecurityInterface(c.sim, c.w[3])) }, { types: ['GigabitEthernet'] }))]),
+      SH('spanning-tree|Spanning tree topology', (c) => S.showSpanningTree(c.sim), [K('vlan|VLAN Switch Spanning Trees', [A('<1-4094>|VLAN ID', [PIPE], (c) => c.print(S.showSpanningTree(c.sim, Number(c.w[3]))))])]),
       SH('vlan|VTP VLAN status', (c) => S.showVlanBrief(c.sim), [SH('brief|VTP all VLAN status in brief', (c) => S.showVlanBrief(c.sim))]),
       K('vtp|VTP information', [SH('status|VTP domain status', (c) => S.showVtpStatus(c.sim))])
     )
   }
-  return K('show|Show running system information', nodes, { noDoBlock: true })
+  return K('show|Show running system information', nodes)
 }
 
 function execTree(kind, priv) {
-  const ip = A('A.B.C.D|Destination address', [], noop)
-  void ip
+  const year = A('<1993-2035>|Year', [], execClockSet)
+  const monthArg = (next) => A('MONTH|Month of the year', next, { test: (t) => t.length >= 3 && S.MONTH_NAMES.some((m) => m.startsWith(t.toLowerCase())), label: 'MONTH' })
   const pingTargets = [A('WORD|Ping destination address or hostname', [], execPing)]
   const nodes = [
     K('connect|Open a terminal connection', [A('WORD|IP address or hostname of a remote system', [], execRemote)]),
@@ -2007,12 +1999,7 @@ function execTree(kind, priv) {
         K('mac|MAC forwarding table', [K('address-table|MAC forwarding table', [K('dynamic|dynamic entry type', [], noop)])])
       ]),
       K('clock|Manage the system clock', [
-        K('set|Set the time and date', [
-          A('hh:mm:ss|Current Time', [
-            A('<1-31>|Day of the month', [K('MONTH|x', [], {})]),
-            A('MONTH|Month of the year', [A('<1-31>|Day of the month', [A('<1993-2035>|Year', [], execClockSet)])], { test: (t) => S.MONTH_NAMES.some((m) => m.startsWith(t.toLowerCase()) && t.length >= 3), label: 'MONTH' })
-          ])
-        ])
+        K('set|Set the time and date', [A('hh:mm:ss|Current Time', [A('<1-31>|Day of the month', [monthArg([year])]), monthArg([A('<1-31>|Day of the month', [year])])])])
       ]),
       K('configure|Enter configuration mode', [K('terminal|Configure from the terminal', [], { run: execConfigure, noDo: true })], { run: execConfigure, noDo: true }),
       K('copy|Copy from one file to another', [
@@ -2024,9 +2011,6 @@ function execTree(kind, priv) {
       K('undebug|Disable debugging functions (see also \'debug\')', [K('all|Disable all debugging', [], (c) => c.say('All possible debugging has been turned off'))]),
       K('write|Write running configuration to memory, network, or terminal', [K('erase|Erase NV memory', [], execWrite), K('memory|Write to NV memory', [], execWrite), K('terminal|Write to terminal', [], execWrite)], execWrite)
     )
-    // the clock set day-first form: hh:mm:ss <1-31> MONTH <1993-2035>
-    const setNode = nodes.find((n) => n.word === 'clock').next[0].next[0]
-    setNode.next[0].next = [A('MONTH|Month of the year', [A('<1993-2035>|Year', [], execClockSet)], { test: (t) => S.MONTH_NAMES.some((m) => m.startsWith(t.toLowerCase()) && t.length >= 3), label: 'MONTH' })]
   }
   return nodes
 }
@@ -2045,7 +2029,6 @@ function withCommon(root, execRoot, exitFn) {
 function configTree(kind, execRoot) {
   const sw = kind === 'switch'
   const ip = (spec, next, extra) => A(`A.B.C.D|${spec}`, next, extra)
-  const aclRef = (next) => [A('<1-199>|IP access list number', next), A('<1300-2699>|IP expanded access list number', next), A('WORD|Access-list name', next, { test: (t) => /^[A-Za-z]/.test(t) })]
   const nums = ['<1-99>|IP standard access list', '<100-199>|IP extended access list', '<1300-1999>|IP standard access list (expanded range)', '<2000-2699>|IP extended access list (expanded range)']
   const numbered = nums.map((spec) => {
     const lo = Number(spec.match(/<(\d+)/)[1])
@@ -2368,7 +2351,7 @@ function grammarFor(kind) {
 
 function errorFor(p, out, promptLen) {
   if (p.status === 'ambiguous') {
-    out.err(`% Ambiguous command:  "${p.text}"`)
+    out.err(`% Ambiguous command: "${p.text}"`)
   } else if (p.status === 'incomplete') {
     out.err('% Incomplete command.')
   } else {
@@ -2420,7 +2403,8 @@ function handlePending(sim, raw, out) {
   switch (pend.kind) {
     case 'enable-pw': {
       const dev = sim.dev
-      const ok = dev.enableSecret ? dev.enableSecret.text === raw : dev.enablePassword && (dev.enablePassword.text === raw || dev.enablePassword.raw == null) && dev.enablePassword.text === raw
+      const want = dev.enableSecret ?? dev.enablePassword
+      const ok = Boolean(want && want.raw == null && want.text === raw)
       if (ok) {
         sim.mode = { name: 'enable' }
         sim.stats.enable = true
@@ -2524,7 +2508,7 @@ function handlePending(sim, raw, out) {
       if (!yes) return
       out.add(`The name for the keys will be: ${keyName(sim.dev)}`)
       if (pend.bits) {
-        out.add('', `% The key modulus size is ${pend.bits} bits`)
+        out.add(`\n% The key modulus size is ${pend.bits} bits`)
         generateKeys(sim, out, pend.bits)
       } else sim.pending = { kind: 'rsa-bits', prompt: 'How many bits in the modulus [512]: ' }
       return
@@ -2546,10 +2530,10 @@ function loginSequence(sim, out) {
   if (dev.banner != null) out.add(dev.banner)
   const con = dev.lines.con
   if (con.login === 'local' && dev.users.length) {
-    out.add('', 'User Access Verification', '')
+    out.add('\nUser Access Verification\n')
     sim.pending = { kind: 'login-user', prompt: 'Username: ', tries: 0 }
   } else if (con.login === 'line' && con.password) {
-    out.add('', 'User Access Verification', '')
+    out.add('\nUser Access Verification\n')
     sim.pending = { kind: 'login-pass', prompt: 'Password: ', secret: true, user: null, tries: 0 }
   }
 }
@@ -2665,8 +2649,7 @@ export function complete(sim, text = '') {
     const level = filterLevel(w.node ? w.level : roots, w.node ? w.st : { fresh: true })
     const low = last.text.toLowerCase()
     const kws = level.filter((n) => n.t === 'kw' && n.wl.startsWith(low))
-    const exact = kws.find((n) => n.wl === low)
-    const pick = kws.length === 1 ? kws[0] : exact && kws.length > 1 ? null : null
+    const pick = kws.find((n) => n.wl === low) ?? (kws.length === 1 ? kws[0] : null)
     if (pick) return `${prefix}${pick.word}${pick.glue ? '' : ' '}`
   }
   return text
@@ -2761,15 +2744,14 @@ export function bootLines(sim) {
 
 /** Run the lab checks against a simulator: [{ label, hint, pass }]. */
 export function gradeLab(lab, sim) {
-  return lab.checks.map((c) => {
-    let pass = false
+  const safe = (c) => {
     try {
-      pass = Boolean(c.test(sim.dev, sim))
+      return Boolean(c.test(sim.dev, sim))
     } catch {
-      pass = false
+      return false
     }
-    return { label: c.label, hint: c.hint, pass }
-  })
+  }
+  return lab.checks.map((c) => ({ label: c.label, hint: c.hint, pass: safe(c) }))
 }
 
 export { IF_TYPES, isUp }

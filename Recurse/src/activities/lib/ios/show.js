@@ -662,7 +662,7 @@ export function showIpNatTranslations(sim) {
   const rows = natTranslations(sim)
   if (!rows.length) return []
   const out = [`${pad('Pro', 4)}${pad('Inside global', 22)}${pad('Inside local', 22)}${pad('Outside local', 22)}Outside global`]
-  for (const t of rows) out.push(`${pad(t.proto, 4)}${pad(t.insideGlobal, 22)}${pad(t.insideLocal, 22)}${pad(t.outsideLocal, 22)}${t.outsideGlobal}`)
+  for (const t of rows) out.push(`${t.proto.padEnd(3)} ${pad(t.insideGlobal, 22)}${pad(t.insideLocal, 22)}${pad(t.outsideLocal, 22)}${t.outsideGlobal}`)
   return out
 }
 

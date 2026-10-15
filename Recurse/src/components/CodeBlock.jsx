@@ -14,6 +14,7 @@ import yaml from 'highlight.js/lib/languages/yaml'
 import java from 'highlight.js/lib/languages/java'
 import cpp from 'highlight.js/lib/languages/cpp'
 import go from 'highlight.js/lib/languages/go'
+import cisco from '../activities/lib/ios/hljs-cisco.js'
 import { BLANK } from '../lib/packSchema'
 
 hljs.registerLanguage('python', python)
@@ -29,6 +30,7 @@ hljs.registerLanguage('yaml', yaml)
 hljs.registerLanguage('java', java)
 hljs.registerLanguage('cpp', cpp)
 hljs.registerLanguage('go', go)
+hljs.registerLanguage('cisco', cisco)
 
 const escape = (text) => text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
 
