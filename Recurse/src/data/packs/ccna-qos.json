@@ -1,7 +1,7 @@
 {
   "id": "ccna-qos",
   "name": "Quality of Service (QoS)",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "author": "Recurse",
   "subject": "networking",
   "level": "intermediate",
@@ -19,15 +19,53 @@
     "dscp",
     "ip-services"
   ],
+  "resources": [
+    {
+      "title": "Free CCNA 200-301 course (Jeremy's IT Lab)",
+      "url": "https://www.youtube.com/playlist?list=PLxbwE86jKRgMpuZuLBivzlM8s2Dk5lXBQ",
+      "kind": "video",
+      "note": "Free video course with labs; the QoS lessons cover marking, queuing, policing and shaping."
+    },
+    {
+      "title": "Compare Traffic Policing and Traffic Shaping to Limit Bandwidth",
+      "url": "https://www.cisco.com/c/en/us/support/docs/quality-of-service-qos/qos-policing/19645-policevsshape.html",
+      "kind": "docs",
+      "note": "Cisco side-by-side of what each tool does with excess traffic."
+    },
+    {
+      "title": "Implement QoS Policies with Differentiated Services Code Point",
+      "url": "https://www.cisco.com/c/en/us/support/docs/quality-of-service-qos/qos-packet-marking/10103-dscpvalues.html",
+      "kind": "docs",
+      "note": "DSCP, EF, AF and class selector values in binary and decimal."
+    },
+    {
+      "title": "RFC 4594: Configuration Guidelines for DiffServ Service Classes",
+      "url": "https://www.rfc-editor.org/rfc/rfc4594",
+      "kind": "docs",
+      "note": "The marking plan behind EF for voice and AF4x for video."
+    },
+    {
+      "title": "RFC 2597: Assured Forwarding PHB Group",
+      "url": "https://www.rfc-editor.org/rfc/rfc2597",
+      "kind": "docs",
+      "note": "Defines the AF classes and their drop precedences."
+    },
+    {
+      "title": "RFC 3246: An Expedited Forwarding PHB",
+      "url": "https://www.rfc-editor.org/rfc/rfc3246",
+      "kind": "docs",
+      "note": "Defines EF, the low-delay behavior used for voice."
+    }
+  ],
   "lesson": {
-    "estimatedMinutes": 24,
+    "estimatedMinutes": 32,
     "intro": "On a quiet network every packet leaves at once and QoS has nothing to do. The moment a link congests, something must wait and something may be dropped, and QoS decides which. The CCNA asks you to explain the per-hop behavior: how devices classify and mark traffic, where they trust markings, how they queue and schedule, how they avoid congestion and how they police or shape, along with the delay, jitter and loss that voice, video and data can tolerate.",
     "objectives": [
       "Describe bandwidth, delay, jitter and loss and what voice, video and data each need",
       "Explain classification and marking with CoS, IP Precedence and DSCP, including EF, AF and CS values",
       "Place a trust boundary and explain why endpoint markings are not trusted by default",
-      "Compare CBWFQ and LLQ, and tail drop and WRED",
-      "Contrast policing and shaping and choose the right one for a scenario"
+      "Compare CBWFQ and LLQ, tail drop and WRED, and policing and shaping",
+      "Read a class-map and policy-map exhibit and trace a voice packet's per-hop behavior end to end"
     ],
     "sections": [
       {
@@ -169,6 +207,44 @@
           "answer": 0,
           "explanation": "Shaping queues the excess and releases it at 50 Mbps, so the provider's policer has nothing to drop. Policing on the customer side would just drop the traffic earlier, WRED manages queue depth rather than rate, and re-marking changes priority, not rate."
         }
+      },
+      {
+        "title": "Reading a QoS policy: class maps, policy maps and service-policy",
+        "body": "Cisco IOS expresses QoS with the **Modular QoS CLI (MQC)**. The CCNA does not ask you to write it, but exhibits show it, and reading it is the quickest way to see the per-hop behavior a device applies. Three building blocks refer to each other:\n\n- A **class-map** classifies: `match dscp ef`, `match access-group name VOICE-ACL`, `match protocol` (using NBAR) and so on. `match-any` means one matching line is enough; `match-all`, the default, requires every line to match.\n- A **policy-map** says what to do with each class: `set dscp` marks, `priority` creates the LLQ priority queue, `bandwidth` gives a CBWFQ guarantee, `random-detect dscp-based` turns on WRED, `police` limits a rate by dropping or re-marking, and `shape average` limits a rate by queuing. `class class-default` catches everything no other class matched.\n- **service-policy input** or **output** attaches a policy map to an interface. Marking and policing work in either direction; queuing and shaping act only on output, because a device can only schedule packets it is about to send.\n\nThe exhibit is a small but complete design. On the access switch, policy MARK-IN is the trust boundary in action: it classifies a softphone application's traffic by an ACL and marks it EF, and sets everything else to default (DSCP 0), whatever the PC tried to mark. On the WAN router, policy WAN-OUT shapes all traffic to the 50 Mbps contract and, inside the shaper, runs the **child policy** WAN-QUEUE: voice first in the priority queue, video with a guaranteed share, and everything else with a share and WRED. The shaper creates the queue; the child policy decides who leaves it first. Percentages in the child policy are shares of the shaped 50 Mbps, not of the 1 Gbps interface.\n\nRead any policy the same way: start at the service-policy line and note its direction, follow it to the policy map, and for each class ask which of the six tools it uses: classification, marking, queuing, congestion avoidance, policing or shaping.",
+        "code": "! Access switch: classify and mark at the trust boundary\n! (ACL SOFTPHONE-RTP, not shown, matches the app's UDP ports)\nclass-map match-any SOFTPHONE\n match access-group name SOFTPHONE-RTP\npolicy-map MARK-IN\n class SOFTPHONE\n  set dscp ef\n class class-default\n  set dscp default\ninterface GigabitEthernet1/0/5\n service-policy input MARK-IN\n!\n! WAN router: shape to the contract, queue inside the shaper\nclass-map match-any VOICE\n match dscp ef\nclass-map match-any VIDEO\n match dscp af41\npolicy-map WAN-QUEUE\n class VOICE\n  priority percent 20\n class VIDEO\n  bandwidth percent 30\n class class-default\n  bandwidth percent 25\n  random-detect dscp-based\npolicy-map WAN-OUT\n class class-default\n  shape average 50000000\n  service-policy WAN-QUEUE\ninterface GigabitEthernet0/0\n service-policy output WAN-OUT",
+        "language": "cisco",
+        "tip": "Read MQC from the outside in: service-policy and its direction, then the policy-map, then each class-map.",
+        "pitfall": "Attaching a queuing or shaping policy with service-policy input. Queues exist only on output, and IOS refuses priority, bandwidth and shape in an input policy.",
+        "check": {
+          "question": "In the exhibit, what does the WAN router do with VIDEO traffic during congestion?",
+          "choices": [
+            "Sends it before voice, because video needs more bandwidth",
+            "Guarantees it at least 30 percent of the shaped 50 Mbps, about 15 Mbps",
+            "Caps it at 30 percent of the 1 Gbps interface",
+            "Re-marks it AF41 before queuing it"
+          ],
+          "answer": 1,
+          "explanation": "bandwidth percent 30 is a CBWFQ minimum, and in a child policy under a shaper the percentage applies to the shaped rate, so video gets at least 15 Mbps when the link is busy and may use more when it is not. Voice, in the priority queue, still goes first. The class matches packets already marked AF41; it does not mark them."
+        }
+      },
+      {
+        "title": "One voice packet, hop by hop",
+        "body": "Put the six tools together by following one packet of a phone call from a branch to headquarters, and one packet of a file backup sharing the same path.\n\n1. **IP phone.** The phone builds the voice packet and marks it DSCP EF, plus CoS 5 in the 802.1Q tag on the voice VLAN. It re-marks traffic from the PC plugged into it to 0.\n2. **Access switch, the trust boundary.** The port trusts the Cisco phone, so EF stands. The backup from the PC arrives through the phone already re-marked, and the switch's own policy would set it to 0 anyway.\n3. **Distribution and core switches.** They read the DSCP (and the CoS on trunks), put EF traffic in their priority queue and forward. Nobody classifies again: that work was done once at the edge.\n4. **Branch WAN router, egress.** At 9 a.m. the link is congested. The shaper holds output to the 50 Mbps contract with a 10 ms Tc. Inside it, LLQ sends the voice packet next, within its 20 percent; the backup waits in class-default, where WRED may drop a few of its TCP segments early so the backup slows down instead of filling the queue.\n5. **Provider edge, ingress.** The provider polices the branch at the 50 Mbps CIR. Because the branch shaped first, nothing exceeds the contract, so nothing is dropped there. The DSCP is still EF, so the provider can map it to its own priority class, for example in the MPLS EXP bits.\n6. **Headquarters router and LAN.** The same per-hop treatment repeats on the way to the destination phone.\n\nThe voice packet's budget is 150 ms one way. Each priority queue costs it only a few milliseconds, and the 10 ms Tc keeps the shaper's pause short. The backup absorbs all the waiting and the occasional early drop, and TCP quietly resends what was lost. That is QoS in one sentence: not more bandwidth, but a deliberate decision about who waits.\n\nExam questions often hide one broken hop in this chain: an untrusted marking reset to 0 at the access switch, voice placed in a CBWFQ class instead of the priority queue, WRED applied to voice, or a shaper with a long Tc. Walk the hops in order and the fault stands out.",
+        "code": "Hop                 Voice packet (EF)           Backup packet (0)\nIP phone            marks EF and CoS 5          PC traffic re-marked 0\nAccess switch       trusts phone, keeps EF      marked default (0)\nCore switches       priority queue              default queue\nWAN router egress   shaper, LLQ priority queue  shaper, CBWFQ share, WRED\nProvider ingress    policed at CIR, conforms    policed at CIR, conforms",
+        "language": "plaintext",
+        "tip": "Classify and mark once at the edge; every later hop queues, avoids congestion, shapes and polices by reading the marking.",
+        "pitfall": "Configuring QoS only on the WAN router. Every hop that can congest needs a consistent policy, or the packet loses its priority wherever the policy is missing.",
+        "check": {
+          "question": "In the walk-through, why does the provider's policer drop nothing from the branch?",
+          "choices": [
+            "Voice is marked EF, and policers never drop EF traffic",
+            "WRED on the branch router removes all the excess first",
+            "The branch router shapes its output to the contracted rate before the provider sees it",
+            "Policers only act on TCP traffic"
+          ],
+          "answer": 2,
+          "explanation": "Shaping at the branch queues the excess and releases it at the CIR, so the traffic reaching the provider already conforms. A policer drops or re-marks anything above its rate regardless of marking, WRED only manages queue depth, and policers measure all traffic in their class, TCP or not."
+        }
       }
     ],
     "keyTerms": [
@@ -219,6 +295,18 @@
       {
         "term": "Policing and shaping",
         "definition": "Both enforce a rate. Policing drops or re-marks the excess; shaping queues it and sends it later, egress only."
+      },
+      {
+        "term": "MQC",
+        "definition": "Modular QoS CLI: class-map classifies, policy-map assigns actions to each class, and service-policy input or output applies the policy to an interface."
+      },
+      {
+        "term": "CIR",
+        "definition": "Committed information rate: the traffic rate a provider contracts to carry, enforced by its policer and matched by the customer's shaper."
+      },
+      {
+        "term": "Tc (shaping interval)",
+        "definition": "The time interval a shaper uses to meter traffic. Cisco recommends 10 ms when voice or video crosses the shaper."
       }
     ],
     "summary": [
@@ -227,7 +315,8 @@
       "CoS is 3 bits in the 802.1Q tag and only lives on trunks; DSCP is 6 bits in the IP header and lasts end to end. EF 46 is voice, AFxy = 8x + 2y with higher y dropped sooner, CSx = 8x and CS0 is best effort.",
       "Trust markings only from devices IT controls: re-mark PC traffic at the access switch or let a trusted IP phone do it.",
       "CBWFQ guarantees each class a minimum share; LLQ adds a priority queue, capped by a policer, that is always served first for voice.",
-      "WRED drops some TCP packets early to avoid tail drop and global synchronization; policing drops or re-marks the excess, shaping queues it and adds delay."
+      "WRED drops some TCP packets early to avoid tail drop and global synchronization; policing drops or re-marks the excess, shaping queues it and adds delay.",
+      "In MQC exhibits, follow service-policy (and its direction) to the policy-map and read each class: set marks, priority and bandwidth queue, random-detect is WRED, police drops or re-marks, shape queues."
     ],
     "feynmanPrompt": "Explain to a friend why their video call breaks up when someone else in the house starts a huge download, and how a router with QoS (marking, a priority queue and shaping) could keep the call smooth without adding any bandwidth."
   },
@@ -805,6 +894,195 @@
       "explanation": "A typical pairing: the customer shapes to the CIR so the provider's policer never drops anything.",
       "concept": "policing and shaping",
       "section": 6
+    },
+    {
+      "id": "ccna-qos-q35",
+      "type": "mcq",
+      "difficulty": "hard",
+      "question": "A provider applies the exhibit on the port facing a customer. What happens to the customer's traffic above 10 Mbps?",
+      "code": "policy-map CUSTOMER-IN\n class class-default\n  police 10000000 conform-action transmit exceed-action set-dscp-transmit cs1\n!\ninterface GigabitEthernet0/2\n service-policy input CUSTOMER-IN",
+      "language": "cisco",
+      "choices": [
+        "It is dropped immediately",
+        "It is queued and sent later at 10 Mbps",
+        "It is re-marked CS1 and forwarded, so it can be dropped first if the network is busy",
+        "It is moved into the priority queue"
+      ],
+      "answer": 2,
+      "explanation": "This is a policer: conforming traffic is transmitted unchanged, and exceed-action set-dscp-transmit cs1 re-marks the excess to a low class and still forwards it. Nothing is queued, which is shaping, and a policer could drop the excess only if its exceed-action said drop.",
+      "concept": "policer re-marking",
+      "section": 7
+    },
+    {
+      "id": "ccna-qos-q36",
+      "type": "mcq",
+      "difficulty": "medium",
+      "question": "What does the policy in the exhibit do?",
+      "code": "policy-map SHAPE-20M\n class class-default\n  shape average 20000000\n!\ninterface GigabitEthernet0/0\n service-policy output SHAPE-20M",
+      "language": "cisco",
+      "choices": [
+        "Drops all traffic above 20 Mbps",
+        "Guarantees class-default at least 20 Mbps during congestion",
+        "Marks traffic above 20 Mbps CS1",
+        "Queues traffic above 20 Mbps and sends it later, smoothing the output to 20 Mbps"
+      ],
+      "answer": 3,
+      "explanation": "shape average sets a shaping rate on outbound traffic: excess packets wait in the shaping queue and leave when the rate allows, adding delay instead of loss. Dropping or re-marking would be police, and a minimum guarantee would be bandwidth.",
+      "concept": "reading a shaper",
+      "section": 7
+    },
+    {
+      "id": "ccna-qos-q37",
+      "type": "mcq",
+      "difficulty": "hard",
+      "question": "An engineer tries to attach a policy containing `priority percent 20` with `service-policy input` on a WAN interface, and IOS refuses. Why?",
+      "choices": [
+        "Queuing schedules packets waiting to leave an interface, so a priority queue only works in an output policy",
+        "priority requires the bandwidth command in the same class",
+        "Input policies can only match CoS, not DSCP",
+        "LLQ works only on 802.1Q trunk interfaces"
+      ],
+      "answer": 0,
+      "explanation": "A device can only choose the order of packets it is about to transmit, so queuing tools (priority, bandwidth) and shaping belong in output policies. Input policies can classify, mark and police. priority does not need bandwidth, and LLQ works on any interface type.",
+      "concept": "direction of queuing",
+      "section": 7
+    },
+    {
+      "id": "ccna-qos-q38",
+      "type": "code-fill",
+      "difficulty": "easy",
+      "question": "Softphone traffic must be marked as voice at the access switch. What completes the policy?",
+      "code": "policy-map MARK-IN\n class SOFTPHONE\n  _____ dscp ef\n class class-default\n  set dscp default",
+      "language": "cisco",
+      "choices": [
+        "match",
+        "set",
+        "priority",
+        "police"
+      ],
+      "answer": 1,
+      "explanation": "set dscp ef writes the EF value into the IP header of every packet in the class. match belongs in a class-map, priority creates a queue rather than a marking, and police limits a rate.",
+      "concept": "set dscp marks",
+      "section": 7
+    },
+    {
+      "id": "ccna-qos-q39",
+      "type": "order",
+      "difficulty": "medium",
+      "question": "Put the QoS actions in the order a branch phone's voice packet meets them on its way to headquarters.",
+      "items": [
+        "The IP phone marks the packet DSCP EF",
+        "The access switch trusts the phone's marking at the trust boundary",
+        "Core switches queue it by its DSCP without classifying it again",
+        "The branch WAN router places it in the LLQ priority queue inside the shaper",
+        "The provider edge polices the branch's traffic at the CIR"
+      ],
+      "explanation": "Marking happens once at the source, trust is decided at the first switch, every later hop acts on the DSCP, the branch router queues and shapes on egress, and the provider polices on ingress to its network.",
+      "concept": "per-hop behavior end to end",
+      "section": 8
+    },
+    {
+      "id": "ccna-qos-q40",
+      "type": "multi",
+      "difficulty": "medium",
+      "question": "Which three header fields can carry a QoS marking? (Choose three.)",
+      "choices": [
+        "DSCP in the IP header",
+        "CoS (PCP) in the 802.1Q tag",
+        "EXP bits in an MPLS label",
+        "TTL in the IP header",
+        "Source port in the UDP header"
+      ],
+      "answers": [
+        0,
+        1,
+        2
+      ],
+      "explanation": "DSCP (6 bits) lives in the IP header end to end, CoS (3 bits) in the 802.1Q tag on trunks, and EXP (3 bits) in MPLS labels inside a provider network; Wi-Fi uses the TID. TTL counts router hops, and ports identify applications but are not markings.",
+      "concept": "where markings live",
+      "section": 1
+    },
+    {
+      "id": "ccna-qos-q41",
+      "type": "typed",
+      "difficulty": "easy",
+      "question": "What is the decimal DSCP value of CS6, the class selector commonly used for routing protocol traffic?",
+      "answer": "48",
+      "explanation": "Class selector values are 8 times the class number: CS6 = 8 x 6 = 48, binary 110000. Its first three bits, 110, equal IP Precedence 6.",
+      "concept": "CS6 value",
+      "section": 2
+    },
+    {
+      "id": "ccna-qos-q42",
+      "type": "mcq",
+      "difficulty": "hard",
+      "question": "A packet capture shows the IPv4 ToS (DS) byte as 0x88. Which marking is that?",
+      "choices": [
+        "AF41",
+        "CS4",
+        "AF42",
+        "EF"
+      ],
+      "answer": 0,
+      "explanation": "0x88 is 10001000. DSCP is the first six bits, 100010, which is 34, and 34 = 8 x 4 + 2 x 1, so AF41. The last two bits are ECN. CS4 would be 0x80, AF42 0x90 and EF 0xB8.",
+      "concept": "decoding a ToS byte",
+      "section": 2
+    },
+    {
+      "id": "ccna-qos-q43",
+      "type": "match",
+      "difficulty": "medium",
+      "question": "Match each per-hop behavior tool to an example of it.",
+      "pairs": [
+        {
+          "left": "Classification",
+          "right": "An ACL or NBAR identifies softphone traffic"
+        },
+        {
+          "left": "Marking",
+          "right": "set dscp ef writes a value into the IP header"
+        },
+        {
+          "left": "Queuing",
+          "right": "LLQ sends voice before data"
+        },
+        {
+          "left": "Congestion avoidance",
+          "right": "WRED drops a few TCP segments early"
+        },
+        {
+          "left": "Policing",
+          "right": "The provider drops traffic above the CIR"
+        },
+        {
+          "left": "Shaping",
+          "right": "The branch router buffers traffic to stay under the CIR"
+        }
+      ],
+      "explanation": "These are the six blueprint terms for item 4.7. Classification decides what a packet is, marking records it, queuing and congestion avoidance decide order and early drops on a busy interface, and policing and shaping enforce a rate by dropping or by delaying.",
+      "concept": "the six PHB tools",
+      "section": 8
+    },
+    {
+      "id": "ccna-qos-q44",
+      "type": "recall",
+      "difficulty": "easy",
+      "question": "What is a QoS trust boundary?",
+      "answer": "The point in the network where QoS markings start to be trusted, ideally an access switch port or a Cisco IP phone that IT controls. Markings arriving from beyond it, such as from a user's PC, are ignored or rewritten.",
+      "explanation": "Without a trust boundary, any user could mark their traffic EF and compete with real voice in the priority queue.",
+      "concept": "trust boundary",
+      "section": 3
+    },
+    {
+      "id": "ccna-qos-q45",
+      "type": "cli",
+      "difficulty": "medium",
+      "question": "You are in interface configuration mode on the WAN interface. Type the command that applies policy map WAN-OUT to traffic leaving the interface.",
+      "answer": "service-policy output WAN-OUT",
+      "shell": "ios",
+      "explanation": "service-policy attaches a policy map to an interface in one direction. A shaping and queuing policy like WAN-OUT must be output, because queues only exist for packets waiting to be sent.",
+      "concept": "service-policy output",
+      "section": 7
     }
   ]
 }

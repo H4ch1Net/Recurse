@@ -24,6 +24,9 @@ const PathDetail = lazy(() => import('./pages/PathDetail'))
 const Practice = lazy(() => import('./pages/Practice'))
 const LabPage = lazy(() => import('./pages/LabPage'))
 const ChallengePage = lazy(() => import('./pages/ChallengePage'))
+const MockInterview = lazy(() => import('./pages/MockInterview'))
+const MockInterviewRun = lazy(() => import('./pages/MockInterview').then((m) => ({ default: m.InterviewRun })))
+const MockInterviewResult = lazy(() => import('./pages/MockInterviewResult'))
 const ActivityPage = lazy(() => import('./pages/ActivityPage'))
 const QuizSetup = lazy(() => import('./pages/QuizSetup'))
 const QuizRunner = lazy(() => import('./pages/QuizRunner'))
@@ -75,6 +78,7 @@ function Routed() {
         <Route path="/study/:kind" element={<><StudyRoute /><Toasts placement="top" /></>} />
         <Route path="/study/:kind/:topicId" element={<><StudyRoute /><Toasts placement="top" /></>} />
         <Route path="/quiz/run" element={<Suspense fallback={null}><QuizRun /><Toasts placement="top" /></Suspense>} />
+        <Route path="/practice/interview/run" element={<Suspense fallback={null}><MockInterviewRun /><Toasts placement="top" /></Suspense>} />
         <Route element={<Layout />}>
           <Route index element={<Today />} />
           <Route path="library" element={<Library />} />
@@ -92,6 +96,8 @@ function Routed() {
           <Route path="practice" element={<Practice />} />
           <Route path="practice/lab/:labId" element={<LabPage />} />
           <Route path="practice/challenge/:challengeId" element={<ChallengePage />} />
+          <Route path="practice/interview" element={<MockInterview />} />
+          <Route path="practice/interview/result/:interviewId" element={<MockInterviewResult />} />
           <Route path="practice/activity/:type" element={<ActivityPage />} />
           <Route path="quiz" element={<QuizSetup />} />
           <Route path="quiz/result/:examId" element={<QuizResult />} />

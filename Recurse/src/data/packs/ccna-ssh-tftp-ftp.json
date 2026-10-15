@@ -1,7 +1,7 @@
 {
   "id": "ccna-ssh-tftp-ftp",
   "name": "SSH, TFTP and FTP",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "author": "Recurse",
   "subject": "networking",
   "level": "intermediate",
@@ -21,15 +21,53 @@
     "ftp",
     "ip-services"
   ],
+  "resources": [
+    {
+      "title": "Free CCNA 200-301 course (Jeremy's IT Lab)",
+      "url": "https://www.youtube.com/playlist?list=PLxbwE86jKRgMpuZuLBivzlM8s2Dk5lXBQ",
+      "kind": "video",
+      "note": "Free video course with labs; includes SSH configuration and file transfer lessons."
+    },
+    {
+      "title": "Configure SSH on Routers",
+      "url": "https://www.cisco.com/c/en/us/support/docs/security-vpn/secure-shell-ssh/4145-ssh.html",
+      "kind": "docs",
+      "note": "Cisco walk-through of keys, vty lines, verification and debugging."
+    },
+    {
+      "title": "Understand how to Backup and Restore Configuration Files",
+      "url": "https://www.cisco.com/c/en/us/support/docs/ios-nx-os-software/ios-software-releases-122-mainline/46741-backup-config.html",
+      "kind": "docs",
+      "note": "copy to and from TFTP, FTP and other servers, step by step."
+    },
+    {
+      "title": "RFC 1350: The TFTP Protocol",
+      "url": "https://www.rfc-editor.org/rfc/rfc1350",
+      "kind": "docs",
+      "note": "Short and readable: UDP 69, blocks and acknowledgments."
+    },
+    {
+      "title": "RFC 959: File Transfer Protocol",
+      "url": "https://www.rfc-editor.org/rfc/rfc959",
+      "kind": "docs",
+      "note": "Control and data connections, PORT and PASV."
+    },
+    {
+      "title": "Cisco Packet Tracer",
+      "url": "https://www.netacad.com/cisco-packet-tracer",
+      "kind": "tool",
+      "note": "Free Cisco simulator for practicing SSH setup and TFTP backups."
+    }
+  ],
   "lesson": {
-    "estimatedMinutes": 24,
+    "estimatedMinutes": 34,
     "intro": "Network engineers rarely stand next to the devices they manage. They log in remotely and they move files: IOS images in, configuration backups out. This lesson covers the secure way to log in, SSH, configured step by step on Cisco IOS, and the two classic file transfer protocols, TFTP and FTP: how they differ, how IOS uses them with the copy command, and why SCP and SFTP are now preferred.",
     "objectives": [
       "Explain why SSH replaced Telnet for remote management",
-      "Configure SSH on IOS: hostname, domain name, RSA keys, local users, vty lines and version 2",
-      "Verify and troubleshoot SSH with show ip ssh and show ssh",
-      "Compare TFTP and FTP by transport, authentication and features",
-      "Back up configurations and load IOS images with copy, and explain why SCP and SFTP are preferred"
+      "Configure SSH end to end on a router or a Layer 2 switch: reachability, hostname, domain name, RSA keys, local users, vty lines and version 2",
+      "Verify and troubleshoot SSH with show ip ssh, show ssh and a structured checklist",
+      "Compare TFTP and FTP by transport, ports, authentication, modes and typical uses",
+      "Navigate the IOS file system and use copy to save and back up configurations and load IOS images, preferring SCP and SFTP"
     ],
     "sections": [
       {
@@ -115,8 +153,27 @@
         }
       },
       {
+        "title": "SSH on a switch, end to end",
+        "body": "A Layer 2 switch needs everything a router needs for SSH, plus two things a router gets for free: an address to be reached on, and a way to answer administrators on other subnets. Here is the whole job on a new access switch, SW1 (hostname already set), managed from the 10.9.9.0/24 operations subnet.\n\n**Reachability.** A Layer 2 switch has no routed interfaces, so it gets a management **SVI**: `interface vlan 10`, an address in the management subnet, and `no shutdown`. The SVI comes up only when VLAN 10 exists on the switch and at least one port in VLAN 10, access or trunk, is up. Then add `ip default-gateway 10.1.10.1`. The switch does not route, so without a default gateway it can answer administrators on its own subnet but not on 10.9.9.0/24.\n\n**Identity and keys.** `ip domain-name lab.local`, then `crypto key generate rsa modulus 2048` and `ip ssh version 2`.\n\n**Who may log in.** `username netadmin secret ...` for the login, and `enable secret ...` for privileged mode.\n\n**The lines.** Switches have 16 vty lines, so configure `line vty 0 15`, all of them at once: `login local`, `transport input ssh`, `exec-timeout 10 0`, and `access-class 10 in` with `access-list 10 permit 10.9.9.0 0.0.0.255`, so that only the operations subnet can even try. Defaults differ by platform: switches typically allow both Telnet and SSH on vty lines (`transport input all`), while many routers default to `transport input none`. Set it explicitly either way.\n\n**Save it.** `copy running-config startup-config`, or a reload brings back a switch nobody can reach.\n\nTest from an administrator's PC with any SSH client, for example `ssh netadmin@10.1.10.5`, or from another Cisco device with `ssh -l netadmin 10.1.10.5`. On the switch, `show ip ssh`, `show ssh` and `show running-config | section line vty` confirm the result.\n\nThe same recipe works on a router. Only the reachability step differs: a router already has addressed, routed interfaces, so it needs neither an SVI nor a default gateway.",
+        "code": "SW1(config)# interface vlan 10\nSW1(config-if)# ip address 10.1.10.5 255.255.255.0\nSW1(config-if)# no shutdown\nSW1(config-if)# exit\nSW1(config)# ip default-gateway 10.1.10.1\nSW1(config)# ip domain-name lab.local\nSW1(config)# crypto key generate rsa modulus 2048\nSW1(config)# ip ssh version 2\nSW1(config)# username netadmin secret N3t!Admin\nSW1(config)# enable secret En4ble!Pass\nSW1(config)# access-list 10 permit 10.9.9.0 0.0.0.255\nSW1(config)# line vty 0 15\nSW1(config-line)# access-class 10 in\nSW1(config-line)# exec-timeout 10 0\nSW1(config-line)# login local\nSW1(config-line)# transport input ssh\nSW1(config-line)# end\nSW1# copy running-config startup-config",
+        "language": "cisco",
+        "tip": "Switch SSH checklist: SVI up, default gateway, hostname, domain, key, version 2, user, vty 0 15 with login local and transport input ssh, then save.",
+        "pitfall": "Forgetting ip default-gateway on a Layer 2 switch. SSH works from the switch's own subnet and fails from everywhere else, which looks like an SSH problem but is a routing one.",
+        "check": {
+          "question": "How many vty lines does a typical Catalyst switch have, and which command configures them all at once?",
+          "choices": [
+            "5, with line vty 0 4",
+            "16, with line vty 0 15",
+            "4, with line vty 1 4",
+            "15, with line vty 1 15"
+          ],
+          "answer": 1,
+          "explanation": "Switches number their 16 vty lines 0 through 15, so line vty 0 15 covers them all. Routers commonly have 0 to 4. Leaving some lines unconfigured leaves a back door open."
+        }
+      },
+      {
         "title": "TFTP and FTP compared",
-        "body": "Network engineers move files all the time: new IOS images into flash, configuration backups out to a server, configuration files down to IP phones. Two classic protocols do the job, and the exam wants you to compare them.\n\n**TFTP (Trivial File Transfer Protocol)** is deliberately tiny:\n\n- It uses **UDP port 69**. Because UDP does not recover lost data, TFTP adds its own simple reliability: data travels in numbered blocks, and each block must be acknowledged before the next is sent.\n- It can only **get** (read) and **put** (write) a file. No directory listing, no changing directories, no deleting.\n- It has **no authentication** at all. Anyone who can reach a TFTP server can read or write whatever files it allows.\n- It is small enough to live in boot code, IP phones and a router's minimal ROMMON environment, which is why it shows up everywhere in networking.\n\n**FTP (File Transfer Protocol)** is a full file transfer service:\n\n- It uses **TCP**, with a **control connection** to server port **21** for commands, and separate **data connections** for each file transfer or directory listing.\n- It supports **usernames and passwords**, directory navigation, listing, renaming and deleting.\n- In **active mode**, the server opens each data connection back to the client (traditionally from port 20). Firewalls and NAT in front of the client usually block that. In **passive mode**, the client opens the data connection to a port the server announces, which works far better and is the usual choice today.\n\n**Neither TFTP nor FTP encrypts anything.** FTP's login crosses the network in clear text just like Telnet's, and TFTP has no login to steal because it has no security at all.\n\nA sensible use of TFTP: an engineer turns on a TFTP server on a laptop for ten minutes on an isolated lab or management network to load images, then turns it off again.",
+        "body": "Network engineers move files all the time: new IOS images into flash, configuration backups out to a server, configuration files down to IP phones. Two classic protocols do the job, and the exam wants you to compare them.\n\n**TFTP (Trivial File Transfer Protocol)** is deliberately tiny:\n\n- It uses **UDP port 69**. Because UDP does not recover lost data, TFTP adds its own simple reliability: data travels in numbered blocks, and each block must be acknowledged before the next is sent.\n- It can only **get** (read) and **put** (write) a file. No directory listing, no changing directories, no deleting.\n- It has **no authentication** at all. Anyone who can reach a TFTP server can read or write whatever files it allows.\n- It is small enough to live in boot code, IP phones and a router's minimal ROMMON environment, which is why it shows up everywhere in networking. Cisco IP phones, for example, learn a TFTP server address from DHCP and download their configuration files from it when they boot.\n\n**FTP (File Transfer Protocol)** is a full file transfer service:\n\n- It uses **TCP**, with a **control connection** to server port **21** for commands, and separate **data connections** for each file transfer or directory listing.\n- It supports **usernames and passwords**, directory navigation, listing, renaming and deleting.\n- In **active mode**, the client opens a listening port and announces it with a PORT command, and the server opens the data connection back to it (traditionally from TCP port 20, FTP's reserved data port). Firewalls and NAT in front of the client usually block that unsolicited inbound connection.\n- In **passive mode**, the client sends PASV, the server picks a port, tells the client, and waits; the client then opens the data connection. Because the client starts both connections, passive mode works through firewalls and NAT and is the usual choice today.\n\n**Neither TFTP nor FTP encrypts anything.** FTP's login crosses the network in clear text just like Telnet's, and TFTP has no login to steal because it has no security at all.\n\nA sensible use of TFTP: an engineer turns on a TFTP server on a laptop for ten minutes on an isolated lab or management network to load images, then turns it off again.",
         "code": "                  TFTP                         FTP\nTransport         UDP 69                       TCP 21 control, plus TCP data connections\nReliability       its own block-by-block acks  TCP\nAuthentication    none                         username and password (clear text)\nOperations        get and put only             list, navigate, get, put, delete, rename\nEncryption        none                         none (FTPS adds TLS)\nTypical use       IOS images, phone configs,   larger transfers, shared file servers\n                  quick lab transfers",
         "language": "plaintext",
         "tip": "TFTP: UDP 69, no login, get and put only. FTP: TCP 21 plus data connections, logins, full file management.",
@@ -134,8 +191,27 @@
         }
       },
       {
+        "title": "The IOS file system",
+        "body": "Every copy command names locations in the **IOS File System (IFS)**, so it pays to know how IOS names its storage. `show file systems` lists them, each with a **prefix** that ends in a colon:\n\n- `flash:` (`flash0:` on some routers): permanent flash memory, home of the IOS image and any saved files. It survives reloads and has no moving parts. Some routers add `usbflash0:` for a USB drive.\n- `nvram:`: a small non-volatile memory that holds the **startup-config**.\n- `system:`: a logical file system for internal files, including the **running-config** in RAM.\n- `tftp:`, `ftp:`, `scp:`, `http:` and `https:`: **network** file systems, meaning servers reached with that protocol. They let copy treat a remote server like another disk.\n\nThe Type column tells you which is which: **disk** and **usbflash** are physical storage, **nvram** is NVRAM, **network** means a remote server, and **opaque** marks internal, logical file systems. The asterisk marks the default file system.\n\nMany everyday commands are shortcuts for full file names: `show running-config` displays `system:running-config`, `show startup-config` displays `nvram:startup-config`, and `show flash` lists the default flash file system. `dir flash:` lists any file system's contents and `more flash:notes.txt` prints a file.\n\nA full name can also be a URL that carries everything copy needs: `tftp://10.0.0.5/r1-confg`, or `ftp://user:pass@10.0.0.5/image.bin`. With a complete URL and destination, copy asks fewer questions.\n\nBefore copying a new image, check space. `dir flash:` ends with bytes total and bytes free, while `show flash` ends with bytes available and bytes used. In the exhibit only about 49 MB is free, so a 107 MB image will not fit until an old image is deleted, for example with `delete flash0:c2900-universalk9-mz.SPA.152-4.M1.bin`.",
+        "code": "R2# show file systems\nFile Systems:\n     Size(b)     Free(b)      Type  Flags  Prefixes\n           -           -    opaque     rw   system:\n           -           -   network     rw   tftp:\n*  256487424    49238016      disk     rw   flash0: flash:#\n      262136      253220     nvram     rw   nvram:\n           -           -   network     rw   ftp:\n           -           -   network     rw   scp:\n  7794737152  7483719680  usbflash     rw   usbflash0:\n\nR2# dir flash0:\nDirectory of flash0:/\n    1  -rw-  104193476  Jul 21 2015 13:38:06 +00:00  c2900-universalk9-mz.SPA.154-3.M3.bin\n    9  -rw-   97794040  Oct 10 2014 21:06:38 +00:00  c2900-universalk9-mz.SPA.152-4.M1.bin\n256487424 bytes total (49238016 bytes free)",
+        "language": "cisco",
+        "tip": "Prefixes end in a colon: flash:, nvram:, system:, tftp:. Running-config is in system:, startup-config in nvram:.",
+        "pitfall": "Assuming the running-config lives in NVRAM. It is in RAM (system:running-config) and vanishes at reload; NVRAM holds the startup-config, which is why you copy running-config startup-config.",
+        "check": {
+          "question": "Which file system holds the startup-config by default?",
+          "choices": [
+            "flash:",
+            "system:",
+            "nvram:",
+            "tftp:"
+          ],
+          "answer": 2,
+          "explanation": "The startup-config is nvram:startup-config. flash: holds IOS images, system: holds the running-config in RAM, and tftp: is a remote server."
+        }
+      },
+      {
         "title": "Copying files: backups and IOS images",
-        "body": "On Cisco IOS, the `copy` command moves files, and its syntax is always **copy source destination**. Locations are file systems such as `flash:`, `nvram:`, `tftp:`, `ftp:` and `scp:`, plus the shortcuts `running-config` and `startup-config`.\n\n**Backing up a configuration.** `copy running-config tftp:` (or `copy startup-config tftp:`) prompts for the server address and a file name, offering a default such as `r1-confg`. Restoring runs the other way: `copy tftp: running-config` **merges** the file into the running configuration instead of replacing it, which surprises people the first time. Commands in the file are applied on top of what is already there.\n\n**Loading a new IOS image.** The classic upgrade:\n\n1. Check free space with `show flash:` or `dir flash:`.\n2. Copy the image in with `copy tftp: flash:`, answering the prompts for the server, the source file name and the destination file name. Press Enter to accept the default name; typing y would literally name the file y.\n3. Check the file against Cisco's published hash with `verify /md5 flash:filename`.\n4. Point the router at it with `boot system flash:filename`, save the configuration and reload.\n\n**With FTP**, the copy can carry the credentials in a URL: `copy ftp://admin:Pass123@10.0.0.5/c2900-universalk9-mz.SPA.155-3.M.bin flash:`. Or configure them once with `ip ftp username admin` and `ip ftp password Pass123` and use `copy ftp: flash:` with prompts. Either way the password crosses the network in clear text.\n\nIn every case the router is the **client**: it connects to the TFTP or FTP server and pulls or pushes the file. The server can be anything: an app on a laptop, a Linux machine or a central file server.",
+        "body": "On Cisco IOS, the `copy` command moves files, and its syntax is always **copy source destination**. Locations are file systems such as `flash:`, `nvram:`, `tftp:`, `ftp:` and `scp:`, plus the shortcuts `running-config` and `startup-config`.\n\n**Saving first.** The running-config in RAM is what the device is doing now; the startup-config in NVRAM is what it loads at boot. `copy running-config startup-config` (or the older `write memory`) saves your changes. Forget it and they vanish at the next reload.\n\n**Backing up a configuration.** `copy running-config tftp:` (or `copy startup-config tftp:`) prompts for the server address and a file name, offering a default such as `r1-confg`. Restoring runs the other way: `copy tftp: running-config` **merges** the file into the running configuration instead of replacing it, which surprises people the first time. Commands in the file are applied on top of what is already there.\n\n**Loading a new IOS image.** The classic upgrade:\n\n1. Check free space with `show flash:` or `dir flash:`.\n2. Copy the image in with `copy tftp: flash:`, answering the prompts for the server, the source file name and the destination file name. Press Enter to accept the default name; typing y would literally name the file y.\n3. Check the file against Cisco's published hash with `verify /md5 flash:filename`.\n4. Point the router at it with `boot system flash:filename`, save the configuration and reload.\n\n**With FTP**, the copy can carry the credentials in a URL: `copy ftp://admin:Pass123@10.0.0.5/c2900-universalk9-mz.SPA.155-3.M.bin flash:`. Or configure them once with `ip ftp username admin` and `ip ftp password Pass123` and use `copy ftp: flash:` with prompts. Either way the password crosses the network in clear text.\n\nIn every case the router is the **client**: it connects to the TFTP or FTP server and pulls or pushes the file. The server can be anything: an app on a laptop, a Linux machine or a central file server.",
         "code": "R1# copy running-config tftp:\nAddress or name of remote host []? 10.0.0.5\nDestination filename [r1-confg]?\n!!\n1384 bytes copied in 0.512 secs (2703 bytes/sec)\n\nR1# copy tftp: flash:\nAddress or name of remote host []? 10.0.0.5\nSource filename []? c2900-universalk9-mz.SPA.155-3.M.bin\nDestination filename [c2900-universalk9-mz.SPA.155-3.M.bin]?\nAccessing tftp://10.0.0.5/c2900-universalk9-mz.SPA.155-3.M.bin...\nLoading c2900-universalk9-mz.SPA.155-3.M.bin from 10.0.0.5 (via GigabitEthernet0/0): !!!!!!!!\n[OK - 107410736 bytes]\n107410736 bytes copied in 211.302 secs (508330 bytes/sec)",
         "language": "cisco",
         "pitfall": "Reading copy backwards. Source comes first: copy running-config tftp: backs up, while copy tftp: running-config restores by merging.",
@@ -218,15 +294,31 @@
       {
         "term": "SFTP",
         "definition": "SSH File Transfer Protocol: a separate protocol over SSH on TCP 22, not FTP with encryption (that is FTPS)."
+      },
+      {
+        "term": "IOS File System (IFS)",
+        "definition": "How IOS names storage: prefixes such as flash:, nvram:, system:, tftp: and usbflash0:, shown by show file systems."
+      },
+      {
+        "term": "Running-config and startup-config",
+        "definition": "The active configuration in RAM (system:running-config) and the saved one in NVRAM (nvram:startup-config) loaded at boot."
+      },
+      {
+        "term": "ip default-gateway",
+        "definition": "The router a Layer 2 switch sends management replies to for other subnets; without it, remote SSH to the switch fails."
+      },
+      {
+        "term": "FTP active and passive mode",
+        "definition": "Active: the server opens the data connection back to the client. Passive: the client opens it to a port the server announced, which works through firewalls and NAT."
       }
     ],
     "summary": [
       "Telnet (TCP 23) sends everything, passwords included, in clear text; SSH (TCP 22) encrypts the session and always needs a username.",
-      "SSH setup: hostname, ip domain-name, crypto key generate rsa modulus 2048 (at least 768 bits for v2), ip ssh version 2, username ... secret, and on every vty line login local and transport input ssh.",
+      "SSH setup: hostname, ip domain-name, crypto key generate rsa modulus 2048 (at least 768 bits for v2), ip ssh version 2, username ... secret, and on every vty line login local and transport input ssh. A Layer 2 switch also needs an SVI and ip default-gateway.",
       "show ip ssh shows version 2.0 (v2 only) or 1.99 (both); show ssh lists connected sessions. Troubleshoot reachability, keys, transport input, login local and access-class in that order.",
-      "TFTP uses UDP 69 with no authentication and only get and put; FTP uses TCP 21 for control plus data connections and supports logins and file management. Neither encrypts.",
-      "copy source destination: copy running-config tftp: backs up, copy tftp: running-config merges, copy tftp: flash: loads an image; verify /md5 before boot system and reload.",
-      "SCP and SFTP run over SSH on TCP 22 and add encryption, authentication and integrity, so they are preferred for configs and images."
+      "TFTP uses UDP 69 with no authentication and only get and put; FTP uses TCP 21 for control plus data connections (port 20 in active mode), supports logins and file management, and prefers passive mode through firewalls. Neither encrypts.",
+      "The IOS file system names storage with prefixes: flash: for images, nvram: for the startup-config, system: for the running-config, tftp: and ftp: for servers.",
+      "copy source destination: copy running-config startup-config saves, copy running-config tftp: backs up, copy tftp: running-config merges, copy tftp: flash: loads an image; verify /md5 before boot system and reload. SCP and SFTP over SSH are the secure choices."
     ],
     "feynmanPrompt": "Explain to a new colleague why the team bans Telnet and plain TFTP, walk through everything a Cisco router needs before it accepts an SSH login, and describe how you would back up its configuration safely."
   },
@@ -427,7 +519,9 @@
       "id": "ccna-ssh-tftp-ftp-q14",
       "type": "mcq",
       "difficulty": "hard",
-      "question": "A switch has vty 0 4 set to login local and transport input ssh, but vty 5 15 still has a line password, login and transport input telnet. What is the risk?",
+      "question": "Based on the exhibit from a switch, what is the risk?",
+      "code": "SW1# show running-config | section line vty\nline vty 0 4\n login local\n transport input ssh\nline vty 5 15\n password Cisco123\n login\n transport input telnet",
+      "language": "cisco",
       "choices": [
         "SSH stops working on every line",
         "The switch rejects all remote connections",
@@ -443,7 +537,9 @@
       "id": "ccna-ssh-tftp-ftp-q15",
       "type": "mcq",
       "difficulty": "medium",
-      "question": "show ip ssh reports that SSH is disabled. The vty lines already have login local and transport input ssh. What is the most likely cause?",
+      "question": "The vty lines already have login local and transport input ssh. Based on the exhibit, what is the most likely cause?",
+      "code": "R1# show ip ssh\nSSH Disabled - version 1.99\n%Please create RSA keys to enable SSH (and of atleast 768 bits for SSH v2).",
+      "language": "cisco",
       "choices": [
         "The username lacks privilege 15",
         "The exec-timeout is too short",
@@ -528,7 +624,7 @@
       "answer": 2,
       "explanation": "TFTP runs on UDP 69 and adds its own block-by-block acknowledgments. TCP 21 is the FTP control connection.",
       "concept": "TFTP port",
-      "section": 4
+      "section": 5
     },
     {
       "id": "ccna-ssh-tftp-ftp-q21",
@@ -559,7 +655,7 @@
       ],
       "explanation": "Only SCP (and SFTP) on TCP 22 and FTPS on 990 or 21 encrypt anything. TFTP, FTP and Telnet are all clear text.",
       "concept": "file transfer ports",
-      "section": 4
+      "section": 5
     },
     {
       "id": "ccna-ssh-tftp-ftp-q22",
@@ -580,7 +676,7 @@
       ],
       "explanation": "TFTP is UDP 69, with no login and only get and put. It encrypts nothing, and the control connection on TCP 21 belongs to FTP.",
       "concept": "TFTP characteristics",
-      "section": 4
+      "section": 5
     },
     {
       "id": "ccna-ssh-tftp-ftp-q23",
@@ -596,7 +692,7 @@
       "answer": 3,
       "explanation": "In active mode the server initiates each data connection toward the client, an unsolicited inbound connection that firewalls and NAT normally block. Passive mode has the client open the data connection instead.",
       "concept": "FTP active mode and firewalls",
-      "section": 4
+      "section": 5
     },
     {
       "id": "ccna-ssh-tftp-ftp-q24",
@@ -612,7 +708,7 @@
       "answer": 1,
       "explanation": "FTP uses a control connection to port 21 for commands and replies, and separate data connections for file contents and listings.",
       "concept": "FTP control connection",
-      "section": 4
+      "section": 5
     },
     {
       "id": "ccna-ssh-tftp-ftp-q25",
@@ -628,7 +724,7 @@
       "answer": 0,
       "explanation": "Copying into the running configuration applies the file's commands on top of what is already there, so settings missing from the file stay in place. The source comes first, so this is a restore, not a backup.",
       "concept": "restoring merges",
-      "section": 5
+      "section": 7
     },
     {
       "id": "ccna-ssh-tftp-ftp-q26",
@@ -642,7 +738,7 @@
       "shell": "ios",
       "explanation": "copy always takes the source first and the destination second. IOS then prompts for the server address and offers a default file name such as r1-confg.",
       "concept": "back up to TFTP",
-      "section": 5
+      "section": 7
     },
     {
       "id": "ccna-ssh-tftp-ftp-q27",
@@ -658,7 +754,7 @@
       "shell": "ios",
       "explanation": "The source is the TFTP server and the destination is flash. IOS prompts for the server, the source file name and the destination name.",
       "concept": "load an image from TFTP",
-      "section": 5
+      "section": 7
     },
     {
       "id": "ccna-ssh-tftp-ftp-q28",
@@ -676,7 +772,7 @@
       "answer": 2,
       "explanation": "The router is the FTP client pulling the image from 10.0.0.5 into flash (source first, destination second). FTP sends the username and password in clear text no matter how they are supplied.",
       "concept": "FTP copy with credentials",
-      "section": 5
+      "section": 7
     },
     {
       "id": "ccna-ssh-tftp-ftp-q29",
@@ -692,7 +788,7 @@
       "answer": 3,
       "explanation": "verify /md5 calculates the file's MD5 hash so you can compare it with the value Cisco publishes. boot system only tells the router which image to load next time.",
       "concept": "verify image hash",
-      "section": 5
+      "section": 7
     },
     {
       "id": "ccna-ssh-tftp-ftp-q30",
@@ -708,7 +804,7 @@
       ],
       "explanation": "Make room first, copy the image, prove it is intact and genuine, point the boot process at it and save, then reload into the new image.",
       "concept": "IOS upgrade steps",
-      "section": 5
+      "section": 7
     },
     {
       "id": "ccna-ssh-tftp-ftp-q31",
@@ -724,7 +820,7 @@
       "answer": 1,
       "explanation": "SCP uses an SSH session on TCP 22, so the login and the file are encrypted. TFTP and FTP send everything in clear text.",
       "concept": "SCP encryption",
-      "section": 6
+      "section": 8
     },
     {
       "id": "ccna-ssh-tftp-ftp-q32",
@@ -740,7 +836,7 @@
       "answer": 0,
       "explanation": "SFTP is the SSH File Transfer Protocol, a separate protocol carried inside SSH. FTP with TLS is called FTPS, and there is no secure TFTP on UDP 69.",
       "concept": "what SFTP is",
-      "section": 6
+      "section": 8
     },
     {
       "id": "ccna-ssh-tftp-ftp-q33",
@@ -756,7 +852,7 @@
       "answer": 3,
       "explanation": "SSH replaces Telnet for the CLI, and SCP (or SFTP) replaces TFTP for files, both encrypted over TCP 22. FTP in any mode and SNMPv2c are still clear text.",
       "concept": "replacing clear-text protocols",
-      "section": 6
+      "section": 8
     },
     {
       "id": "ccna-ssh-tftp-ftp-q34",
@@ -766,6 +862,188 @@
       "answer": "TFTP uses UDP 69, has no authentication and can only get and put files; it is tiny and common for IOS images and boot files. FTP uses TCP (control on port 21 plus data connections), supports usernames and passwords and full file management. Neither encrypts.",
       "explanation": "For anything sensitive, use SCP or SFTP over SSH instead.",
       "concept": "TFTP versus FTP",
+      "section": 5
+    },
+    {
+      "id": "ccna-ssh-tftp-ftp-q35",
+      "type": "mcq",
+      "difficulty": "medium",
+      "question": "Which file does `show running-config` display?",
+      "choices": [
+        "nvram:running-config, saved in NVRAM",
+        "system:running-config, held in RAM",
+        "flash:running-config, stored with the IOS image",
+        "tftp:running-config, fetched from a server"
+      ],
+      "answer": 1,
+      "explanation": "show running-config is a shortcut for system:running-config, the active configuration in RAM, which is lost at reload. The saved copy is nvram:startup-config, and flash holds IOS images.",
+      "concept": "where the running-config lives",
+      "section": 6
+    },
+    {
+      "id": "ccna-ssh-tftp-ftp-q36",
+      "type": "mcq",
+      "difficulty": "hard",
+      "question": "Based on the exhibit, can a 107,410,736-byte IOS image be copied into flash0: without deleting anything?",
+      "code": "R2# dir flash0:\nDirectory of flash0:/\n    1  -rw-  104193476  Jul 21 2015 13:38:06 +00:00  c2900-universalk9-mz.SPA.154-3.M3.bin\n    9  -rw-   97794040  Oct 10 2014 21:06:38 +00:00  c2900-universalk9-mz.SPA.152-4.M1.bin\n256487424 bytes total (49238016 bytes free)",
+      "language": "cisco",
+      "choices": [
+        "No; only 49,238,016 bytes are free",
+        "Yes; flash0: holds 256,487,424 bytes",
+        "Yes; copy compresses the image as it writes it",
+        "No; flash0: can store only one IOS image"
+      ],
+      "answer": 0,
+      "explanation": "dir reports total capacity and free space. Two images already use most of the 256 MB, leaving about 49 MB, less than half of what the new image needs. Delete an old image first. Flash can hold several images, and copy does not compress.",
+      "concept": "checking flash space",
+      "section": 6
+    },
+    {
+      "id": "ccna-ssh-tftp-ftp-q37",
+      "type": "match",
+      "difficulty": "medium",
+      "question": "Match each IOS file system prefix to what it holds.",
+      "pairs": [
+        {
+          "left": "flash:",
+          "right": "IOS images and other files kept across reloads"
+        },
+        {
+          "left": "nvram:",
+          "right": "The startup-config"
+        },
+        {
+          "left": "system:",
+          "right": "The running-config in RAM"
+        },
+        {
+          "left": "tftp:",
+          "right": "A TFTP server reached over the network"
+        },
+        {
+          "left": "usbflash0:",
+          "right": "A USB drive plugged into the router"
+        }
+      ],
+      "explanation": "show file systems lists every prefix with its type: disk for flash, nvram for NVRAM, opaque for logical ones such as system:, network for servers, and usbflash for USB drives.",
+      "concept": "IOS file system prefixes",
+      "section": 6
+    },
+    {
+      "id": "ccna-ssh-tftp-ftp-q38",
+      "type": "cli",
+      "difficulty": "easy",
+      "question": "Type the command that lists the files in the router's flash file system.",
+      "answer": "dir flash:",
+      "accept": [
+        "dir flash",
+        "show flash",
+        "show flash:",
+        "dir flash0:"
+      ],
+      "shell": "ios",
+      "explanation": "dir works on any file system and ends with bytes total and bytes free. show flash lists the default flash file system and ends with bytes available and bytes used.",
+      "concept": "listing flash",
+      "section": 6
+    },
+    {
+      "id": "ccna-ssh-tftp-ftp-q39",
+      "type": "cli",
+      "difficulty": "easy",
+      "question": "Type the command that saves the running configuration so it survives a reload.",
+      "answer": "copy running-config startup-config",
+      "accept": [
+        "write memory",
+        "write"
+      ],
+      "shell": "ios",
+      "explanation": "Copying the running-config to the startup-config writes it to NVRAM, which the router loads at boot. write memory does the same job on most IOS releases.",
+      "concept": "saving the configuration",
+      "section": 7
+    },
+    {
+      "id": "ccna-ssh-tftp-ftp-q40",
+      "type": "cli",
+      "difficulty": "medium",
+      "question": "Type the global command that makes the router boot c2900-universalk9-mz.SPA.155-3.M.bin from flash at the next reload.",
+      "answer": "boot system flash:c2900-universalk9-mz.SPA.155-3.M.bin",
+      "accept": [
+        "boot system flash c2900-universalk9-mz.SPA.155-3.M.bin"
+      ],
+      "shell": "ios",
+      "explanation": "boot system tells IOS which image to load. Save the configuration before reloading, or the router falls back to its old boot behavior.",
+      "concept": "boot system",
+      "section": 7
+    },
+    {
+      "id": "ccna-ssh-tftp-ftp-q41",
+      "type": "mcq",
+      "difficulty": "hard",
+      "question": "Admins in VLAN 10 can SSH to SW1, but admins on 10.9.9.0/24 cannot. show ip ssh reports SSH Enabled - version 2.0. Based on the configuration, what is wrong?",
+      "code": "! SW1 configuration (excerpt)\nhostname SW1\nip domain-name lab.local\nip ssh version 2\nusername netadmin secret N3t!Admin\naccess-list 10 permit 10.9.9.0 0.0.0.255\n!\ninterface Vlan10\n ip address 10.1.10.5 255.255.255.0\n!\nline vty 0 15\n access-class 10 in\n login local\n transport input ssh",
+      "language": "cisco",
+      "choices": [
+        "access-list 10 blocks 10.9.9.0/24",
+        "transport input ssh allows only the local subnet",
+        "SW1 has no ip default-gateway, so it cannot send replies to other subnets",
+        "The RSA key must be generated separately for each subnet"
+      ],
+      "answer": 2,
+      "explanation": "A Layer 2 switch does not route, so replies to any off-subnet address need ip default-gateway. Without it, SSH works only from VLAN 10. The ACL permits 10.9.9.0/24, transport input has nothing to do with subnets, and one key serves every client.",
+      "concept": "switch default gateway",
+      "section": 4
+    },
+    {
+      "id": "ccna-ssh-tftp-ftp-q42",
+      "type": "mcq",
+      "difficulty": "medium",
+      "question": "In FTP active mode, which device opens the data connection?",
+      "choices": [
+        "The client, to a port the server announced after PASV",
+        "Neither; data travels over the control connection on port 21",
+        "The client, always to server port 69",
+        "The server, connecting back to a port the client announced with PORT"
+      ],
+      "answer": 3,
+      "explanation": "In active mode the server initiates the data connection toward the client, which is why firewalls and NAT in front of the client often block it. Passive mode reverses that: the client sends PASV and opens the data connection itself. Port 69 is TFTP.",
+      "concept": "FTP active mode",
+      "section": 5
+    },
+    {
+      "id": "ccna-ssh-tftp-ftp-q43",
+      "type": "mcq",
+      "difficulty": "medium",
+      "question": "Which statement about Cisco IP phones and TFTP is true?",
+      "choices": [
+        "Phones learn a TFTP server address from DHCP and download their configuration files from it",
+        "Phones use TFTP to carry voice packets during a call",
+        "Phones need FTP usernames from DHCP before TFTP works",
+        "Phones use TFTP because it encrypts their configuration files"
+      ],
+      "answer": 0,
+      "explanation": "DHCP can hand out a TFTP server address along with the usual settings, and IP phones fetch their configuration files from it at boot. Voice travels in RTP over UDP, TFTP has no usernames, and it encrypts nothing.",
+      "concept": "TFTP and IP phones",
+      "section": 5
+    },
+    {
+      "id": "ccna-ssh-tftp-ftp-q44",
+      "type": "multi",
+      "difficulty": "hard",
+      "question": "A Layer 2 switch must accept SSH from administrators on another subnet. Which three of these are required? (Choose three.)",
+      "choices": [
+        "An IP address on a management SVI that is up/up",
+        "ip default-gateway pointing at a router on that SVI's subnet",
+        "An RSA key generated after the hostname and domain name are set",
+        "ip routing enabled globally",
+        "ip helper-address on the management SVI"
+      ],
+      "answers": [
+        0,
+        1,
+        2
+      ],
+      "explanation": "The SVI gives the switch an address, the default gateway lets it answer other subnets, and the RSA key enables the SSH server. ip routing would turn it into a Layer 3 switch, which is not needed, and ip helper-address relays DHCP. Usernames and vty settings are also required, but they are not among the choices.",
+      "concept": "switch SSH prerequisites",
       "section": 4
     }
   ]

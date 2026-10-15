@@ -11,6 +11,7 @@ import './styles/pages.css'
 import './styles/activities.css'
 import './styles/themes.css'
 import './styles/features.css'
+import './styles/interview.css'
 
 createRoot(document.getElementById('root')).render(
   <StrictMode>

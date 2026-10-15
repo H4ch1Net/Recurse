@@ -19,6 +19,7 @@ import {
   routeChoice,
   spf
 } from '../lib/ospf-cost'
+import { useNarrow } from '../lib/use-width'
 import './ospf-cost.css'
 
 // Diagram (viewBox 0 0 400 236).
@@ -30,6 +31,17 @@ const POS = {
   R5: { x: 266, y: 198 }
 }
 const CENTER = { x: 200, y: 125 }
+// Phone diagram (viewBox 0 0 300 446): the top path runs down the left, the bottom path down the right.
+const PHONE_POS = {
+  R1: { x: 150, y: 56 },
+  R2: { x: 60, y: 226 },
+  R3: { x: 240, y: 160 },
+  R5: { x: 240, y: 296 },
+  R4: { x: 150, y: 392 }
+}
+const PHONE_CENTER = { x: 150, y: 224 }
+// Where each router's cost badge sits on the phone layout: inside the diamond, clear of the links.
+const PHONE_BADGE = { R1: { x: 0, y: -36 }, R4: { x: 0, y: 38 }, R2: { x: 58, y: 0 }, R3: { x: -58, y: 0 }, R5: { x: -58, y: 0 } }
 const SPEEDS = [0.5, 1, 2]
 const SHORT = { fe: 'FE 100M', ge: 'GE 1G', te: '10GE' }
 
@@ -39,10 +51,10 @@ const fmt = (n) => (n === Infinity ? '∞' : String(n))
 const pathText = (p) => p.join(' → ')
 const samePath = (a, b) => a.length === b.length && a.every((x, i) => x === b[i])
 
-function fly(node, routers) {
+function fly(node, routers, pos = POS) {
   if (!node?.animate || routers.length < 2) return Promise.resolve()
   node.getAnimations().forEach((a) => a.cancel())
-  const pts = routers.map((r) => POS[r])
+  const pts = routers.map((r) => pos[r])
   const d = [0]
   for (let i = 1; i < pts.length; i++) d.push(d[i - 1] + Math.hypot(pts[i].x - pts[i - 1].x, pts[i].y - pts[i - 1].y))
   const total = d[d.length - 1] || 1
@@ -55,19 +67,25 @@ function along(a, b, k) {
   return { x: a.x + (b.x - a.x) * k, y: a.y + (b.y - a.y) * k }
 }
 
-function Topology({ ifs, linkState, badges, settled, current, selected, onSelect, packetRefs }) {
+function Topology({ ifs, linkState, badges, settled, current, selected, onSelect, packetRefs, phone }) {
+  const POS_ = phone ? PHONE_POS : POS
+  const center = phone ? PHONE_CENTER : CENTER
+  // Bigger type on the phone layout needs wider cost pills.
+  const pill = phone ? { pad: 18, ch: 8.2, h: 24, hit: 38 } : { pad: 14, ch: 7, h: 18, hit: 26 }
   return (
-    <svg className="ospf-topo" viewBox="0 0 400 236" role="group" aria-label="OSPF topology. Top path: R1 to R2 to R4 over FastEthernet. Bottom path: R1 to R3 to R5 to R4 over Gigabit and 10 Gigabit links. Click a cost to edit that interface.">
+    <svg className={`ospf-topo${phone ? ' phone' : ''}`} viewBox={phone ? '0 0 300 446' : '0 0 400 236'} role="group" aria-label="OSPF topology. Top path: R1 to R2 to R4 over FastEthernet. Bottom path: R1 to R3 to R5 to R4 over Gigabit and 10 Gigabit links. Select a cost to edit that interface.">
       {LINKS.map((link) => {
-        const a = POS[link.ends[0].router]
-        const b = POS[link.ends[1].router]
+        const a = POS_[link.ends[0].router]
+        const b = POS_[link.ends[1].router]
         const mid = along(a, b, 0.5)
         const nx = -(b.y - a.y)
         const ny = b.x - a.x
         const len = Math.hypot(nx, ny) || 1
-        const side = (mid.x - CENTER.x) * nx + (mid.y - CENTER.y) * ny >= 0 ? 1 : -1
-        const lx = mid.x + (nx / len) * 13 * side
-        const ly = mid.y + (ny / len) * 13 * side + 3
+        const side = (mid.x - center.x) * nx + (mid.y - center.y) * ny >= 0 ? 1 : -1
+        // On the phone the label must clear the line at any angle, so the offset grows with its width.
+        const off = phone ? 7 + (SHORT[link.kind].length * 3.6 * Math.abs(nx)) / len + (6 * Math.abs(ny)) / len : 13
+        const lx = mid.x + (nx / len) * off * side
+        const ly = mid.y + (ny / len) * off * side + (phone ? 4 : 3)
         return (
           <g key={link.id}>
             <line x1={a.x} y1={a.y} x2={b.x} y2={b.y} className={`ospf-link ${link.kind} ${linkState[link.id] || ''}`} />
@@ -76,15 +94,16 @@ function Topology({ ifs, linkState, badges, settled, current, selected, onSelect
         )
       })}
       {ROUTERS.map((r) => {
-        const p = POS[r]
+        const p = POS_[r]
         const below = p.y > 150
+        const at = phone ? PHONE_BADGE[r] : { x: 0, y: below ? 33 : -31 }
         return (
           <g key={r} className={`ospf-router${settled.includes(r) ? ' settled' : ''}${current === r ? ' current' : ''}`} transform={`translate(${p.x} ${p.y})`}>
             <circle r="20" className="ospf-router-body" />
             <text y="4.5" className="ospf-router-name" textAnchor="middle">{r}</text>
-            <g transform={`translate(0 ${below ? 33 : -31})`}>
-              <rect x="-24" y="-9" width="48" height="16" rx="8" className="ospf-badge" />
-              <text y="3" className="ospf-badge-text" textAnchor="middle">{r === 'R1' ? 'root' : `cost ${fmt(badges[r])}`}</text>
+            <g transform={`translate(${at.x} ${at.y})`}>
+              {phone ? <rect x="-32" y="-12" width="64" height="22" rx="11" className="ospf-badge" /> : <rect x="-24" y="-9" width="48" height="16" rx="8" className="ospf-badge" />}
+              <text y={phone ? 4 : 3} className="ospf-badge-text" textAnchor="middle">{r === 'R1' ? 'root' : `cost ${fmt(badges[r])}`}</text>
             </g>
           </g>
         )
@@ -92,9 +111,9 @@ function Topology({ ifs, linkState, badges, settled, current, selected, onSelect
       {LINKS.flatMap((link) =>
         link.ends.map((end, i) => {
           const other = link.ends[1 - i]
-          const p = along(POS[end.router], POS[other.router], 0.31)
+          const p = along(POS_[end.router], POS_[other.router], phone ? 0.3 : 0.31)
           const info = ifs[ifaceKey(end)]
-          const w = 14 + String(info.cost).length * 7
+          const w = pill.pad + String(info.cost).length * pill.ch
           const key = ifaceKey(end)
           return (
             <g
@@ -113,9 +132,9 @@ function Topology({ ifs, linkState, badges, settled, current, selected, onSelect
                 }
               }}
             >
-              <rect x={-w / 2 - 4} y="-13" width={w + 8} height="26" className="ospf-pill-hit" />
-              <rect x={-w / 2} y="-9" width={w} height="18" rx="9" className="ospf-pill-body" />
-              <text y="4" className="ospf-pill-text" textAnchor="middle">{info.cost}</text>
+              <rect x={-Math.max(w + 8, pill.hit) / 2} y={-pill.hit / 2} width={Math.max(w + 8, pill.hit)} height={pill.hit} className="ospf-pill-hit" />
+              <rect x={-w / 2} y={-pill.h / 2} width={w} height={pill.h} rx={pill.h / 2} className="ospf-pill-body" />
+              <text y={phone ? 4.5 : 4} className="ospf-pill-text" textAnchor="middle">{info.cost}</text>
             </g>
           )
         })
@@ -175,6 +194,7 @@ export default function OspfCost({ onComplete }) {
   const packetA = useRef(null)
   const packetB = useRef(null)
   const stageRef = useRef(null)
+  const phone = useNarrow(stageRef)
   const tasksRef = useRef(tasks)
   const doneRef = useRef(false)
   const playRef = useRef({ playing: false, run: 0, speed: 1 })
@@ -226,7 +246,7 @@ export default function OspfCost({ onComplete }) {
     const ps = bestPaths(spf(cfg), 'R4')
     const refs = [packetA, packetB]
     ;[packetA, packetB].forEach((r) => r.current?.getAnimations?.().forEach((a) => a.cancel()))
-    Promise.all(ps.slice(0, 2).map((p, i) => fly(refs[i].current, p))).then(() => sfx.pop())
+    Promise.all(ps.slice(0, 2).map((p, i) => fly(refs[i].current, p, phone ? PHONE_POS : POS))).then(() => sfx.pop())
   }
 
   const apply = (next, label) => {
@@ -329,11 +349,11 @@ export default function OspfCost({ onComplete }) {
       </div>
 
       <div className="w-stage ospf-stage" ref={stageRef}>
-        <Topology ifs={ifs} linkState={linkState} badges={badges} settled={settled} current={step?.visit} selected={selected} onSelect={(k) => { sfx.tap(); setSelected(k) }} packetRefs={[packetA, packetB]} />
+        <Topology ifs={ifs} linkState={linkState} badges={badges} settled={settled} current={step?.visit} selected={selected} onSelect={(k) => { sfx.tap(); setSelected(k) }} packetRefs={[packetA, packetB]} phone={phone} />
         <div className="w-legend">
           <span><i className="ospf-key best" />Best path to R4</span>
           <span><i className="ospf-key tree" />Shortest path tree</span>
-          <span><i className="ospf-key pill" />Outgoing interface cost (click to edit)</span>
+          <span><i className="ospf-key pill" />Outgoing interface cost (select to edit)</span>
         </div>
       </div>
 

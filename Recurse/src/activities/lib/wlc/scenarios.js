@@ -1,7 +1,7 @@
 // Scenarios for the WLC GUI widget: the starting controller, the brief, and live checks.
 // Checks read the applied configuration (what Apply committed), never unsaved form edits.
 
-import { joinClient, newWlan, offered, radioById } from './model.js'
+import { joinClient, newWlan, offered } from './model.js'
 
 /** The wired side every scenario shares: VLANs on the switch trunk, their subnets, one DHCP server. */
 const NETWORK = {
@@ -302,6 +302,3 @@ export function faultNotes(cfg) {
   const all = Object.values(FAULTS).flat()
   return (cfg.meta?.faults || []).map((id) => all.find((f) => f.id === id)?.text).filter(Boolean)
 }
-
-/** True when a WLAN's radio policy reaches a 2.4 GHz-only client (used by the GUI for a hint chip). */
-export const reaches24 = (w) => radioById(w.radio).bands.includes('2.4')

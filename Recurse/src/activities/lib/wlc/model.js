@@ -126,12 +126,6 @@ export function subnetOf(ip, mask) {
   return `${ipStr((a & maskOf(bits)) >>> 0)}/${bits}`
 }
 
-function inSubnet(ip, cidr) {
-  const [net, bits] = cidr.split('/')
-  const a = parseIp(ip)
-  return a !== null && ((a & maskOf(Number(bits))) >>> 0) === parseIp(net)
-}
-
 // ---------- WLAN defaults and descriptions ----------
 
 /** A WLAN as AireOS creates it from WLANs > New: disabled, WPA2 + AES + 802.1X, on management. */
