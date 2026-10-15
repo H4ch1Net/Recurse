@@ -16,9 +16,9 @@ const POSITIONS = {
 }
 // Phone layouts (viewBox 0 0 300 390): taller and narrower, so labels can be big enough to read.
 const PHONE_POSITIONS = {
-  square: { SW1: { x: 60, y: 100 }, SW2: { x: 240, y: 100 }, SW3: { x: 60, y: 300 }, SW4: { x: 240, y: 300 } },
-  triangle: { SW1: { x: 150, y: 100 }, SW2: { x: 242, y: 300 }, SW3: { x: 58, y: 300 } },
-  parallel: { SW1: { x: 150, y: 100 }, SW2: { x: 242, y: 300 }, SW3: { x: 58, y: 300 } }
+  square: { SW1: { x: 52, y: 100 }, SW2: { x: 248, y: 100 }, SW3: { x: 52, y: 300 }, SW4: { x: 248, y: 300 } },
+  triangle: { SW1: { x: 150, y: 100 }, SW2: { x: 246, y: 300 }, SW3: { x: 54, y: 300 } },
+  parallel: { SW1: { x: 150, y: 100 }, SW2: { x: 246, y: 300 }, SW3: { x: 54, y: 300 } }
 }
 const SPEED_LABEL = { '10M': '10 Mb/s', '100M': '100 Mb/s', '1G': '1 Gb/s', '10G': '10 Gb/s' }
 const ROLE_LETTER = { root: 'R', designated: 'D', blocked: 'B' }
@@ -60,7 +60,7 @@ function linkGeometry(topology, pos, inset = 42) {
 }
 
 const pillText = (l, phone) => (phone ? `${l.speed} · ${linkCost(l)}` : `${l.speed} cost ${linkCost(l)}`)
-const pillWidth = (l, phone) => (phone ? pillText(l, true).length * 7.4 + 14 : pillText(l).length * 5.8 + 14)
+const pillWidth = (l, phone) => (phone ? pillText(l, true).length * 7.2 + 12 : pillText(l).length * 5.8 + 14)
 
 const randomMac = () =>
   normalizeMac(
@@ -88,7 +88,7 @@ export default function StpElection({ onComplete }) {
   const { tokens, play, stop, busy } = useTokens()
 
   const pos = (phone ? PHONE_POSITIONS : POSITIONS)[preset]
-  const geo = linkGeometry(topology, pos, phone ? 36 : 42)
+  const geo = linkGeometry(topology, pos, phone ? 48 : 42)
   const ports = listPorts(topology)
   const roles = phase === 'done' && result ? result.roles : {}
 
