@@ -89,7 +89,7 @@ describe('lab catalog', () => {
 
   it('keeps em dashes out of every learner-facing string', () => {
     const text = JSON.stringify(CONSOLE_LABS)
-    expect(text).not.toMatch(/—/)
+    expect(text.includes(String.fromCharCode(0x2014))).toBe(false)
   })
 
   it('lowers the score a little for hints and solution steps', () => {

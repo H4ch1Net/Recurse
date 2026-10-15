@@ -649,7 +649,7 @@ export const CONSOLE_LABS = [
     checks: [
       { label: 'G0/0 is 10.0.0.1 /30 and up', test: (d) => ifUpWithIp(d, 'gi0/0', '10.0.0.1', 30), hint: 'interface g0/0, ip address 10.0.0.1 255.255.255.252, no shutdown' },
       { label: 'G0/1 is 192.168.1.1 /24 and up', test: (d) => ifUpWithIp(d, 'gi0/1', '192.168.1.1', 24), hint: 'interface g0/1, ip address 192.168.1.1 255.255.255.0, no shutdown' },
-      { label: 'OSPF process 1 is running', test: (d) => d.ospf?.process === 1, hint: 'Global config: router ospf 1' },
+      { label: 'OSPF process 1 is configured', test: (d) => d.ospf?.process === 1, hint: 'Global config: router ospf 1' },
       { label: '10.0.0.0/30 advertised in area 0', test: (d) => Boolean(d.ospf?.networks.some((n) => n.network === '10.0.0.0' && n.wildcard === '0.0.0.3' && Number(n.area) === 0)), hint: 'Under router ospf 1: network 10.0.0.0 0.0.0.3 area 0' },
       { label: '192.168.1.0/24 advertised in area 0', test: (d) => Boolean(d.ospf?.networks.some((n) => n.network === '192.168.1.0' && n.wildcard === '0.0.0.255' && Number(n.area) === 0)), hint: 'network 192.168.1.0 0.0.0.255 area 0' },
       { label: 'R2 (2.2.2.2) is a FULL neighbor', test: (d, sim) => ospfNeighbors(sim).some((n) => n.rid === '2.2.2.2'), hint: 'The link network must be in area 0, the same area R2 uses. Check show ip ospf neighbor.' }

@@ -3,7 +3,7 @@ import { ArrowRight, BookOpen, ChevronLeft, Repeat } from 'lucide-react'
 import { useApp } from '../state/context'
 import { useDocumentTitle } from '../hooks/useDocumentTitle'
 import { CONSOLE_LABS, getLab } from '../lib/practice'
-import { formatRelative } from '../lib/dates'
+import { formatRelative, redoText } from '../lib/dates'
 import Activity from '../activities/Activity'
 
 /** One Cisco console lab, full width, or a free sandbox at /practice/lab/sandbox. */
@@ -49,10 +49,10 @@ export default function LabPage() {
       {entry && (
         <div className="callout good small" style={{ marginBottom: 'var(--s-4)' }}>
           <Repeat size={16} />
-          <span>Passed {formatRelative(entry.solved, now)}{entry.count > 1 ? `, ${entry.count} runs` : ''}. {entry.card ? `Next redo ${formatRelative(entry.card.due, now)}.` : ''} Run it again from memory: the redo is what makes the commands automatic.</span>
+          <span>Passed {formatRelative(entry.solved, now)}{entry.count > 1 ? `, ${entry.count} runs` : ''}. {redoText(entry.card, now)} Run it again from memory: the redo is what makes the commands automatic.</span>
         </div>
       )}
-      <Activity key={labId} spec={{ type: 'ios-console', title: sandbox ? 'Cisco IOS' : 'Console', props: sandbox ? {} : { lab: lab.id } }} done={Boolean(entry)} onComplete={complete} standalone />
+      <Activity key={labId} spec={{ type: 'ios-console', title: sandbox ? 'Cisco IOS' : 'Console', props: sandbox ? {} : { lab: lab.id } }} done={Boolean(entry)} onComplete={complete} />
       {next && (
         <div className="row" style={{ justifyContent: 'flex-end', marginTop: 'var(--s-4)' }}>
           <Link to={`/practice/lab/${next.id}`} className="btn">Next lab: {next.title} <ArrowRight size={16} /></Link>

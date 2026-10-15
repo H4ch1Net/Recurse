@@ -1,0 +1,790 @@
+{
+  "id": "cs-computer-architecture",
+  "name": "Computer Architecture",
+  "version": "1.0.0",
+  "author": "Recurse",
+  "subject": "cs",
+  "level": "beginner",
+  "description": "From logic gates to multi-core CPUs: ALU and registers, machine code, the instruction cycle, caches, locality and pipelines.",
+  "icon": "CPU",
+  "language": "plaintext",
+  "prereqs": [
+    "cs-number-systems"
+  ],
+  "tags": [
+    "computer architecture",
+    "cpu",
+    "logic gates",
+    "machine code",
+    "caches",
+    "memory hierarchy",
+    "pipelining"
+  ],
+  "lesson": {
+    "estimatedMinutes": 28,
+    "intro": "Beneath every language and framework sits a machine that does one simple thing very fast: fetch an instruction, decode it, execute it, repeat. This pack follows that machine from logic gates up to multi-core CPUs, and shows how its design, above all the memory hierarchy, explains why some code is fast and other code is slow.",
+    "objectives": [
+      "Describe the main parts of a computer and the stored-program idea",
+      "Build a binary adder from logic gates and explain how the ALU uses it",
+      "Trace the fetch-decode-execute cycle through a short machine-code program",
+      "Explain the memory hierarchy and write cache-friendly loops",
+      "Explain what pipelining, branch prediction and multiple cores do for speed, and their limits"
+    ],
+    "sections": [
+      {
+        "title": "Inside a computer",
+        "body": "Open up any computer, from a phone to a data center server, and you find the same four kinds of parts:\n\n- The **CPU** (central processing unit) executes instructions: arithmetic, comparisons, moving data and deciding what to do next.\n- **Main memory** (RAM) holds the programs that are running and the data they are working on. It is fast but **volatile**: it forgets everything when the power goes off.\n- **Storage** (an SSD or hard disk) keeps files and programs permanently, but it is far slower than RAM.\n- **I/O devices**: keyboard, screen, network card, GPU, everything that connects the machine to the world.\n\nThey are linked by **buses** and interconnects, sets of wires that carry addresses, data and control signals between the parts.\n\nThe idea that makes a computer general purpose is the **stored-program** design, usually credited to John von Neumann's 1945 report: instructions are just numbers, kept in the same memory as data. To run a different program you do not rewire anything; you load different numbers into memory. When you launch an app, the operating system copies its machine code from storage into RAM and points the CPU at the first instruction.\n\nEverything in this pack revolves around one tension. CPUs are astonishingly fast, running billions of simple operations per second, but getting data to them is slow: a modern core can execute hundreds of instructions in the time it takes to fetch one value from RAM. Most of the design you are about to see (registers, caches, pipelines) exists to keep the CPU fed, and much of the performance advice you will hear as a programmer follows from it.",
+        "code": "            +---------------------------+\n            |            CPU            |\n            |  control unit  registers  |\n            |  ALU           caches     |\n            +-------------+-------------+\n                          |  buses / interconnect\n     +--------------------+--------------------+\n     |                    |                    |\n+----+-----+       +------+------+      +------+------+\n|   RAM    |       |   Storage   |      | I/O devices |\n| fast,    |       | slow,       |      | network,    |\n| volatile |       | permanent   |      | screen, ... |\n+----------+       +-------------+      +-------------+",
+        "language": "plaintext",
+        "pitfall": "Confusing memory with storage. \"16 GB of memory and 1 TB of storage\" describes two different things: RAM holds what is running right now and is about a thousand times faster; storage keeps files when the power is off.",
+        "check": {
+          "question": "What does the stored-program idea mean?",
+          "choices": [
+            "Programs are stored permanently inside the CPU",
+            "Instructions are numbers kept in memory alongside data, so a new program is loaded rather than wired in",
+            "Every program must be saved to disk before it can run",
+            "Data and instructions must live in separate machines"
+          ],
+          "answer": 1,
+          "explanation": "Because code is just data in memory, the same hardware can run any program you load into it. Early machines were rewired or replugged to change their task."
+        }
+      },
+      {
+        "title": "From logic gates to adding numbers",
+        "body": "How can a chip made from purified sand add 25 + 17? The answer starts with something much simpler than arithmetic: a switch.\n\nA **transistor** is a tiny electrically controlled switch: a voltage on one terminal lets current flow between the other two, or blocks it. A modern CPU contains billions of them. Wire a few transistors together and you get a **logic gate**, a circuit that computes a simple function of bits, where 1 is a high voltage and 0 a low one:\n\n- **AND**: 1 only if both inputs are 1.\n- **OR**: 1 if at least one input is 1.\n- **NOT**: flips its input.\n- **XOR**: 1 if the inputs differ.\n- **NAND** and **NOR**: AND and OR followed by NOT. NAND alone is **universal**: every other gate, and therefore every digital circuit, can be built from NAND gates.\n\nNow add two single bits. 0 + 0 = 0, 0 + 1 = 1, 1 + 0 = 1, and 1 + 1 = 10 in binary: a sum bit of 0 and a carry of 1. Look at the truth table below and the pattern jumps out: the sum bit is exactly XOR, and the carry bit is exactly AND. One XOR gate plus one AND gate make a **half adder**.\n\nTo add numbers with many bits, each column must also accept the carry from the column to its right. A **full adder** takes three inputs (a, b and carry in) and produces a sum and a carry out; it is built from two half adders and an OR gate. Chain 64 full adders, each passing its carry to the next, and you have a **ripple-carry adder** that adds two 64-bit numbers. Real CPUs use cleverer carry-lookahead designs so they do not wait for a carry to ripple through all 64 columns, but the principle is the same.\n\nSubtraction comes almost free: thanks to two's complement, a - b equals a + (NOT b) + 1, so the same adder handles it with a few extra gates. A comparison is a subtraction whose result is checked for zero or a negative sign, and multiplication is shifting and adding. From gates to arithmetic there is no magic, only layers.",
+        "code": "Half adder: add two bits a and b\n\n a  b | carry  sum\n 0  0 |   0     0\n 0  1 |   0     1\n 1  0 |   0     1\n 1  1 |   1     0        sum = a XOR b,   carry = a AND b\n\nFull adder: also add the carry from the column to the right\n  sum       = a XOR b XOR carry_in\n  carry_out = (a AND b) OR (carry_in AND (a XOR b))\n\nAdding 0110 (6) + 0011 (3), column by column from the right:\n  carry in:  1 1 0 0\n         a:  0 1 1 0\n         b:  0 0 1 1\n       sum:  1 0 0 1   = 9",
+        "language": "plaintext",
+        "activity": {
+          "type": "logic-gates",
+          "title": "Gates first, then XOR",
+          "prompt": "Explore AND, OR, XOR and NAND by toggling the inputs, then complete a truth table. Finish with the Build XOR tab: putting XOR together from simpler gates is the first step toward a half adder, where XOR gives the sum bit and AND gives the carry.",
+          "props": {
+            "gates": [
+              "AND",
+              "OR",
+              "NOT",
+              "XOR",
+              "NAND",
+              "NOR"
+            ],
+            "target": "XOR"
+          }
+        },
+        "pitfall": "Reading OR as \"one or the other, but not both\". That is XOR. Logical OR is also 1 when both inputs are 1, and mixing the two up breaks adders and conditions alike.",
+        "check": {
+          "question": "In a half adder that adds bits a and b, which gate produces the sum bit?",
+          "choices": [
+            "AND",
+            "OR",
+            "XOR",
+            "NOT"
+          ],
+          "answer": 2,
+          "explanation": "The sum bit is 1 when exactly one input is 1, which is XOR. AND produces the carry, which is 1 only for 1 + 1. OR would wrongly give a sum of 1 for 1 + 1."
+        }
+      },
+      {
+        "title": "The CPU: ALU, registers and control unit",
+        "body": "Picture the CPU as a tiny, extremely fast workshop. There is a workbench with a few slots for the items being worked on right now, a machine that does the actual work, and a foreman who reads the instructions and tells everyone what to do. Those are the **registers**, the **ALU** and the **control unit**.\n\n- The **ALU** (arithmetic logic unit) does the computing: add, subtract, AND, OR, XOR, shifts and comparisons. It is built from adders and gates like those in the previous section. It also sets **flags** describing each result (zero, negative, carry, overflow), which later instructions use to make decisions.\n- **Registers** are a handful of tiny storage slots inside the CPU, each holding one word (64 bits on a 64-bit CPU). x86-64 has 16 general-purpose registers (rax, rbx and so on), and 64-bit ARM has 31. They are the fastest storage in the machine, and the ALU works on register values.\n- Special registers keep things running. The **program counter** (PC, called the instruction pointer on x86) holds the address of the next instruction, and the **stack pointer** marks the top of the call stack.\n- The **control unit** fetches instructions, decodes them, and sends the signals that route data between registers, the ALU and memory.\n\nEverything is paced by the **clock**, a signal that ticks billions of times per second. A 3 GHz CPU ticks 3 billion times a second, so one cycle lasts about a third of a nanosecond. Simple instructions complete in about a cycle; a trip to main memory costs hundreds.\n\nWhy so few registers? Because they must be very fast and sit right next to the ALU, and speed, size and cost always trade off. A big part of a compiler's job is **register allocation**: keeping the busiest variables in registers and spilling the rest to memory.\n\nA **64-bit** CPU has 64-bit registers, computes on 64-bit numbers in one step, and uses 64-bit addresses, which is how it can use far more than the 4 GB that 32-bit addresses can reach.",
+        "code": " instruction from memory\n         |\n         v\n+------------------+        +--------------------------+\n|   control unit   | -----> |  registers               |\n|  decode, direct  |        |  rax  rbx  rcx  ...      |\n+------------------+        |  PC: next instruction    |\n         |                  |  SP: top of the stack    |\n         v                  +------------+-------------+\n+------------------+                     |\n|       ALU        | <-------------------+  operands\n|  + - & | ^ << <  |\n+------------------+  result and flags (zero, negative,\n                      carry, overflow) go back to registers",
+        "language": "plaintext",
+        "pitfall": "Assuming a higher clock speed always means a faster CPU. Work done per cycle, the number of cores and the cache sizes matter just as much, so a newer 3 GHz chip can comfortably beat an older 4 GHz one.",
+        "check": {
+          "question": "Which register holds the address of the next instruction to run?",
+          "choices": [
+            "The stack pointer",
+            "The program counter",
+            "The accumulator",
+            "The flags register"
+          ],
+          "answer": 1,
+          "explanation": "The program counter (instruction pointer on x86) always points at the next instruction, and jumps work by overwriting it. The stack pointer tracks the top of the call stack instead."
+        }
+      },
+      {
+        "title": "Instructions and machine code",
+        "body": "You write `total = price * qty + tax`. The CPU has never heard of variables or expressions. It only understands **machine code**: binary instructions from a fixed menu called its **instruction set architecture (ISA)**.\n\nEach instruction does one small thing:\n\n- **Data movement**: load a value from memory into a register, store a register into memory, copy between registers.\n- **Arithmetic and logic**: add, subtract, multiply, AND, OR, shift, compare.\n- **Control flow**: jump to another address, jump only if a condition holds (a **branch**), call a function and return from it.\n\nEvery `if`, loop and function call in your code ends up as compares, conditional jumps and calls.\n\nAn instruction is just a number. Part of it, the **opcode**, says which operation to perform; the rest names registers, memory addresses or constants. Since raw machine code is unreadable, people use **assembly language**, a text form with one line per instruction, and an **assembler** turns it into bytes. Compilers produce the same instructions from high-level code.\n\nTwo ISAs dominate today:\n\n- **x86-64** (Intel and AMD): most desktops, laptops and servers. A CISC design with many instructions of varying length, from 1 to 15 bytes.\n- **ARM64**: virtually every phone, Apple Silicon Macs and a growing share of cloud servers. A RISC design with fixed 4-byte instructions and simpler rules.\n\nMachine code only runs on the ISA it was built for, so a program compiled for x86-64 will not run natively on ARM. That is why some apps offer separate Intel and Apple Silicon downloads, and why Apple ships a translator, Rosetta 2, to bridge the gap. Python and Java sidestep the problem by running on an interpreter or virtual machine that has itself been compiled for each ISA; the how-code-runs pack explains how.\n\nBelow, a small C function and the x86-64 instructions gcc produces for it with optimization on. One line of C became two instructions plus a return.",
+        "code": "// C source\nlong total(long price, long qty, long tax) {\n    return price * qty + tax;\n}\n\n; x86-64 assembly from gcc -O2 (Intel syntax). The arguments arrive\n; in rdi, rsi and rdx, and the result is returned in rax.\ntotal:\n    imul  rdi, rsi           ; rdi = price * qty\n    lea   rax, [rdi+rdx]     ; rax = rdi + tax\n    ret                      ; jump back to the caller\n\n; The same instructions as machine code bytes, in hex:\n; 48 0f af fe     48 8d 04 17     c3",
+        "language": "plaintext",
+        "pitfall": "Thinking compiled programs are portable. A binary is tied to one ISA and usually one operating system as well. Shipping to x86-64 and ARM, or to Windows and Linux, means building once for each target.",
+        "check": {
+          "question": "What does every if statement in your code eventually become at the machine level?",
+          "choices": [
+            "A call into the operating system",
+            "A special IF opcode that runs the block for you",
+            "A load from storage",
+            "A compare that sets flags, followed by a conditional jump"
+          ],
+          "answer": 3,
+          "explanation": "The compare (often a subtraction whose result is thrown away) sets flags, and the conditional jump either falls through into the block or jumps past it. Loops use the same pair, jumping backward."
+        }
+      },
+      {
+        "title": "The fetch-decode-execute cycle",
+        "body": "Every program you have ever run, from a calculator to a video game, comes down to the CPU repeating three steps, billions of times a second:\n\n- **Fetch**: read the instruction at the address in the program counter (in practice from the instruction cache), and advance the PC to the following instruction.\n- **Decode**: work out what the instruction means: which operation, which registers, which memory address or constant.\n- **Execute**: do it. The ALU computes, data moves between registers and memory, or, for a jump, the PC is overwritten with a new address. Results are written back to a register or to memory.\n\nThen repeat. That is the whole machine. Branches are what make it interesting: a conditional jump checks the flags set by an earlier instruction and either lets the PC move on to the next instruction or replaces it with the jump target. That single mechanism implements every `if`, `while` and `for`.\n\nThe listing below runs a tiny loop that adds 3 + 2 + 1 into a register. Follow the PC: it moves forward one instruction at a time, except when the branch sends it back to the top of the loop.\n\nFunction calls use the same mechanism plus the stack. `call` pushes the return address (the address of the instruction after the call) onto the stack and jumps to the function; `ret` pops that address back into the PC. That is why a corrupted stack can send the CPU off to execute garbage, and why overwriting a saved return address is a classic security attack.",
+        "code": "Simplified x86-64-style listing (real instruction lengths vary)\n\nAddress  Instruction        Meaning\n0x00     mov  rcx, 3        rcx = 3            (loop counter)\n0x04     mov  rax, 0        rax = 0            (running total)\n0x08     add  rax, rcx      rax = rax + rcx\n0x0C     sub  rcx, 1        rcx = rcx - 1, zero flag set if it hit 0\n0x10     jnz  0x08          if rcx != 0, PC = 0x08 (loop again)\n0x14     ret                return; rax holds 3 + 2 + 1 = 6\n\nTrace, one step per instruction:\n0x00 rcx=3 | 0x04 rax=0 | 0x08 rax=3 | 0x0C rcx=2 | 0x10 jump back\n0x08 rax=5 | 0x0C rcx=1 | 0x10 jump back\n0x08 rax=6 | 0x0C rcx=0 | 0x10 no jump (zero flag set) | 0x14 return 6",
+        "language": "plaintext",
+        "pitfall": "Picturing the CPU running your source code line by line. It runs machine instructions, and one line of Python can become thousands of them while one line of C becomes a handful. That gap is the starting point of performance intuition.",
+        "check": {
+          "question": "How does a CPU carry out a while loop?",
+          "choices": [
+            "With a dedicated loop circuit that repeats a block of code",
+            "By copying the loop body into memory once per iteration",
+            "With a compare that sets flags and a conditional jump that sends the program counter back to the top",
+            "The operating system restarts the program at the loop for each iteration"
+          ],
+          "answer": 2,
+          "explanation": "A loop is just a backward conditional jump: while the condition holds, the jump rewrites the PC to the start of the body. When it fails, the PC simply moves on past the loop."
+        }
+      },
+      {
+        "title": "The memory hierarchy",
+        "body": "Think of a chef. Ingredients in hand are instant, the counter is a step away, the fridge takes a short walk, and the supermarket takes an hour. A good chef keeps what is needed next within reach. Computers organize memory the same way, because no single technology is fast, large and cheap at once.\n\nFrom fastest and smallest to slowest and largest:\n\n- **Registers**: a few hundred bytes in total, read within a cycle.\n- **L1 cache**: typically 32 to 64 KB per core, about 1 ns (a few cycles).\n- **L2 cache**: from a few hundred KB to a few MB per core, about 3 to 5 ns.\n- **L3 cache**: tens of MB shared by all cores, about 10 to 20 ns.\n- **Main memory (RAM)**: gigabytes, about 100 ns.\n- **SSD**: hundreds of gigabytes to terabytes, tens to hundreds of microseconds.\n- **Hard disk**: terabytes, about 10 ms per random access.\n\nEach step down is roughly 10 to 1,000 times slower, and much bigger and cheaper per byte. **Caches** are small, fast memories built into the CPU chip that automatically keep copies of recently used data from RAM. When the CPU needs a value it checks L1, then L2, then L3, and only then goes out to RAM. Finding the value in a cache is a **hit**; having to go further is a **miss**.\n\nThe gaps are easier to feel if you stretch time. If an L1 hit took 1 second, a RAM access would take about 2 minutes, an SSD read more than a day, and a hard disk seek around four months.\n\nHit rates are typically very high, often above 95 percent, because programs are predictable: they reuse the same data and touch neighboring data. That predictability is called **locality of reference**, and the next section shows how to write code that has plenty of it.",
+        "code": "Level      Typical size          Latency   If an L1 hit took 1 second\n---------  --------------------  --------  --------------------------\nRegisters  a few hundred bytes   < 1 ns    instant\nL1 cache   32 to 64 KB per core  ~1 ns     1 second\nL2 cache   0.25 to 2 MB per core ~4 ns     4 seconds\nL3 cache   8 to 64 MB, shared    ~15 ns    15 seconds\nRAM        8 to 512 GB           ~100 ns   about 2 minutes\nSSD        0.25 to 8 TB          ~100 µs   about 1 day\nHard disk  1 to 20 TB            ~10 ms    about 4 months",
+        "language": "plaintext",
+        "pitfall": "Optimizing arithmetic while ignoring memory. One cache miss to RAM costs as much as hundreds of additions, so in performance-critical code how data is laid out and accessed usually matters more than how many operations you do.",
+        "check": {
+          "question": "Why do CPUs have several levels of cache instead of one huge, fast cache?",
+          "choices": [
+            "Each cache level holds a different running program",
+            "Caches can only hold small amounts of data because of the 32-bit limit",
+            "One large cache would need too many registers",
+            "Fast memory must be small and close to the core, so a small fast cache backed by bigger, slower ones gives most of the speed at a fraction of the cost"
+          ],
+          "answer": 3,
+          "explanation": "The bigger a memory is, the farther its far corners are from the core and the slower it gets. Layering small fast caches over larger slower ones serves most accesses from the fast levels."
+        }
+      },
+      {
+        "title": "Caches, locality and traversal order",
+        "body": "Two loops add up every number in a 4096 by 4096 grid. They perform exactly the same additions in a different order, yet on a typical machine one runs about ten times slower than the other. The difference is entirely the cache.\n\nCaches do not fetch single bytes. They move memory in fixed blocks called **cache lines**, usually **64 bytes**. When you read one 4-byte integer, the 15 integers sharing its line come along for free, and recently used lines stay cached for a while. Code that takes advantage of this has good **locality**:\n\n- **Spatial locality**: after touching an address, you soon touch the addresses next to it. Walking an array in order uses every byte of each cache line, and the hardware **prefetcher** spots the pattern and loads the next lines before you ask for them.\n- **Temporal locality**: after touching an address, you touch it again soon, while it is still cached. A small, hot working set stays in L1.\n\nC, C++, NumPy and most languages store 2D arrays in **row-major** order: all of row 0, then all of row 1, and so on. So an outer loop over rows with an inner loop over columns walks memory sequentially. Swap the loops and each step jumps a whole row ahead (16 KB for 4096 ints), uses one integer from each cache line and wastes the rest. Same work, far more cache misses.\n\nThe same principle explains other performance facts:\n\n- Arrays usually beat linked lists for iteration even though both are O(n): list nodes are scattered, so every hop can be a cache miss.\n- When a loop reads just one field, a **structure of arrays** (all x values together, all y values together) beats an array of objects that interleaves every field.\n- Binary search over a huge array has poor locality, because each probe lands far from the previous one.\n\nIn pure Python the interpreter's own overhead hides much of this for ordinary lists, but it matters a great deal in NumPy, in every compiled language and inside databases. Big-O counts operations; the memory hierarchy decides what each one costs.",
+        "code": "#define N 4096\nint grid[N][N];          // row-major: grid[0][0..4095], then grid[1][...]\n\nlong fast(void) {        // walks memory in order (about 0.01 s on one test machine)\n    long sum = 0;\n    for (int row = 0; row < N; row++)\n        for (int col = 0; col < N; col++)\n            sum += grid[row][col];   // next element is 4 bytes away\n    return sum;\n}\n\nlong slow(void) {        // same additions, same machine: about 0.12 s\n    long sum = 0;\n    for (int col = 0; col < N; col++)\n        for (int row = 0; row < N; row++)\n            sum += grid[row][col];   // next element is a whole row (16 KB) away\n    return sum;\n}",
+        "language": "cpp",
+        "pitfall": "Assuming equal Big-O means equal speed. Two O(n) loops can differ tenfold because of cache misses. When performance matters, measure, and prefer contiguous data accessed in order.",
+        "check": {
+          "question": "A cache line is 64 bytes. You read one 4-byte int from an array that is not cached yet, and the int starts a line. How many neighboring ints arrive in the cache with it?",
+          "choices": [
+            "None",
+            "3",
+            "15",
+            "63"
+          ],
+          "answer": 2,
+          "explanation": "64 bytes hold 16 four-byte ints: the one you asked for and 15 neighbors. That is why the next 15 reads in a sequential scan are cache hits."
+        }
+      },
+      {
+        "title": "Pipelines, parallelism and multiple cores",
+        "body": "A laundromat with one washer, one dryer and one folding table could finish each load completely before starting the next. Or, while load 1 is drying, load 2 can be washing. Each load still takes the same time, but a load now finishes at every step instead of every third step. That is **pipelining**, and every modern CPU does it.\n\nFetch, decode and execute (plus memory access and write-back) become stages of an assembly line. While one instruction executes, the next is being decoded and the one after that fetched. A pipeline of around 14 stages has up to 14 instructions in flight. Modern cores go further still: they are **superscalar** (several pipelines, issuing multiple instructions per cycle) and **out of order** (running later, independent instructions while an earlier one waits for memory).\n\nPipelines have one big enemy: **branches**. The CPU must fetch the next instructions before it knows which way an `if` will go, so a **branch predictor** guesses, and on typical code it is right well over 90 percent of the time. A wrong guess means throwing away the work in flight, a **misprediction** costing around 15 to 20 cycles. That is why a loop that branches on each value can run noticeably faster over sorted data than over shuffled data: the branches become predictable.\n\nAround 2005 clock speeds stopped climbing, because faster clocks made chips use too much power and run too hot. Instead, manufacturers put several complete cores on one chip. A **multi-core** CPU runs several threads truly at the same time, one per core, and **simultaneous multithreading** (Intel calls it Hyper-Threading) lets one core interleave two threads to fill idle pipeline slots.\n\nMore cores only help when the work can be split. **Amdahl's law** sets the limit: if 10 percent of a program must run serially, no number of cores can make it more than 10 times faster, because that 10 percent still takes its full time. Splitting work across cores also brings the coordination problems from the operating systems pack: shared data, locks and races. GPUs take parallelism to the extreme, with thousands of simple cores applying the same operation to different data, which is why they dominate graphics and machine learning.",
+        "code": "Without pipelining: one instruction at a time\ncycle:  1  2  3  4  5  6  7  8  9\nI1      F  D  E\nI2               F  D  E\nI3                        F  D  E      3 instructions in 9 cycles\n\nWith a 3-stage pipeline: the stages overlap\ncycle:  1  2  3  4  5\nI1      F  D  E\nI2         F  D  E\nI3            F  D  E                  3 instructions in 5 cycles,\n                                       then one finishes every cycle\nF = fetch, D = decode, E = execute\n\nAmdahl's law: speedup on n cores = 1 / (s + (1 - s) / n)\nwith s = 0.10 serial:  4 cores -> 3.1x   16 cores -> 6.4x   unlimited -> 10x",
+        "language": "plaintext",
+        "pitfall": "Expecting 8 cores to make any program 8 times faster. Only the parallel part speeds up, single-threaded code uses one core however many exist, and coordinating threads adds overhead of its own.",
+        "check": {
+          "question": "A program is 75% parallelizable and 25% must run serially. What is the best possible speedup with unlimited cores?",
+          "choices": [
+            "4 times",
+            "75 times",
+            "Unlimited",
+            "1.33 times"
+          ],
+          "answer": 0,
+          "explanation": "With infinitely many cores the parallel part takes no time, but the serial 25% still does, so the total can shrink to at most a quarter: 1 / 0.25 = 4 times faster."
+        }
+      }
+    ],
+    "keyTerms": [
+      {
+        "term": "logic gate",
+        "definition": "A small circuit of transistors that computes a function of bits, such as AND, OR, NOT or XOR."
+      },
+      {
+        "term": "half adder",
+        "definition": "A circuit that adds two bits: XOR gives the sum bit and AND gives the carry. Full adders also take a carry in."
+      },
+      {
+        "term": "ALU",
+        "definition": "The arithmetic logic unit: the part of the CPU that adds, subtracts, compares and does bitwise logic, setting flags on the result."
+      },
+      {
+        "term": "register",
+        "definition": "One of a few tiny, very fast storage slots inside the CPU, each holding one word."
+      },
+      {
+        "term": "program counter",
+        "definition": "The register holding the address of the next instruction. Jumps work by overwriting it."
+      },
+      {
+        "term": "instruction set architecture",
+        "definition": "The fixed menu of instructions a CPU family understands, such as x86-64 or ARM64."
+      },
+      {
+        "term": "machine code",
+        "definition": "Instructions encoded as binary numbers that the CPU executes directly. Assembly is its readable text form."
+      },
+      {
+        "term": "fetch-decode-execute cycle",
+        "definition": "The loop every CPU runs: fetch the instruction at the PC, decode it, execute it, repeat."
+      },
+      {
+        "term": "cache line",
+        "definition": "The block of memory, usually 64 bytes, that caches load and store as a unit."
+      },
+      {
+        "term": "locality of reference",
+        "definition": "The tendency of programs to reuse recent data (temporal) and touch nearby addresses (spatial), which makes caches work."
+      },
+      {
+        "term": "pipelining",
+        "definition": "Overlapping the stages of several instructions, like an assembly line, so one finishes about every cycle."
+      },
+      {
+        "term": "branch prediction",
+        "definition": "Guessing which way a branch will go so the pipeline can keep working; a wrong guess costs around 15 to 20 cycles."
+      }
+    ],
+    "summary": [
+      "A computer is a CPU, memory, storage and I/O, and programs are numbers stored in memory just like data.",
+      "Transistors make gates, gates make adders (XOR for the sum, AND for the carry), and adders make the ALU.",
+      "The CPU fetches, decodes and executes instructions from its ISA, and jumps and branches implement every if, loop and call.",
+      "Registers, L1 to L3 caches, RAM and disks trade speed for size; a RAM access costs about 100 L1 hits.",
+      "Caches move 64-byte lines, so code with spatial and temporal locality, such as row-by-row traversal, runs far faster.",
+      "Pipelines overlap instructions, predictors guess branches ahead of time, and multiple cores run threads in parallel within the limit of Amdahl's law."
+    ],
+    "feynmanPrompt": "Explain to a friend how a chip made of tiny switches can add two numbers, and why looping over a grid row by row can be ten times faster than column by column even though it does exactly the same additions."
+  },
+  "questions": [
+    {
+      "id": "cs-computer-architecture-q01",
+      "type": "mcq",
+      "difficulty": "easy",
+      "question": "Which part of a computer loses its contents when the power goes off?",
+      "choices": [
+        "RAM (main memory)",
+        "The SSD",
+        "A hard disk",
+        "A USB flash drive"
+      ],
+      "answer": 0,
+      "explanation": "RAM is volatile: it needs power to hold its bits. SSDs, hard disks and flash drives are storage, built to keep data without power.",
+      "concept": "volatile memory",
+      "section": 0
+    },
+    {
+      "id": "cs-computer-architecture-q02",
+      "type": "mcq",
+      "difficulty": "medium",
+      "question": "You launch an app. Where does the CPU fetch the app's instructions from while it runs?",
+      "choices": [
+        "Directly from the SSD, one instruction at a time",
+        "From the app's source code, which it compiles as it goes",
+        "From RAM (through its caches), after the operating system copies the program there from storage",
+        "From the network card"
+      ],
+      "answer": 2,
+      "explanation": "Storage is far too slow to feed the CPU, so the program's machine code is loaded into RAM, and the CPU fetches from there, usually via its instruction cache. The CPU never reads source code.",
+      "concept": "loading a program",
+      "section": 0
+    },
+    {
+      "id": "cs-computer-architecture-q03",
+      "type": "match",
+      "difficulty": "medium",
+      "question": "Match each part with its role.",
+      "pairs": [
+        {
+          "left": "CPU",
+          "right": "Executes instructions"
+        },
+        {
+          "left": "RAM",
+          "right": "Holds running programs and their data; fast but volatile"
+        },
+        {
+          "left": "SSD",
+          "right": "Keeps files permanently; much slower than RAM"
+        },
+        {
+          "left": "Bus",
+          "right": "Carries addresses, data and control signals between parts"
+        },
+        {
+          "left": "Network card",
+          "right": "An I/O device that connects the machine to other computers"
+        }
+      ],
+      "explanation": "Every computer has these roles: compute, working memory, permanent storage, the connections between them, and I/O to the outside world.",
+      "concept": "computer components",
+      "section": 0
+    },
+    {
+      "id": "cs-computer-architecture-q04",
+      "type": "typed",
+      "difficulty": "easy",
+      "question": "What does an AND gate output when its inputs are 1 and 0?",
+      "answer": "0",
+      "explanation": "AND outputs 1 only when both inputs are 1. With one input at 0, the output is 0. An OR gate would output 1 here.",
+      "concept": "AND gate",
+      "section": 1
+    },
+    {
+      "id": "cs-computer-architecture-q05",
+      "type": "mcq",
+      "difficulty": "easy",
+      "question": "A half adder adds the bits 1 and 1. What are its outputs?",
+      "choices": [
+        "Sum 1, carry 1",
+        "Sum 0, carry 1",
+        "Sum 1, carry 0",
+        "Sum 2, carry 0"
+      ],
+      "answer": 1,
+      "explanation": "1 + 1 = 10 in binary: the sum bit (XOR) is 0 and the carry (AND) is 1. A single output bit can never hold 2.",
+      "concept": "half adder",
+      "section": 1
+    },
+    {
+      "id": "cs-computer-architecture-q06",
+      "type": "multi",
+      "difficulty": "medium",
+      "question": "Which statements are true? Select all that apply.",
+      "choices": [
+        "NAND gates alone can build any digital circuit",
+        "XOR outputs 1 when both inputs are 1",
+        "A full adder takes a carry in from the column to its right",
+        "Subtraction needs a completely separate circuit from addition",
+        "Chaining full adders lets a CPU add multi-bit numbers"
+      ],
+      "answers": [
+        0,
+        2,
+        4
+      ],
+      "explanation": "NAND is universal, a full adder has a carry input, and a chain of full adders adds whole numbers. XOR outputs 0 when both inputs are 1, and subtraction reuses the adder through two's complement: a + (NOT b) + 1.",
+      "concept": "gates and adders",
+      "section": 1
+    },
+    {
+      "id": "cs-computer-architecture-q07",
+      "type": "typed",
+      "difficulty": "medium",
+      "question": "Add 0111 + 0001 column by column, as a chain of full adders would. What is the 4-bit result?",
+      "answer": "1000",
+      "accept": [
+        "0b1000"
+      ],
+      "explanation": "The rightmost column gives sum 0, carry 1. That carry meets 1 + 0 in the next column (sum 0, carry 1), and again in the third. The last column adds 0 + 0 + carry 1 = 1, giving 1000 (7 + 1 = 8).",
+      "concept": "ripple carry",
+      "section": 1
+    },
+    {
+      "id": "cs-computer-architecture-q08",
+      "type": "order",
+      "difficulty": "medium",
+      "question": "Order these building blocks from the lowest level to the highest.",
+      "items": [
+        "Transistor (an electrically controlled switch)",
+        "Logic gate (AND, OR, XOR)",
+        "Half adder and full adder",
+        "Ripple-carry adder for whole numbers",
+        "ALU (add, subtract, compare, logic)"
+      ],
+      "explanation": "Each layer is built from the one below it: switches form gates, gates form one-bit adders, chained adders handle whole words, and the ALU combines adders with other logic.",
+      "concept": "layers of hardware",
+      "section": 1
+    },
+    {
+      "id": "cs-computer-architecture-q09",
+      "type": "mcq",
+      "difficulty": "easy",
+      "question": "Which CPU component performs addition and comparisons?",
+      "choices": [
+        "The program counter",
+        "The L3 cache",
+        "The clock",
+        "The ALU"
+      ],
+      "answer": 3,
+      "explanation": "The arithmetic logic unit does the computing. The program counter tracks the next instruction, caches hold data, and the clock only paces the work.",
+      "concept": "ALU",
+      "section": 2
+    },
+    {
+      "id": "cs-computer-architecture-q10",
+      "type": "typed",
+      "difficulty": "medium",
+      "question": "A CPU runs at 4 GHz. How long is one clock cycle, in nanoseconds?",
+      "answer": "0.25",
+      "accept": [
+        "0.25 ns",
+        ".25",
+        "1/4"
+      ],
+      "explanation": "4 GHz is 4 billion cycles per second, so one cycle lasts 1 / (4 × 10^9) seconds = 0.25 ns. A 100 ns trip to RAM therefore costs about 400 cycles.",
+      "concept": "clock cycles",
+      "section": 2
+    },
+    {
+      "id": "cs-computer-architecture-q11",
+      "type": "mcq",
+      "difficulty": "medium",
+      "question": "Why does a compiler try to keep frequently used variables in registers?",
+      "choices": [
+        "Registers keep their values when the program exits",
+        "Registers are the only memory the operating system cannot see",
+        "Registers are the fastest storage, while even an L1 cache access takes several cycles",
+        "Variables in RAM cannot be changed"
+      ],
+      "answer": 2,
+      "explanation": "The ALU works directly on registers, so a value already in one costs nothing extra to use. Every load from the cache or RAM adds latency, which is why register allocation is a key compiler optimization.",
+      "concept": "registers",
+      "section": 2
+    },
+    {
+      "id": "cs-computer-architecture-q12",
+      "type": "mcq",
+      "difficulty": "medium",
+      "question": "What is the main difference between a 32-bit and a 64-bit CPU?",
+      "choices": [
+        "The width of its registers and addresses: a 64-bit CPU computes on 64-bit values in one step and can address far more than 4 GB",
+        "A 64-bit CPU has twice as many cores",
+        "A 64-bit CPU runs at twice the clock speed",
+        "A 64-bit CPU can only run 64 programs at once"
+      ],
+      "answer": 0,
+      "explanation": "32-bit addresses can name only 2^32 bytes, which is 4 GB. Doubling the width raises that limit enormously and lets 64-bit arithmetic happen in a single instruction. Core counts and clock speeds are separate choices.",
+      "concept": "word size",
+      "section": 2
+    },
+    {
+      "id": "cs-computer-architecture-q13",
+      "type": "mcq",
+      "difficulty": "easy",
+      "question": "What is machine code?",
+      "choices": [
+        "Source code written by machine learning tools",
+        "Binary instructions from the CPU's instruction set that the CPU executes directly",
+        "The text form of instructions, one per line",
+        "A configuration file that tells the CPU its clock speed"
+      ],
+      "answer": 1,
+      "explanation": "Machine code is the raw bytes the CPU decodes and runs. The text form with one instruction per line is assembly language, which an assembler converts into machine code.",
+      "concept": "machine code",
+      "section": 3
+    },
+    {
+      "id": "cs-computer-architecture-q14",
+      "type": "mcq",
+      "difficulty": "medium",
+      "question": "A program compiled for x86-64 will not run natively on an ARM phone. What is the main reason?",
+      "choices": [
+        "Phones do not have enough memory for desktop programs",
+        "ARM processors cannot do 64-bit arithmetic",
+        "The program needs a newer version of the compiler",
+        "The two CPUs use different instruction set architectures, so x86-64 machine code means nothing to an ARM CPU"
+      ],
+      "answer": 3,
+      "explanation": "Machine code is a list of instructions from one specific ISA. An ARM CPU decodes the same bytes as different, or invalid, instructions. The program must be recompiled for ARM or run through a translator.",
+      "concept": "ISA compatibility",
+      "section": 3
+    },
+    {
+      "id": "cs-computer-architecture-q15",
+      "type": "match",
+      "difficulty": "medium",
+      "question": "Match each x86-64 instruction with what it does.",
+      "pairs": [
+        {
+          "left": "mov rax, [rbx]",
+          "right": "Load a value from memory into a register"
+        },
+        {
+          "left": "add rax, rcx",
+          "right": "Arithmetic on two registers"
+        },
+        {
+          "left": "cmp rax, 10",
+          "right": "Compare and set the flags"
+        },
+        {
+          "left": "jle loop",
+          "right": "Jump only if the last compare was less or equal"
+        },
+        {
+          "left": "call print",
+          "right": "Push the return address and jump to a function"
+        }
+      ],
+      "explanation": "Data movement, arithmetic, compares, conditional branches and calls are the whole vocabulary that every high-level construct compiles into.",
+      "concept": "instruction categories",
+      "section": 3
+    },
+    {
+      "id": "cs-computer-architecture-q16",
+      "type": "recall",
+      "difficulty": "medium",
+      "question": "What is the difference between assembly language and machine code?",
+      "answer": "Machine code is the binary encoding of instructions that the CPU executes directly. Assembly language is a human-readable text form of the same instructions, roughly one line per instruction, which an assembler translates into machine code.",
+      "explanation": "They describe the same instructions at the same level; assembly just uses names like add and jnz instead of opcode bytes. Compilers often produce assembly as an intermediate step.",
+      "concept": "assembly vs machine code",
+      "section": 3
+    },
+    {
+      "id": "cs-computer-architecture-q17",
+      "type": "order",
+      "difficulty": "medium",
+      "question": "Put one pass of the instruction cycle in order.",
+      "items": [
+        "Read the instruction at the address in the program counter",
+        "Advance the program counter to the next instruction",
+        "Decode the opcode and operands",
+        "Execute: compute in the ALU, access memory, or change the PC",
+        "Write the result back to a register or memory"
+      ],
+      "explanation": "Fetch (read and advance the PC), decode, execute, write back, repeat. Because the PC is advanced before execution, a jump simply overwrites it with a new address.",
+      "concept": "fetch-decode-execute",
+      "section": 4
+    },
+    {
+      "id": "cs-computer-architecture-q18",
+      "type": "mcq",
+      "difficulty": "easy",
+      "question": "A conditional jump instruction is taken. What changes?",
+      "choices": [
+        "The CPU's clock speed",
+        "The contents of the L1 cache are erased",
+        "The program counter is set to the jump's target address",
+        "The operating system starts a new process"
+      ],
+      "answer": 2,
+      "explanation": "Taking a jump means the next fetch comes from the target instead of the following instruction, which is done by writing the target into the PC.",
+      "concept": "branches",
+      "section": 4
+    },
+    {
+      "id": "cs-computer-architecture-q19",
+      "type": "typed",
+      "difficulty": "hard",
+      "question": "What value does rax hold when this loop finishes?",
+      "code": "    mov  rcx, 4\n    mov  rax, 1\nloop:\n    add  rax, rax      ; rax = rax + rax\n    sub  rcx, 1        ; sets the zero flag when rcx reaches 0\n    jnz  loop          ; jump back while rcx != 0",
+      "language": "plaintext",
+      "answer": "16",
+      "explanation": "The body runs while rcx counts 4, 3, 2, 1, so it doubles rax four times: 1, 2, 4, 8, 16. After the fourth pass rcx is 0, the zero flag is set, and jnz falls through.",
+      "concept": "tracing assembly",
+      "section": 4
+    },
+    {
+      "id": "cs-computer-architecture-q20",
+      "type": "mcq",
+      "difficulty": "hard",
+      "question": "What does a call instruction do that a plain jmp does not?",
+      "choices": [
+        "It runs the target code on a different core",
+        "It pushes the return address onto the stack so that ret can come back",
+        "It checks the flags before jumping",
+        "It copies the function's code into the cache first"
+      ],
+      "answer": 1,
+      "explanation": "call saves where to resume (the address after the call) on the stack, then jumps. ret pops that address into the PC. Checking flags is what a conditional jump does.",
+      "concept": "call and return",
+      "section": 4
+    },
+    {
+      "id": "cs-computer-architecture-q21",
+      "type": "mcq",
+      "difficulty": "easy",
+      "question": "Which of these is fastest to read?",
+      "choices": [
+        "A register",
+        "The L2 cache",
+        "RAM",
+        "An SSD"
+      ],
+      "answer": 0,
+      "explanation": "Registers sit inside the core and are read within a cycle. L2 takes a few nanoseconds, RAM about 100 ns, and an SSD tens of microseconds or more.",
+      "concept": "memory hierarchy",
+      "section": 5
+    },
+    {
+      "id": "cs-computer-architecture-q22",
+      "type": "order",
+      "difficulty": "easy",
+      "question": "Order these from fastest to slowest access.",
+      "items": [
+        "Registers",
+        "L1 cache",
+        "L3 cache",
+        "RAM",
+        "SSD",
+        "Hard disk"
+      ],
+      "explanation": "Each step down the hierarchy is bigger, cheaper per byte and slower, from under a nanosecond for registers to about 10 ms for a hard disk seek.",
+      "concept": "ranking memory levels",
+      "section": 5
+    },
+    {
+      "id": "cs-computer-architecture-q23",
+      "type": "typed",
+      "difficulty": "hard",
+      "question": "A loop's memory reads hit the L1 cache (1 ns) 90% of the time and go all the way to RAM (100 ns) the other 10%. What is the average access time in nanoseconds?",
+      "answer": "10.9",
+      "accept": [
+        "10.9 ns",
+        "about 11",
+        "11"
+      ],
+      "explanation": "0.9 × 1 + 0.1 × 100 = 0.9 + 10 = 10.9 ns. The rare misses dominate: the average is about 11 times the hit time, which is why improving locality pays off so well.",
+      "concept": "average access time",
+      "section": 5
+    },
+    {
+      "id": "cs-computer-architecture-q24",
+      "type": "mcq",
+      "difficulty": "medium",
+      "question": "Why do caches achieve high hit rates for most programs?",
+      "choices": [
+        "The operating system copies the whole program into the cache at startup",
+        "Caches are as large as RAM on modern CPUs",
+        "Compilers mark every variable as cacheable",
+        "Programs show locality: they reuse recent data and touch addresses near ones they just used"
+      ],
+      "answer": 3,
+      "explanation": "Temporal locality keeps recently used data valuable, and spatial locality makes the rest of each fetched cache line useful. Caches are tiny compared with RAM, so they depend on that predictability.",
+      "concept": "locality of reference",
+      "section": 5
+    },
+    {
+      "id": "cs-computer-architecture-q25",
+      "type": "mcq",
+      "difficulty": "medium",
+      "question": "Why is summing a large 2D C array row by row much faster than column by column?",
+      "choices": [
+        "The CPU can only add numbers from the same row",
+        "Column order performs more additions",
+        "C stores the array row-major, so row order walks memory sequentially and uses whole cache lines and the prefetcher",
+        "Rows are stored in registers and columns in RAM"
+      ],
+      "answer": 2,
+      "explanation": "Both orders do identical additions. In row order each 64-byte line serves 16 ints and the prefetcher stays ahead; in column order each access jumps a whole row and uses only 4 bytes of the line it loaded.",
+      "concept": "traversal order",
+      "section": 6
+    },
+    {
+      "id": "cs-computer-architecture-q26",
+      "type": "code-fill",
+      "difficulty": "medium",
+      "question": "grid is stored in row-major order. Fill the blank so the inner loop walks memory sequentially.",
+      "code": "for (int i = 0; i < ROWS; i++)\n    for (int j = 0; j < COLS; j++)\n        total += _____;",
+      "language": "cpp",
+      "choices": [
+        "grid[i][j]",
+        "grid[j][i]",
+        "grid[i][i]",
+        "grid[j][j]"
+      ],
+      "answer": 0,
+      "explanation": "The inner loop variable j should index the last dimension, whose elements are adjacent in memory. grid[j][i] would jump a whole row on every step (and go out of bounds when the grid is not square).",
+      "concept": "row-major access",
+      "section": 6
+    },
+    {
+      "id": "cs-computer-architecture-q27",
+      "type": "mcq",
+      "difficulty": "hard",
+      "question": "In C++, iterating over a std::vector and over a std::list of a million ints are both O(n), yet the vector is usually several times faster. Why?",
+      "choices": [
+        "Vectors are iterated in parallel on several cores automatically",
+        "Vector elements are contiguous, so cache lines and the prefetcher serve them, while list nodes are scattered and each hop can miss the cache",
+        "Lists check bounds on every access",
+        "The list's iteration is secretly O(n^2)"
+      ],
+      "answer": 1,
+      "explanation": "Big-O counts steps, not the cost of each step. A vector's 16 ints per cache line arrive together; a linked list's nodes live wherever the allocator put them, so following each pointer may stall for a trip to RAM.",
+      "concept": "arrays vs linked lists in cache",
+      "section": 6
+    },
+    {
+      "id": "cs-computer-architecture-q28",
+      "type": "multi",
+      "difficulty": "medium",
+      "question": "Which of these access patterns have good locality? Select all that apply.",
+      "choices": [
+        "Scanning an array from start to end",
+        "Updating a few counters over and over in a tight loop",
+        "Following pointers through a linked list scattered across memory",
+        "Reading a row-major 2D array column by column",
+        "Looking values up in a small table thousands of times"
+      ],
+      "answers": [
+        0,
+        1,
+        4
+      ],
+      "explanation": "Sequential scans have spatial locality, and small, repeatedly used data has temporal locality. Scattered nodes and column-wise access to a row-major array jump around memory and waste most of each cache line.",
+      "concept": "spotting locality",
+      "section": 6
+    },
+    {
+      "id": "cs-computer-architecture-q29",
+      "type": "mcq",
+      "difficulty": "medium",
+      "question": "What does pipelining improve?",
+      "choices": [
+        "The time each individual instruction takes",
+        "The amount of RAM a program can use",
+        "The accuracy of floating point results",
+        "Throughput: overlapping stages lets more instructions finish per unit of time"
+      ],
+      "answer": 3,
+      "explanation": "Like a laundromat running the washer and dryer at once, a pipeline does not make any single instruction faster, but once full it completes about one instruction per cycle instead of one every few cycles.",
+      "concept": "pipelining",
+      "section": 7
+    },
+    {
+      "id": "cs-computer-architecture-q30",
+      "type": "mcq",
+      "difficulty": "hard",
+      "question": "A loop does if (x > 128) count += 1 over a large array. It runs noticeably faster when the array is sorted than when it is shuffled. Why?",
+      "choices": [
+        "Sorted arrays take less memory",
+        "The compiler skips the comparison for sorted data",
+        "With sorted data the branch goes the same way for long runs, so the predictor guesses right; shuffled data causes frequent mispredictions that flush the pipeline",
+        "Sorted data is stored in registers"
+      ],
+      "answer": 2,
+      "explanation": "Each misprediction throws away the instructions fetched down the wrong path, costing roughly 15 to 20 cycles. Random data makes the branch a coin flip, while sorted data makes it almost perfectly predictable.",
+      "concept": "branch prediction",
+      "section": 7
+    },
+    {
+      "id": "cs-computer-architecture-q31",
+      "type": "typed",
+      "difficulty": "medium",
+      "question": "Half of a program must run serially and the other half parallelizes perfectly. What is the maximum speedup with unlimited cores?",
+      "answer": "2",
+      "accept": [
+        "2x",
+        "2 times",
+        "twice"
+      ],
+      "explanation": "Amdahl's law: speedup is at most 1 / s, where s is the serial fraction, so 1 / 0.5 = 2. Even with infinite cores, the serial half still takes its full time.",
+      "concept": "Amdahl's law",
+      "section": 7
+    },
+    {
+      "id": "cs-computer-architecture-q32",
+      "type": "mcq",
+      "difficulty": "easy",
+      "question": "Why did CPU makers start adding more cores in the mid-2000s instead of continuing to raise clock speeds?",
+      "choices": [
+        "Software could not handle clock speeds above 1 GHz",
+        "More cores were cheaper to advertise",
+        "Operating systems required at least two cores",
+        "Higher clock speeds made chips use too much power and get too hot"
+      ],
+      "answer": 3,
+      "explanation": "Power use climbs steeply with clock speed, and around 2005 chips hit practical heat limits. Spending transistors on more cores raised total throughput without raising the clock.",
+      "concept": "why multi-core",
+      "section": 7
+    }
+  ]
+}

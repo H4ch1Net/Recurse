@@ -3,7 +3,7 @@ import { BookOpen, ChevronLeft, Repeat } from 'lucide-react'
 import { useApp } from '../state/context'
 import { useDocumentTitle } from '../hooks/useDocumentTitle'
 import { getChallengeMeta } from '../lib/practice'
-import { formatRelative } from '../lib/dates'
+import { formatRelative, redoText } from '../lib/dates'
 import ChallengeView from '../components/ChallengeView'
 
 const LANGUAGE_NAMES = { javascript: 'JavaScript', python: 'Python' }
@@ -32,7 +32,7 @@ export default function ChallengePage() {
       {entry && (
         <div className="callout good small" style={{ marginBottom: 'var(--s-4)' }}>
           <Repeat size={16} />
-          <span>Solved {formatRelative(entry.solved, now)}{entry.languages?.length ? ` in ${entry.languages.map((l) => LANGUAGE_NAMES[l] || l).join(' and ')}` : ''}. {entry.card ? `Next redo ${formatRelative(entry.card.due, now)}.` : ''} Solve it again without looking at your old code.</span>
+          <span>Solved {formatRelative(entry.solved, now)}{entry.languages?.length ? ` in ${entry.languages.map((l) => LANGUAGE_NAMES[l] || l).join(' and ')}` : ''}. {redoText(entry.card, now)} Solve it again without looking at your old code.</span>
         </div>
       )}
       <ChallengeView key={challenge.id} id={challenge.id} standalone solvedBefore={Boolean(entry)} onSolved={solved} />
