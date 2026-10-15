@@ -71,6 +71,9 @@ export default function VlanTrunk({ onComplete }) {
   const { tokens, play, stop, busy } = useTokens()
   const width = useWidth(wrapRef, 640)
   const L = width < 520 ? LAYOUTS.tall : LAYOUTS.wide
+  const tall = L === LAYOUTS.tall
+  // The tall (phone) layout uses bigger type, so text-sized shapes grow with it.
+  const k = tall ? 1.35 : 1
   const [LINK_A, LINK_B] = L.link
 
   const status = goalStatus(config)
@@ -217,7 +220,7 @@ export default function VlanTrunk({ onComplete }) {
             return (
               <g key={sw}>
                 <Device kind="switch" x={L.sw[sw].x} y={L.sw[sw].y} w={62} h={30} />
-                <Label x={lp.x} y={lp.y} anchor={lp.anchor} lines={[sw]} size={12} />
+                <Label x={lp.x} y={lp.y} anchor={lp.anchor} lines={[sw]} size={tall ? 14 : 12} />
               </g>
             )
           })}
@@ -234,14 +237,14 @@ export default function VlanTrunk({ onComplete }) {
                 <Device kind="pc" x={p.x} y={p.y} state={role === 'From' ? 'active' : role === 'To' ? 'good' : 'idle'} />
                 <text x={p.x} y={y.name} textAnchor="middle" className="vlan-host-name">{h.id} <tspan className="vlan-port">{h.port}</tspan></text>
                 <g transform={`translate(${p.x} ${y.chip})`}>
-                  <rect x="-25" y="-9" width="50" height="16" rx="8" style={{ fill: VLAN_TONE[v], transition: 'fill 200ms ease' }} />
-                  <text y="3" textAnchor="middle" className="vlan-chip-text">VLAN {v}</text>
+                  <rect x={tall ? -33 : -25} y={tall ? -11 : -9} width={tall ? 66 : 50} height={tall ? 19 : 16} rx={tall ? 9.5 : 8} style={{ fill: VLAN_TONE[v], transition: 'fill 200ms ease' }} />
+                  <text y={tall ? 3.5 : 3} textAnchor="middle" className="vlan-chip-text">VLAN {v}</text>
                 </g>
                 <text x={p.x} y={y.ip} textAnchor="middle" className="vlan-ip">{ipOf(config, h.id)}</text>
                 {role && (
                   <g transform={`translate(${badge.x} ${badge.y})`} className={`vlan-role ${role === 'From' ? 'from' : 'to'}`}>
-                    <rect x="-15" y="-8" width="30" height="15" rx="7.5" />
-                    <text y="3" textAnchor="middle">{role}</text>
+                    {tall ? <rect x="-21" y="-10" width="42" height="19" rx="9.5" /> : <rect x="-15" y="-8" width="30" height="15" rx="7.5" />}
+                    <text y={tall ? 4 : 3} textAnchor="middle">{role}</text>
                   </g>
                 )}
               </g>
@@ -249,8 +252,8 @@ export default function VlanTrunk({ onComplete }) {
           })}
           {fail && (
             <g className="vlan-fail" transform={`translate(${fail.x} ${fail.y})`}>
-              <rect x={-fail.text.length * 3.1 - 16} y="-11" width={fail.text.length * 6.2 + 32} height="20" rx="10" style={{ fill: 'var(--bad)' }} />
-              <path d={`M${-fail.text.length * 3.1 - 8} -4 l7 7 m0 -7 l-7 7`} style={{ stroke: 'var(--card)', strokeWidth: 2, strokeLinecap: 'round' }} />
+              <rect x={-fail.text.length * 3.1 * k - 16} y="-11" width={fail.text.length * 6.2 * k + 32} height={tall ? 22 : 20} rx="10" style={{ fill: 'var(--bad)' }} />
+              <path d={`M${-fail.text.length * 3.1 * k - 8} -4 l7 7 m0 -7 l-7 7`} style={{ stroke: 'var(--card)', strokeWidth: 2, strokeLinecap: 'round' }} />
               <text x="6" y="3.5" textAnchor="middle" className="vlan-fail-text">{fail.text}</text>
             </g>
           )}

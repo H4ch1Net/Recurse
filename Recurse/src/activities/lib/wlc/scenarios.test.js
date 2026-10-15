@@ -24,7 +24,7 @@ describe('scenario list', () => {
       const cfg = s.build(() => 0)
       expect(allPass(gradeScenario(s, cfg, emptyStats()))).toBe(false)
       const text = JSON.stringify({ ...s, checks: gradeScenario(s, cfg, emptyStats()) })
-      expect(text).not.toMatch(/[–—]/)
+      expect(text).not.toMatch(/[\u2013\u2014]/)
     }
   })
 })

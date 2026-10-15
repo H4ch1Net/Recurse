@@ -73,7 +73,7 @@ const STEP_CLARIFY = {
   guide: 'Restate the problem, ask what is unclear and pin down the edge cases. Do not write code yet.',
   fields: [
     { id: 'questions', label: 'Questions and assumptions', rows: 4, placeholder: 'Can the input be empty? Can values repeat or be negative? I will assume...' },
-    { id: 'example', label: 'One example of your own, with the expected output', rows: 2, placeholder: 'nums = [4, 1, 4], target = 8 gives [0, 2]' }
+    { id: 'example', label: 'One example of your own, with the expected output', rows: 2, placeholder: 'An input that is not in the examples, and the output you expect' }
   ]
 }
 
@@ -82,9 +82,9 @@ const STEP_PLAN = {
   title: 'Plan',
   guide: 'Say the brute force and its cost, then the better approach. Get the complexity down before you code.',
   fields: [
-    { id: 'approach', label: 'Approach, in plain words or pseudocode', rows: 5, placeholder: 'Brute force checks every pair, O(n^2). Better: one pass with a map from value to index...' },
-    { id: 'planTime', label: 'Time', line: true, placeholder: 'O(n)' },
-    { id: 'planSpace', label: 'Space', line: true, placeholder: 'O(n)' }
+    { id: 'approach', label: 'Approach, in plain words or pseudocode', rows: 5, placeholder: 'The brute force and its cost first. Then the better idea, step by step, and why it works.' },
+    { id: 'planTime', label: 'Time', line: true, placeholder: 'O(?)' },
+    { id: 'planSpace', label: 'Space', line: true, placeholder: 'O(?)' }
   ]
 }
 
@@ -92,7 +92,7 @@ const STEP_CODE = {
   id: 'code',
   title: 'Code',
   guide: 'Write clean code with clear names. Narrate decisions, not keystrokes. Run the examples when you are ready.',
-  fields: [{ id: 'narration', label: 'Decisions while coding (optional)', rows: 3, placeholder: 'Using a dict so each lookup is O(1). Returning early when...' }]
+  fields: [{ id: 'narration', label: 'Decisions while coding (optional)', rows: 3, placeholder: 'Why this data structure, what each loop is for, which edge case a line handles...' }]
 }
 
 const STEP_TEST = {
@@ -107,9 +107,9 @@ const STEP_WRAP = {
   title: 'Wrap up',
   guide: 'State the final complexity, defining n, and what you would improve with more time.',
   fields: [
-    { id: 'finalTime', label: 'Final time complexity', line: true, placeholder: 'O(n), n is the length of nums' },
-    { id: 'finalSpace', label: 'Final space complexity', line: true, placeholder: 'O(n) for the map' },
-    { id: 'improve', label: 'What you would improve or trade off', rows: 3, placeholder: 'If memory were tight I would sort first and use two pointers, O(n log n) time...' }
+    { id: 'finalTime', label: 'Final time', line: true, placeholder: 'O(?), where n is...' },
+    { id: 'finalSpace', label: 'Final space', line: true, placeholder: 'O(?), for...' },
+    { id: 'improve', label: 'What you would improve or trade off', rows: 3, placeholder: 'A faster or leaner version, cleaner code, or what you would change under different constraints.' }
   ]
 }
 
@@ -119,7 +119,7 @@ const STEP_READ = {
   guide: 'Read the constraints closely. Hidden tests hit the edges: list the ones you will need to handle.',
   fields: [
     { id: 'edgeList', label: 'Edge cases the hidden tests will probably try', rows: 3, placeholder: 'Empty input, one element, all equal, negatives, the largest size...' },
-    { id: 'approach', label: 'Approach and its complexity', rows: 3, placeholder: 'Sort, then sweep once: O(n log n) time.' }
+    { id: 'approach', label: 'Approach and its complexity', rows: 3, placeholder: 'The idea in a sentence or two, with its time and space.' }
   ]
 }
 

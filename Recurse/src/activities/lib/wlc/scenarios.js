@@ -244,7 +244,7 @@ const troubleshoot = {
       { label: 'The scanner finds Warehouse', pass: passed(r, 'find'), hint: (!passed(r, 'find') && clue) || 'Run the test client with the scanner and read the first step.' },
       { label: 'The scanner passes the security and passphrase checks', pass: passed(r, 'security') && passed(r, 'key'), hint: (reached(r, 'find') && passed(r, 'find') && !passed(r, 'key') && clue) || 'Fix the first problem, then test again to reach this step.' },
       { label: 'The scanner gets an address in VLAN 30 (10.10.30.0/24)', pass: vlanOk, hint: (r.ok && r.vlan !== 30 && CLUES['wrong-vlan']) || (passed(r, 'key') && clue) || 'Earlier steps must pass before DHCP happens.' },
-      { label: 'Warehouse still uses WPA2-Personal with AES', pass: Boolean(o) && !o.open && o.wpa2 && o.psk && o.aes, hint: 'Security > Layer 2: WPA+WPA2 with WPA2 Policy, AES and PSK.' },
+      { label: 'Warehouse stays on WPA2-Personal with AES', pass: Boolean(o) && !o.open && o.wpa2 && o.psk && o.aes, hint: 'Security > Layer 2: WPA+WPA2 with WPA2 Policy, AES and PSK.' },
       { label: 'The scanner is connected to Warehouse in VLAN 30', pass: cfg.clients.some((c) => c.device === 'scanner' && c.ssid === 'Warehouse' && c.vlan === 30), hint: 'Test client: Handheld scanner, Warehouse, Forklift-Lane-9, Connect.' }
     ]
   },

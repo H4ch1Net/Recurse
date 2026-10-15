@@ -24,6 +24,7 @@ import {
   timeUsed
 } from '../lib/interview'
 import { isAIConfigured, PROVIDERS } from '../lib/ai'
+import { starterFor } from '../activities/lib/runner/tests'
 import { formatDuration, formatRelative } from '../lib/dates'
 import { feedbackComplete } from '../lib/juice'
 import { sfx } from '../lib/sfx'
@@ -244,29 +245,31 @@ function ProblemReview({ problem, format, notes, challenge, showCode = true }) {
       <p className={`small ${problem.best?.allPassed || problem.results?.best?.allPassed ? 'good-text' : 'muted'}`}>{testLine(problem.results || { best: problem.best, runs: problem.runs }, format)}</p>
       {challenge?.complexity?.time && (
         <p className="small">
-          Reference: time <code>{challenge.complexity.time}</code>{challenge.complexity.space ? <>, space <code>{challenge.complexity.space}</code></> : null}.{' '}
-          {format !== 'oa' && <span className="muted">Yours: {mine ? <code>{clip(mine, 60)}</code> : 'not stated'}.</span>}
+          Reference: time {challenge.complexity.time}{challenge.complexity.space ? `, space ${challenge.complexity.space}` : ''}.{' '}
+          {format !== 'oa' && <span className="muted">Yours: {mine ? clip(mine, 60) : 'not stated'}.</span>}
         </p>
       )}
-      <details className="iv-details">
-        <summary className="small">Your notes</summary>
-        <NotesList format={format} notes={notes} />
-      </details>
-      {showCode && problem.code && (
+      <div className="iv-disclosures">
         <details className="iv-details">
-          <summary className="small">Your code</summary>
-          <CodeBlock code={problem.code} language={problem.language || 'javascript'} label="Your code" />
+          <summary className="small">Your notes</summary>
+          <NotesList format={format} notes={notes} />
         </details>
-      )}
-      {challenge?.solution && (
-        <details className="iv-details">
-          <summary className="small">Reference solution</summary>
-          {Object.entries(challenge.solution).filter(([, code]) => typeof code === 'string').slice(0, 1).map(([lang, code]) => (
-            <CodeBlock key={lang} code={code} language={lang} label="Reference solution" />
-          ))}
-          {challenge.explanation && <RichText text={challenge.explanation} className="prose small" />}
-        </details>
-      )}
+        {showCode && problem.code && (
+          <details className="iv-details">
+            <summary className="small">Your code</summary>
+            <CodeBlock code={problem.code} language={problem.language || 'javascript'} label="Your code" />
+          </details>
+        )}
+        {challenge?.solution && (
+          <details className="iv-details">
+            <summary className="small">Reference solution</summary>
+            {Object.entries(challenge.solution).filter(([, code]) => typeof code === 'string').slice(0, 1).map(([lang, code]) => (
+              <CodeBlock key={lang} code={code} language={lang} label="Reference solution" />
+            ))}
+            {challenge.explanation && <RichText text={challenge.explanation} className="prose small" />}
+          </details>
+        )}
+      </div>
     </article>
   )
 }
@@ -289,12 +292,14 @@ function reviewData(session, challenges) {
   const problems = (session.problems || []).map((p) => {
     const c = challenges[p.id]
     const code = session.code?.[p.id]
+    // Untouched starter code is not "your code".
+    const written = code?.code && !(c && code.code.trim() === starterFor(c, code.language || 'javascript').trim()) ? code.code : ''
     return {
       ...p,
       prompt: c?.prompt || '',
       complexity: c?.complexity || null,
       results: session.results?.[p.id] || null,
-      code: code?.code || '',
+      code: written,
       language: code?.language || null
     }
   })
