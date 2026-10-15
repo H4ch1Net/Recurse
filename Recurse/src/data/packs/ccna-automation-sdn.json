@@ -1,0 +1,754 @@
+{
+  "id": "ccna-automation-sdn",
+  "name": "Automation and Controller-Based Networking",
+  "version": "1.0.0",
+  "author": "Recurse",
+  "subject": "networking",
+  "level": "intermediate",
+  "description": "Explain how automation and controllers change network management, from planes and APIs to SD-Access fabrics and cloud dashboards.",
+  "icon": "SDN",
+  "language": "plaintext",
+  "prereqs": [
+    "ccna-routing-table",
+    "ccna-device-management"
+  ],
+  "tags": [
+    "ccna",
+    "6.1",
+    "6.2",
+    "6.3",
+    "2.8",
+    "automation",
+    "sdn",
+    "api",
+    "controller",
+    "cloud"
+  ],
+  "lesson": {
+    "estimatedMinutes": 26,
+    "intro": "For decades engineers configured networks one box at a time, with every device making its own decisions. Controllers, APIs and automation change that: you describe what the network should do once, and software makes every device do it. This lesson builds the mental model the CCNA tests in domain 6, and the one you need to work alongside the automation real networks run on.",
+    "objectives": [
+      "Classify device functions into the data, control and management planes",
+      "Compare traditional per-device networking with controller-based networking and explain what automation improves",
+      "Identify northbound and southbound APIs and the protocols used on each side of a controller",
+      "Describe the underlay, overlay and fabric of Cisco SD-Access and how Catalyst Center manages it",
+      "Explain what changes when a network is managed from a cloud dashboard"
+    ],
+    "sections": [
+      {
+        "title": "What automation changes",
+        "body": "Picture a Monday request: add a new NTP server, a new syslog server and one ACL line to 400 branch switches. By hand that means SSH, `configure terminal`, paste, verify, `copy running-config startup-config`, 400 times. At three minutes a switch that is 20 hours of typing, and somewhere around switch 250 someone pastes into the wrong window or skips a line. Six months later nobody can say for sure which switches got the change.\n\nThat is the problem **network automation** solves. Instead of a person typing the same change into every device, software applies one definition of the change to all of them. The CCNA expects you to explain the impact in plain terms:\n\n- **Consistency**: every device gets exactly the same lines, so there are no snowflakes (one-off devices nobody fully understands).\n- **Speed**: a change that took days runs in minutes, and new devices come up fully configured on day 0.\n- **Fewer errors**: no typos, no skipped devices, and changes can be validated before and after they run.\n- **Scale**: changing 10 devices or 1,000 takes almost the same effort.\n- **Less configuration drift**: drift is a device's configuration slowly diverging from other devices in the same role, usually through one-off manual fixes. Tools can compare every device with the intended configuration and flag or fix the differences.\n- **Auditability**: changes live in files under version control, so you can see who changed what, when and why.\n\nNetwork management has two halves, and automation helps both. **Configuration management** changes how devices are configured. **Operational management** watches the network: inventory, health, alerts, reports and software image compliance.\n\nThe quiet enabler is structured data. You read `show` output easily, but a program has to scrape it with fragile text parsing that breaks when a column moves or a new IOS release rewords a line. An API returns the same facts as named fields in a defined data model, which a program can read directly. Compare the two ways of learning one port's trunking state below.\n\nAutomation does not replace networking knowledge. A script pushes exactly what you told it to, including your mistakes, to every device at once.",
+        "code": "! For humans: text you read with your eyes\nSW1# show interfaces gigabitEthernet 0/1 switchport\nName: Gi0/1\nSwitchport: Enabled\nAdministrative Mode: dynamic auto\nOperational Mode: static access\nAdministrative Trunking Encapsulation: dot1q\n...\n\n# For programs: the same facts from an API, as named fields\n{\n  \"interface\": \"GigabitEthernet0/1\",\n  \"trunk-config\": \"dynamic auto\",\n  \"trunk-status\": \"static access\"\n}",
+        "language": "plaintext",
+        "tip": "When the exam asks what automation improves, think consistency, speed, scale and fewer human errors.",
+        "pitfall": "Automation multiplies mistakes as efficiently as it multiplies good changes. Real teams test in a lab, do a dry run, then roll out to a small group of devices before the rest.",
+        "check": {
+          "question": "A team finds that 14 of its 300 branch routers have slightly different QoS settings from the rest, all caused by one-off fixes made during outages. What is this called, and what helps most?",
+          "choices": [
+            "Route flapping; a routing protocol with faster timers",
+            "Control plane failure; moving routing into a controller",
+            "Configuration drift; a tool that compares devices with the intended configuration",
+            "Configuration drift; a longer weekly change approval meeting"
+          ],
+          "answer": 2,
+          "explanation": "Devices of the same role slowly diverging through manual one-off changes is configuration drift. A configuration management tool that compares each device with the intended configuration finds and fixes it. More meetings do not show you which devices already differ."
+        }
+      },
+      {
+        "title": "Data, control and management planes",
+        "body": "Watch a router handle one packet. It arrives on G0/0, the router matches the destination against its routing table, builds a new Ethernet header and sends the packet out G0/1. Long before that packet arrived, OSPF had exchanged messages with neighbors and filled that routing table. And off to the side, an engineer is logged in over SSH reading the configuration. Those are three different kinds of work, and software-defined networking is built on telling them apart.\n\n- **Data plane** (also called the forwarding plane): everything done to each message as it passes through. Matching a destination MAC in the MAC address table, matching a destination IP in the routing table, adding or removing an 802.1Q tag, de-encapsulating and re-encapsulating frames, NAT rewriting addresses, an ACL or port security discarding a message, VPN encryption.\n- **Control plane**: the overhead work that builds and maintains the tables the data plane uses. Routing protocols (OSPF, EIGRP, BGP), ARP, IPv6 Neighbor Discovery, switch MAC learning and STP deciding which ports forward.\n- **Management plane**: protocols that let people and tools manage the device without directly changing forwarding: Telnet, SSH, SNMP, syslog, the HTTPS GUI, and APIs such as NETCONF and RESTCONF.\n\nA quick test: if the work happens to each packet or frame, it is data plane. If it fills or changes a forwarding table, it is control plane. If it exists so a person or a tool can manage the box, it is management plane. A router with SSH disabled still routes; a router with no routes has nothing to forward with.\n\nInside a switch, the data plane runs in hardware because it must forward millions of frames per second. An **ASIC** (application-specific integrated circuit) does the forwarding, and **TCAM** (ternary content-addressable memory) returns the matching table entry in one lookup instead of searching. The general-purpose CPU runs IOS, which handles most control and management plane work.\n\nIn a traditional network every device has all three planes. The data plane and control plane are **distributed**: each router runs its own OSPF and makes its own decisions.",
+        "code": "Work the device does                       Plane\n-----------------------------------------  ----------\nLook up 10.1.2.7 in the routing table      Data\nAdd an 802.1Q tag on a trunk               Data\nACL discards a packet                      Data\nNAT rewrites a source address              Data\nOSPF learns a route from a neighbor        Control\nARP resolves the next hop's MAC address    Control\nSTP puts a port in blocking state          Control\nSwitch learns a source MAC address         Control\nEngineer logs in with SSH                  Management\nSNMP manager polls interface counters      Management\nDevice sends a syslog message              Management",
+        "language": "plaintext",
+        "tip": "Exam hook: the control plane decides, the data plane does, and the management plane lets you manage.",
+        "pitfall": "Classify by what the work does, not where it runs. MAC learning happens in the switch hardware, yet it is control plane work because it builds the MAC table. You configure an ACL through the management plane, but discarding a packet is data plane.",
+        "check": {
+          "question": "A switch adds an 802.1Q header to a frame before sending it out a trunk. Which plane is doing this work?",
+          "choices": [
+            "Control plane",
+            "Data plane",
+            "Management plane",
+            "Policy plane"
+          ],
+          "answer": 1,
+          "explanation": "Tagging happens to each frame as it is forwarded, so it is data plane work. The control plane builds tables (routing, MAC, STP state); it does not touch each frame."
+        }
+      },
+      {
+        "title": "Traditional versus controller-based networking",
+        "body": "In a traditional network, intelligence is spread out. Each router runs its own routing protocol process, each switch runs its own STP, and an engineer configures each device separately through its own CLI. That distributed design is resilient and well understood, but every change is a per-device job, and nobody has a single live view of the whole network.\n\nA **controller** is software, running on a server, VM or appliance, that centralizes some of that work. It learns about every device, the topology and the configuration, and it becomes the place where people and programs operate the network. This is **software-defined networking (SDN)**; you will also hear software-defined architecture, controller-based networking and programmable networks.\n\nHow much moves into the controller varies a lot, and the exam likes this point:\n\n- **OpenFlow** (from the Open Networking Foundation, with controllers such as OpenDaylight): mostly centralized. The controller computes forwarding entries and programs them directly into each switch's tables. The switches are left with mostly data plane work.\n- **Cisco ACI** (data center): partially centralized. The APIC controller pushes policy (which groups of endpoints may talk) to Nexus switches in a spine-leaf design, and the switches' own control plane works out the details.\n- **Catalyst Center managing ordinary switches and routers**: nothing about the devices' control plane changes. The controller configures and monitors them through the management plane (SSH, SNMP, NETCONF) and gets its power from network-wide data and APIs.\n\nWhat controller-based networking gives you:\n\n- You configure **the network**, not each device: one policy, applied everywhere.\n- Consistent device configuration, fewer errors and less time troubleshooting.\n- A northbound API with defined data models, so automation is far easier than screen scraping.\n- Centralized data that analytics and AI can mine for problems humans miss.\n- Faster changes, and a DevOps way of working where network changes are treated like code.\n\nThe trade-offs are real too: the controller becomes critical infrastructure that must be highly available and well secured, the team needs new skills, and features depend on licensing and supported hardware. With Catalyst Center or ACI, if the controller goes offline the devices keep forwarding with the configuration and tables they already have; you just cannot make changes or see the network-wide view until it returns.",
+        "code": "                    Traditional                    Controller-based\nWhere you configure Each device, one at a time     The controller, once\nControl plane       Distributed on every device    Partly or mostly centralized\nNetwork-wide view   Pieced together by hand        Built into the controller\nAutomation          Scripts scrape CLI output      APIs with defined data models\nConsistency         Depends on people              Enforced by software\nTypical change      Hours to weeks                 Minutes",
+        "language": "plaintext",
+        "tip": "Look for the phrase \"configure the network rather than each device\" in exam answers. It is the core advantage of controller-based networking.",
+        "pitfall": "Do not assume every controller removes the control plane from devices. Only the OpenFlow model centralizes most of it; Catalyst Center managing traditional devices leaves their control plane exactly as it was.",
+        "check": {
+          "question": "Which statement correctly compares OpenFlow-based SDN with Catalyst Center managing traditional switches?",
+          "choices": [
+            "OpenFlow centralizes most control plane work, while Catalyst Center leaves the switches' control plane in place and configures them",
+            "Both remove the control plane from every switch and program flows directly",
+            "Catalyst Center centralizes the data plane, while OpenFlow centralizes only management",
+            "Neither changes how devices are configured; both only draw topology maps"
+          ],
+          "answer": 0,
+          "explanation": "In the OpenFlow model the controller programs forwarding entries into switches, so most control plane work is centralized. Catalyst Center managing ordinary devices changes their configuration through the management plane, but the devices still run their own routing, STP and MAC learning."
+        }
+      },
+      {
+        "title": "Northbound and southbound APIs",
+        "body": "Draw the controller in the middle of a page. Below it sit the switches and routers it manages. Above it sit the things that use it: the GUI, Python scripts, Ansible, a ticketing system, a vendor's app. The controller talks in both directions, and each direction has a name, taken from where it sits on the drawing.\n\n- The **southbound interface (SBI)** faces down to the network devices. It is how the controller learns device state and pushes configuration or forwarding entries. Southbound options include **OpenFlow** (programs flow tables in OpenFlow switches), **OpFlex** (Cisco ACI's policy protocol), **NETCONF** (XML over SSH on port 830, using YANG data models), **RESTCONF** (HTTPS carrying JSON or XML, also YANG), and the classics, **SSH or Telnet CLI** and **SNMP**.\n- The **northbound interface (NBI)** faces up to applications. It exposes the controller's data and functions to programs, almost always as a **REST API** over HTTPS that returns JSON. Catalyst Center's northbound REST API is called the Intent API.\n\nAn **API** (application programming interface) is a defined way for one program to exchange data with another. The value of a northbound API is not just that it exists, but how much work the controller does for you. Imagine writing a tool that shows the path a packet takes from a user's laptop to a server. Without a controller you would pull configurations, MAC tables and routing tables from dozens of devices and compute the path yourself. With Catalyst Center you make one path trace request with a source and destination, and the controller returns the hops, the interfaces and the ACLs along the way.\n\nThe explorer below holds a trimmed answer from Catalyst Center's northbound API to a request for its device list. It is not text to scrape; it is named fields, lists and values your code can use directly.",
+        "code": "     GUI     Python script     Ansible     Ticketing app\n       \\           |              |             /\n  ========= Northbound API: REST over HTTPS, JSON =========\n                  +-------------------------+\n                  |        Controller       |\n                  | Catalyst Center, APIC,  |\n                  | OpenDaylight ...        |\n                  +-------------------------+\n  ========= Southbound APIs and protocols =================\n    OpenFlow   OpFlex   NETCONF   RESTCONF   SSH/CLI   SNMP\n       |          |         |         |         |        |\n     [SW1]      [SW2]      [R1]      [R2]     [SW3]    [SW4]",
+        "language": "plaintext",
+        "activity": {
+          "type": "json-explorer",
+          "title": "What a northbound API returns",
+          "prompt": "This is a trimmed reply from Catalyst Center to GET /dna/intent/api/v1/network-device. Find the role of the second device and the software version both devices run. Then look closely: interfaceCount is a quoted string, not a number, and location is null. A script reads these as named values instead of scraping show output.",
+          "props": {
+            "json": "{\n  \"response\": [\n    {\n      \"hostname\": \"cat9k-access-1\",\n      \"managementIpAddress\": \"10.10.22.66\",\n      \"platformId\": \"C9300-24U\",\n      \"softwareType\": \"IOS-XE\",\n      \"softwareVersion\": \"17.9.4\",\n      \"role\": \"ACCESS\",\n      \"reachabilityStatus\": \"Reachable\",\n      \"interfaceCount\": \"41\",\n      \"upTime\": \"17 days, 22:51:04.26\",\n      \"location\": null\n    },\n    {\n      \"hostname\": \"cat9k-dist-1\",\n      \"managementIpAddress\": \"10.10.22.70\",\n      \"platformId\": \"C9500-40X\",\n      \"softwareType\": \"IOS-XE\",\n      \"softwareVersion\": \"17.9.4\",\n      \"role\": \"DISTRIBUTION\",\n      \"reachabilityStatus\": \"Reachable\",\n      \"interfaceCount\": \"53\",\n      \"upTime\": \"40 days, 03:12:44.10\",\n      \"location\": null\n    }\n  ],\n  \"version\": \"1.0\"\n}"
+          }
+        },
+        "tip": "Northbound points up to apps and scripts; southbound points down to devices, exactly as they sit on the drawing.",
+        "pitfall": "Direction is about who talks to whom, not the protocol name. A Python script calling the controller's REST API uses the northbound interface. The controller configuring a switch with NETCONF, RESTCONF or SSH uses the southbound interface, even though RESTCONF has REST in its name.",
+        "check": {
+          "question": "A Python script on an engineer's laptop asks Catalyst Center for every switch running an old software version. Which interface does the script use?",
+          "choices": [
+            "The southbound interface, using NETCONF",
+            "The southbound interface, using OpenFlow",
+            "The management plane of each switch, using SNMP",
+            "The northbound interface, using a REST API"
+          ],
+          "answer": 3,
+          "explanation": "Applications and scripts talk to the controller through its northbound interface, which on Catalyst Center is a REST API. The controller then uses its southbound interfaces to collect data from the switches."
+        }
+      },
+      {
+        "title": "Underlay, overlay and fabric: Cisco SD-Access",
+        "body": "Cisco **Software-Defined Access** (SD-Access, often written SDA) is Cisco's controller-based design for campus LANs, with Catalyst Center as its controller. It is the clearest example of three terms the CCNA tests:\n\n- **Underlay**: the physical network of switches, routers, links and their configuration, whose job is to give every fabric node IP reachability to every other node.\n- **Overlay**: virtual networks built on top of the underlay with tunnels. In SD-Access the overlay carries endpoint traffic in **VXLAN** tunnels between fabric nodes.\n- **Fabric**: the underlay and overlay together, the complete system that delivers traffic with the features you asked for.\n\nOn new hardware, Catalyst Center builds the underlay itself as a **routed access** design: every switch is a Layer 3 switch, every link between switches is a routed link, and the switches run **IS-IS**. With no Layer 2 links between switches, STP has nothing to block, and because the access switch (the fabric edge node) is the hosts' default gateway, no HSRP is needed. On existing production gear, engineers configure the underlay themselves so the controller does not disrupt live traffic.\n\nDevices take fabric roles:\n\n- **Fabric edge node**: connects endpoints, like a traditional access switch.\n- **Fabric border node**: connects the fabric to networks outside it, such as the WAN or a data center.\n- **Fabric control plane node**: runs the LISP map server, the fabric's directory of where every endpoint lives.\n\nThe overlay has its own planes. **LISP** is the control plane: edge nodes register each endpoint identifier (**EID**, an endpoint's address or subnet) along with their own routing locator (**RLOC**, the edge node's underlay address). **VXLAN** is the data plane: when a frame arrives for a new destination, the ingress edge node asks the LISP mapping system where that EID lives, then wraps the whole original frame in VXLAN, UDP and a new outer IP header addressed to the egress node's RLOC. Underlay switches route on the outer header only; the egress edge node strips the wrapper and delivers the original frame. All of this happens in the switch ASICs, so it costs no forwarding performance.\n\nThe VXLAN header also has room for a **scalable group tag (SGT)**. Cisco ISE identifies the user or device and places it in a group, and policy says which groups may talk to which. Security follows the user, not the IP address.",
+        "code": "PC 10.1.1.1 -> SW1 edge (RLOC 172.16.1.1) ==VXLAN==> SW3 edge (RLOC 172.16.3.3) -> 10.1.3.1\n\nWhat crosses the underlay:\n+---------------------+-----+-----------------+------------------------------+\n| Outer IP            | UDP | VXLAN           | Original Ethernet frame      |\n| src 172.16.1.1      |     | VNI (which VN)  | inner IP src 10.1.1.1        |\n| dst 172.16.3.3      |     | SGT (group tag) | inner IP dst 10.1.3.1        |\n+---------------------+-----+-----------------+------------------------------+\n  underlay addresses (RLOCs)                     overlay (enterprise) addresses\n\nLISP map server on the fabric control plane node:\nEID              RLOC\n10.1.1.0/24      172.16.1.1\n10.1.3.0/24      172.16.3.3",
+        "language": "plaintext",
+        "tip": "Memory hook: the underlay is underneath (physical links and IP reachability), the overlay is laid over it (tunnels), and the fabric is both.",
+        "pitfall": "The outer IP header uses underlay addresses (RLOCs), while the inner packet keeps the endpoints' own addresses. And keep the overlay planes straight: LISP is the control plane, VXLAN is the data plane.",
+        "check": {
+          "question": "In SD-Access, which statement correctly describes the underlay?",
+          "choices": [
+            "VXLAN tunnels that carry endpoint traffic between fabric edge nodes",
+            "The LISP database that maps endpoint IDs to routing locators",
+            "The scalable group policy matrix stored on Catalyst Center",
+            "The physical devices, links and routing that give fabric nodes IP reachability to each other"
+          ],
+          "answer": 3,
+          "explanation": "The underlay is the physical network plus its routing (IS-IS in a greenfield fabric), there so fabric nodes can reach each other. VXLAN tunnels are the overlay, and LISP is the overlay's control plane."
+        }
+      },
+      {
+        "title": "Catalyst Center and intent-based networking",
+        "body": "Cisco DNA Center was renamed **Catalyst Center** in 2023, and you will see both names in study material and on the exam. It plays two roles: the controller for SD-Access fabrics, and a management platform for ordinary, non-fabric networks.\n\nStart with what it shares with traditional network management platforms such as Cisco Prime Infrastructure: one GUI for everything; device discovery, inventory and topology maps built with SNMP, SSH, CDP and LLDP; lifecycle support from day 0 (installing a device) through day 1 (configuring it) to day n (monitoring and changing it); software image management; and Plug and Play for new devices.\n\nWhat it adds is what the exam means by comparing traditional with controller-based management:\n\n- **SD-Access**: building and running the fabric, which traditional tools cannot do.\n- **Intent-based policy**: you define groups and which may communicate, instead of ACL lines on interfaces.\n- **Assurance**: Device 360 and Client 360 health views, AI-driven baselines and issue detection, and network time travel to see how a client was doing at a moment in the past.\n- **Path trace**: the actual path a flow takes, including which ACLs along the way permit or deny it.\n- **Simpler hard features**: application policies that deploy QoS from a few high-level choices.\n- **A northbound REST API** for all of it, with SSH, SNMP, NETCONF and RESTCONF on the southbound side.\n\n**Intent-based networking (IBN)** is the idea underneath. You state the outcome you want, such as \"guests reach the internet but nothing internal\", and the controller translates that intent into device configuration, deploys it, and keeps checking that the network really behaves that way.\n\nCompare that with a traditional ACL that has grown for years. Nobody dares delete a line, because nobody knows which old requirement it serves or which other requirement shares it. With group-based policy, each rule is a separate cell in a matrix with its reason recorded, and you can remove it without touching the others.",
+        "code": "Group-based policy (source down, destination across)\n\nSource \\ Dest   Employee   Partner   Guest   Internet\nEmployee        n/a        Permit    Deny    Permit\nPartner         Permit     n/a       Deny    Permit\nGuest           Deny       Deny      n/a     Permit\n\nNo IP addresses and no interface ACLs: ISE puts each user in a group,\nand the fabric enforces the cell for each source and destination group.",
+        "language": "plaintext",
+        "tip": "If an answer says the engineer configures the network as a whole, by intent or policy, rather than device by device, it describes controller-based management.",
+        "pitfall": "Catalyst Center does not make traditional features disappear. Discovery, inventory, topology maps and day 0, 1 and n lifecycle work are things both traditional tools and Catalyst Center do; SD-Access and intent-based policy are what set it apart.",
+        "check": {
+          "question": "Which capability belongs to Catalyst Center but not to a traditional network management platform?",
+          "choices": [
+            "Discovering devices and drawing a topology map",
+            "Building and controlling an SD-Access fabric with group-based policy",
+            "Polling interface counters with SNMP",
+            "Backing up device configurations on a schedule"
+          ],
+          "answer": 1,
+          "explanation": "Traditional platforms also discover devices, poll with SNMP and back up configurations. Running an SD-Access fabric with intent-based group policy is what Catalyst Center adds."
+        }
+      },
+      {
+        "title": "Cloud-managed networks",
+        "body": "A coffee chain opens 40 stores a year and has no IT staff in any of them. The store manager unboxes a switch and an access point, plugs them into power and the internet, and within minutes they download their configuration and appear on a dashboard at headquarters. That is **cloud-managed networking**. Cisco Meraki is the classic example, and Cisco also offers cloud management for some Catalyst switches and access points.\n\nHere the controller is a service the vendor runs in its cloud. Each device opens an outbound, encrypted connection to the cloud and keeps it up; the cloud pushes configuration and firmware and collects health data and statistics. The points to know:\n\n- **Only management traffic goes to the cloud.** User traffic is forwarded locally by the switches, access points and firewalls; it does not detour through the vendor's data centers.\n- **Zero-touch provisioning**: devices are claimed into your organization in the dashboard by serial or order number, then configure themselves the first time they connect.\n- **If the cloud is unreachable**, devices keep forwarding with their last configuration. You lose the dashboard and the ability to make changes until the connection returns.\n- **One dashboard for every site**, reachable from anywhere, with no controller hardware for you to install, patch or back up.\n- **APIs**: the dashboard has its own northbound REST API, so the automation skills from the next packs apply directly.\n\nThe trade-offs: subscription licensing that must stay current, management that depends on internet access, and data about your network stored with a third party, which matters for privacy rules and data residency requirements.\n\nYou should now be able to compare three management models: traditional (device by device), an on-premises controller (Catalyst Center, APIC), and cloud-managed (a controller you consume as a service).",
+        "code": "                    Traditional        On-premises controller     Cloud-managed\nWhere you manage    Each device's CLI  Controller GUI and API     Vendor dashboard and API\nController runs     Nowhere            Your server or appliance   Vendor's cloud\nNew device setup    Console by hand    Plug and Play              Zero-touch from the cloud\nUser traffic        Stays local        Stays local                Stays local\nIf manager is down  Not applicable     Devices keep forwarding    Devices keep forwarding\nExample             IOS CLI over SSH   Catalyst Center, APIC      Meraki dashboard",
+        "language": "plaintext",
+        "tip": "Cloud-managed means the management plane lives in the cloud while the data plane stays on site.",
+        "pitfall": "A tempting wrong answer says cloud-managed networks send all user traffic through the cloud. They do not; only management and telemetry traffic goes there.",
+        "check": {
+          "question": "A branch with cloud-managed switches loses its internet connection for an hour. What happens to traffic between two PCs in that branch?",
+          "choices": [
+            "It stops, because the switches need the cloud to make forwarding decisions",
+            "It is redirected through the vendor's nearest data center over a backup tunnel",
+            "It keeps flowing locally; only management from the dashboard is unavailable",
+            "It keeps flowing, but every switch reboots into a factory default configuration"
+          ],
+          "answer": 2,
+          "explanation": "Cloud management moves the management plane to the cloud, not the data plane. Local switching keeps working with the last configuration; you just cannot see or change the devices until the cloud is reachable again."
+        }
+      }
+    ],
+    "keyTerms": [
+      {
+        "term": "Data plane",
+        "definition": "Per-message forwarding work: table lookups, encapsulation, tagging, NAT and ACL filtering. Also called the forwarding plane."
+      },
+      {
+        "term": "Control plane",
+        "definition": "Work that builds the tables the data plane uses, such as routing protocols, ARP, MAC learning and STP."
+      },
+      {
+        "term": "Management plane",
+        "definition": "Protocols used to manage a device, such as SSH, SNMP, syslog and NETCONF."
+      },
+      {
+        "term": "Controller",
+        "definition": "Software that centralizes some control or management functions and exposes the network to people and programs."
+      },
+      {
+        "term": "Northbound API",
+        "definition": "The interface from a controller up to applications and scripts, usually a REST API returning JSON."
+      },
+      {
+        "term": "Southbound API",
+        "definition": "The interface from a controller down to devices, such as OpenFlow, OpFlex, NETCONF, RESTCONF, SSH and SNMP."
+      },
+      {
+        "term": "Underlay",
+        "definition": "The physical network and its routing, which give fabric nodes IP reachability to each other."
+      },
+      {
+        "term": "Overlay",
+        "definition": "Virtual networks built on the underlay with tunnels; in SD-Access, VXLAN tunnels between fabric nodes."
+      },
+      {
+        "term": "Fabric",
+        "definition": "The underlay and overlay together, managed as one system."
+      },
+      {
+        "term": "Intent-based networking",
+        "definition": "Stating the desired outcome and letting the controller translate it into configuration and verify the result."
+      },
+      {
+        "term": "Configuration drift",
+        "definition": "A device's configuration diverging over time from others in the same role, usually through one-off manual changes."
+      },
+      {
+        "term": "Cloud-managed networking",
+        "definition": "Devices managed from a vendor-hosted dashboard; only management traffic goes to the cloud."
+      }
+    ],
+    "summary": [
+      "Automation brings consistency, speed, scale and fewer errors, and lets tools find and fix configuration drift.",
+      "The data plane forwards each message, the control plane builds the tables it uses, and the management plane lets people and tools manage the device.",
+      "Controllers centralize different amounts of work: OpenFlow most of the control plane, ACI part of it, and Catalyst Center managing traditional devices none of it.",
+      "Northbound APIs (usually REST with JSON) face apps and scripts; southbound APIs (OpenFlow, OpFlex, NETCONF, RESTCONF, SSH, SNMP) face devices.",
+      "In SD-Access the underlay is a routed IS-IS network, the overlay is VXLAN tunnels with LISP as their control plane, and together they form the fabric.",
+      "Cloud-managed networks keep user traffic local and move management to a vendor dashboard."
+    ],
+    "feynmanPrompt": "Explain to a new network technician what changes when a campus moves from configuring each switch by hand to Catalyst Center with SD-Access. Cover the three planes, northbound and southbound APIs, and what the underlay and overlay each do."
+  },
+  "questions": [
+    {
+      "id": "ccna-automation-sdn-q01",
+      "type": "mcq",
+      "difficulty": "easy",
+      "question": "A Layer 2 switch looks up a frame's destination MAC address and forwards it out G0/2 only. Which plane does this work belong to?",
+      "choices": [
+        "Control plane",
+        "Management plane",
+        "Data plane",
+        "Southbound plane"
+      ],
+      "answer": 2,
+      "explanation": "Forwarding each frame by matching the MAC table is data plane work. The control plane built that table (MAC learning), but using it to forward is the data plane.",
+      "concept": "data plane",
+      "section": 1
+    },
+    {
+      "id": "ccna-automation-sdn-q02",
+      "type": "mcq",
+      "difficulty": "easy",
+      "question": "A router learns a route from an OSPF neighbor and installs it in its routing table. Which plane is this?",
+      "choices": [
+        "Data plane",
+        "Control plane",
+        "Management plane",
+        "Forwarding plane"
+      ],
+      "answer": 1,
+      "explanation": "Routing protocols build the tables the data plane uses, which is control plane work. Forwarding plane is another name for the data plane, so it is wrong here.",
+      "concept": "control plane",
+      "section": 1
+    },
+    {
+      "id": "ccna-automation-sdn-q03",
+      "type": "match",
+      "difficulty": "easy",
+      "question": "Match each task to the plane it belongs to.",
+      "pairs": [
+        {
+          "left": "NAT rewrites a packet's source address",
+          "right": "Data plane"
+        },
+        {
+          "left": "STP moves a port to the blocking state",
+          "right": "Control plane"
+        },
+        {
+          "left": "An SNMP manager polls interface counters",
+          "right": "Management plane"
+        }
+      ],
+      "explanation": "NAT acts on each packet (data plane). STP decides which ports may forward, shaping the data plane's behavior (control plane). SNMP exists so tools can monitor and manage the device (management plane).",
+      "concept": "three planes",
+      "section": 1
+    },
+    {
+      "id": "ccna-automation-sdn-q04",
+      "type": "multi",
+      "difficulty": "medium",
+      "question": "Which two of these are control plane functions? Choose two.",
+      "choices": [
+        "ARP resolving a next-hop MAC address",
+        "An ACL discarding a packet",
+        "A switch learning source MAC addresses",
+        "Encrypting a packet for a site-to-site VPN",
+        "An engineer connecting with SSH"
+      ],
+      "answers": [
+        0,
+        2
+      ],
+      "explanation": "ARP and MAC learning both build tables the data plane uses, so they are control plane. ACL filtering and VPN encryption act on each packet (data plane), and SSH is management plane.",
+      "concept": "control plane examples",
+      "section": 1
+    },
+    {
+      "id": "ccna-automation-sdn-q05",
+      "type": "mcq",
+      "difficulty": "medium",
+      "question": "Why do switches forward frames with an ASIC and TCAM instead of the general-purpose CPU?",
+      "choices": [
+        "The CPU cannot run routing protocols or STP",
+        "TCAM stores the startup-config so it survives a reload",
+        "Forwarding millions of frames per second needs hardware lookups a CPU running software cannot match",
+        "The ASIC encrypts management traffic such as SSH and SNMPv3"
+      ],
+      "answer": 2,
+      "explanation": "Even a small switch must forward millions of frames per second, so the data plane runs in purpose-built hardware: the ASIC does the forwarding and TCAM returns a table match in a single lookup. The CPU runs IOS and most control and management plane work.",
+      "concept": "hardware data plane",
+      "section": 1
+    },
+    {
+      "id": "ccna-automation-sdn-q06",
+      "type": "mcq",
+      "difficulty": "easy",
+      "question": "Which statement best describes configuration drift?",
+      "choices": [
+        "A device's configuration changing over time so that it differs from other devices in the same role",
+        "A device's running-config being larger than its startup-config",
+        "Routes appearing and disappearing from the routing table",
+        "A device losing its configuration after a power failure"
+      ],
+      "answer": 0,
+      "explanation": "Drift is gradual divergence from the standard for a role, usually caused by one-off manual changes. Automation tools detect it by comparing devices with the intended configuration.",
+      "concept": "configuration drift",
+      "section": 0
+    },
+    {
+      "id": "ccna-automation-sdn-q07",
+      "type": "mcq",
+      "difficulty": "medium",
+      "question": "An automation script must find the operational trunking state of every port on 600 switches. Why is reading it from an API with a defined data model better than parsing the show command output?",
+      "choices": [
+        "The API makes the switches forward frames faster",
+        "Show commands cannot be run over SSH by a script",
+        "The API removes the need to understand trunking",
+        "The API returns named fields, so the script does not break when the CLI output format changes"
+      ],
+      "answer": 3,
+      "explanation": "Screen scraping depends on the exact layout of human-readable text, which changes between releases and platforms. A data model gives each fact a stable name and type that programs can read directly.",
+      "concept": "structured data vs scraping",
+      "section": 0
+    },
+    {
+      "id": "ccna-automation-sdn-q08",
+      "type": "mcq",
+      "difficulty": "medium",
+      "question": "An automation tool pushes a change with a template error, and OSPF breaks on all 300 branch routers at once. Which practice would most directly have limited the damage?",
+      "choices": [
+        "Configuring each router by hand instead",
+        "Testing in a lab and rolling the change out to a small group of devices first",
+        "Disabling SSH on the routers so the tool cannot connect",
+        "Running the tool more often so it repairs itself"
+      ],
+      "answer": 1,
+      "explanation": "Automation applies mistakes at scale just as well as good changes. Testing first and rolling out in stages (a pilot group, then the rest) keeps one bad change from reaching everything at once, while keeping the benefits of automation.",
+      "concept": "safe automation rollout",
+      "section": 0
+    },
+    {
+      "id": "ccna-automation-sdn-q09",
+      "type": "multi",
+      "difficulty": "medium",
+      "question": "Which two are advantages of controller-based networking compared with traditional networking? Choose two.",
+      "choices": [
+        "Configuring features for the network as a whole instead of per device",
+        "Every device keeps fully independent forwarding decisions",
+        "More consistent device configuration with fewer errors",
+        "Devices no longer need a data plane",
+        "Engineers no longer need to understand routing"
+      ],
+      "answers": [
+        0,
+        2
+      ],
+      "explanation": "Controllers let you define policy once for the network and push consistent configuration to every device. Devices still need a data plane to forward traffic, and the knowledge to design and troubleshoot the network still matters.",
+      "concept": "controller benefits",
+      "section": 2
+    },
+    {
+      "id": "ccna-automation-sdn-q10",
+      "type": "mcq",
+      "difficulty": "hard",
+      "question": "Which architecture centralizes the most control plane work in the controller?",
+      "choices": [
+        "Cisco ACI with the APIC",
+        "Catalyst Center managing traditional switches",
+        "OpenFlow with an OpenDaylight controller",
+        "A traditional network running OSPF on every router"
+      ],
+      "answer": 2,
+      "explanation": "In the OpenFlow model the controller computes and installs forwarding entries, leaving switches with mostly data plane work. ACI centralizes policy but leaves some control plane in the switches, and Catalyst Center managing traditional devices centralizes none of it.",
+      "concept": "degree of centralization",
+      "section": 2
+    },
+    {
+      "id": "ccna-automation-sdn-q11",
+      "type": "mcq",
+      "difficulty": "medium",
+      "question": "Catalyst Center manages a group of older switches using SSH and SNMP. What changes about how those switches build their routing and MAC tables?",
+      "choices": [
+        "Nothing; they keep their own control plane, and the controller changes their configuration",
+        "The controller now computes every route and installs it directly",
+        "The switches stop running STP because the controller blocks ports itself",
+        "The switches send every frame to the controller for a forwarding decision"
+      ],
+      "answer": 0,
+      "explanation": "Managing devices through the management plane does not move their control plane. The switches still run routing protocols, STP and MAC learning; the controller just configures and monitors them centrally.",
+      "concept": "management-plane controller",
+      "section": 2
+    },
+    {
+      "id": "ccna-automation-sdn-q12",
+      "type": "mcq",
+      "difficulty": "medium",
+      "question": "Which controller and southbound protocol go together in Cisco ACI?",
+      "choices": [
+        "APIC with OpFlex",
+        "Catalyst Center with OpenFlow",
+        "OpenDaylight with OpFlex only",
+        "APIC with SNMP only"
+      ],
+      "answer": 0,
+      "explanation": "ACI's controller is the Application Policy Infrastructure Controller (APIC), which pushes policy to the fabric switches with OpFlex. OpenFlow is the ONF's southbound protocol, used with controllers such as OpenDaylight.",
+      "concept": "ACI and OpFlex",
+      "section": 2
+    },
+    {
+      "id": "ccna-automation-sdn-q13",
+      "type": "mcq",
+      "difficulty": "hard",
+      "question": "Catalyst Center goes offline for a planned upgrade. What happens to the campus network it manages?",
+      "choices": [
+        "All traffic stops until the controller returns",
+        "Devices keep forwarding with their current configuration, but changes and the network-wide view are unavailable",
+        "Devices revert to their factory default configuration",
+        "Devices switch to OpenFlow and wait for a backup controller"
+      ],
+      "answer": 1,
+      "explanation": "Catalyst Center is not in the forwarding path. Devices keep their configuration and tables and keep forwarding; you lose the ability to make changes, run assurance and use its API until it is back. That is why controllers are still deployed in highly available clusters.",
+      "concept": "controller failure",
+      "section": 2
+    },
+    {
+      "id": "ccna-automation-sdn-q14",
+      "type": "mcq",
+      "difficulty": "easy",
+      "question": "Which interface does an SDN controller use to program and configure the network devices below it?",
+      "choices": [
+        "The northbound interface",
+        "The southbound interface",
+        "The management VLAN",
+        "The console port"
+      ],
+      "answer": 1,
+      "explanation": "The southbound interface faces down to the devices. The northbound interface faces up to applications and scripts that use the controller.",
+      "concept": "southbound interface",
+      "section": 3
+    },
+    {
+      "id": "ccna-automation-sdn-q15",
+      "type": "multi",
+      "difficulty": "medium",
+      "question": "Which three are southbound protocols or APIs? Choose three.",
+      "choices": [
+        "OpenFlow",
+        "OpFlex",
+        "NETCONF",
+        "The controller's REST API used by a Python script",
+        "JSON"
+      ],
+      "answers": [
+        0,
+        1,
+        2
+      ],
+      "explanation": "OpenFlow, OpFlex and NETCONF are used by controllers to talk down to devices. A script calling the controller's REST API is using the northbound interface, and JSON is a data format, not an interface.",
+      "concept": "southbound protocols",
+      "section": 3
+    },
+    {
+      "id": "ccna-automation-sdn-q16",
+      "type": "mcq",
+      "difficulty": "medium",
+      "question": "When a help desk ticket opens, the ticketing system asks Catalyst Center to run a path trace between the user's laptop and a server. Which statement is correct?",
+      "choices": [
+        "The ticketing system uses the southbound API because the trace reaches the devices",
+        "The ticketing system needs SSH access to every switch on the path",
+        "The ticketing system uses the northbound REST API, and the controller gathers device data southbound",
+        "Path trace only works if every device on the path runs OpenFlow"
+      ],
+      "answer": 2,
+      "explanation": "Applications talk to the controller northbound. The controller already collects configuration and forwarding data from devices through its southbound interfaces and does the path analysis itself, so the app never touches the switches.",
+      "concept": "northbound use case",
+      "section": 3
+    },
+    {
+      "id": "ccna-automation-sdn-q17",
+      "type": "mcq",
+      "difficulty": "medium",
+      "question": "What transport and data encoding does NETCONF use?",
+      "choices": [
+        "SSH with XML",
+        "HTTPS with JSON only",
+        "UDP with binary TLV fields",
+        "Telnet with plain CLI text"
+      ],
+      "answer": 0,
+      "explanation": "NETCONF runs over SSH (port 830) and encodes data in XML, structured by YANG models. RESTCONF is the HTTPS-based alternative that can carry JSON or XML.",
+      "concept": "NETCONF",
+      "section": 3
+    },
+    {
+      "id": "ccna-automation-sdn-q18",
+      "type": "recall",
+      "difficulty": "medium",
+      "question": "Explain the difference between a northbound and a southbound API, with one example of each.",
+      "answer": "A northbound API faces up from the controller to applications and scripts, usually a REST API returning JSON, such as Catalyst Center's Intent API. A southbound API faces down to the devices, such as OpenFlow, OpFlex, NETCONF, RESTCONF, SSH or SNMP.",
+      "explanation": "Name the direction from the controller's point of view: up to the apps is north, down to the devices is south.",
+      "concept": "NBI vs SBI",
+      "section": 3
+    },
+    {
+      "id": "ccna-automation-sdn-q19",
+      "type": "mcq",
+      "difficulty": "easy",
+      "question": "In Cisco SD-Access, what is the overlay?",
+      "choices": [
+        "The physical switches and links that provide IP reachability",
+        "Virtual networks carried in VXLAN tunnels between fabric nodes",
+        "The Catalyst Center GUI and its dashboards",
+        "The ISE database of users and groups"
+      ],
+      "answer": 1,
+      "explanation": "The overlay is the set of virtual networks built on top of the underlay with VXLAN tunnels. The physical network and its routing are the underlay.",
+      "concept": "overlay",
+      "section": 4
+    },
+    {
+      "id": "ccna-automation-sdn-q20",
+      "type": "match",
+      "difficulty": "medium",
+      "question": "Match each SD-Access component to its job.",
+      "pairs": [
+        {
+          "left": "VXLAN",
+          "right": "Overlay data plane: encapsulates endpoint frames"
+        },
+        {
+          "left": "LISP",
+          "right": "Overlay control plane: maps endpoint IDs to locators"
+        },
+        {
+          "left": "IS-IS",
+          "right": "Routing protocol of a greenfield underlay"
+        },
+        {
+          "left": "Scalable group tag",
+          "right": "Group label used to enforce policy"
+        },
+        {
+          "left": "Fabric border node",
+          "right": "Connects the fabric to outside networks"
+        }
+      ],
+      "explanation": "VXLAN carries traffic and LISP tells nodes where endpoints are. IS-IS gives the routed underlay reachability, SGTs carry group membership for policy, and border nodes connect the fabric to the WAN or data center.",
+      "concept": "SD-Access components",
+      "section": 4
+    },
+    {
+      "id": "ccna-automation-sdn-q21",
+      "type": "mcq",
+      "difficulty": "hard",
+      "question": "An SD-Access edge node sends this packet into the fabric. Which statement is correct?",
+      "code": "Outer IP  src 172.16.1.1  dst 172.16.3.3\nUDP\nVXLAN     VNI 8190  SGT 17\nInner IP  src 10.1.1.1    dst 10.1.3.1\nData",
+      "language": "plaintext",
+      "choices": [
+        "Underlay switches route it using 10.1.3.1, the destination endpoint's address",
+        "172.16.3.3 is the destination endpoint's default gateway in the overlay",
+        "172.16.3.3 is the RLOC of the egress edge node, and the underlay routes on the outer header",
+        "The first underlay switch removes the inner header"
+      ],
+      "answer": 2,
+      "explanation": "The ingress edge node addressed the outer header to the egress node's routing locator, learned from LISP. Underlay switches only look at that outer header; the egress edge node removes the VXLAN wrapper and delivers the original frame to 10.1.3.1.",
+      "concept": "VXLAN outer header",
+      "section": 4
+    },
+    {
+      "id": "ccna-automation-sdn-q22",
+      "type": "order",
+      "difficulty": "hard",
+      "question": "Put the SD-Access steps in order for the first frame sent to a new destination.",
+      "items": [
+        "The egress edge node registers the destination's EID and its own RLOC with the LISP map server",
+        "A frame for that destination arrives at the ingress edge node",
+        "The ingress edge node asks the LISP mapping system where the destination EID lives",
+        "The ingress edge node learns the egress node's RLOC",
+        "The ingress node wraps the original frame in VXLAN with an outer IP header to that RLOC",
+        "The egress edge node removes the VXLAN wrapper and delivers the original frame"
+      ],
+      "explanation": "Registration happens first, so the mapping system can answer. The ingress node then resolves the EID to an RLOC (LISP, control plane) and tunnels the frame there (VXLAN, data plane), and the egress node decapsulates it.",
+      "concept": "LISP and VXLAN flow",
+      "section": 4
+    },
+    {
+      "id": "ccna-automation-sdn-q23",
+      "type": "mcq",
+      "difficulty": "hard",
+      "question": "A greenfield SD-Access fabric was built by Catalyst Center. Why is neither HSRP nor STP blocking needed between its access and distribution switches?",
+      "choices": [
+        "All inter-switch links are routed Layer 3 links running IS-IS, and the edge node is the hosts' default gateway",
+        "Catalyst Center runs STP centrally and pushes the blocked ports to each switch",
+        "VXLAN replaces IP routing in the underlay",
+        "Each endpoint uses the LISP map server as its default gateway"
+      ],
+      "answer": 0,
+      "explanation": "The routed access underlay has no Layer 2 links between switches, so there are no Layer 2 loops for STP to break, and IS-IS picks paths. With the gateway on the edge node itself, there is no pair of distribution gateways to make redundant with an FHRP.",
+      "concept": "routed access underlay",
+      "section": 4
+    },
+    {
+      "id": "ccna-automation-sdn-q24",
+      "type": "mcq",
+      "difficulty": "medium",
+      "question": "What does intent-based networking mean?",
+      "choices": [
+        "Engineers write every device command, and the controller only stores backups",
+        "Devices guess the engineer's intent from traffic patterns, with no configuration",
+        "Policies are written as ACL lines on each interface",
+        "The engineer states the desired outcome, and the controller turns it into device configuration and checks the result"
+      ],
+      "answer": 3,
+      "explanation": "With IBN you describe what should happen (for example, which groups may communicate). The controller works out and deploys the per-device configuration, then verifies the network behaves as intended.",
+      "concept": "intent-based networking",
+      "section": 5
+    },
+    {
+      "id": "ccna-automation-sdn-q25",
+      "type": "multi",
+      "difficulty": "medium",
+      "question": "Which two network management tasks are performed by both traditional management platforms and Catalyst Center? Choose two.",
+      "choices": [
+        "Discovering devices and building a topology map",
+        "Building and controlling an SD-Access fabric",
+        "Day 0 installation, day 1 configuration and day n monitoring",
+        "Enforcing scalable group tag policy across a fabric"
+      ],
+      "answers": [
+        0,
+        2
+      ],
+      "explanation": "Discovery, topology maps and lifecycle management are traditional management features that Catalyst Center also has. SD-Access and SGT-based policy are what only Catalyst Center adds.",
+      "concept": "traditional vs Catalyst Center",
+      "section": 5
+    },
+    {
+      "id": "ccna-automation-sdn-q26",
+      "type": "mcq",
+      "difficulty": "medium",
+      "question": "An engineer must remove a security rule added two years ago for a project that has ended. Why is this easier with SD-Access group-based policy than with a long traditional ACL?",
+      "choices": [
+        "Group policies are stored in every switch's startup-config",
+        "SD-Access never allows traffic to be denied",
+        "Catalyst Center deletes any rule older than one year",
+        "Each group policy is a separate entry, so one can be removed without affecting the others"
+      ],
+      "answer": 3,
+      "explanation": "In a long ACL, one line may serve several old requirements and order matters, so removing it is risky. Group-based policies are kept separately per source and destination group, with notes, and can be removed independently.",
+      "concept": "group-based policy",
+      "section": 5
+    },
+    {
+      "id": "ccna-automation-sdn-q27",
+      "type": "typed",
+      "difficulty": "easy",
+      "question": "In 2023 Cisco renamed DNA Center. What is its current name?",
+      "answer": "Catalyst Center",
+      "accept": [
+        "Cisco Catalyst Center"
+      ],
+      "explanation": "Cisco DNA Center became Cisco Catalyst Center in 2023. Older books, labs and exam questions still use the DNA Center name.",
+      "concept": "Catalyst Center name",
+      "section": 5
+    },
+    {
+      "id": "ccna-automation-sdn-q28",
+      "type": "mcq",
+      "difficulty": "easy",
+      "question": "In a cloud-managed network, which traffic goes to the vendor's cloud?",
+      "choices": [
+        "All user traffic, so the cloud can inspect it",
+        "Only traffic headed to the internet",
+        "Only management traffic such as configuration, firmware and telemetry",
+        "No traffic; the dashboard polls devices with SNMP from inside your LAN"
+      ],
+      "answer": 2,
+      "explanation": "Cloud management moves the management plane to the vendor's cloud. User traffic is still switched and routed locally by the devices on site.",
+      "concept": "cloud management traffic",
+      "section": 6
+    },
+    {
+      "id": "ccna-automation-sdn-q29",
+      "type": "mcq",
+      "difficulty": "easy",
+      "question": "A new access point for a cloud-managed store is shipped straight to the store. What lets it configure itself when it is plugged in?",
+      "choices": [
+        "Zero-touch provisioning: it contacts the cloud dashboard, which already knows its serial number and site",
+        "The store manager types the configuration at the console port",
+        "It copies its configuration from the nearest access point over Wi-Fi",
+        "An engineer must SSH to it from headquarters first"
+      ],
+      "answer": 0,
+      "explanation": "Devices are claimed into the organization by serial or order number ahead of time. When the new device reaches the internet it contacts the cloud and downloads its configuration with no on-site expertise.",
+      "concept": "zero-touch provisioning",
+      "section": 6
+    },
+    {
+      "id": "ccna-automation-sdn-q30",
+      "type": "mcq",
+      "difficulty": "medium",
+      "question": "Which is a real trade-off of cloud-managed networking?",
+      "choices": [
+        "All user traffic gains latency because it passes through the cloud",
+        "Management depends on internet access to the vendor's cloud, and licensing is an ongoing subscription",
+        "Devices cannot be managed through any API",
+        "Every site needs its own on-premises controller"
+      ],
+      "answer": 1,
+      "explanation": "You trade owning a controller for depending on the vendor's service: management needs internet access, licenses must stay current, and data about your network is held by a third party. User traffic stays local, and cloud dashboards have REST APIs.",
+      "concept": "cloud management trade-offs",
+      "section": 6
+    }
+  ]
+}

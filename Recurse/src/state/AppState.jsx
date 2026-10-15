@@ -10,7 +10,24 @@ import { achievementTitle, newlyUnlocked } from '../lib/achievements'
 import { dayKey } from '../lib/dates'
 import { uid } from '../lib/random'
 import { callNumbers } from '../lib/subjects'
+import { ACCENT_VAR_NAMES, THEME_MAP, accentHue, accentVars, chromeColor, resolveTheme } from '../lib/themes'
+import { configureSound } from '../lib/sfx'
+import { configureEffects } from '../lib/juice'
+import { sfx } from '../lib/sfx'
 
+
+/** Whether the device prefers a dark color scheme, kept current. */
+function useSystemDark() {
+  const query = typeof window !== 'undefined' ? window.matchMedia?.('(prefers-color-scheme: dark)') : null
+  const [dark, setDark] = useState(() => Boolean(query?.matches))
+  useEffect(() => {
+    if (!query) return
+    const onChange = () => setDark(query.matches)
+    query.addEventListener?.('change', onChange)
+    return () => query.removeEventListener?.('change', onChange)
+  }, [query])
+  return dark
+}
 
 /** Re-render on an interval so due counts and relative times stay current. */
 function useNow(intervalMs = 60000) {
@@ -56,15 +73,16 @@ export function AppProvider({ children }) {
   const [settings, setSettings] = useState(boot.settings)
   const [communityPacks, setCommunityPacks] = useState(boot.communityPacks)
   const [lastSession, setLastSession] = useState(boot.lastSession)
+  const [practice, setPractice] = useState(boot.practice)
   const [toasts, setToasts] = useState([])
   const [shortcutsOpen, setShortcutsOpen] = useState(false)
   const now = useNow()
 
   // Latest committed values. Actions read from here so back-to-back calls never work on stale state.
-  const latest = useRef({ progress, stats, settings, communityPacks })
+  const latest = useRef({ progress, stats, settings, communityPacks, practice })
   useLayoutEffect(() => {
-    latest.current = { progress, stats, settings, communityPacks }
-  }, [progress, stats, settings, communityPacks])
+    latest.current = { progress, stats, settings, communityPacks, practice }
+  }, [progress, stats, settings, communityPacks, practice])
 
   const toast = useCallback((message, { tone = 'neutral', duration = 3500 } = {}) => {
     const id = uid()
@@ -88,15 +106,36 @@ export function AppProvider({ children }) {
   useEffect(() => persist(save.settings(settings)), [settings, persist])
   useEffect(() => persist(save.communityPacks(communityPacks)), [communityPacks, persist])
   useEffect(() => persist(save.lastSession(lastSession)), [lastSession, persist])
+  useEffect(() => persist(save.practice(practice)), [practice, persist])
 
-  // Theme: "system" defers to prefers-color-scheme in CSS.
+  // Theme and accent. "system" defers to prefers-color-scheme in CSS; a custom accent is
+  // computed for the active theme's light or dark mode. The resolved variables are cached
+  // so index.html can apply them before first paint.
+  const systemDark = useSystemDark()
   useEffect(() => {
     const root = document.documentElement
-    if (settings.theme === 'light' || settings.theme === 'dark') root.dataset.theme = settings.theme
+    if (THEME_MAP[settings.theme]) root.dataset.theme = settings.theme
     else delete root.dataset.theme
-    const dark = settings.theme === 'dark' || (settings.theme !== 'light' && window.matchMedia?.('(prefers-color-scheme: dark)').matches)
-    document.querySelector('meta[name="theme-color"]')?.setAttribute('content', dark ? '#14130f' : '#f2eee4')
-  }, [settings.theme])
+    const theme = resolveTheme(settings.theme, systemDark)
+    const vars = accentVars(accentHue(settings.accent), theme.mode)
+    for (const name of ACCENT_VAR_NAMES) root.style.removeProperty(name)
+    if (vars) {
+      root.dataset.accent = String(settings.accent)
+      for (const [name, value] of Object.entries(vars)) root.style.setProperty(name, value)
+    } else delete root.dataset.accent
+    document.querySelector('meta[name="theme-color"]')?.setAttribute('content', chromeColor(theme))
+    try {
+      localStorage.setItem('recurse_theme_boot', JSON.stringify({ accent: vars ? String(settings.accent) : null, vars }))
+    } catch {
+      // Only a paint optimization.
+    }
+  }, [settings.theme, settings.accent, systemDark])
+
+  // Sound and visual effects are module-level so any component can trigger them.
+  useEffect(() => {
+    configureSound({ on: settings.sound, level: settings.soundVolume })
+    configureEffects(settings.effects)
+  }, [settings.sound, settings.soundVolume, settings.effects])
 
   const packs = useMemo(() => allPacks(communityPacks), [communityPacks])
   const packMap = useMemo(() => new Map(packs.map((p) => [p.id, p])), [packs])
@@ -115,12 +154,14 @@ export function AppProvider({ children }) {
   const apply = useCallback((change) => {
     const current = latest.current
     const next = { ...current, ...change(current) }
-    const unlocked = newlyUnlocked({ stats: next.stats, progress: next.progress, packs: allPacks(next.communityPacks) })
+    const unlocked = newlyUnlocked({ stats: next.stats, progress: next.progress, packs: allPacks(next.communityPacks), practice: next.practice })
     if (unlocked.length) next.stats = { ...next.stats, achievements: [...(next.stats.achievements || []), ...unlocked] }
     latest.current = next
     if (next.progress !== current.progress) setProgress(next.progress)
     if (next.stats !== current.stats) setStats(next.stats)
     if (next.communityPacks !== current.communityPacks) setCommunityPacks(next.communityPacks)
+    if (next.practice !== current.practice) setPractice(next.practice)
+    if (unlocked.length) setTimeout(() => sfx.achievement(), 350)
     unlocked.forEach((id) => toast(`Achievement unlocked: ${achievementTitle(id)}`, { tone: 'good', duration: 5000 }))
     return next
   }, [toast])
@@ -142,7 +183,11 @@ export function AppProvider({ children }) {
     let result
     apply(({ progress: p, stats: st, settings: se }) => {
       const topic = topicOf(p, packId)
-      const card = schedule(topic.cards[question.id], rating, { retention: se.desiredRetention, now: at })
+      const prior = topic.cards[question.id]
+      const card = schedule(prior, rating, { retention: se.desiredRetention, now: at })
+      // Remember which learning approach a card was first learned in, for "Your data".
+      const learnedIn = prior?.learnedIn || (prior?.reps > 0 ? null : se.learningMode || 'balanced')
+      if (learnedIn) card.learnedIn = learnedIn
       const xp = xpForReview({ type: question.type, correct, isNew, streak: currentStreak(st, at) })
       const spent = Math.min(Math.max(0, seconds), 300)
       result = { card, xp }
@@ -228,6 +273,129 @@ export function AppProvider({ children }) {
     return xp
   }, [apply])
 
+  /** Add XP and a study day without a card review (activities, labs, challenges). */
+  const creditDay = (st, at, xp) => {
+    const key = dayKey(at)
+    const day = { reviews: 0, correct: 0, newCards: 0, seconds: 0, xp: 0, ...(st.days?.[key] || {}) }
+    return { ...st, ...applyStudyDay(st, at), xp: (st.xp || 0) + xp, days: { ...st.days, [key]: { ...day, xp: day.xp + xp } } }
+  }
+
+  /** A lesson activity's goal was reached. First completion per section earns XP. */
+  const recordActivity = useCallback((packId, sectionIndex, result = {}) => {
+    const at = new Date()
+    let xp = 0
+    apply(({ progress: p, stats: st }) => {
+      const topic = topicOf(p, packId)
+      const first = !topic.activities?.[sectionIndex]
+      xp = first ? 15 : 3
+      return {
+        progress: { ...p, [packId]: { ...topic, activities: { ...topic.activities, [sectionIndex]: { date: at.toISOString(), score: result.score ?? null } } } },
+        stats: { ...creditDay(st, at, xp), activitiesDone: (st.activitiesDone || 0) + (first ? 1 : 0) }
+      }
+    })
+    return xp
+  }, [apply])
+
+  /** A sandbox activity on the Practice page reached its goal. */
+  const recordSandbox = useCallback((type) => {
+    const at = new Date()
+    apply(({ practice: pr, stats: st }) => ({
+      practice: { ...pr, activities: { ...pr.activities, [type]: { date: at.toISOString(), count: (pr.activities?.[type]?.count || 0) + 1 } } },
+      stats: creditDay(st, at, pr.activities?.[type] ? 2 : 10)
+    }))
+  }, [apply])
+
+  /**
+   * A console lab or coding challenge was completed. Each gets its own FSRS card, rated
+   * from how much help was needed, so it comes back for a redo before the skill fades.
+   */
+  const recordPractice = useCallback((kind, id, { hintsUsed = 0, solutionUsed = false, score = null, language = null, seconds = 0, difficulty = 'medium' } = {}) => {
+    const at = new Date()
+    const rating = solutionUsed ? Rating.Again : hintsUsed > 1 ? Rating.Hard : hintsUsed === 1 ? Rating.Good : Rating.Easy
+    let xp = 0
+    apply(({ practice: pr, stats: st, settings: se }) => {
+      const bucket = kind === 'lab' ? 'labs' : 'challenges'
+      const prior = pr[bucket]?.[id]
+      const base = kind === 'lab' ? 40 : { easy: 30, medium: 50, hard: 80 }[difficulty] ?? 40
+      xp = prior?.solved ? Math.round(base / 4) : base
+      if (solutionUsed) xp = Math.round(xp / 3)
+      const entry = {
+        ...prior,
+        solved: prior?.solved || at.toISOString(),
+        last: at.toISOString(),
+        count: (prior?.count || 0) + 1,
+        best: Math.max(prior?.best ?? 0, score ?? (solutionUsed ? 0.3 : 1 - Math.min(hintsUsed, 3) * 0.15)),
+        hintsUsed,
+        solutionUsed: Boolean(prior?.solutionUsed && solutionUsed) || solutionUsed,
+        languages: language ? [...new Set([...(prior?.languages || []), language])] : prior?.languages || [],
+        card: schedule(prior?.card, rating, { retention: se.desiredRetention, now: at })
+      }
+      const counter = kind === 'lab' ? 'labsDone' : 'challengesSolved'
+      return {
+        practice: { ...pr, [bucket]: { ...pr[bucket], [id]: entry } },
+        stats: { ...creditDay(st, at, xp), [counter]: (st[counter] || 0) + (prior?.solved ? 0 : 1), totalSeconds: (st.totalSeconds || 0) + Math.min(Math.max(0, seconds), 3600) }
+      }
+    })
+    return xp
+  }, [apply])
+
+  const updateProject = useCallback((id, patch) => {
+    const at = new Date()
+    apply(({ practice: pr, stats: st }) => {
+      const prior = pr.projects?.[id] || { status: 'planned', milestones: {}, started: at.toISOString() }
+      const next = { ...prior, ...patch, updated: at.toISOString() }
+      const finishing = patch.status === 'done' && prior.status !== 'done'
+      if (finishing) next.finished = at.toISOString()
+      return {
+        practice: { ...pr, projects: { ...pr.projects, [id]: next } },
+        stats: finishing ? { ...creditDay(st, at, 250), projectsDone: (st.projectsDone || 0) + 1 } : st
+      }
+    })
+  }, [apply])
+
+  /**
+   * Save a quiz or exam and feed every answer into the schedule: right answers count as
+   * Good reviews, misses as Again, so exam mistakes come back soon.
+   */
+  const recordExam = useCallback((exam) => {
+    const at = new Date()
+    const record = { id: uid(), date: at.toISOString(), ...exam }
+    apply(({ practice: pr, progress: p, stats: st, settings: se }) => {
+      const nextProgress = { ...p }
+      let correctCount = 0
+      for (const answer of exam.answers || []) {
+        const topic = topicOf(nextProgress, answer.packId)
+        const card = schedule(topic.cards[answer.questionId], answer.correct ? Rating.Good : Rating.Again, { retention: se.desiredRetention, now: at })
+        const mistakes = { ...topic.mistakes }
+        if (answer.correct) {
+          delete mistakes[answer.questionId]
+          correctCount++
+        } else mistakes[answer.questionId] = { date: at.toISOString(), given: String(answer.given || '').slice(0, 300), count: (mistakes[answer.questionId]?.count || 0) + 1 }
+        nextProgress[answer.packId] = { ...topic, cards: { ...topic.cards, [answer.questionId]: card }, mistakes, lastStudied: at.toISOString() }
+      }
+      const answered = (exam.answers || []).length
+      const xp = Math.round(correctCount * 8 + (exam.mode === 'exam' ? 50 : 10))
+      record.xp = xp
+      const key = dayKey(at)
+      const day = { reviews: 0, correct: 0, newCards: 0, seconds: 0, xp: 0, ...(st.days?.[key] || {}) }
+      return {
+        progress: nextProgress,
+        practice: { ...pr, exams: [{ ...record, answers: (exam.answers || []).map(({ packId, questionId, correct }) => ({ packId, questionId, correct })) }, ...pr.exams].slice(0, 60) },
+        stats: {
+          ...st,
+          ...applyStudyDay(st, at),
+          xp: (st.xp || 0) + xp,
+          totalReviews: (st.totalReviews || 0) + answered,
+          totalCorrect: (st.totalCorrect || 0) + correctCount,
+          examsTaken: (st.examsTaken || 0) + (exam.mode === 'exam' ? 1 : 0),
+          quizzesTaken: (st.quizzesTaken || 0) + (exam.mode === 'exam' ? 0 : 1),
+          days: { ...st.days, [key]: { ...day, reviews: day.reviews + answered, correct: day.correct + correctCount, xp: day.xp + xp, seconds: day.seconds + Math.min(exam.seconds || 0, 4 * 3600) } }
+        }
+      }
+    })
+    return record
+  }, [apply])
+
   const resetTopic = useCallback((packId) => apply(({ progress: p }) => ({ progress: { ...p, [packId]: emptyTopic() } })), [apply])
 
   const clearMistakes = useCallback((packId) => {
@@ -257,7 +425,7 @@ export function AppProvider({ children }) {
   const reloadFromStorage = useCallback(() => {
     const data = loadAll()
     data.progress = pruneOrphans(data.progress, allPacks(data.communityPacks))
-    latest.current = { progress: data.progress, stats: data.stats, settings: data.settings, communityPacks: data.communityPacks }
+    latest.current = { progress: data.progress, stats: data.stats, settings: data.settings, communityPacks: data.communityPacks, practice: data.practice }
     setProgress(data.progress)
     setStats(data.stats)
     setUser(data.user)
@@ -265,6 +433,7 @@ export function AppProvider({ children }) {
     setSettings(data.settings)
     setCommunityPacks(data.communityPacks)
     setLastSession(data.lastSession)
+    setPractice(data.practice)
   }, [])
 
   // Another tab changed stored data: adopt it so this tab never writes stale state back.
@@ -298,6 +467,7 @@ export function AppProvider({ children }) {
     ai,
     settings,
     lastSession,
+    practice,
     toasts,
     shortcutsOpen,
     setShortcutsOpen,
@@ -312,6 +482,11 @@ export function AppProvider({ children }) {
     markLessonRead,
     passCheck,
     recordFeynman,
+    recordActivity,
+    recordSandbox,
+    recordPractice,
+    updateProject,
+    recordExam,
     resetTopic,
     clearMistakes,
     savePack,

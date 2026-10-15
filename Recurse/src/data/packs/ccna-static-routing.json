@@ -1,0 +1,729 @@
+{
+  "id": "ccna-static-routing",
+  "name": "Static Routing",
+  "version": "1.0.0",
+  "author": "Recurse",
+  "subject": "networking",
+  "level": "intermediate",
+  "description": "Configure and verify IPv4 and IPv6 static, default, host and floating routes, and fix the classic missing return route.",
+  "icon": "SR",
+  "language": "cisco",
+  "prereqs": [
+    "ccna-routing-table",
+    "ccna-ipv6"
+  ],
+  "tags": [
+    "ccna",
+    "3.3",
+    "static-routing",
+    "default-route",
+    "floating-static",
+    "ipv6"
+  ],
+  "lesson": {
+    "estimatedMinutes": 30,
+    "intro": "A static route is a route you type by hand, and on the CCNA you must configure them for IPv4 and IPv6 in every shape: network, default, host and floating. This lesson shows each form, how it appears in the routing table, and how to find out why a static route is missing or not working.",
+    "objectives": [
+      "Configure IPv4 network, host and default static routes using a next hop, an exit interface or both",
+      "Build a floating static route that takes over only when the primary route disappears",
+      "Configure IPv6 static routes, including link-local next hops and the ::/0 default route",
+      "Verify static routes with show ip route and show ipv6 route and explain why one is missing or failing"
+    ],
+    "sections": [
+      {
+        "title": "Why static routes, and the basic command",
+        "body": "A small company has two sites. R1 at headquarters serves 192.168.1.0/24, R2 at the branch serves 192.168.2.0/24, and the routers share a /30 link, 10.0.0.0/30. Each router knows its own two connected subnets and nothing else. A PC at headquarters cannot reach the branch, because R1 has no route to 192.168.2.0/24.\n\nYou fix that with a **static route**: a route you type by hand. On R1, `ip route 192.168.2.0 255.255.255.0 10.0.0.2` says \"to reach 192.168.2.0/24, send packets to 10.0.0.2\". The full syntax is:\n\n`ip route <destination> <mask> <next-hop | exit-interface [next-hop]> [distance] [permanent]`\n\n- The destination and **mask** describe the range (the mask is dotted decimal here, not /24).\n- The forwarding instruction is a next-hop address, an exit interface, or both.\n- The optional **distance** overrides the default administrative distance of 1.\n- `permanent` keeps the route in the table even if its interface goes down (rarely a good idea).\n\nStatic routes have real strengths: no routing protocol traffic, no CPU spent on calculations, and you know exactly what the router will do. The cost is that they never adapt. If a link fails, a static route keeps pointing at it unless you planned a backup, and every new subnet means touching every router that needs to reach it.\n\nSo static routes shine in specific places: a stub site with a single way out (a default route is perfect), the route from an edge router to an ISP, a backup path behind a routing protocol (a floating static route), and steering traffic for one host. A route of this kind, to a whole subnet, is called a **network route**; later sections cover default, host and floating routes.\n\nRemember that routing is one-way. R1's route lets packets reach the branch, but the replies need R2 to have a route back to 192.168.1.0/24. Every router along the path needs routes in both directions.",
+        "code": " 192.168.1.0/24               10.0.0.0/30               192.168.2.0/24\n PC1 ---- G0/1 [R1] G0/0 .1 ----------------- .2 G0/0 [R2] G0/1 ---- PC2\n           .1                                          .1\n\nR1(config)# ip route 192.168.2.0 255.255.255.0 10.0.0.2\nR2(config)# ip route 192.168.1.0 255.255.255.0 10.0.0.1",
+        "tip": "IPv4 static routes use a dotted decimal mask (255.255.255.0). IPv6 static routes use a prefix length (/64).",
+        "pitfall": "Configuring the route on one router only. The request reaches the far LAN, but the reply has no route back, so the ping still fails.",
+        "check": {
+          "question": "R1 must reach 172.20.0.0/16 through its neighbor R2 at 10.0.0.2. Which command is correct?",
+          "choices": [
+            "ip route 172.20.0.0/16 10.0.0.2",
+            "ip route 172.20.0.0 0.0.255.255 10.0.0.2",
+            "ip route 172.20.0.0 255.255.0.0 10.0.0.2",
+            "ip route 10.0.0.2 255.255.0.0 172.20.0.0"
+          ],
+          "answer": 2,
+          "explanation": "The command takes the destination, a dotted decimal subnet mask, then the next hop. IOS does not accept slash notation in ip route, a wildcard mask describes a different thing (used in ACLs and OSPF network commands), and the destination always comes before the next hop."
+        }
+      },
+      {
+        "title": "Next hop, exit interface, or both",
+        "body": "There are three ways to tell R1 how to reach 192.168.2.0/24, and each one shows up differently in the routing table.\n\n**Next hop only:** `ip route 192.168.2.0 255.255.255.0 10.0.0.2`. The route says where to send the packet but not which interface to use, so R1 does a **recursive lookup**: it looks up 10.0.0.2 in its own table, finds the connected route 10.0.0.0/30 on G0/0, and uses that interface. In the table it appears as `S 192.168.2.0/24 [1/0] via 10.0.0.2`. This is the usual choice on Ethernet links.\n\nThe next hop does not even have to be on a connected subnet. If R1 has `ip route 10.50.0.0 255.255.0.0 172.16.9.9` and learned 172.16.0.0/16 from OSPF, it resolves 172.16.9.9 through the OSPF route first. What it cannot do is install a static route whose next hop it has no route to: IOS keeps the command in the running config but leaves the route out of the table.\n\n**Exit interface only:** `ip route 192.168.2.0 255.255.255.0 GigabitEthernet0/0`. No recursion is needed, and the table shows the route as `S 192.168.2.0/24 is directly connected, GigabitEthernet0/0` (trust the S, it is still a static route with AD 1). This is fine on a point-to-point serial link, where there is only one possible device on the other end. On Ethernet it is a poor choice: the router treats every destination in 192.168.2.0/24 as if it were on the local link and ARPs for each one, which only works if the neighbor answers with proxy ARP.\n\n**Fully specified:** `ip route 192.168.2.0 255.255.255.0 GigabitEthernet0/0 10.0.0.2`. Both pieces are given, so no recursive lookup is needed, the router ARPs only for the next hop, and the route is removed as soon as G0/0 goes down. It shows as `via 10.0.0.2, GigabitEthernet0/0`.\n\nWhichever form you use, the route only goes into the table if its exit interface is up/up or its next hop is reachable.",
+        "code": "! Three ways to write the same route on R1\n! 1. next hop\nip route 192.168.2.0 255.255.255.0 10.0.0.2\n! 2. exit interface\nip route 192.168.2.0 255.255.255.0 GigabitEthernet0/0\n! 3. fully specified\nip route 192.168.2.0 255.255.255.0 GigabitEthernet0/0 10.0.0.2\n\n! How each one looks in show ip route static (one at a time)\nS        192.168.2.0/24 [1/0] via 10.0.0.2\nS        192.168.2.0/24 is directly connected, GigabitEthernet0/0\nS        192.168.2.0/24 [1/0] via 10.0.0.2, GigabitEthernet0/0",
+        "tip": "On Ethernet, always include a next-hop address (alone or with the interface). Save the exit-interface-only form for point-to-point serial links.",
+        "pitfall": "Seeing \"is directly connected\" on an S line and treating it as a connected route. The code letter decides: S means static, AD 1.",
+        "check": {
+          "question": "R1 has `ip route 10.50.0.0 255.255.0.0 172.16.1.2`, but no route in R1's table contains 172.16.1.2. What happens?",
+          "choices": [
+            "The command stays in the running config, but the route is not installed",
+            "IOS rejects the command with an error message",
+            "The route is installed, and packets are dropped at the next hop",
+            "IOS installs it as a default route instead"
+          ],
+          "answer": 0,
+          "explanation": "IOS accepts the syntax but only installs a next-hop static route when it can resolve the next hop through another route. When 172.16.1.2 becomes reachable (for example, the connected interface comes up), the route appears automatically."
+        }
+      },
+      {
+        "title": "Default routes and host routes",
+        "body": "The branch router in a hub-and-spoke company has exactly one way out: the link to headquarters. Rather than a static route for every remote subnet, it needs one **static default route**: `ip route 0.0.0.0 0.0.0.0 10.0.0.1`. Destination 0.0.0.0 with mask 0.0.0.0 matches every address, and because it is a /0 it is only used when nothing more specific matches. In the table it shows as `S*` and becomes the gateway of last resort.\n\nThe same idea works at an internet edge: R1 sends everything it does not know to the ISP with a static default route, and (if it runs OSPF) shares that default with the rest of the company using `default-information originate`.\n\nAt the other extreme, a **host route** matches a single address. Use mask 255.255.255.255 (/32). Suppose 192.168.2.0/24 is reached through 10.0.0.2, but the backup server 192.168.2.50 should be reached through a different link via 10.0.0.6. Add `ip route 192.168.2.50 255.255.255.255 10.0.0.6`. A packet to 192.168.2.50 matches both the /24 and the /32, and longest prefix match picks the /32. Every other host in the subnet still uses the /24.\n\nFour kinds of static route, one command:\n\n- **Network route:** a subnet, for example 192.168.2.0 255.255.255.0.\n- **Default route:** 0.0.0.0 0.0.0.0, matches everything else.\n- **Host route:** one address with 255.255.255.255.\n- **Floating static route:** any of the above with a raised AD, used as a backup (next section).\n\nOn a router, the command `ip default-gateway` is not a substitute. It is only used when IP routing is disabled, as on a Layer 2 switch. A router that is routing ignores it and needs a real default route.",
+        "code": "R1(config)# interface g0/0\nR1(config-if)# ip address 10.0.0.1 255.255.255.252\nR1(config-if)# no shutdown\nR1(config-if)# exit\nR1(config)# ip route 192.168.2.0 255.255.255.0 10.0.0.2\nR1(config)# ip route 0.0.0.0 0.0.0.0 10.0.0.2\nR1(config)# ip route 192.168.2.50 255.255.255.255 10.0.0.6\nR1(config)# end\nR1# show ip route static\n! legend omitted\nGateway of last resort is 10.0.0.2 to network 0.0.0.0\n\nS*    0.0.0.0/0 [1/0] via 10.0.0.2\n      192.168.2.0/24 is variably subnetted, 2 subnets, 2 masks\nS        192.168.2.0/24 [1/0] via 10.0.0.2\nS        192.168.2.50/32 [1/0] via 10.0.0.6",
+        "tip": "Default route: 0.0.0.0 0.0.0.0. Host route: the address plus 255.255.255.255. The zeros mean \"match nothing\", the 255s mean \"match everything\".",
+        "pitfall": "Expecting a default route to override a more specific route. If 192.168.2.0/24 must go somewhere else, it needs its own route; the default only catches what nothing else matches.",
+        "activity": {
+          "type": "ios-console",
+          "title": "Static and default routes on R1",
+          "prompt": "Address G0/0 as 10.0.0.1/30 and bring it up, then add the network route to 192.168.2.0/24 and the default route, both via 10.0.0.2. Run show ip route after each step and watch the S line, then the S* line and the gateway of last resort appear.",
+          "props": {
+            "lab": "cl-d3-static"
+          }
+        },
+        "check": {
+          "question": "Which command sends everything R1 has no better route for to 203.0.113.1?",
+          "choices": [
+            "ip default-gateway 203.0.113.1",
+            "ip route 255.255.255.255 0.0.0.0 203.0.113.1",
+            "ip route 0.0.0.0 255.255.255.255 203.0.113.1",
+            "ip route 0.0.0.0 0.0.0.0 203.0.113.1"
+          ],
+          "answer": 3,
+          "explanation": "A default route has destination 0.0.0.0 and mask 0.0.0.0. A 255.255.255.255 mask would make it a host route for 0.0.0.0, and ip default-gateway is only used by devices that are not routing."
+        }
+      },
+      {
+        "title": "Floating static routes",
+        "body": "R1 reaches the data center over a fast fiber link where OSPF runs. There is also a cheap LTE backup link to a different router. If you add a plain static route over the LTE link, it gets AD 1, which beats OSPF's 110, and every packet goes over LTE. Exactly the opposite of what you wanted.\n\nThe fix is a **floating static route**: a static route configured with an administrative distance higher than the route it backs up. `ip route 192.168.2.0 255.255.255.0 10.0.13.2 130` has AD 130. While OSPF offers 192.168.2.0/24 with AD 110, the static route loses and is not installed. If the fiber fails and the OSPF route disappears, the static route is now the best source and floats into the table. When OSPF relearns the route, the static route floats back out.\n\nThe same trick works between two static routes. The primary uses the default AD 1 and the backup gets something higher, such as 200:\n\n- `ip route 192.168.2.0 255.255.255.0 10.0.12.2` (primary, AD 1)\n- `ip route 192.168.2.0 255.255.255.0 10.0.13.2 200` (backup, AD 200)\n\nPick the backup's AD relative to the primary's source: above 1 for a static primary, above 90 for EIGRP, above 110 for OSPF. Many engineers simply use a high value like 200 or 250 so the backup loses to every common routing source.\n\nThere is one condition: the primary route has to actually disappear. A next-hop static route over Ethernet stays in the table as long as the local interface is up and the next hop is in a connected subnet, even if the router at that next hop has lost power behind a switch. In that case the backup never activates. Floating statics work best behind a dynamic primary route (OSPF notices the dead neighbor) or when a failure takes the local interface down. Real networks add IP SLA tracking for the other cases, which is beyond the CCNA.\n\nTo verify, remember that `show ip route` lists only installed routes. While the primary is up, the floating route is visible only in the running config. `show ip route 192.168.2.0` shows the distance of the route currently in use.",
+        "code": "R1(config)# ip route 192.168.2.0 255.255.255.0 10.0.12.2\nR1(config)# ip route 192.168.2.0 255.255.255.0 10.0.13.2 200\nR1(config)# end\nR1# show ip route static\n! legend omitted\nS        192.168.2.0/24 [1/0] via 10.0.12.2\n\n! Later, G0/0 toward 10.0.12.2 goes down\nR1# show ip route static\nS        192.168.2.0/24 [200/0] via 10.0.13.2\n\nR1# show ip route 192.168.2.0\nRouting entry for 192.168.2.0/24\n  Known via \"static\", distance 200, metric 0\n  Routing Descriptor Blocks:\n  * 10.0.13.2\n      Route metric is 0, traffic share count is 1",
+        "tip": "A floating static route is just a static route whose AD is higher than the primary route's AD. Nothing else about it is special.",
+        "pitfall": "Giving the backup an AD equal to or lower than the primary. Two static routes with AD 1 load balance instead of failing over, and a backup with AD 100 beats an OSPF primary (110).",
+        "activity": {
+          "type": "ios-console",
+          "title": "Build a floating backup",
+          "prompt": "Add the primary route to 192.168.2.0/24 via 10.0.12.2, then the backup via 10.0.13.2 with AD 200. Compare show ip route with show running-config: the backup is configured, but which one does the routing table list, and why?",
+          "props": {
+            "lab": "cl-d3-floating"
+          }
+        },
+        "check": {
+          "question": "R1 learns 10.9.0.0/16 from OSPF over its primary link. Which backup route over the secondary link floats correctly?",
+          "choices": [
+            "ip route 10.9.0.0 255.255.0.0 10.0.13.2",
+            "ip route 10.9.0.0 255.255.0.0 10.0.13.2 130",
+            "ip route 10.9.0.0 255.255.0.0 10.0.13.2 100",
+            "ip route 10.9.0.0 255.255.0.0 10.0.13.2 90"
+          ],
+          "answer": 1,
+          "explanation": "The backup must have a higher AD than OSPF's 110, so 130 stays out of the table until the OSPF route disappears. Without a distance it gets AD 1, and 90 or 100 would also beat OSPF, sending traffic over the backup link all the time."
+        }
+      },
+      {
+        "title": "IPv6 static routes",
+        "body": "Same two sites, now dual stack. R1's LAN is 2001:db8:1:1::/64, the link to R2 is 2001:db8:1:12::/64 (R1 is ::1, R2 is ::2) and R2's LAN is 2001:db8:1:2::/64.\n\nFirst, a router only forwards IPv6 packets after `ipv6 unicast-routing` is configured globally. Without it, the router behaves like an IPv6 host on its interfaces, whatever routes you add.\n\nThe command is `ipv6 route`, and it works like its IPv4 cousin except that the destination is written as prefix/length:\n\n- **Network route, next hop:** `ipv6 route 2001:db8:1:2::/64 2001:db8:1:12::2`. The global unicast next hop lets the router find the exit interface with a recursive lookup, just like IPv4.\n- **Link-local next hop:** `ipv6 route 2001:db8:1:2::/64 GigabitEthernet0/0 FE80::2`. Routers commonly use link-local addresses as next hops (OSPFv3 does), but the same FE80 address could exist on every link, so IOS requires the exit interface with a link-local next hop.\n- **Exit interface only:** `ipv6 route 2001:db8:1:2::/64 Serial0/0/0` is fine on a point-to-point serial link. On Ethernet, include a next hop.\n- **Default route:** `ipv6 route ::/0 2001:db8:1:12::2`. `::/0` is the IPv6 version of 0.0.0.0/0.\n- **Host route:** `ipv6 route 2001:db8:1:2::22/128 2001:db8:1:12::2`, a /128 for one address.\n- **Floating static:** add an AD at the end, for example `ipv6 route 2001:db8:1:2::/64 2001:db8:1:13::3 130`.\n\n`show ipv6 route static` lists them. Each route takes two lines: the code, prefix and [AD/metric] on the first, and the next hop and interface on the second. There is no \"Gateway of last resort\" line in IPv6; the default route simply appears as `::/0`.",
+        "code": "R1(config)# ipv6 unicast-routing\nR1(config)# ipv6 route 2001:db8:1:2::/64 2001:db8:1:12::2\nR1(config)# ipv6 route ::/0 GigabitEthernet0/0 FE80::2\nR1(config)# ipv6 route 2001:db8:1:2::22/128 2001:db8:1:12::2\nR1(config)# end\nR1# show ipv6 route static\nIPv6 Routing Table - default - 8 entries\nCodes: C - Connected, L - Local, S - Static, U - Per-user Static route\n       B - BGP, R - RIP, I1 - ISIS L1, I2 - ISIS L2\n       IA - ISIS interarea, IS - ISIS summary, D - EIGRP, EX - EIGRP external\n       ND - ND Default, NDp - ND Prefix, DCE - Destination, NDr - Redirect\n       O - OSPF Intra, OI - OSPF Inter, OE1 - OSPF ext 1, OE2 - OSPF ext 2\n       ON1 - OSPF NSSA ext 1, ON2 - OSPF NSSA ext 2\nS   ::/0 [1/0]\n     via FE80::2, GigabitEthernet0/0\nS   2001:DB8:1:2::/64 [1/0]\n     via 2001:DB8:1:12::2\nS   2001:DB8:1:2::22/128 [1/0]\n     via 2001:DB8:1:12::2",
+        "tip": "Link-local next hop? Always add the exit interface before it: ipv6 route <prefix> <interface> FE80::x.",
+        "pitfall": "Writing ipv6 route ::/0 FE80::2 with no interface. IOS rejects it, because a link-local address alone does not identify which link to use.",
+        "activity": {
+          "type": "ios-console",
+          "title": "IPv6 static routes",
+          "prompt": "Work through the lab checks with ipv6 route commands: make sure IPv6 routing is enabled, then add the routes the lab asks for. After each one, run show ipv6 route static and read both lines of the entry: the S code with [1/0], then the next hop.",
+          "props": {
+            "lab": "cl-d3-ipv6-static"
+          }
+        },
+        "check": {
+          "question": "Which command correctly gives R1 a route to 2001:db8:5:5::/64 through R2's link-local address FE80::2, reached on R1's G0/1?",
+          "choices": [
+            "ipv6 route 2001:db8:5:5::/64 FE80::2",
+            "ipv6 route 2001:db8:5:5::/64 GigabitEthernet0/1 FE80::2",
+            "ip route 2001:db8:5:5::/64 GigabitEthernet0/1 FE80::2",
+            "ipv6 route 2001:db8:5:5:: ffff:ffff:ffff:ffff:: FE80::2"
+          ],
+          "answer": 1,
+          "explanation": "A link-local next hop must be paired with the exit interface, because FE80::2 could exist on any link. IPv6 routes use ipv6 route (not ip route) and a /length, not a dotted mask."
+        }
+      },
+      {
+        "title": "Verifying static routes",
+        "body": "You configured four static routes, but `show ip route static` lists two. Before you call it a bug, learn to read the two views of a router: the **running config** shows what you typed, and the **routing table** shows what the router believes and will use.\n\nCompare the two outputs below. The running config has four `ip route` lines; the table has two routes:\n\n- The default route and the primary 172.16.0.0/16 route are installed.\n- The 172.16.0.0/16 route via 10.0.13.2 has AD 200. It is a floating route, correctly sitting out while the AD 1 route exists.\n- The 10.77.0.0/16 route points out G0/2, and G0/2 is administratively down, so IOS will not install it.\n\nYour verification toolkit:\n\n- `show ip route static`: installed static routes only, with [AD/metric] and next hop.\n- `show ip route 172.16.0.0` (a prefix) or `show ip route 172.16.5.5` (an address): the exact route used, with \"Known via\" and the distance.\n- `show running-config | include ip route`: every static route you configured, installed or not.\n- `show ipv6 route static` and `show ipv6 route 2001:db8:1:2::22`: the IPv6 equivalents.\n- `ping` and `traceroute`: prove the path works end to end, in both directions.\n\nA route in the table proves only that this router has a plan. It says nothing about whether the next router has one, which is where the last section begins.",
+        "code": "R1# show running-config | include ip route\nip route 0.0.0.0 0.0.0.0 10.0.0.2\nip route 10.77.0.0 255.255.0.0 GigabitEthernet0/2\nip route 172.16.0.0 255.255.0.0 10.0.0.2\nip route 172.16.0.0 255.255.0.0 10.0.13.2 200\n\nR1# show ip route static\n! legend omitted\nGateway of last resort is 10.0.0.2 to network 0.0.0.0\n\nS*    0.0.0.0/0 [1/0] via 10.0.0.2\nS     172.16.0.0/16 [1/0] via 10.0.0.2\n\nR1# show ip interface brief | include 0/2\nGigabitEthernet0/2     10.0.0.9        YES manual administratively down down",
+        "tip": "Configured is not the same as installed. When a static route is missing, compare show running-config with show ip route.",
+        "pitfall": "Deleting and retyping a \"missing\" floating static route. It is supposed to be absent while the primary route exists.",
+        "check": {
+          "question": "In the output above, why is the 172.16.0.0/16 route via 10.0.13.2 not in the routing table?",
+          "choices": [
+            "Its next hop 10.0.13.2 is unreachable",
+            "IOS allows only one static route per router for each major network",
+            "Its exit interface G0/2 is down",
+            "Its AD of 200 loses to the AD 1 static route for the same prefix"
+          ],
+          "answer": 3,
+          "explanation": "Both routes are for 172.16.0.0/16, so AD decides and the AD 1 route wins. The AD 200 route is a floating backup and will appear if the primary disappears. G0/2 explains the missing 10.77.0.0/16 route, not this one."
+        }
+      },
+      {
+        "title": "Troubleshooting: missing routes and the missing return route",
+        "body": "PC1 (192.168.1.10) cannot ping PC2 (192.168.2.20). R1 has a perfect route to 192.168.2.0/24. So the network is fine on R1's side... except a ping is a round trip. The echo request reaches PC2, PC2 replies to 192.168.1.10, and the reply goes to PC2's gateway, R2. R2 has only connected routes and no default route, so it drops the reply. The forward path works and the ping still fails.\n\nThis **missing return route** is the most common static routing mistake, on the exam and in real life. Traceroute shows the symptom nicely: hop 1 (R1's LAN address) answers, then every later hop times out, because R2's own ICMP messages back to 192.168.1.10 have no route either. The fix is one line on R2: `ip route 192.168.1.0 255.255.255.0 10.0.0.1` (or a default route pointing at R1).\n\nWhen a static route problem shows up, sort it into one of three buckets:\n\n- **The route is in the table but wrong:** a subnetting error in the destination or mask, a next hop that is a typo or the router's own address, a next hop pointing at the wrong neighbor (away from the destination), or the wrong exit interface.\n- **The route is not in the table:** its exit interface is not up/up, its next hop has no route, or a route to the same prefix with a lower AD exists (expected for floating routes).\n- **The route is right, but traffic still fails:** a router further along has no route (often the return route), a host has the wrong default gateway, or an ACL is filtering.\n\nWork the path hop by hop and in both directions: on each router, ask \"which route matches this destination?\" for the request and again for the reply.",
+        "code": "PC1> ping 192.168.2.20\nRequest timed out.\nRequest timed out.\n\nR2# show ip route\n! legend omitted\nGateway of last resort is not set\n\n      10.0.0.0/8 is variably subnetted, 2 subnets, 2 masks\nC        10.0.0.0/30 is directly connected, GigabitEthernet0/0\nL        10.0.0.2/32 is directly connected, GigabitEthernet0/0\n      192.168.2.0/24 is variably subnetted, 2 subnets, 2 masks\nC        192.168.2.0/24 is directly connected, GigabitEthernet0/1\nL        192.168.2.1/32 is directly connected, GigabitEthernet0/1\n\nR2(config)# ip route 192.168.1.0 255.255.255.0 10.0.0.1",
+        "tip": "For every failed ping, trace the reply as carefully as the request. The reply starts at the destination and needs its own routes.",
+        "pitfall": "Assuming a failed ping means the forward path is broken and changing a correct route on R1. Check the far router's table for a route back first.",
+        "check": {
+          "question": "PC1 cannot ping PC2. R1's routes are correct and R2 has only connected routes, as shown above. Where does the ping fail?",
+          "choices": [
+            "R2 drops PC2's echo reply because it has no route to 192.168.1.0/24",
+            "R1 drops the echo request because it has no route to 192.168.2.0/24",
+            "PC2 ignores the request because it comes from another subnet",
+            "R2 drops the echo request because it arrived on G0/0"
+          ],
+          "answer": 0,
+          "explanation": "R1 forwards the request and R2 delivers it to PC2 on its connected LAN. PC2's reply goes to R2, which has no route for 192.168.1.10 and no default route, so it is dropped there. Hosts answer pings from other subnets normally."
+        }
+      }
+    ],
+    "keyTerms": [
+      {
+        "term": "Static route",
+        "definition": "A route configured by hand with ip route or ipv6 route; default AD 1."
+      },
+      {
+        "term": "Network route",
+        "definition": "A static route to a whole subnet, such as 192.168.2.0 255.255.255.0."
+      },
+      {
+        "term": "Default route",
+        "definition": "0.0.0.0/0 (IPv6 ::/0): matches every destination and is used only when nothing more specific matches."
+      },
+      {
+        "term": "Host route",
+        "definition": "A route to a single address: /32 in IPv4 (255.255.255.255), /128 in IPv6."
+      },
+      {
+        "term": "Floating static route",
+        "definition": "A static route with a raised AD that stays out of the table until the primary route disappears."
+      },
+      {
+        "term": "Recursive lookup",
+        "definition": "Resolving a static route's next hop through another route to find the real exit interface."
+      },
+      {
+        "term": "Fully specified static route",
+        "definition": "A static route that lists both the exit interface and the next-hop address."
+      },
+      {
+        "term": "ipv6 unicast-routing",
+        "definition": "The global command that makes an IOS router forward IPv6 packets."
+      },
+      {
+        "term": "Return route",
+        "definition": "The route the far end needs to send replies back; missing return routes break round trips."
+      }
+    ],
+    "summary": [
+      "ip route <dest> <mask> <next-hop | interface [next-hop]> [AD]: next hop on Ethernet, exit interface only on point-to-point links.",
+      "Default route 0.0.0.0 0.0.0.0 (IPv6 ::/0), host route 255.255.255.255 (IPv6 /128), floating route = higher AD than the primary.",
+      "IPv6 needs ipv6 unicast-routing, uses prefix/length, and a link-local next hop must include the exit interface.",
+      "A static route is installed only if its interface is up/up, its next hop resolves and no lower-AD route exists for the same prefix.",
+      "Configured is not installed: compare show running-config with show ip route, and trace both the request and the reply."
+    ],
+    "feynmanPrompt": "Explain to a teammate how you would give a branch router a primary route over fiber and a backup over LTE using only static routes, how the backup knows when to take over, and the one failure where it would never take over."
+  },
+  "questions": [
+    {
+      "id": "ccna-static-routing-q01",
+      "type": "mcq",
+      "difficulty": "easy",
+      "question": "Which is a real drawback of static routes compared with OSPF?",
+      "choices": [
+        "They use more WAN bandwidth for updates",
+        "They have a worse administrative distance than OSPF",
+        "They do not adapt to a failed link unless you configure a backup yourself",
+        "They cannot route to remote subnets"
+      ],
+      "answer": 2,
+      "explanation": "Static routes send no updates at all and have AD 1, which beats OSPF. Their weakness is that they are fixed: a failure is not noticed unless you plan for it with a floating route or the exit interface goes down.",
+      "concept": "static route drawbacks",
+      "section": 0
+    },
+    {
+      "id": "ccna-static-routing-q02",
+      "type": "cli",
+      "difficulty": "easy",
+      "question": "Type the command on R1 that adds a static route to 192.168.2.0/24 with next hop 10.0.0.2.",
+      "shell": "ios",
+      "answer": "ip route 192.168.2.0 255.255.255.0 10.0.0.2",
+      "explanation": "ip route takes the destination subnet, its dotted decimal mask and the next-hop address. The route gets the default AD of 1.",
+      "concept": "network route",
+      "section": 0
+    },
+    {
+      "id": "ccna-static-routing-q03",
+      "type": "mcq",
+      "difficulty": "easy",
+      "question": "Which situation is the best fit for static routing?",
+      "choices": [
+        "A core of 20 routers with redundant links that fail and recover often",
+        "A campus where new subnets are added every week",
+        "A network that must reroute automatically around any failure",
+        "A branch router whose only path to the rest of the network is a single WAN link"
+      ],
+      "answer": 3,
+      "explanation": "A stub site with one way out needs only a default route, and nothing about it changes. Large, redundant or frequently changing networks are exactly where a dynamic routing protocol earns its overhead.",
+      "concept": "where static fits",
+      "section": 0
+    },
+    {
+      "id": "ccna-static-routing-q04",
+      "type": "debug",
+      "difficulty": "medium",
+      "question": "R1 should reach the whole data center block 172.16.32.0/20 through R2. Hosts at 172.16.32.x work, but hosts at 172.16.40.x are unreachable. What is wrong?",
+      "code": "R1# show running-config | include ip route\nip route 172.16.32.0 255.255.255.0 10.0.0.2",
+      "language": "cisco",
+      "choices": [
+        "The next hop should be R1's own address on the link",
+        "The mask covers only 172.16.32.0/24; it should be 255.255.240.0 for the /20",
+        "Static routes cannot cover more than one /24, so a second route is needed",
+        "The destination should be 172.16.40.0 instead of 172.16.32.0"
+      ],
+      "answer": 1,
+      "explanation": "172.16.32.0/20 spans 172.16.32.0 to 172.16.47.255 and needs mask 255.255.240.0. With 255.255.255.0 the route matches only 172.16.32.x, so 172.16.40.x has no route. One route can cover any size block if the mask is right.",
+      "concept": "mask math error",
+      "section": 0
+    },
+    {
+      "id": "ccna-static-routing-q05",
+      "type": "mcq",
+      "difficulty": "medium",
+      "question": "R1 shows `S 10.5.0.0/16 is directly connected, Serial0/0/0`. What does this line tell you?",
+      "choices": [
+        "It is a connected route that IOS labeled as static",
+        "It is a static route with administrative distance 0",
+        "It is a static route configured with an exit interface instead of a next-hop address",
+        "Serial0/0/0 has an address in 10.5.0.0/16"
+      ],
+      "answer": 2,
+      "explanation": "Static routes configured with only an exit interface are displayed as \"directly connected\", but the S code shows the source. It is still a static route, and R1 does not need an address in 10.5.0.0/16 for it.",
+      "concept": "exit-interface static",
+      "section": 1
+    },
+    {
+      "id": "ccna-static-routing-q06",
+      "type": "order",
+      "difficulty": "medium",
+      "question": "R1 has `ip route 10.50.0.0 255.255.0.0 172.16.9.9` and an OSPF route `O 172.16.0.0/16 via 10.0.0.2, GigabitEthernet0/0`. Put R1's steps for a packet to 10.50.1.1 in order.",
+      "items": [
+        "Match 10.50.1.1 to the static route 10.50.0.0/16",
+        "Look up the next hop 172.16.9.9 in the routing table",
+        "Match 172.16.9.9 to the OSPF route via 10.0.0.2 out G0/0",
+        "Find the MAC address of 10.0.0.2 in the ARP table",
+        "Send the frame out G0/0 to 10.0.0.2"
+      ],
+      "explanation": "This is a recursive lookup: the static route gives only a next hop, so R1 must route to that next hop to learn the real exit interface and adjacent next hop. ARP is always for the directly connected next hop (10.0.0.2), never for 172.16.9.9.",
+      "concept": "recursive lookup",
+      "section": 1
+    },
+    {
+      "id": "ccna-static-routing-q07",
+      "type": "mcq",
+      "difficulty": "medium",
+      "question": "Why is `ip route 192.168.2.0 255.255.255.0 GigabitEthernet0/0` (exit interface only) a poor choice on an Ethernet link?",
+      "choices": [
+        "R1 treats every destination as on-link and ARPs for each one, relying on the neighbor's proxy ARP",
+        "IOS rejects exit-interface static routes on Ethernet interfaces",
+        "The route gets administrative distance 0 and overrides connected routes",
+        "The route is removed whenever the neighbor reboots"
+      ],
+      "answer": 0,
+      "explanation": "With no next hop, R1 must ARP for each destination address itself, and only works if the neighbor answers on its behalf with proxy ARP. Including the next hop makes R1 ARP once, for the neighbor. IOS does accept the command.",
+      "concept": "exit interface on Ethernet",
+      "section": 1
+    },
+    {
+      "id": "ccna-static-routing-q08",
+      "type": "cli",
+      "difficulty": "medium",
+      "question": "Type a fully specified static route on R1 for 192.168.2.0/24 out GigabitEthernet0/0 to next hop 10.0.0.2.",
+      "shell": "ios",
+      "answer": "ip route 192.168.2.0 255.255.255.0 GigabitEthernet0/0 10.0.0.2",
+      "accept": [
+        "ip route 192.168.2.0 255.255.255.0 g0/0 10.0.0.2",
+        "ip route 192.168.2.0 255.255.255.0 gi0/0 10.0.0.2",
+        "ip route 192.168.2.0 255.255.255.0 GigabitEthernet 0/0 10.0.0.2"
+      ],
+      "explanation": "A fully specified route lists the exit interface and then the next-hop address, so no recursive lookup is needed and ARP is done only for the next hop.",
+      "concept": "fully specified route",
+      "section": 1
+    },
+    {
+      "id": "ccna-static-routing-q09",
+      "type": "multi",
+      "difficulty": "hard",
+      "question": "Which three conditions keep a configured IPv4 static route out of the routing table? Choose three.",
+      "choices": [
+        "Its exit interface is not up/up",
+        "The next-hop router has no route back to this router",
+        "The router has no route to its next-hop address",
+        "No hosts are currently active in the destination subnet",
+        "A route to the same prefix with a lower AD exists"
+      ],
+      "answers": [
+        0,
+        2,
+        4
+      ],
+      "explanation": "IOS checks the local router only: the exit interface must be up/up, the next hop must be resolvable, and the route must win on AD for its prefix. What other routers know, and whether hosts are online, does not affect whether the route is installed.",
+      "concept": "route not installed",
+      "section": 1
+    },
+    {
+      "id": "ccna-static-routing-q10",
+      "type": "cli",
+      "difficulty": "easy",
+      "question": "Type the command that creates a static default route pointing to next hop 203.0.113.1.",
+      "shell": "ios",
+      "answer": "ip route 0.0.0.0 0.0.0.0 203.0.113.1",
+      "explanation": "The default route uses destination 0.0.0.0 and mask 0.0.0.0, which matches every address. It appears as S* and becomes the gateway of last resort.",
+      "concept": "static default route",
+      "section": 2
+    },
+    {
+      "id": "ccna-static-routing-q11",
+      "type": "mcq",
+      "difficulty": "easy",
+      "question": "Which mask turns an IPv4 static route into a host route?",
+      "choices": [
+        "255.255.255.0",
+        "0.0.0.0",
+        "255.255.255.255",
+        "255.255.255.252"
+      ],
+      "answer": 2,
+      "explanation": "A host route matches exactly one address, so all 32 bits must match: /32, mask 255.255.255.255. 0.0.0.0 is the default route mask, and 255.255.255.252 is a /30 for point-to-point links.",
+      "concept": "host route mask",
+      "section": 2
+    },
+    {
+      "id": "ccna-static-routing-q12",
+      "type": "mcq",
+      "difficulty": "medium",
+      "question": "Using R1's static routes, which next hop does R1 use for a packet to 192.168.2.50?",
+      "code": "S*    0.0.0.0/0 [1/0] via 10.0.0.2\n      192.168.2.0/24 is variably subnetted, 2 subnets, 2 masks\nS        192.168.2.0/24 [1/0] via 10.0.0.2\nS        192.168.2.50/32 [1/0] via 10.0.0.6",
+      "language": "cisco",
+      "choices": [
+        "10.0.0.2",
+        "10.0.0.6",
+        "Both, load balanced",
+        "Neither; the routes conflict"
+      ],
+      "answer": 1,
+      "explanation": "192.168.2.50 matches the default, the /24 and the /32. Longest prefix match picks the /32 host route via 10.0.0.6. Any other host in 192.168.2.0/24 still uses the /24 via 10.0.0.2.",
+      "concept": "host route wins",
+      "section": 2
+    },
+    {
+      "id": "ccna-static-routing-q13",
+      "type": "mcq",
+      "difficulty": "hard",
+      "question": "An engineer configures `ip default-gateway 10.0.0.2` on router R1, which is routing normally. Packets to unknown destinations are still dropped. Why?",
+      "choices": [
+        "The command needs a mask: ip default-gateway 10.0.0.2 0.0.0.0",
+        "The command takes effect only after a reload",
+        "R1 must also run OSPF for the default gateway to be used",
+        "ip default-gateway is used only when IP routing is disabled; R1 needs ip route 0.0.0.0 0.0.0.0 10.0.0.2"
+      ],
+      "answer": 3,
+      "explanation": "ip default-gateway is for devices that are not routing, such as a Layer 2 switch reaching its management network. A router with IP routing enabled ignores it and uses its routing table, so it needs a real default route.",
+      "concept": "default-gateway vs default route",
+      "section": 2
+    },
+    {
+      "id": "ccna-static-routing-q14",
+      "type": "mcq",
+      "difficulty": "medium",
+      "question": "What makes a static route a floating static route?",
+      "choices": [
+        "It is configured with the permanent keyword",
+        "It points to an exit interface instead of a next hop",
+        "It is configured with an AD higher than the route it backs up",
+        "It has a longer prefix than the primary route"
+      ],
+      "answer": 2,
+      "explanation": "A floating static route loses on AD while the primary exists and appears only when the primary disappears. A longer prefix would do the opposite: it would win by longest prefix match and carry traffic all the time.",
+      "concept": "floating static concept",
+      "section": 3
+    },
+    {
+      "id": "ccna-static-routing-q15",
+      "type": "cli",
+      "difficulty": "medium",
+      "question": "Type a static route to 192.168.2.0/24 via 10.0.13.2 with administrative distance 200.",
+      "shell": "ios",
+      "answer": "ip route 192.168.2.0 255.255.255.0 10.0.13.2 200",
+      "explanation": "The AD goes at the end of the command, after the next hop. With 200 the route floats behind a primary static (AD 1) or OSPF (AD 110) route for the same prefix.",
+      "concept": "floating static config",
+      "section": 3
+    },
+    {
+      "id": "ccna-static-routing-q16",
+      "type": "mcq",
+      "difficulty": "hard",
+      "question": "R1 should use the fast OSPF path to 10.9.0.0/16 and keep the slow link as backup. Instead, all traffic uses the slow link. Why?",
+      "code": "R1# show running-config | include ip route\nip route 10.9.0.0 255.255.0.0 10.0.13.2 100\n\nR1# show ip route 10.9.0.0\nRouting entry for 10.9.0.0/16\n  Known via \"static\", distance 100, metric 0\n  Routing Descriptor Blocks:\n  * 10.0.13.2\n      Route metric is 0, traffic share count is 1",
+      "language": "cisco",
+      "choices": [
+        "The static route's AD of 100 is lower than OSPF's 110, so it wins",
+        "Static routes always beat OSPF regardless of AD",
+        "OSPF cannot advertise a /16 prefix",
+        "The OSPF route has a higher metric than the static route"
+      ],
+      "answer": 0,
+      "explanation": "For the static route to float, its AD must be higher than OSPF's 110, for example 130 or 200. Metrics from different sources are never compared; AD decides between them.",
+      "concept": "floating AD too low",
+      "section": 3
+    },
+    {
+      "id": "ccna-static-routing-q17",
+      "type": "mcq",
+      "difficulty": "hard",
+      "question": "R1's primary route is `ip route 192.168.2.0 255.255.255.0 10.0.12.2`, with a floating backup via 10.0.13.2 at AD 200. A switch sits between R1's G0/0 and R2 (10.0.12.2). R2 loses power, and R1's G0/0 stays up. What happens?",
+      "choices": [
+        "The backup takes over within a few seconds",
+        "R1 detects the failure with ARP and removes the primary route",
+        "Both routes are installed and traffic is load balanced",
+        "The primary stays installed because 10.0.12.2 still resolves through the connected subnet, so traffic is lost"
+      ],
+      "answer": 3,
+      "explanation": "A static route has no way to notice that the neighbor died. Its next hop is still inside a connected, up/up subnet, so the route stays. Floating routes only help when the primary disappears, for example when the local interface goes down or a routing protocol withdraws the primary.",
+      "concept": "floating failover limits",
+      "section": 3
+    },
+    {
+      "id": "ccna-static-routing-q18",
+      "type": "typed",
+      "difficulty": "medium",
+      "question": "The primary route to a prefix is learned from internal EIGRP with its default AD. What is the lowest whole-number AD a floating static backup can use and still stay out of the table while EIGRP has the route?",
+      "answer": "91",
+      "explanation": "Internal EIGRP has AD 90. The static route must lose, so its AD has to be higher than 90; 91 is the lowest such value. With equal AD values the outcome depends on IOS tie-break details you should not rely on, which is why engineers usually pick a value with a big margin.",
+      "concept": "floating AD choice",
+      "section": 3
+    },
+    {
+      "id": "ccna-static-routing-q19",
+      "type": "cli",
+      "difficulty": "easy",
+      "question": "Type the global configuration command that lets R1 forward IPv6 packets between its interfaces.",
+      "shell": "ios",
+      "answer": "ipv6 unicast-routing",
+      "explanation": "IPv6 routing is off by default on IOS routers. Without ipv6 unicast-routing the router acts as an IPv6 host and will not forward IPv6 packets, whatever routes are configured.",
+      "concept": "IPv6 routing",
+      "section": 4
+    },
+    {
+      "id": "ccna-static-routing-q20",
+      "type": "cli",
+      "difficulty": "medium",
+      "question": "Type an IPv6 static default route on R1 pointing to next hop 2001:db8:0:12::2.",
+      "shell": "ios",
+      "answer": "ipv6 route ::/0 2001:db8:0:12::2",
+      "accept": [
+        "ipv6 route ::/0 2001:DB8:0:12::2"
+      ],
+      "explanation": "::/0 is the IPv6 default route, the equivalent of 0.0.0.0/0. A global unicast next hop lets R1 find the exit interface with a recursive lookup.",
+      "concept": "IPv6 default route",
+      "section": 4
+    },
+    {
+      "id": "ccna-static-routing-q21",
+      "type": "mcq",
+      "difficulty": "medium",
+      "question": "Why does an IPv6 static route with a link-local next hop also need the exit interface?",
+      "choices": [
+        "Link-local addresses cannot be reached without a routing protocol",
+        "Link-local addresses are unique only on one link, so the address alone does not identify which interface to use",
+        "IOS needs the interface to calculate the EUI-64 address",
+        "The interface sets the route's administrative distance"
+      ],
+      "answer": 1,
+      "explanation": "FE80::2 could exist on every link of the router, so IOS cannot resolve it recursively. With a global unicast next hop, the router can find the interface itself through its connected routes.",
+      "concept": "link-local next hop",
+      "section": 4
+    },
+    {
+      "id": "ccna-static-routing-q22",
+      "type": "typed",
+      "difficulty": "easy",
+      "question": "What prefix length does an IPv6 static host route use?",
+      "answer": "128",
+      "accept": [
+        "/128"
+      ],
+      "explanation": "An IPv6 address is 128 bits, so a route matching exactly one address is a /128, just as an IPv4 host route is a /32.",
+      "concept": "IPv6 host route",
+      "section": 4
+    },
+    {
+      "id": "ccna-static-routing-q23",
+      "type": "debug",
+      "difficulty": "hard",
+      "question": "R1 (2001:db8:0:12::1 on G0/0) should reach 2001:db8:9:9::/64 through R2 (2001:db8:0:12::2). The route is accepted but does not work. What is wrong?",
+      "code": "R1(config)# ipv6 unicast-routing\nR1(config)# interface g0/0\nR1(config-if)# ipv6 address 2001:db8:0:12::1/64\nR1(config-if)# exit\nR1(config)# ipv6 route 2001:db8:9:9::/64 2001:db8:0:12::1",
+      "language": "cisco",
+      "choices": [
+        "IPv6 static routes cannot use a global unicast next hop",
+        "The next hop is R1's own address; it should be R2's 2001:db8:0:12::2",
+        "The prefix must be written with a dotted mask",
+        "ipv6 unicast-routing must come after the static route"
+      ],
+      "answer": 1,
+      "explanation": "IOS checks syntax, not sense. A router cannot use its own address as a next hop, so packets for 2001:db8:9:9::/64 never reach R2. Global unicast next hops are perfectly valid, and the order of the global commands does not matter.",
+      "concept": "IPv6 next hop error",
+      "section": 4
+    },
+    {
+      "id": "ccna-static-routing-q24",
+      "type": "match",
+      "difficulty": "medium",
+      "question": "Match each IPv6 static route detail to what it creates.",
+      "pairs": [
+        {
+          "left": "ipv6 route ::/0 ...",
+          "right": "A default route"
+        },
+        {
+          "left": "A /128 destination",
+          "right": "A host route"
+        },
+        {
+          "left": "A /64 destination with a global unicast next hop",
+          "right": "A network route resolved by recursive lookup"
+        },
+        {
+          "left": "An AD such as 130 at the end of the command",
+          "right": "A floating static route"
+        },
+        {
+          "left": "An FE80:: next hop",
+          "right": "A route that must also name the exit interface"
+        }
+      ],
+      "explanation": "IPv6 static routes follow the same four types as IPv4 (network, default, host, floating). The one new rule is that link-local next hops need the exit interface.",
+      "concept": "IPv6 static route forms",
+      "section": 4
+    },
+    {
+      "id": "ccna-static-routing-q25",
+      "type": "mcq",
+      "difficulty": "medium",
+      "question": "Why is the route to 10.77.0.0/16 missing from the routing table?",
+      "code": "R1# show running-config | include ip route\nip route 0.0.0.0 0.0.0.0 10.0.0.2\nip route 10.77.0.0 255.255.0.0 GigabitEthernet0/2\n\nR1# show ip route static\n! legend omitted\nGateway of last resort is 10.0.0.2 to network 0.0.0.0\n\nS*    0.0.0.0/0 [1/0] via 10.0.0.2\n\nR1# show ip interface brief | include 0/2\nGigabitEthernet0/2     10.0.0.9        YES manual administratively down down",
+      "language": "cisco",
+      "choices": [
+        "Its AD is higher than the default route's",
+        "The default route already covers 10.77.0.0/16",
+        "Exit-interface static routes appear only in show running-config",
+        "Its exit interface G0/2 is administratively down"
+      ],
+      "answer": 3,
+      "explanation": "A static route that names an exit interface is installed only while that interface is up/up. The default route does not suppress more specific routes, and exit-interface routes normally appear in the table as \"directly connected\".",
+      "concept": "route missing, interface down",
+      "section": 5
+    },
+    {
+      "id": "ccna-static-routing-q26",
+      "type": "cli",
+      "difficulty": "easy",
+      "question": "Type the command that lists only the static routes installed in R1's IPv4 routing table.",
+      "shell": "ios",
+      "answer": "show ip route static",
+      "explanation": "The static keyword filters show ip route to S routes. Remember it shows installed routes only; floating routes waiting in the config do not appear.",
+      "concept": "verify static routes",
+      "section": 5
+    },
+    {
+      "id": "ccna-static-routing-q27",
+      "type": "mcq",
+      "difficulty": "medium",
+      "question": "What does this output tell you?",
+      "code": "R1# show ip route 192.168.2.0\nRouting entry for 192.168.2.0/24\n  Known via \"static\", distance 200, metric 0\n  Routing Descriptor Blocks:\n  * 10.0.13.2\n      Route metric is 0, traffic share count is 1",
+      "language": "cisco",
+      "choices": [
+        "The primary route is gone and the floating backup with AD 200 is now in use",
+        "The route was learned from a routing protocol with AD 200",
+        "The router is load balancing between two static routes",
+        "The route is configured but not installed"
+      ],
+      "answer": 0,
+      "explanation": "show ip route for a prefix shows the installed route. \"Known via static, distance 200\" means the backup static route won, which only happens when the lower-AD primary has disappeared.",
+      "concept": "floating route in use",
+      "section": 5
+    },
+    {
+      "id": "ccna-static-routing-q28",
+      "type": "cli",
+      "difficulty": "easy",
+      "question": "Type the command that lists only the static routes in R1's IPv6 routing table.",
+      "shell": "ios",
+      "answer": "show ipv6 route static",
+      "explanation": "show ipv6 route takes the same source keywords as its IPv4 counterpart. Each IPv6 entry uses two lines: prefix with [AD/metric], then the next hop and interface.",
+      "concept": "verify IPv6 static routes",
+      "section": 5
+    },
+    {
+      "id": "ccna-static-routing-q29",
+      "type": "mcq",
+      "difficulty": "hard",
+      "question": "R1 has a correct route to 192.168.2.0/24 via R2. R2 has only connected routes. Based on this traceroute from PC1, what is the most likely cause?",
+      "code": "PC1> tracert 192.168.2.20\n  1     1 ms     1 ms     1 ms  192.168.1.1\n  2     *        *        *     Request timed out.\n  3     *        *        *     Request timed out.",
+      "language": "cisco",
+      "choices": [
+        "R1 has no route to 192.168.2.0/24",
+        "PC1 has the wrong default gateway",
+        "R2 has no route back to 192.168.1.0/24, so its replies to PC1 are dropped",
+        "PC2 is powered off"
+      ],
+      "answer": 2,
+      "explanation": "Hop 1 is R1, so PC1's gateway works. R2 and PC2 do receive the probes, but every reply heads to 192.168.1.10 and R2 has no route for it, so nothing comes back past hop 1. A powered-off PC2 would still let R2 answer hop 2 if R2 could route to PC1.",
+      "concept": "missing return route",
+      "section": 6
+    },
+    {
+      "id": "ccna-static-routing-q30",
+      "type": "cli",
+      "difficulty": "medium",
+      "question": "Type the static route R2 needs so that replies reach 192.168.1.0/24 through R1 at 10.0.0.1.",
+      "shell": "ios",
+      "answer": "ip route 192.168.1.0 255.255.255.0 10.0.0.1",
+      "explanation": "R2 needs a route back to the source subnet. A default route via 10.0.0.1 would also work, but the question asks for the network route.",
+      "concept": "adding the return route",
+      "section": 6
+    },
+    {
+      "id": "ccna-static-routing-q31",
+      "type": "debug",
+      "difficulty": "hard",
+      "question": "Packets from R1 to 192.168.2.0/24 never arrive, and traceroute shows them bouncing between R1 and R3 until the TTL runs out. What is wrong with R1's configuration?",
+      "code": "R3 (10.0.31.3) ---- G0/1 [R1] G0/0 ---- (10.0.12.2) R2 ---- 192.168.2.0/24\n\nR1# show running-config | include ip route\nip route 192.168.2.0 255.255.255.0 10.0.31.3",
+      "language": "cisco",
+      "choices": [
+        "The mask should be 255.255.255.252 because the links are /30s",
+        "R1 needs the permanent keyword on the route",
+        "Static routes cannot point out G0/1",
+        "The next hop points at R3, away from the destination; it should be R2 at 10.0.12.2"
+      ],
+      "answer": 3,
+      "explanation": "IOS accepts any reachable next hop, even one in the wrong direction. R3 presumably routes 192.168.2.0/24 back toward R1, creating a loop that ends only when TTL expires. Pointing the route at R2 fixes it.",
+      "concept": "next hop wrong direction",
+      "section": 6
+    },
+    {
+      "id": "ccna-static-routing-q32",
+      "type": "recall",
+      "difficulty": "medium",
+      "question": "A static route problem can be sorted into three buckets. Name them and give one cause for each.",
+      "answer": "Route in the table but wrong (mask math error, wrong next hop or interface); route not in the table (exit interface down, next hop unreachable, lower-AD route exists); route correct but traffic fails (missing return route on another router, wrong host gateway, ACL).",
+      "explanation": "Sorting the symptom first tells you which commands to run: compare running config and routing table for the first two, then follow the request and reply hop by hop for the third.",
+      "concept": "three troubleshooting buckets",
+      "section": 6
+    }
+  ]
+}

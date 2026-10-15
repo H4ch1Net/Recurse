@@ -1,0 +1,745 @@
+{
+  "id": "swe-linked-lists",
+  "name": "Linked Lists",
+  "version": "1.0.0",
+  "author": "Recurse",
+  "subject": "swe",
+  "level": "intermediate",
+  "description": "Pointer rewiring, dummy heads, fast and slow pointers and the classic linked list interview problems, traced step by step.",
+  "icon": "LL",
+  "language": "python",
+  "prereqs": [
+    "data-structures",
+    "big-o",
+    "swe-two-pointers"
+  ],
+  "tags": [
+    "interviews",
+    "linked lists",
+    "pointers",
+    "two pointers",
+    "python",
+    "javascript"
+  ],
+  "lesson": {
+    "estimatedMinutes": 28,
+    "intro": "Linked list problems are rarely about the data. They test whether you can move pointers without losing anything: rewire one next pointer in the wrong order and half the list is gone. This pack teaches the handful of moves (save, rewire, advance; the dummy head; fast and slow pointers; a fixed gap) that solve almost every linked list question you will meet in an interview.",
+    "objectives": [
+      "Trace pointer changes on paper and predict the resulting list",
+      "Reverse, merge and delete nodes in place, using a dummy head where it removes special cases",
+      "Use fast and slow pointers to find a middle node and detect a cycle, and a fixed gap to find the nth node from the end",
+      "Combine moves (find the middle, reverse, compare) to solve composite problems in O(1) extra space",
+      "State the time and space cost of each pattern and the edge cases to test"
+    ],
+    "sections": [
+      {
+        "title": "Nodes, pointers and the head",
+        "body": "Picture a scavenger hunt. Each clue holds a message plus the location of the next clue. You cannot jump straight to clue 7; you have to follow clues 1 through 6 to find it. A singly linked list works the same way: each **node** stores a value and a **next** pointer to the following node, and the last node's next is `None` (`null` in JavaScript).\n\nIn an interview you are handed the **head** (the first node) and a small node class like the one below. The whole list is reachable only through the head, so if you overwrite your only reference to it, the list is gone. Walking the list (start at the head, follow `next` until you reach `None`) is the move every other pattern is built on.\n\nHow a linked list compares with an array:\n\n- Read the i-th item: O(1) in an array, O(n) in a list, because you must walk i steps.\n- Insert or delete at the front: O(n) in an array (everything shifts), O(1) in a list (change one pointer).\n- Insert or delete right after a node you already hold: O(1) in a list.\n- Search for a value: O(n) in both.\n- Memory: a list pays one extra pointer per node, two in a **doubly linked list**, which also keeps a `prev` pointer.\n\nWhy do interviewers love linked lists when everyday code rarely builds one by hand? Because they test pointer discipline: can you change references in the right order, handle the empty list and the one-node list, and return the right head? The skill is not just a puzzle, either: Python's `collections.deque` is built from linked blocks, and the classic LRU cache pairs a hash map with a doubly linked list.",
+        "code": "class ListNode:\n    def __init__(self, val=0, next=None):\n        self.val = val\n        self.next = next\n\ndef build(values):\n    \"\"\"Build a linked list from a Python list and return its head.\"\"\"\n    dummy = ListNode()\n    tail = dummy\n    for v in values:\n        tail.next = ListNode(v)\n        tail = tail.next\n    return dummy.next\n\ndef to_list(head):\n    \"\"\"Walk the list and collect its values.\"\"\"\n    out = []\n    curr = head              # never walk with head itself\n    while curr:              # stop when we fall off the end\n        out.append(curr.val)\n        curr = curr.next     # advance\n    return out\n\nhead = build([1, 2, 3])\n#  head\n#   |\n#   v\n#  [1] -> [2] -> [3] -> None\nprint(to_list(head))         # [1, 2, 3]\nprint(head.next.next.val)    # 3",
+        "tip": "Make `curr = curr.next` the last line of a traversal loop and check it is there before you run anything. Forgetting it is the most common infinite loop in linked list code.",
+        "pitfall": "Walking with `head = head.next` destroys your only reference to the start of the list. Use a separate `curr` variable and leave `head` alone.",
+        "activity": {
+          "type": "code-runner",
+          "title": "Count the nodes",
+          "prompt": "Finish `length(head)` so it walks the list with its own pointer and counts the nodes. It should print 6. Then try it on `build([])` and make sure it prints 0 without crashing.",
+          "props": {
+            "language": "python",
+            "code": "class ListNode:\n    def __init__(self, val=0, next=None):\n        self.val = val\n        self.next = next\n\ndef build(values):\n    dummy = ListNode()\n    tail = dummy\n    for v in values:\n        tail.next = ListNode(v)\n        tail = tail.next\n    return dummy.next\n\ndef length(head):\n    # Walk the list with a separate pointer and count the nodes.\n    count = 0\n    # your code here\n    return count\n\nprint(length(build([4, 8, 15, 16, 23, 42])))",
+            "task": "Make length() count the nodes. The program should print 6.",
+            "expectOutput": "6"
+          }
+        },
+        "check": {
+          "question": "You hold a reference to node B in the singly linked list A -> B -> C -> D. Which operation is O(1)?",
+          "choices": [
+            "Find the node that comes just before B",
+            "Insert a new node right after B",
+            "Read the value of the last node",
+            "Count how many nodes come after B"
+          ],
+          "answer": 1,
+          "explanation": "Inserting after B only changes B.next and the new node's next. Finding B's predecessor means walking from the head, because singly linked nodes have no prev pointer, and reaching the last node or counting the rest means walking to the end."
+        }
+      },
+      {
+        "title": "Reversing a list: save, rewire, advance",
+        "body": "Reverse `1 -> 2 -> 3` so it reads `3 -> 2 -> 1`. With an array you would swap the ends and work inward. With a linked list you cannot reach the end directly, but you do not need to: if every node's arrow points backward instead of forward, the list is reversed.\n\nWalk the list with two pointers: `prev` (the part already reversed, starting as `None`) and `curr` (the node being processed). For each node do three things, in this order:\n\n- **Save**: `nxt = curr.next`. You are about to overwrite that pointer, and it is your only path to the rest of the list.\n- **Rewire**: `curr.next = prev`. Flip this node's arrow.\n- **Advance**: `prev = curr`, then `curr = nxt`.\n\nWhen `curr` falls off the end, `prev` is the old tail, which is the new head. Return `prev`, not `head`: the old head is now the last node and points to `None`.\n\nThe trace in the code block shows the state after each iteration. Watch the reversed part grow on the left while the unvisited part shrinks on the right. Each node is touched once, so the iterative version runs in O(n) time and O(1) extra space.\n\nThere is also a recursive version: reverse everything after the head, then hook the head onto the end. It is elegant, but it uses O(n) call stack space, and Python's default recursion limit (about 1000 frames) makes it crash on long lists. Interviewers usually want the iterative version and sometimes ask for both, so know how each one works.",
+        "code": "def reverse_list(head):\n    prev, curr = None, head\n    while curr:\n        nxt = curr.next     # save\n        curr.next = prev    # rewire\n        prev = curr         # advance\n        curr = nxt\n    return prev             # the new head\n\n# Trace on 1 -> 2 -> 3\n# start:   prev = None                    curr = 1 -> 2 -> 3\n# iter 1:  prev = 1 -> None               curr = 2 -> 3\n# iter 2:  prev = 2 -> 1 -> None          curr = 3\n# iter 3:  prev = 3 -> 2 -> 1 -> None     curr = None\n# return prev\n\ndef reverse_recursive(head):\n    if head is None or head.next is None:\n        return head\n    new_head = reverse_recursive(head.next)  # reverse the rest\n    head.next.next = head                    # the node after head points back\n    head.next = None                         # head becomes the tail\n    return new_head",
+        "tip": "Draw three boxes on paper labeled prev, curr and nxt, and move them one step at a time. Interviewers expect you to trace pointer code out loud.",
+        "pitfall": "Writing `curr.next = prev` before saving `curr.next` loses the rest of the list: after the first iteration `curr` has nowhere to go.",
+        "activity": {
+          "type": "linked-list",
+          "title": "Rewire the arrows",
+          "prompt": "Reverse the list one pointer at a time. Before each change, say which node you must save first and why. Notice that after every step the list is split into a reversed part and an untouched part.",
+          "props": {
+            "values": [
+              1,
+              2,
+              3,
+              4,
+              5
+            ]
+          }
+        },
+        "check": {
+          "question": "When the loop in `reverse_list` finishes on `1 -> 2 -> 3`, what are `prev` and `curr`?",
+          "choices": [
+            "prev is node 1 and curr is None",
+            "prev is None and curr is node 3",
+            "prev is node 3 and curr is None",
+            "prev is node 2 and curr is node 3"
+          ],
+          "answer": 2,
+          "explanation": "The loop runs until curr falls off the end, so curr is None. The last node processed was 3, which became prev, and that is why the function returns prev. Node 1, the old head, is now the tail."
+        }
+      },
+      {
+        "title": "The dummy head: merging and deleting without special cases",
+        "body": "Merge `1 -> 3 -> 5` and `2 -> 4` into one sorted list. The natural plan: compare the two front nodes, attach the smaller one to the result, advance in that list, repeat. The awkward part is the very first node. The result has no head yet, so the first attach needs an `if` that every later attach does not.\n\nA **dummy head** (also called a sentinel) removes that special case. Create a throwaway node before you start, keep a `tail` pointer at the end of the result, and always attach to `tail.next`. At the end, return `dummy.next`, the real first node.\n\nReach for a dummy head whenever the head itself might change:\n\n- Merging two lists or building a new list node by node.\n- Deleting nodes, when the head might be one of the deleted nodes.\n- Partitioning a list into two lists (use two dummies and join them at the end).\n\nMerging reuses the existing nodes, so it takes O(n + m) time and O(1) extra space. When one list runs out, attach the rest of the other in one step: it is already sorted, so there is no need to loop over it.\n\nThe same trick makes deletion clean. In a singly linked list you always delete from the node **before** the target, by pointing it past the target. To remove every node with value `x`, keep a pointer `prev` that starts at the dummy. If `prev.next` holds `x`, skip it with `prev.next = prev.next.next` and stay where you are, because the new `prev.next` might also be `x`. Otherwise advance. The dummy guarantees that even the head has a node before it.",
+        "code": "def merge_two_lists(a, b):\n    dummy = ListNode()\n    tail = dummy\n    while a and b:\n        if a.val <= b.val:\n            tail.next = a\n            a = a.next\n        else:\n            tail.next = b\n            b = b.next\n        tail = tail.next\n    tail.next = a or b        # attach whatever is left\n    return dummy.next\n\n# Trace: a = 1 -> 3 -> 5, b = 2 -> 4\n# compare 1, 2: take 1     result 1\n# compare 3, 2: take 2     result 1 -> 2\n# compare 3, 4: take 3     result 1 -> 2 -> 3\n# compare 5, 4: take 4     result 1 -> 2 -> 3 -> 4\n# b is empty: attach 5     result 1 -> 2 -> 3 -> 4 -> 5\n\ndef remove_value(head, x):\n    dummy = ListNode(0, head)\n    prev = dummy\n    while prev.next:\n        if prev.next.val == x:\n            prev.next = prev.next.next   # skip it and stay put\n        else:\n            prev = prev.next\n    return dummy.next",
+        "tip": "Compare with `<=` so equal values keep their original order. The merge stays stable, which matters when nodes carry more than a number.",
+        "pitfall": "Returning `dummy` instead of `dummy.next` puts a stray 0 at the front of your answer.",
+        "activity": {
+          "type": "challenge",
+          "title": "Merge two sorted lists",
+          "prompt": "Solve it with a dummy head and a tail pointer. Before you submit, check your code mentally against an empty list on either side.",
+          "props": {
+            "id": "merge-two-sorted-lists"
+          }
+        },
+        "check": {
+          "question": "In `remove_value`, why does the loop not advance `prev` right after deleting a node?",
+          "choices": [
+            "Advancing would skip the dummy head, which must be returned",
+            "The node now after prev has not been checked yet and might also hold x",
+            "prev.next is always None after a deletion, so advancing would crash",
+            "Deleting a node already moves prev forward by itself"
+          ],
+          "answer": 1,
+          "explanation": "After prev.next = prev.next.next, prev.next is a node nobody has examined. With 1 -> 2 -> 2 -> 3 and x = 2, advancing after the first deletion would step onto the second 2 and never remove it."
+        }
+      },
+      {
+        "title": "Fast and slow pointers: middles and cycles",
+        "body": "Two runners start together on a track, and one runs twice as fast. When the fast runner finishes, the slow one is exactly halfway. That is how you find the middle of a linked list in one pass without knowing its length.\n\nMove `slow` one step and `fast` two steps per iteration, and stop when `fast` cannot take two more steps. For `1 -> 2 -> 3 -> 4 -> 5`, slow visits 1, 2, 3 while fast visits 1, 3, 5, so slow ends on 3. For an even length such as `1 -> 2 -> 3 -> 4`, slow ends on 3, the second of the two middle nodes. If you need the first middle instead, loop while `fast.next and fast.next.next`.\n\nThe same runners detect a **cycle**, where some node's `next` points back to an earlier node so the list never ends. A plain traversal would loop forever. With two speeds:\n\n- If there is no cycle, `fast` reaches the end and you return `False`.\n- If there is a cycle, both pointers end up going around it. Each iteration the fast pointer gains exactly one node on the slow one, so it cannot jump over it: eventually they land on the same node and you return `True`.\n\nThis is **Floyd's cycle detection** (the tortoise and the hare). It runs in O(n) time and O(1) space. The easy alternative, putting every visited node into a set, is also O(n) time but needs O(n) space. A good interview answer mentions the set version, then offers the O(1) one.\n\nA bonus fact interviewers like: after the pointers meet, move one of them back to the head and advance both one step at a time. They meet again exactly at the node where the cycle begins. You will finish that function in the playground below.",
+        "code": "def middle_node(head):\n    slow = fast = head\n    while fast and fast.next:     # fast can take two more steps\n        slow = slow.next\n        fast = fast.next.next\n    return slow\n\ndef has_cycle(head):\n    slow = fast = head\n    while fast and fast.next:\n        slow = slow.next\n        fast = fast.next.next\n        if slow is fast:          # the same node object, not just equal values\n            return True\n    return False\n\n# Trace middle_node on 1 -> 2 -> 3 -> 4 -> 5\n# start    slow = 1   fast = 1\n# iter 1   slow = 2   fast = 3\n# iter 2   slow = 3   fast = 5    fast.next is None, so stop\n# middle = 3",
+        "pitfall": "Write the loop condition as `fast and fast.next`, in that order. Checking `fast.next` first crashes with AttributeError as soon as `fast` is already None.",
+        "activity": {
+          "type": "code-runner",
+          "title": "Find where the cycle starts",
+          "prompt": "The list 1 -> 2 -> 3 -> 4 -> 5 has its last node pointing back to node 2. Fill in the second phase of `cycle_start`: after the pointers meet, restart one of them at the head and step both one node at a time until they meet again. It should print 2. Then point node 5 at node 4 instead and check that it prints 4.",
+          "props": {
+            "language": "python",
+            "code": "class ListNode:\n    def __init__(self, val=0, next=None):\n        self.val = val\n        self.next = next\n\n# Build 1 -> 2 -> 3 -> 4 -> 5, then point 5 back at 2 to make a cycle.\nnodes = [ListNode(v) for v in [1, 2, 3, 4, 5]]\nfor a, b in zip(nodes, nodes[1:]):\n    a.next = b\nnodes[-1].next = nodes[1]\nhead = nodes[0]\n\ndef cycle_start(head):\n    slow = fast = head\n    while fast and fast.next:\n        slow = slow.next\n        fast = fast.next.next\n        if slow is fast:\n            # They met inside the cycle. Move one pointer back to head,\n            # then step both one node at a time until they meet again.\n            # your code here\n            return None\n    return None   # no cycle\n\nnode = cycle_start(head)\nprint(node.val if node else \"no cycle\")",
+            "task": "Complete cycle_start so it prints the value of the first node in the cycle: 2.",
+            "expectOutput": "2"
+          }
+        },
+        "check": {
+          "question": "On the list `1 -> 2 -> 3 -> 4 -> 5 -> 6`, which node does `middle_node` return?",
+          "choices": [
+            "3",
+            "6",
+            "4",
+            "3 or 4, depending on the values"
+          ],
+          "answer": 2,
+          "explanation": "Fast moves 1, 3, 5 and then off the end, while slow moves 1, 2, 3, 4. With an even length this template lands on the second middle node. Loop while fast.next and fast.next.next if you want the first middle (3)."
+        }
+      },
+      {
+        "title": "A fixed gap: the nth node from the end",
+        "body": "Remove the 2nd node from the end of `1 -> 2 -> 3 -> 4 -> 5`, leaving `1 -> 2 -> 3 -> 5`. The obvious way takes two passes: count the length L, then walk to the node just before position L - n. Interviewers usually follow up with \"can you do it in one pass?\"\n\nUse two pointers with a fixed **gap**. Move `fast` n steps ahead first. Then move `fast` and `slow` together until `fast` sits on the last node. Because the gap never changes, `slow` stops exactly one node before the node to delete, and `slow.next = slow.next.next` removes it.\n\nStart both pointers at a dummy node. That handles the nasty case where the node to delete is the head itself (n equals the length): `slow` never leaves the dummy, and `dummy.next` skips the old head.\n\nTrace with n = 2 on `1 -> 2 -> 3 -> 4 -> 5`, where D is the dummy:\n\n- Start: slow = D, fast = D.\n- Move fast 2 steps: fast = 2.\n- Move both until fast.next is None: (slow, fast) goes (1, 3), then (2, 4), then (3, 5).\n- slow = 3, so delete the node after it (4). Result: `1 -> 2 -> 3 -> 5`.\n\nThat is one pass, O(L) time and O(1) space. The two-pass version has the same big O, so why bother? Because the one-pass version also works when the list is a stream you can only read once, and because the gap idea is reusable: the kth node from the end, splitting a list into the last k nodes and the rest, and so on. It is the linked list cousin of a fixed-size sliding window.",
+        "code": "def remove_nth_from_end(head, n):\n    dummy = ListNode(0, head)\n    slow = fast = dummy\n    for _ in range(n):            # open a gap of n nodes\n        fast = fast.next\n    while fast.next:              # walk until fast is on the last node\n        slow = slow.next\n        fast = fast.next\n    slow.next = slow.next.next    # slow is just before the target\n    return dummy.next\n\n# build and to_list come from the first section\nprint(to_list(remove_nth_from_end(build([1, 2, 3, 4, 5]), 2)))   # [1, 2, 3, 5]\nprint(to_list(remove_nth_from_end(build([1, 2, 3]), 3)))         # [2, 3]\nprint(to_list(remove_nth_from_end(build([7]), 1)))               # []",
+        "tip": "Before you code, test your loop bounds out loud on the smallest cases: one node with n = 1, and n equal to the length.",
+        "pitfall": "Stopping when `fast` is None (instead of when `fast.next` is None) leaves `slow` on the target itself, and a singly linked list cannot delete a node from that position.",
+        "check": {
+          "question": "In `remove_nth_from_end` with the dummy, n equals the list's length. Where does `slow` stop?",
+          "choices": [
+            "On the head, so the second node is removed",
+            "On the last node, so nothing is removed",
+            "Nowhere: fast runs off the end and the code crashes",
+            "On the dummy node, so the head is removed"
+          ],
+          "answer": 3,
+          "explanation": "Moving fast n steps from the dummy puts it on the last node, so the while loop never runs. slow stays on the dummy and dummy.next = head.next removes the head. Without a dummy this case needs its own if statement."
+        }
+      },
+      {
+        "title": "Combining moves: palindromes and reordering",
+        "body": "Is `1 -> 2 -> 2 -> 1` a palindrome? Copying the values into an array and comparing it with its reverse works in O(n) time and O(n) space. The follow-up is always: \"now do it with O(1) extra space.\" The answer is to chain moves you already know:\n\n- **Find the middle** with fast and slow pointers.\n- **Reverse the second half** in place.\n- **Compare** the first half with the reversed second half, node by node, until the reversed half runs out.\n- **Restore** the second half by reversing it again. Callers rarely expect a function called `is_palindrome` to scramble their data.\n\nFor `1 -> 2 -> 3 -> 2 -> 1`, slow stops on 3. Reversing from 3 gives `1 -> 2 -> 3` when read from the old tail, and you compare 1 with 1, 2 with 2, and finally 3 with itself, which is harmless. The node before the middle still points at 3, so the first half reads `1 -> 2 -> 3` too.\n\n**Reorder list** uses the same recipe with a different last step. To turn `1 -> 2 -> 3 -> 4 -> 5` into `1 -> 5 -> 2 -> 4 -> 3`: find the middle (here the first middle, so the left half is never shorter), cut the list in two, reverse the second half, then weave the halves together, one node from each in turn.\n\nThis is how strong candidates approach a hard-looking linked list problem: break it into moves they can already do correctly, say each one out loud, and write each as a small helper. Every step is O(n), so the whole thing is O(n) time and O(1) space.",
+        "code": "def is_palindrome(head):\n    slow = fast = head                 # 1. find the middle\n    while fast and fast.next:\n        slow = slow.next\n        fast = fast.next.next\n    right = reverse_list(slow)         # 2. reverse the second half\n    left, r, ok = head, right, True\n    while r:                           # 3. compare\n        if left.val != r.val:\n            ok = False\n            break\n        left, r = left.next, r.next\n    reverse_list(right)                # 4. restore the input\n    return ok\n\ndef reorder_list(head):\n    if head is None:\n        return head\n    slow = fast = head                 # first middle\n    while fast.next and fast.next.next:\n        slow = slow.next\n        fast = fast.next.next\n    second = reverse_list(slow.next)\n    slow.next = None                   # cut the list in two\n    first = head\n    while second:                      # weave\n        a, b = first.next, second.next\n        first.next = second\n        second.next = a\n        first, second = a, b\n    return head\n\nprint(is_palindrome(build([1, 2, 3, 2, 1])))      # True\nprint(to_list(reorder_list(build([1, 2, 3, 4, 5]))))   # [1, 5, 2, 4, 3]",
+        "pitfall": "Forgetting to cut the list (`slow.next = None`) before weaving leaves the end of the first half pointing into the second half. The result contains a cycle, and printing it loops forever.",
+        "check": {
+          "question": "To check whether a linked list is a palindrome with O(1) extra space, which sequence of moves works?",
+          "choices": [
+            "Reverse the whole list, then compare it with the original",
+            "Push every value onto a stack, then pop and compare",
+            "Find the middle, reverse the second half, compare the halves",
+            "Sort the nodes, then compare neighbors"
+          ],
+          "answer": 2,
+          "explanation": "Reversing the whole list in place destroys the original you wanted to compare against, and a stack or copy costs O(n) space. Reversing only the second half lets you compare the two halves directly with a constant number of pointers."
+        }
+      },
+      {
+        "title": "Practice: spotting the pattern",
+        "body": "Linked list problems announce themselves: the input is a `head` node. The real question is which move to reach for. Match the wording to the pattern:\n\n- \"Reverse\", \"in place\", \"reverse between positions m and n\": save, rewire, advance.\n- \"Merge\", \"partition\", \"remove all nodes that...\", anything where the head might change: dummy head.\n- \"Middle\", \"cycle\", \"loop\", \"where does the cycle start\", \"O(1) space\": fast and slow pointers.\n- \"kth from the end\", \"nth from the end\", \"in one pass\": two pointers with a fixed gap.\n- \"Palindrome\", \"reorder\", \"fold\": find the middle, reverse, then compare or weave.\n- \"Where do two lists intersect\": two pointers that each switch to the other list's head when they reach the end, so both walk the same total distance.\n\nBefore you write code, run this checklist:\n\n- Draw the list with four or five nodes and label every pointer.\n- Name the edge cases out loud: empty list, one node, two nodes, a change that touches the head, a change that touches the tail.\n- Save `next` before you rewire it.\n- Ask whether a dummy head would remove an `if`.\n- Make sure every loop advances a pointer.\n- Return the right node: `prev`, `dummy.next` or the head you saved.\n\nComplexity is almost always O(n) time, because each node is visited a constant number of times. The space question is where you stand out: O(1) for pointer solutions, O(n) if you copied values into an array, used a set, or used recursion. Say which one you wrote and why.",
+        "activity": {
+          "type": "challenge",
+          "title": "Palindrome linked list",
+          "prompt": "Aim for O(1) extra space with the find middle, reverse, compare recipe. If you get stuck, solve it with an array first, pass the tests, then improve it.",
+          "props": {
+            "id": "palindrome-linked-list"
+          }
+        },
+        "check": {
+          "question": "A problem says: \"Given the head of a list, return the node where its loop begins, using constant extra memory.\" Which pattern fits best?",
+          "choices": [
+            "A dummy head and a single pass",
+            "Two pointers with a gap of n",
+            "Fast and slow pointers, then restart one pointer at the head",
+            "Reverse the list and compare it with the original"
+          ],
+          "answer": 2,
+          "explanation": "Floyd's algorithm finds a meeting point inside the cycle with fast and slow pointers. Restarting one pointer at the head and moving both one step at a time makes them meet at the cycle's first node, all in O(1) space. A visited set would also work, but it is not constant memory."
+        }
+      }
+    ],
+    "keyTerms": [
+      {
+        "term": "node",
+        "definition": "One element of a linked list: a value plus a next pointer (and a prev pointer in a doubly linked list)."
+      },
+      {
+        "term": "head",
+        "definition": "The first node. The only way to reach the rest of the list, so never lose your reference to it."
+      },
+      {
+        "term": "next pointer",
+        "definition": "The reference from a node to the following node; None or null marks the end of the list."
+      },
+      {
+        "term": "dummy head",
+        "definition": "A throwaway node placed before the real head so inserting or deleting at the head needs no special case. Return dummy.next."
+      },
+      {
+        "term": "save, rewire, advance",
+        "definition": "The three steps of in-place reversal: store curr.next, point curr.next at prev, then move prev and curr forward."
+      },
+      {
+        "term": "fast and slow pointers",
+        "definition": "Two pointers moving at one and two steps per iteration, used to find the middle and detect cycles in one pass."
+      },
+      {
+        "term": "Floyd's cycle detection",
+        "definition": "The tortoise and hare algorithm: if fast and slow pointers ever meet, the list has a cycle. O(n) time, O(1) space."
+      },
+      {
+        "term": "fixed gap",
+        "definition": "Two pointers kept n nodes apart, so when the front one reaches the end, the back one is n nodes from the end."
+      },
+      {
+        "term": "doubly linked list",
+        "definition": "A list whose nodes also point to the previous node, allowing O(1) deletion of a node you hold and walking backward."
+      },
+      {
+        "term": "cycle",
+        "definition": "A list where some node's next points back to an earlier node, so walking it never reaches None."
+      }
+    ],
+    "summary": [
+      "A linked list is reachable only through its head; walk it with a separate `curr` pointer and always advance.",
+      "Reverse in place with save, rewire, advance, and return `prev`, the new head.",
+      "A dummy head removes the special case when the head can change; return `dummy.next`.",
+      "Fast and slow pointers find the middle and detect cycles in O(1) space; a fixed gap finds the nth node from the end in one pass.",
+      "Hard problems are usually two or three basic moves chained together: find the middle, reverse, then compare or weave."
+    ],
+    "feynmanPrompt": "Explain to a friend how to reverse a singly linked list in place: why you must save the next pointer before changing it, what prev and curr mean at each step, and why the function returns prev instead of head."
+  },
+  "questions": [
+    {
+      "id": "swe-linked-lists-q01",
+      "type": "mcq",
+      "difficulty": "easy",
+      "question": "Which operation is O(n) on a singly linked list but O(1) on an array?",
+      "choices": [
+        "Reading the item at index i",
+        "Inserting a new first item",
+        "Deleting the first item",
+        "Checking whether the structure is empty"
+      ],
+      "answer": 0,
+      "explanation": "An array computes the address of item i directly. A linked list has to follow i next pointers from the head. Inserting or deleting at the front is the opposite: O(1) for the list, O(n) for the array because everything shifts.",
+      "concept": "linked list vs array cost",
+      "section": 0
+    },
+    {
+      "id": "swe-linked-lists-q02",
+      "type": "typed",
+      "difficulty": "easy",
+      "question": "What does this code print?",
+      "code": "head = ListNode(5, ListNode(7, ListNode(9)))\nprint(head.next.val + head.next.next.val)",
+      "answer": "16",
+      "explanation": "head.next is the node holding 7 and head.next.next is the node holding 9, so it prints 7 + 9 = 16. The 5 in the head node is never read.",
+      "concept": "following next pointers",
+      "section": 0
+    },
+    {
+      "id": "swe-linked-lists-q03",
+      "type": "debug",
+      "difficulty": "easy",
+      "question": "`count_nodes` never returns when given a non-empty list. What is wrong?",
+      "code": "def count_nodes(head):\n    count = 0\n    curr = head\n    while curr:\n        count += 1\n    return count",
+      "choices": [
+        "count should start at 1",
+        "The loop should test curr.next instead of curr",
+        "curr is never advanced, so the loop condition never becomes false",
+        "It should return count + 1"
+      ],
+      "answer": 2,
+      "explanation": "Nothing inside the loop changes curr, so `while curr` stays true forever. Adding curr = curr.next as the last line of the loop fixes it. Starting count at 1 or testing curr.next would only give wrong counts.",
+      "concept": "advancing the pointer",
+      "section": 0
+    },
+    {
+      "id": "swe-linked-lists-q04",
+      "type": "order",
+      "difficulty": "easy",
+      "question": "Put the steps of one iteration of in-place list reversal in order.",
+      "items": [
+        "Save the next node: nxt = curr.next",
+        "Point the current node backward: curr.next = prev",
+        "Move prev forward: prev = curr",
+        "Move curr forward: curr = nxt"
+      ],
+      "explanation": "You must save curr.next before overwriting it, then flip the pointer, then move both pointers forward. Moving curr before prev would lose the node prev needs to become.",
+      "concept": "reversal steps",
+      "section": 1
+    },
+    {
+      "id": "swe-linked-lists-q05",
+      "type": "code-fill",
+      "difficulty": "medium",
+      "question": "Complete the JavaScript reversal so it returns the head of the reversed list.",
+      "code": "function reverseList(head) {\n  let prev = null\n  let curr = head\n  while (curr) {\n    const nxt = curr.next\n    curr.next = prev\n    prev = curr\n    curr = nxt\n  }\n  return _____\n}",
+      "language": "javascript",
+      "choices": [
+        "head",
+        "prev",
+        "curr",
+        "nxt"
+      ],
+      "answer": 1,
+      "explanation": "When the loop ends, curr is null and prev is the old tail, which is now the first node. head still points at the old first node, which is now the last node, so returning head gives a one-node list.",
+      "concept": "reversal return value",
+      "section": 1
+    },
+    {
+      "id": "swe-linked-lists-q06",
+      "type": "debug",
+      "difficulty": "medium",
+      "question": "This reversal returns a list containing only the first node, whatever the input. What is wrong?",
+      "code": "def reverse_list(head):\n    prev, curr = None, head\n    while curr:\n        curr.next = prev\n        prev = curr\n        curr = curr.next\n    return prev",
+      "choices": [
+        "curr.next is overwritten before it is saved, so curr = curr.next follows the new pointer instead",
+        "prev should start at head instead of None",
+        "The loop should be while curr.next",
+        "It should return curr instead of prev"
+      ],
+      "answer": 0,
+      "explanation": "curr.next = prev overwrites the only pointer to the rest of the list. The last line then reads curr.next, which is now prev (None on the first pass), so the loop ends after one node. Save nxt = curr.next first.",
+      "concept": "saving next before rewiring",
+      "section": 1
+    },
+    {
+      "id": "swe-linked-lists-q07",
+      "type": "mcq",
+      "difficulty": "medium",
+      "question": "In Python, `reverse_recursive` works on a 500-node list but raises RecursionError on a 5,000-node list. Why?",
+      "choices": [
+        "The recursive version is O(n^2), so it times out",
+        "Each node adds a stack frame, and Python's default limit is about 1000",
+        "Python cannot hold more than 1000 ListNode objects at once",
+        "head.next.next = head creates a cycle on long lists"
+      ],
+      "answer": 1,
+      "explanation": "Each node adds one frame to the call stack, and Python's default recursion limit is about 1000 frames. The iterative version uses O(1) extra space and has no such limit. The recursive version is O(n) time, not O(n^2).",
+      "concept": "recursion depth",
+      "section": 1
+    },
+    {
+      "id": "swe-linked-lists-q08",
+      "type": "mcq",
+      "difficulty": "easy",
+      "question": "Why do so many linked list solutions start with `dummy = ListNode()`?",
+      "choices": [
+        "Python requires a node before the head of any list",
+        "It lets the algorithm run in O(log n) time",
+        "It stores the length of the list",
+        "Changes at the head need no special case"
+      ],
+      "answer": 3,
+      "explanation": "The dummy gives the real head a node in front of it, so adding or removing at the head works exactly like everywhere else. Return dummy.next at the end. It does not change the time complexity.",
+      "concept": "dummy head purpose",
+      "section": 2
+    },
+    {
+      "id": "swe-linked-lists-q09",
+      "type": "typed",
+      "difficulty": "medium",
+      "question": "Using `merge_two_lists` from this section, what does `to_list(merge_two_lists(build([1, 4]), build([2, 3, 6])))` return?",
+      "answer": "[1, 2, 3, 4, 6]",
+      "accept": [
+        "[1,2,3,4,6]",
+        "1, 2, 3, 4, 6",
+        "1 2 3 4 6",
+        "1,2,3,4,6"
+      ],
+      "explanation": "Compare fronts: 1 vs 2 takes 1, 4 vs 2 takes 2, 4 vs 3 takes 3, 4 vs 6 takes 4. The first list is empty, so the rest of the second (6) is attached in one step.",
+      "concept": "tracing a merge",
+      "section": 2
+    },
+    {
+      "id": "swe-linked-lists-q10",
+      "type": "debug",
+      "difficulty": "medium",
+      "question": "Called with `1 -> 5 -> 9` and `2 -> 3`, this merge returns `1 -> 2 -> 3`. What is missing?",
+      "code": "def merge_two_lists(a, b):\n    dummy = ListNode()\n    tail = dummy\n    while a and b:\n        if a.val <= b.val:\n            tail.next = a\n            a = a.next\n        else:\n            tail.next = b\n            b = b.next\n        tail = tail.next\n    return dummy.next",
+      "choices": [
+        "The comparison should be a.val < b.val",
+        "After the loop, attach the leftover nodes with tail.next = a or b",
+        "tail should start at the head of a",
+        "The loop should be while a or b"
+      ],
+      "answer": 1,
+      "explanation": "When b runs out, the loop stops and the rest of a (5 -> 9) is never attached. tail.next = a or b after the loop fixes it. Changing the loop to while a or b would crash on a.val when a is None.",
+      "concept": "attaching the leftover list",
+      "section": 2
+    },
+    {
+      "id": "swe-linked-lists-q11",
+      "type": "mcq",
+      "difficulty": "medium",
+      "question": "In `remove_value(head, x)`, why does `prev` start at the dummy instead of at the head?",
+      "choices": [
+        "Starting at the head would make the loop O(n^2)",
+        "The dummy holds the value x to compare against",
+        "A node is deleted through the node before it, and the head has none without a dummy",
+        "Python does not allow assigning to head.next"
+      ],
+      "answer": 2,
+      "explanation": "A singly linked node is removed by changing the next pointer of the node before it. The head has no node before it unless you add a dummy, so starting at the dummy lets the head be deleted like any other node.",
+      "concept": "deleting from the previous node",
+      "section": 2
+    },
+    {
+      "id": "swe-linked-lists-q12",
+      "type": "mcq",
+      "difficulty": "easy",
+      "question": "In the fast and slow pointer pattern, how far does each pointer move per iteration?",
+      "choices": [
+        "slow 1 node, fast 2 nodes",
+        "slow 1 node, fast n nodes",
+        "slow 2 nodes, fast 4 nodes",
+        "Both 1 node, with fast starting 2 ahead"
+      ],
+      "answer": 0,
+      "explanation": "slow moves one node and fast moves two. When fast reaches the end, slow has covered half the distance, which is why it lands on the middle. A gap of n is a different pattern, used for the nth node from the end.",
+      "concept": "fast and slow speeds",
+      "section": 3
+    },
+    {
+      "id": "swe-linked-lists-q13",
+      "type": "typed",
+      "difficulty": "medium",
+      "question": "Which value does `middle_node` return for `10 -> 20 -> 30 -> 40`?",
+      "answer": "30",
+      "explanation": "slow goes 10, 20, 30 while fast goes 10, 30 and then off the end (40.next is None). For even lengths this template returns the second middle, 30.",
+      "concept": "tracing middle_node",
+      "section": 3
+    },
+    {
+      "id": "swe-linked-lists-q14",
+      "type": "debug",
+      "difficulty": "hard",
+      "question": "This `has_cycle` crashes with AttributeError on some lists that have no cycle. Which lists, and why?",
+      "code": "def has_cycle(head):\n    slow = fast = head\n    while fast.next and fast:\n        slow = slow.next\n        fast = fast.next.next\n        if slow is fast:\n            return True\n    return False",
+      "choices": [
+        "Odd-length lists, because slow runs off the end first",
+        "Even-length lists, because fast becomes None and fast.next is read before fast is checked",
+        "Lists with duplicate values, because slow is fast compares values",
+        "One-node lists, because slow.next is None"
+      ],
+      "answer": 1,
+      "explanation": "On an even-length list, fast jumps to None on its last move. The condition then evaluates fast.next before checking fast, and None has no next attribute. Writing `while fast and fast.next` checks fast first and short-circuits.",
+      "concept": "loop condition order",
+      "section": 3
+    },
+    {
+      "id": "swe-linked-lists-q15",
+      "type": "mcq",
+      "difficulty": "medium",
+      "question": "Why does `has_cycle` compare `slow is fast` rather than `slow.val == fast.val`?",
+      "choices": [
+        "is is faster, and the two checks always agree",
+        "val may be None in the last node",
+        "Different nodes can hold equal values, so equal values prove nothing",
+        "== cannot compare integers stored in objects"
+      ],
+      "answer": 2,
+      "explanation": "Different nodes can hold equal values, so equal values do not prove the pointers are on the same node. `is` checks that both names refer to the very same object, which is what meeting inside a cycle means.",
+      "concept": "identity vs equality",
+      "section": 3
+    },
+    {
+      "id": "swe-linked-lists-q16",
+      "type": "mcq",
+      "difficulty": "medium",
+      "question": "A candidate detects a cycle by storing every visited node in a set. Compared with Floyd's algorithm, what is the trade-off?",
+      "choices": [
+        "Same O(n) time, but O(n) extra space instead of O(1)",
+        "It is O(n^2) because set lookups are linear",
+        "It fails when two nodes hold the same value",
+        "It cannot detect a cycle that starts at the head"
+      ],
+      "answer": 0,
+      "explanation": "A set of nodes gives O(n) time with average O(1) lookups, but it stores up to n references, so it needs O(n) extra space. Floyd's algorithm uses two pointers, O(1) space. Python sets of nodes hash by identity by default, so equal values do not confuse it.",
+      "concept": "visited set trade-off",
+      "section": 3
+    },
+    {
+      "id": "swe-linked-lists-q17",
+      "type": "order",
+      "difficulty": "hard",
+      "question": "Put the steps for finding the first node of a cycle in order.",
+      "items": [
+        "Move slow one step and fast two steps until they meet",
+        "Move one pointer back to the head",
+        "Advance both pointers one step at a time",
+        "Stop when they meet: that node is the start of the cycle"
+      ],
+      "explanation": "Phase one finds a meeting point inside the cycle. Phase two resets one pointer to the head and moves both at the same speed; the distance from the head to the cycle start equals the distance from the meeting point to the cycle start (modulo the cycle length), so they meet there.",
+      "concept": "finding the cycle start",
+      "section": 3
+    },
+    {
+      "id": "swe-linked-lists-q18",
+      "type": "mcq",
+      "difficulty": "easy",
+      "question": "In `remove_nth_from_end`, what happens before the two pointers start moving together?",
+      "choices": [
+        "fast moves to the last node",
+        "fast moves to the middle with the fast and slow pattern",
+        "slow moves n steps ahead of fast",
+        "fast moves n steps ahead to open a gap"
+      ],
+      "answer": 3,
+      "explanation": "fast moves n steps ahead, opening a gap of n nodes. Moving both at the same speed keeps that gap, so when fast is on the last node, slow is just before the node to delete.",
+      "concept": "opening the gap",
+      "section": 4
+    },
+    {
+      "id": "swe-linked-lists-q19",
+      "type": "typed",
+      "difficulty": "medium",
+      "question": "What list is left after `remove_nth_from_end(build([10, 20, 30, 40, 50]), 3)`? Type it as a Python list.",
+      "answer": "[10, 20, 40, 50]",
+      "accept": [
+        "[10,20,40,50]",
+        "10, 20, 40, 50",
+        "10 20 40 50",
+        "10,20,40,50"
+      ],
+      "explanation": "The 3rd node from the end of a 5-node list is the 3rd node from the front, 30. The gap of 3 leaves slow on 20, and 20.next is pointed past 30 to 40.",
+      "concept": "removing from the end",
+      "section": 4
+    },
+    {
+      "id": "swe-linked-lists-q20",
+      "type": "debug",
+      "difficulty": "hard",
+      "question": "This version has no dummy node. Which call breaks it?",
+      "code": "def remove_nth_from_end(head, n):\n    slow = fast = head\n    for _ in range(n):\n        fast = fast.next\n    while fast.next:\n        slow = slow.next\n        fast = fast.next\n    slow.next = slow.next.next\n    return head",
+      "choices": [
+        "n = 1 on 1 -> 2 -> 3, because the tail cannot be removed",
+        "n = 2 on 1 -> 2 -> 3, because slow stops on the wrong node",
+        "n = 3 on 1 -> 2 -> 3, because fast becomes None and fast.next crashes",
+        "Any even-length list, because the gap is off by one"
+      ],
+      "answer": 2,
+      "explanation": "With n equal to the length, the for loop moves fast past the last node to None, and `while fast.next` raises AttributeError. Even if it did not crash, there is no node before the head to unlink it from. The dummy node fixes both problems.",
+      "concept": "removing the head",
+      "section": 4
+    },
+    {
+      "id": "swe-linked-lists-q21",
+      "type": "mcq",
+      "difficulty": "medium",
+      "question": "Counting the length and then walking again is O(L), and so is the gap method. What does the gap method actually buy you?",
+      "choices": [
+        "It reads the list only once, which helps with streams or a one-pass requirement",
+        "It lowers the time to O(log L)",
+        "It uses O(1) space where the two-pass version needs O(L)",
+        "It removes the need for a dummy head"
+      ],
+      "answer": 0,
+      "explanation": "Both are O(L) time and O(1) space. The gap method reads the list once, which matters when you can only read it once (a stream) or when the interviewer explicitly asks for one pass. It does not change the big O.",
+      "concept": "one pass vs two passes",
+      "section": 4
+    },
+    {
+      "id": "swe-linked-lists-q22",
+      "type": "order",
+      "difficulty": "medium",
+      "question": "Put the steps of the O(1) space palindrome check in order.",
+      "items": [
+        "Find the middle with fast and slow pointers",
+        "Reverse the second half in place",
+        "Compare the first half with the reversed second half",
+        "Reverse the second half again to restore the list"
+      ],
+      "explanation": "You need the middle before you can reverse the second half, and you need the reversed half before you can compare. Restoring comes last so the caller gets their list back unchanged.",
+      "concept": "palindrome recipe",
+      "section": 5
+    },
+    {
+      "id": "swe-linked-lists-q23",
+      "type": "typed",
+      "difficulty": "hard",
+      "question": "What does `reorder_list` from this section produce for `1 -> 2 -> 3 -> 4 -> 5 -> 6`? Type it as a Python list.",
+      "answer": "[1, 6, 2, 5, 3, 4]",
+      "accept": [
+        "[1,6,2,5,3,4]",
+        "1, 6, 2, 5, 3, 4",
+        "1 6 2 5 3 4",
+        "1,6,2,5,3,4"
+      ],
+      "explanation": "The first middle is 3, so the halves are 1 -> 2 -> 3 and 4 -> 5 -> 6. Reversing the second gives 6 -> 5 -> 4, and weaving one node from each gives 1, 6, 2, 5, 3, 4.",
+      "concept": "tracing reorder",
+      "section": 5
+    },
+    {
+      "id": "swe-linked-lists-q24",
+      "type": "mcq",
+      "difficulty": "medium",
+      "question": "Why does `reorder_list` set `slow.next = None` before weaving the halves together?",
+      "choices": [
+        "To free the memory used by the second half",
+        "The first half would still point into the second half and the result would contain a cycle",
+        "reverse_list only works on lists that end in a cycle",
+        "To make the first half shorter than the second"
+      ],
+      "answer": 1,
+      "explanation": "Without the cut, the last node of the first half still points into the second half. Weaving then creates a loop in the result, and anything that walks it never ends.",
+      "concept": "cutting before weaving",
+      "section": 5
+    },
+    {
+      "id": "swe-linked-lists-q25",
+      "type": "mcq",
+      "difficulty": "easy",
+      "question": "Copying a list's values into a Python list and checking `vals == vals[::-1]` solves the palindrome problem. What does it cost?",
+      "choices": [
+        "O(n) time and O(1) extra space",
+        "O(n log n) time and O(n) extra space",
+        "O(n^2) time and O(1) extra space",
+        "O(n) time and O(n) extra space"
+      ],
+      "answer": 3,
+      "explanation": "Copying is one O(n) pass, reversing and comparing are O(n) more, and the copy holds n values. That is O(n) time and O(n) space, which is why interviewers ask for the O(1) space version.",
+      "concept": "array copy complexity",
+      "section": 5
+    },
+    {
+      "id": "swe-linked-lists-q26",
+      "type": "match",
+      "difficulty": "medium",
+      "question": "Match each problem with the linked list move that solves it.",
+      "pairs": [
+        {
+          "left": "Find the node where a loop begins",
+          "right": "Fast and slow pointers"
+        },
+        {
+          "left": "Delete the 4th node from the end in one pass",
+          "right": "Two pointers with a fixed gap"
+        },
+        {
+          "left": "Merge two sorted lists into one",
+          "right": "Dummy head with a tail pointer"
+        },
+        {
+          "left": "Reverse the list in place",
+          "right": "Save, rewire, advance"
+        }
+      ],
+      "explanation": "Cycle start needs fast and slow pointers plus a restart. The nth from the end in one pass needs a fixed gap. Merging builds a new chain, which a dummy head simplifies. Reversal is save, rewire, advance.",
+      "concept": "matching patterns to problems",
+      "section": 6
+    },
+    {
+      "id": "swe-linked-lists-q27",
+      "type": "multi",
+      "difficulty": "medium",
+      "question": "Which inputs should you test for almost every linked list function? Select all that apply.",
+      "choices": [
+        "An empty list (head is None)",
+        "A list with a single node",
+        "A case where the head node itself changes or is removed",
+        "A list with more than a million nodes",
+        "A list whose values are sorted in descending order"
+      ],
+      "answers": [
+        0,
+        1,
+        2
+      ],
+      "explanation": "Empty lists, one-node lists and changes at the head are where pointer code usually breaks: None checks, loops that never run, and a head that has no previous node. Huge or descending inputs rarely reveal pointer bugs.",
+      "concept": "linked list edge cases",
+      "section": 6
+    },
+    {
+      "id": "swe-linked-lists-q28",
+      "type": "recall",
+      "difficulty": "medium",
+      "question": "Why do interviewers keep asking linked list questions when most production code never builds a linked list by hand?",
+      "answer": "They test pointer discipline: updating references in the right order without losing nodes, handling the empty, one-node and head-changing cases, and reasoning about O(1) versus O(n) extra space.",
+      "explanation": "The data structure is simple, so all the difficulty is in the pointer handling, which shows how carefully a candidate reasons about state.",
+      "concept": "why interviewers ask",
+      "section": 6
+    },
+    {
+      "id": "swe-linked-lists-q29",
+      "type": "mcq",
+      "difficulty": "hard",
+      "question": "Two lists merge into a shared tail. Pointer A walks list A and then jumps to list B's head; pointer B does the reverse. Why do they meet at the first shared node?",
+      "choices": [
+        "The shorter list is padded with dummy nodes first",
+        "One pointer moves two steps per turn and catches the other",
+        "They compare values and stop at the first equal pair",
+        "Both walk the same total distance, so they line up at the shared tail"
+      ],
+      "answer": 3,
+      "explanation": "If list A has a nodes before the shared part, list B has b, and the shared tail has c, pointer A walks a + c + b steps to reach the junction and pointer B walks b + c + a. The distances are equal, so they arrive together. If there is no shared node, both reach None at the same time.",
+      "concept": "intersection with switching pointers",
+      "section": 6
+    },
+    {
+      "id": "swe-linked-lists-q30",
+      "type": "mcq",
+      "difficulty": "hard",
+      "question": "Rearrange a list so nodes with values below x come first and the rest follow, keeping the original order inside each group. Which plan is O(n) time and O(1) extra space?",
+      "choices": [
+        "Swap values between nodes like the quicksort partition step",
+        "Sort the list with merge sort and cut it at x",
+        "Reverse the list, then split it at the first value of at least x",
+        "Append each node to one of two dummy lists, then join them and end with None"
+      ],
+      "answer": 3,
+      "explanation": "Two dummies collect the two groups in order, then the \"less\" chain is joined to the first real node of the other chain, and the final tail must be set to None or the old next pointer can create a cycle. Swapping values like quicksort does not keep the original order.",
+      "concept": "stable partition with two dummies",
+      "section": 2
+    }
+  ]
+}

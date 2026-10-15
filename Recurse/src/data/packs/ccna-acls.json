@@ -1,0 +1,692 @@
+{
+  "id": "ccna-acls",
+  "name": "Access Control Lists",
+  "version": "1.0.0",
+  "author": "Recurse",
+  "subject": "networking",
+  "level": "intermediate",
+  "description": "Read wildcard masks, write standard, extended and named IPv4 ACLs, place and apply them, then verify and troubleshoot them.",
+  "icon": "ACL",
+  "language": "cisco",
+  "prereqs": ["ccna-subnetting", "ccna-osi-tcp-udp", "ccna-security-concepts"],
+  "tags": ["ccna", "5.6", "acl", "wildcard-mask", "security"],
+  "lesson": {
+    "estimatedMinutes": 45,
+    "intro": "By default a router forwards every packet it has a route for. An access control list (ACL) gives it a rule book: permit this, deny that. ACLs are pure logic, which is why the exam loves them and why small mistakes break real networks. This lesson covers how a router reads an ACL, wildcard masks bit by bit, standard, extended and named ACLs, editing with sequence numbers, where to place them, and how to verify and troubleshoot them with the commands you will use on the job.",
+    "objectives": [
+      "Predict the action an ACL takes on a packet using top-down, first-match logic and the implicit deny",
+      "Convert between prefix lengths, subnet masks and wildcard masks and find the addresses a wildcard matches",
+      "Configure standard, extended and named IPv4 ACLs, edit them with sequence numbers and apply them to interfaces and vty lines",
+      "Choose the right router, interface and direction for an ACL",
+      "Verify ACLs with show commands and hit counters, and fix common ACL faults"
+    ],
+    "sections": [
+      {
+        "title": "What an ACL does and how a router reads it",
+        "body": "The guest VLAN (10.1.50.0/24) should reach the internet but never the server subnet (10.1.10.0/24). The router has routes to both, so without help it forwards guest traffic to the servers happily. An **access control list** is the help: an ordered list of `permit` and `deny` statements, each called an access control entry (ACE).\n\nACLs have two jobs. The obvious one is **packet filtering**: attach the ACL to an interface in a direction, and the router drops what the list denies. The other job is **classification**: features such as NAT, QoS, route filtering and vty access control use an ACL to select traffic, and there `permit` means \"this matches\" rather than \"let it through.\"\n\nThe processing rules are short, and everything else follows from them:\n\n- The router compares the packet with the lines **top down**, in order.\n- The **first line that matches** decides the action, and the router stops looking. Lines further down are never checked for that packet.\n- If no line matches, an invisible **implicit deny any** at the end drops the packet. You never type it and it never appears in the configuration.\n\nTwo consequences come up constantly. An ACL with only `deny` lines blocks everything, because whatever the denies miss falls into the implicit deny. And an ACL with only `permit` lines still blocks everything you did not list.\n\nDirection matters too. An **inbound** ACL checks packets as they enter the interface, before the routing decision. An **outbound** ACL checks packets after routing, as they leave. Each interface can have at most **one ACL per direction per protocol** (one IPv4 ACL in, one out). Finally, an outbound ACL never filters packets the router creates itself, such as its own pings or routing updates.",
+        "code": "Packet arrives on an interface with an ACL applied in that direction\n\n  line 10 matches?  yes -> take its action (permit = forward, deny = drop). STOP.\n                    no  -> next line\n  line 20 matches?  yes -> take its action. STOP.\n                    no  -> next line\n  ...\n  no line matched   -> implicit \"deny any\": drop (no counter, no log)",
+        "language": "plaintext",
+        "activity": {
+          "type": "acl-tester",
+          "title": "First match wins",
+          "prompt": "Build a two-line list: deny one host, then permit any. Send a test packet from that host and one from its neighbor, and watch which line catches each. Then remove the permit line and send the neighbor's packet again: nothing you wrote matches it, so the implicit deny drops it. Finally swap the order of two lines and see how the result changes."
+        },
+        "pitfall": "Forgetting the implicit deny. If you write only deny lines to block one subnet, you have actually blocked everyone; add a permit for the traffic that should pass.",
+        "check": {
+          "question": "ACL 5 contains a single line, access-list 5 deny 10.1.1.0 0.0.0.255, and is applied inbound on an interface. What happens to a packet from 10.2.2.2 arriving on that interface?",
+          "choices": ["It is permitted because it does not match the deny line", "It is denied by the implicit deny at the end of the list", "It is permitted because standard ACLs permit by default", "It is logged and then forwarded"],
+          "answer": 1,
+          "explanation": "The packet does not match the only configured line, so it reaches the end of the list and the implicit deny drops it. An ACL with no permit statements blocks all traffic."
+        }
+      },
+      {
+        "title": "Wildcard masks, bit by bit",
+        "body": "ACLs match addresses with an address plus a **wildcard mask**. The wildcard looks like a subnet mask but works the other way around, one bit at a time:\n\n- A **0** bit means \"this bit must match the address in the ACL.\"\n- A **1** bit means \"ignore this bit\" (it is wild).\n\nSo `10.1.1.0 0.0.0.255` means the first three octets must be exactly 10.1.1 and the last octet can be anything: every address in 10.1.1.0/24.\n\nFor a whole subnet there is a shortcut: **wildcard = 255.255.255.255 minus the subnet mask**, octet by octet. A /26 mask is 255.255.255.192, so its wildcard is 0.0.0.63. A /20 mask is 255.255.240.0, so its wildcard is 0.0.15.255. A /30 gives 0.0.0.3.\n\nTo find what an address-and-wildcard pair matches, the address is the low end of the range and the address plus the wildcard is the high end, as long as the wildcard is one of these contiguous values. `172.16.32.0 0.0.15.255` matches 172.16.32.0 through 172.16.47.255, because 32 + 15 = 47.\n\nTwo keywords save typing. `host 10.1.1.5` means `10.1.1.5 0.0.0.0` (match exactly one address). `any` means `0.0.0.0 255.255.255.255` (match everything).\n\nIOS also tidies up what you type: where a wildcard octet is 255, it sets that octet of the address to 0. Type `access-list 21 permit 10.1.1.1 0.0.255.255` and the configuration shows `10.1.0.0 0.0.255.255`. Wildcards do not have to be contiguous (for example 0.0.254.255 matches only even third octets), but you will rarely need that outside of puzzles.",
+        "code": "Goal: match 172.16.32.0/20   mask 255.255.240.0   wildcard 0.0.15.255\n\n                 third octet in binary\nACL address  32  0010 0000\nwildcard     15  0000 1111     0 = must match, 1 = ignore\n                 ^^^^ these four bits must stay 0010\n\nmatching third octets: 0010 0000 (32) up to 0010 1111 (47)\nresult: 172.16.32.0 through 172.16.47.255\n\nhost 10.1.1.5   =  10.1.1.5 0.0.0.0\nany             =  0.0.0.0 255.255.255.255",
+        "language": "plaintext",
+        "tip": "Sanity check any wildcard by adding it to the address: the result should be the subnet's broadcast address.",
+        "pitfall": "Typing a subnet mask where a wildcard belongs. access-list 5 permit 10.1.1.0 255.255.255.0 does not match 10.1.1.0/24; it ignores the first three octets and matches any address whose last octet is 0.",
+        "check": {
+          "question": "Which wildcard mask matches every address in a /27 subnet?",
+          "choices": ["0.0.0.32", "255.255.255.224", "0.0.0.31", "0.0.0.63"],
+          "answer": 2,
+          "explanation": "A /27 mask is 255.255.255.224, and 255 minus 224 is 31, so the wildcard is 0.0.0.31. 255.255.255.224 is the subnet mask itself, and 0.0.0.63 would match a /26."
+        }
+      },
+      {
+        "title": "Standard numbered ACLs",
+        "body": "A **standard ACL** can match only one thing: the packet's **source IP address**. That makes it simple and limited.\n\nStandard numbered ACLs use numbers **1 to 99** and **1300 to 1999** (the second range was added when 99 ran out). You build them with the global command `access-list number {permit | deny} source [wildcard]`, one line at a time, and IOS adds each new line to the end in the order you type them. `access-list number remark text` adds a comment that stays with the ACL. Because these are global commands, the prompt stays at `R1(config)#`.\n\nAn ACL does nothing until you apply it. Under the interface, `ip access-group number {in | out}` attaches it in one direction.\n\nThe example below is the scenario from the console lab: hosts in 192.168.20.0/24 must not reach the LAN behind G0/1, and everyone else may. The deny line catches the blocked subnet. The `permit any` line is what keeps every other source working; without it, the implicit deny would cut off the whole LAN. The ACL is applied **outbound** on G0/1, the interface toward the protected LAN, so it only affects traffic heading to that LAN. That placement choice is explained in the placement section.",
+        "code": "R1(config)# access-list 10 remark Keep the 192.168.20.0/24 hosts off the G0/1 LAN\nR1(config)# access-list 10 deny 192.168.20.0 0.0.0.255\nR1(config)# access-list 10 permit any\nR1(config)# interface GigabitEthernet0/1\nR1(config-if)# ip access-group 10 out",
+        "activity": {
+          "type": "ios-console",
+          "title": "Standard ACL: block one subnet",
+          "prompt": "Build ACL 10 so it denies 192.168.20.0/24 and permits everyone else, then apply it outbound on G0/1. Before you add the permit line, run show access-lists and predict what the list would do on its own. Notice that the access-list commands keep you in global configuration mode.",
+          "props": { "lab": "cl-d5-acl-standard" }
+        },
+        "pitfall": "Expecting a standard ACL to filter by destination. It sees only the source address, so a line written with a server's address matches packets coming from that server, not going to it.",
+        "check": {
+          "question": "Which ACL number creates a standard numbered IPv4 ACL?",
+          "choices": ["150", "2100", "1500", "199"],
+          "answer": 2,
+          "explanation": "Standard numbered ACLs use 1 to 99 and 1300 to 1999, so 1500 is standard. 150 and 199 are in the extended range 100 to 199, and 2100 is in the extended range 2000 to 2699."
+        }
+      },
+      {
+        "title": "Extended numbered ACLs",
+        "body": "A standard ACL cannot say \"block guests from the web server but let them use everything else.\" An **extended ACL** can, because it matches much more of the packet: the **protocol**, the **source** and **destination** addresses, and for TCP and UDP the **source and destination ports**. Extended numbered ACLs use **100 to 199** and **2000 to 2699**.\n\nThe general form is `access-list number {permit | deny} protocol source wildcard [operator port] destination wildcard [operator port]`. The protocol can be `ip` (every IPv4 packet), `tcp`, `udp`, `icmp`, or others such as `ospf`, `gre` and `esp`. A packet matches a line only if **every** field on that line matches.\n\nPorts take an **operator**: `eq` (equal), `neq` (not equal), `lt` (less than), `gt` (greater than) or `range low high`. **Where** you write the port matters. A port written after the source address matches the **source** port; a port written after the destination address matches the **destination** port. Client applications use random high source ports, so to match traffic going to a web server, the `eq 80` goes after the destination. IOS also shows well-known ports by name: `eq 80` displays as `eq www`, 23 as `telnet`, 21 as `ftp`, 25 as `smtp` and 53 as `domain`.\n\nA few extras: for ICMP you can match message types such as `echo` (ping request) and `echo-reply`. The `established` keyword matches TCP segments that have the ACK or RST flag set, which is return traffic of a connection already open. And `log` sends a syslog message when the line matches.\n\nThe example is the console lab's goal: the 192.168.1.0/24 LAN may browse the web, and nothing else. Notice what the implicit deny now blocks: DNS, ping, SSH, everything not on these two lines.",
+        "code": "R1(config)# access-list 100 permit tcp 192.168.1.0 0.0.0.255 any eq 80\nR1(config)# access-list 100 permit tcp 192.168.1.0 0.0.0.255 any eq 443\nR1(config)# interface GigabitEthernet0/1\nR1(config-if)# ip access-group 100 in\n!\n! Source 192.168.1.0/24, any destination, destination port 80 or 443.\n! Everything else arriving on G0/1 hits the implicit deny.",
+        "activity": {
+          "type": "ios-console",
+          "title": "Extended ACL: web only",
+          "prompt": "Write ACL 100 so the 192.168.1.0/24 LAN can reach any web server on TCP 80 and 443, then apply it inbound on G0/1, the LAN-facing interface. When the checks pass, look at show access-lists and ask yourself: can these users still resolve names with DNS? Which single line would you add, and where?",
+          "props": { "lab": "cl-d5-acl-extended" }
+        },
+        "pitfall": "Putting the port after the source address. access-list 101 permit tcp 10.1.1.0 0.0.0.255 eq 443 any matches packets whose source port is 443, which describes replies from HTTPS servers, not requests from your clients.",
+        "check": {
+          "question": "Which packets match: access-list 101 permit tcp any eq 80 host 10.1.1.10 ?",
+          "choices": ["TCP packets from any host to web server 10.1.1.10 on port 80", "TCP packets from 10.1.1.10 to any web server", "All TCP traffic to 10.1.1.10", "TCP packets from web servers (source port 80) to host 10.1.1.10"],
+          "answer": 3,
+          "explanation": "eq 80 follows the source (any), so it matches the source port. These are packets coming from web servers back to 10.1.1.10. To match requests to a server at 10.1.1.10, eq 80 would go after the destination."
+        }
+      },
+      {
+        "title": "Named ACLs, sequence numbers and editing",
+        "body": "Number 117 tells you nothing six months later; a name such as GUEST-IN tells you everything. **Named ACLs** use the same matching logic as numbered ones, created with `ip access-list standard NAME` or `ip access-list extended NAME`. That command moves you into ACL configuration mode (`R1(config-std-nacl)#` or `R1(config-ext-nacl)#`), where you type the `permit`, `deny` and `remark` lines without the `access-list number` prefix. You apply a named ACL with the same `ip access-group NAME in|out`.\n\nIn ACL mode every line gets a **sequence number**. IOS numbers them 10, 20, 30 and so on unless you give one. Sequence numbers make editing easy:\n\n- `no 20` deletes just the line with sequence 20.\n- `15 deny host 10.1.1.9` inserts a new line between 10 and 20.\n- A line typed without a number goes to the end.\n\nThe same editing works for numbered ACLs if you enter them with `ip access-list standard 24` or `ip access-list extended 101`. The traditional global `access-list` command can only append to the end, and IOS still saves numbered ACLs in the running configuration as global `access-list` lines, whichever way you created them.\n\nIf the gaps run out, `ip access-list resequence NAME 10 10` renumbers the list. And before rebuilding a large ACL that is in use, a safe habit is to remove it from the interface first (`no ip access-group`), edit, verify, then reapply, so the interface is never filtering with a half-built list.",
+        "code": "R1(config)# ip access-list extended WEB-ONLY\nR1(config-ext-nacl)# permit tcp 10.1.1.0 0.0.0.255 any eq 80\nR1(config-ext-nacl)# permit tcp 10.1.1.0 0.0.0.255 any eq 443\nR1(config-ext-nacl)# do show ip access-lists WEB-ONLY\nExtended IP access list WEB-ONLY\n    10 permit tcp 10.1.1.0 0.0.0.255 any eq www\n    20 permit tcp 10.1.1.0 0.0.0.255 any eq 443\nR1(config-ext-nacl)# 15 permit udp 10.1.1.0 0.0.0.255 host 10.1.10.53 eq 53\nR1(config-ext-nacl)# no 20\nR1(config-ext-nacl)# do show ip access-lists WEB-ONLY\nExtended IP access list WEB-ONLY\n    10 permit tcp 10.1.1.0 0.0.0.255 any eq www\n    15 permit udp 10.1.1.0 0.0.0.255 host 10.1.10.53 eq domain",
+        "pitfall": "Typing no access-list 101 to remove one line. For numbered ACLs that command deletes the entire list, and an interface that still references a missing ACL filters nothing at all.",
+        "check": {
+          "question": "An extended named ACL has lines 10 and 20. In ACL configuration mode, how do you add a new line that is checked between them?",
+          "choices": ["Type the line normally; IOS sorts lines by specificity", "Type the line with sequence number 15 in front of it", "Delete the ACL and rebuild it in the new order", "Use the insert-before 20 keyword"],
+          "answer": 1,
+          "explanation": "Lines are checked in sequence-number order, so 15 lands between 10 and 20. A line without a number goes to the end of the list, and IOS never reorders extended ACL lines for you."
+        }
+      },
+      {
+        "title": "Placement and direction",
+        "body": "Writing the right lines is half the job; the other half is choosing the router, the interface and the direction.\n\n**Direction** is always from the router's point of view. `in` means packets entering the router through that interface. `out` means packets leaving the router through that interface. Trace the packet's path, then ask which interface it crosses and which way.\n\nCisco's placement rules, which the exam expects you to know:\n\n- Place **extended ACLs as close to the source** as possible. They match precisely (source, destination, protocol, port), so filtering early drops unwanted traffic before it wastes bandwidth across the network, without collateral damage.\n- Place **standard ACLs as close to the destination** as possible. They match only the source address, so a standard deny near the source would block that source from reaching everything, not just the one destination you cared about.\n\nTake the topology below. The goal is to stop Host A's subnet (10.1.1.0/24) from reaching the server subnet (10.3.3.0/24) while still reaching everything else.\n\n- With an **extended** ACL, filter on R1 G0/0 inbound, the first interface the traffic enters: `deny ip 10.1.1.0 0.0.0.255 10.3.3.0 0.0.0.255`, then `permit ip any any`.\n- With a **standard** ACL, filter on R3 G0/1 outbound, toward the servers: `deny 10.1.1.0 0.0.0.255`, then `permit any`. The same standard ACL placed on R1 G0/0 inbound would cut Host A's subnet off from everything.\n\nRemember the limit of one IPv4 ACL per interface per direction: a second `ip access-group` command for the same direction replaces the first. An inbound ACL also saves the router work, because denied packets are dropped before the routing lookup.",
+        "code": "10.1.1.0/24                                                        10.3.3.0/24\nHost A --[G0/0] R1 [G0/1]----[G0/0] R2 [G0/1]----[G0/0] R3 [G0/1]-- Servers\n            ^                                                 ^\n   extended ACL here, inbound                     standard ACL here, outbound\n   (close to the source)                          (close to the destination)",
+        "language": "plaintext",
+        "pitfall": "Applying an ACL in the wrong direction. An ACL that matches source 10.1.1.0/24 does nothing outbound on the 10.1.1.0/24 LAN interface, because packets leaving toward that LAN are coming from somewhere else.",
+        "check": {
+          "question": "Why does Cisco recommend placing standard ACLs close to the destination?",
+          "choices": ["Standard ACLs can only be applied outbound", "Standard ACLs match only the source address, so near the source they would block traffic to every destination", "Standard ACLs use more CPU near the source", "Routers near the source cannot process wildcard masks"],
+          "answer": 1,
+          "explanation": "A standard ACL cannot distinguish destinations. Filtering close to the destination limits its effect to traffic headed there. Standard ACLs can be applied in either direction."
+        }
+      },
+      {
+        "title": "Verifying ACLs and filtering vty access",
+        "body": "Three commands answer almost every ACL question on a live router.\n\n- `show access-lists` lists every ACL (IPv4 and others, such as IPv6), and `show ip access-lists [name | number]` shows IPv4 ACLs only. Both list each line with its sequence number and a **match counter**. Counters are the fastest way to see which line is catching traffic. There is no counter for the implicit deny; if you want to count or log what falls off the end, add an explicit `deny ip any any log` as the last line. `clear access-list counters` resets the counters before a test.\n- `show ip interface type number` shows which ACL is applied to the interface and in which direction (`Outgoing access list is ...`, `Inbound access list is ...`).\n- `show running-config` (or `| include access-group`) confirms both the ACL lines and where they are applied.\n\nACLs also protect the router itself. Telnet and SSH sessions arrive on the **vty lines**, and the line subcommand `access-class` applies a standard ACL to them. `access-class 5 in` means only sources permitted by ACL 5 may open a session to the router, no matter which interface the session arrives on. Users who are filtered never even see a login prompt. (The `out` keyword filters sessions that users start from the router to other devices, and is rarely used.)",
+        "code": "R1# show ip access-lists\nStandard IP access list 10\n    10 deny   192.168.20.0, wildcard bits 0.0.0.255 (57 matches)\n    20 permit any (1432 matches)\nExtended IP access list 100\n    10 permit tcp 192.168.1.0 0.0.0.255 any eq www (380 matches)\n    20 permit tcp 192.168.1.0 0.0.0.255 any eq 443 (2211 matches)\nR1# show ip interface GigabitEthernet0/1 | include access list\n  Outgoing access list is 10\n  Inbound  access list is 100\n!\nR1(config)# access-list 5 permit 10.10.99.0 0.0.0.255\nR1(config)# line vty 0 15\nR1(config-line)# access-class 5 in",
+        "pitfall": "Using ip access-group under the vty lines. Lines take access-class; ip access-group is an interface command.",
+        "check": {
+          "question": "Which command shows whether an ACL is applied to G0/1 and in which direction?",
+          "choices": ["show access-lists", "show ip interface GigabitEthernet0/1", "show interfaces status", "show ip route"],
+          "answer": 1,
+          "explanation": "show ip interface lists the inbound and outbound ACLs for the interface. show access-lists displays the ACL contents and counters but not where they are applied."
+        }
+      },
+      {
+        "title": "Troubleshooting ACLs",
+        "body": "When an ACL misbehaves, work through it in the same order every time instead of rewriting lines at random.\n\n1. **Is it applied, where you think?** `show ip interface` for the interface and direction. Right router, right interface, right direction?\n2. **Does the ACL exist?** An interface can reference an ACL name that was never created (often a typo). A missing ACL filters nothing, so all traffic passes.\n3. **Which line is matching?** Read top down and check the counters. A broad line above a specific one steals its matches; a specific line with zero matches is often sitting below a broader one.\n4. **Are the wildcards right?** Add the wildcard to the address and confirm the range.\n5. **For extended ACLs**: are source and destination in the right order? Is each port on the correct side? Is the protocol right (DNS queries use UDP 53, SSH uses TCP 22)?\n6. **What is the implicit deny catching?** The traffic you forgot: DNS, DHCP, ICMP, and above all **routing protocols**. An inbound ACL that permits only web traffic also drops OSPF hellos (IP protocol 89), and the neighbor goes down when the dead timer expires. Add `permit ospf any any` near the top.\n7. **Outbound and the router's own packets**: outbound ACLs do not filter traffic the router itself generates, so testing with a ping from the router can mislead you. Test from a host.\n\nThe example below shows step 6 in action. The fix is a single inserted line, `5 permit ospf any any`, not removing the ACL.",
+        "code": "R2# show ip access-lists BRANCH-IN\nExtended IP access list BRANCH-IN\n    10 permit tcp 10.2.2.0 0.0.0.255 any eq www (1022 matches)\n    20 permit tcp 10.2.2.0 0.0.0.255 any eq 443 (5310 matches)\nR2# show ip interface GigabitEthernet0/1 | include Inbound\n  Inbound  access list is BRANCH-IN\n%OSPF-5-ADJCHG: Process 1, Nbr 3.3.3.3 on GigabitEthernet0/1 from FULL to DOWN, Neighbor Down: Dead timer expired",
+        "activity": {
+          "type": "ios-console",
+          "title": "Troubleshoot: everything is blocked",
+          "prompt": "This router starts broken: an ACL meant to block one subnet is blocking all traffic. Before changing anything, run show access-lists and show running-config and explain to yourself exactly why every packet is dropped. Then fix it so the blocked subnet stays blocked and everyone else gets through.",
+          "props": { "lab": "cl-ts-acl" }
+        },
+        "pitfall": "Fixing an ACL problem by removing the ACL. It restores connectivity and silently removes the security the ACL was there to provide; find the missing or misplaced line instead.",
+        "check": {
+          "question": "In the example output, why did the OSPF neighbor on G0/1 go down after BRANCH-IN was applied inbound?",
+          "choices": ["OSPF hellos (IP protocol 89) match no line and are dropped by the implicit deny", "Extended ACLs disable multicast on the interface", "The ACL's web traffic used up the interface bandwidth", "OSPF requires ACLs to be applied outbound only"],
+          "answer": 0,
+          "explanation": "Only TCP 80 and 443 are permitted, so the neighbor's incoming OSPF hellos fall into the implicit deny. After the dead interval with no hellos, the adjacency drops. Permitting OSPF at the top fixes it."
+        }
+      }
+    ],
+    "keyTerms": [
+      { "term": "ACE", "definition": "Access control entry: one permit or deny line in an ACL." },
+      { "term": "First-match logic", "definition": "A router checks ACL lines top down and applies the action of the first line that matches, ignoring the rest." },
+      { "term": "Implicit deny", "definition": "The invisible deny any at the end of every ACL that drops packets matching no configured line." },
+      { "term": "Wildcard mask", "definition": "A 32-bit mask where 0 bits must match the ACL address and 1 bits are ignored; for a subnet it is 255.255.255.255 minus the subnet mask." },
+      { "term": "Standard ACL", "definition": "An ACL that matches only the source IPv4 address; numbered 1 to 99 and 1300 to 1999." },
+      { "term": "Extended ACL", "definition": "An ACL that matches protocol, source and destination addresses and ports; numbered 100 to 199 and 2000 to 2699." },
+      { "term": "Named ACL", "definition": "An ACL identified by a name and configured in ACL mode with ip access-list standard or extended." },
+      { "term": "Sequence number", "definition": "The number in front of each ACL line that sets its order and allows deleting or inserting single lines." },
+      { "term": "ip access-group", "definition": "Interface subcommand that applies an ACL inbound or outbound." },
+      { "term": "access-class", "definition": "Line subcommand that applies an ACL to vty lines to control who can open Telnet or SSH sessions to the device." }
+    ],
+    "summary": [
+      "ACLs are read top down, the first matching line wins, and an implicit deny any drops whatever matches no line.",
+      "Wildcard 0 bits must match and 1 bits are ignored; for a subnet the wildcard is 255.255.255.255 minus the mask; host and any are shortcuts.",
+      "Standard ACLs (1-99, 1300-1999) match source only; extended ACLs (100-199, 2000-2699) match protocol, addresses and ports, with port position deciding source or destination.",
+      "Named ACLs and sequence numbers let you delete (no 20) and insert (15 ...) single lines; no access-list N deletes a whole numbered ACL.",
+      "Put extended ACLs near the source and standard ACLs near the destination; one ACL per interface per direction; vty lines use access-class.",
+      "Verify with show ip access-lists counters and show ip interface; when traffic breaks, check application, existence, order, wildcards, ports and what the implicit deny catches."
+    ],
+    "feynmanPrompt": "Explain to a coworker how a router processes a packet against an ACL, why an ACL with only deny statements blocks everything, and how you would choose between a standard and an extended ACL and decide where to apply each one."
+  },
+  "questions": [
+    {
+      "id": "ccna-acls-q01",
+      "type": "mcq",
+      "difficulty": "easy",
+      "question": "A packet matches line 20 and also line 40 of an ACL. Which action does the router take?",
+      "choices": ["The action of line 40, because later lines override earlier ones", "The action of line 20, because the first match wins", "Deny, because conflicting matches are always denied", "Permit, because a packet that matches twice is trusted"],
+      "answer": 1,
+      "explanation": "The router stops at the first matching line and applies its action. Line 40 is never checked for that packet.",
+      "concept": "first-match logic",
+      "section": 0
+    },
+    {
+      "id": "ccna-acls-q02",
+      "type": "mcq",
+      "difficulty": "medium",
+      "question": "ACL 1 below is applied inbound. Packets arrive from 10.1.1.5, 10.1.1.77 and 10.9.9.9. What happens to each?",
+      "code": "access-list 1 deny host 10.1.1.5\naccess-list 1 permit 10.1.1.0 0.0.0.255\naccess-list 1 deny 10.0.0.0 0.255.255.255\naccess-list 1 permit any",
+      "choices": ["10.1.1.5 denied, 10.1.1.77 permitted, 10.9.9.9 denied", "10.1.1.5 permitted, 10.1.1.77 permitted, 10.9.9.9 denied", "All three are denied by line 3", "10.1.1.5 denied, 10.1.1.77 denied, 10.9.9.9 permitted"],
+      "answer": 0,
+      "explanation": "10.1.1.5 matches line 1 (deny). 10.1.1.77 misses line 1 and matches line 2 (permit). 10.9.9.9 misses lines 1 and 2 and matches line 3 (deny). Line 4 only catches sources outside 10.0.0.0/8.",
+      "concept": "first-match logic",
+      "section": 0
+    },
+    {
+      "id": "ccna-acls-q03",
+      "type": "mcq",
+      "difficulty": "medium",
+      "question": "An engineer applies an ACL that contains only two deny statements, one for each of two problem hosts. What is the result?",
+      "choices": ["Only the two hosts are blocked", "Nothing is blocked until a permit is added", "All traffic through that interface and direction is blocked", "The router rejects the ACL because it has no permit"],
+      "answer": 2,
+      "explanation": "Every other packet matches neither deny and falls to the implicit deny, so everything is blocked. A permit any (or permit ip any any) at the end is needed.",
+      "concept": "implicit deny",
+      "section": 0
+    },
+    {
+      "id": "ccna-acls-q04",
+      "type": "multi",
+      "difficulty": "medium",
+      "question": "Besides filtering packets on an interface, which two jobs can an ACL do on a Cisco router? (Choose two.)",
+      "choices": ["Select which inside addresses NAT translates", "Control which sources may open Telnet or SSH sessions to the router", "Assign IP addresses to DHCP clients", "Elect the STP root bridge", "Tag frames with a VLAN ID"],
+      "answers": [0, 1],
+      "explanation": "ACLs classify traffic for features such as NAT and are applied to vty lines with access-class. DHCP addressing, STP elections and VLAN tagging do not use ACLs.",
+      "concept": "ACL uses",
+      "section": 0
+    },
+    {
+      "id": "ccna-acls-q05",
+      "type": "mcq",
+      "difficulty": "hard",
+      "question": "R1 has ACL 30 (access-list 30 deny any) applied outbound on G0/1. An engineer runs ping from R1 itself to a host out G0/1, and it succeeds. Why?",
+      "choices": ["Ping uses ICMP, which standard ACLs cannot match", "Outbound ACLs do not filter packets that the router generates itself", "ACLs only take effect after the router reloads", "The implicit deny only applies inbound"],
+      "answer": 1,
+      "explanation": "An outbound ACL filters packets the router routes, not packets it originates, such as its own pings and routing updates. Testing from a host behind the router would show the ACL working.",
+      "concept": "router-generated traffic",
+      "section": 0
+    },
+    {
+      "id": "ccna-acls-q06",
+      "type": "recall",
+      "difficulty": "easy",
+      "question": "What is the implicit deny, and what does it mean for an ACL that contains only permit statements?",
+      "answer": "Every ACL ends with an invisible deny any that drops any packet matching no configured line. An ACL with only permit statements therefore still blocks everything it does not explicitly permit.",
+      "explanation": "The implicit deny never appears in the configuration and has no counter, which is why it surprises people.",
+      "concept": "implicit deny",
+      "section": 0
+    },
+    {
+      "id": "ccna-acls-q07",
+      "type": "mcq",
+      "difficulty": "easy",
+      "question": "In an ACL wildcard mask, what does a 0 bit mean?",
+      "choices": ["The corresponding address bit is ignored", "The packet is denied", "The bit is part of the host portion", "The corresponding address bit must match"],
+      "answer": 3,
+      "explanation": "0 means the bit must match the ACL address; 1 means ignore it. This is the reverse of how people often read subnet masks.",
+      "concept": "wildcard bits",
+      "section": 1
+    },
+    {
+      "id": "ccna-acls-q08",
+      "type": "typed",
+      "difficulty": "easy",
+      "question": "What wildcard mask matches all addresses in a /26 subnet?",
+      "answer": "0.0.0.63",
+      "explanation": "A /26 mask is 255.255.255.192. 255 minus 192 is 63, so the wildcard is 0.0.0.63.",
+      "concept": "wildcard from prefix",
+      "section": 1
+    },
+    {
+      "id": "ccna-acls-q09",
+      "type": "typed",
+      "difficulty": "medium",
+      "question": "What wildcard mask matches the subnet whose mask is 255.255.240.0?",
+      "answer": "0.0.15.255",
+      "explanation": "Subtract each octet from 255: 255-255=0, 255-255=0, 255-240=15, 255-0=255, giving 0.0.15.255.",
+      "concept": "wildcard from mask",
+      "section": 1
+    },
+    {
+      "id": "ccna-acls-q10",
+      "type": "mcq",
+      "difficulty": "medium",
+      "question": "Which range of addresses does 172.16.32.0 0.0.15.255 match?",
+      "choices": ["172.16.32.0 to 172.16.32.255", "172.16.32.0 to 172.16.63.255", "172.16.0.0 to 172.16.47.255", "172.16.32.0 to 172.16.47.255"],
+      "answer": 3,
+      "explanation": "The third octet's low four bits are wild, so it can range from 32 to 32 + 15 = 47, with the last octet fully wild. That is 172.16.32.0/20.",
+      "concept": "wildcard ranges",
+      "section": 1
+    },
+    {
+      "id": "ccna-acls-q11",
+      "type": "mcq",
+      "difficulty": "medium",
+      "question": "Which address is matched by the ACL entry permit 192.168.4.0 0.0.3.255 ?",
+      "choices": ["192.168.3.255", "192.168.8.1", "192.168.7.200", "192.168.12.4"],
+      "answer": 2,
+      "explanation": "The wildcard 0.0.3.255 lets the third octet vary from 4 to 7 and the last octet be anything, so the range is 192.168.4.0 to 192.168.7.255. Only 192.168.7.200 falls inside it.",
+      "concept": "wildcard ranges",
+      "section": 1
+    },
+    {
+      "id": "ccna-acls-q12",
+      "type": "mcq",
+      "difficulty": "hard",
+      "question": "Which addresses does the entry permit 10.1.0.0 0.0.254.255 match?",
+      "choices": ["Every address from 10.1.0.0 to 10.1.254.255", "Addresses 10.1.x.y where the third octet x is an even number", "Addresses 10.1.x.y where the third octet x is an odd number", "Only addresses in 10.1.0.0/24"],
+      "answer": 1,
+      "explanation": "254 is 11111110 in binary, so only the lowest bit of the third octet must match the ACL address. That bit is 0 in 10.1.0.0, so the third octet must be even. This is a non-contiguous wildcard.",
+      "concept": "non-contiguous wildcard",
+      "section": 1
+    },
+    {
+      "id": "ccna-acls-q13",
+      "type": "mcq",
+      "difficulty": "hard",
+      "question": "An engineer meant to permit 10.1.1.0/24 but typed: access-list 5 permit 10.1.1.0 255.255.255.0 . What does this line actually match?",
+      "choices": ["Any IPv4 address whose last octet is 0", "Exactly the 10.1.1.0/24 subnet", "Only the single address 10.1.1.0", "Nothing; IOS rejects the command"],
+      "answer": 0,
+      "explanation": "Read as a wildcard, 255.255.255.0 ignores the first three octets and requires the last octet to equal 0. IOS accepts it (it displays as 0.0.0.0, wildcard bits 255.255.255.0), and it matches addresses such as 10.1.1.0, 172.16.5.0 and 192.168.9.0.",
+      "concept": "mask vs wildcard",
+      "section": 1
+    },
+    {
+      "id": "ccna-acls-q14",
+      "type": "match",
+      "difficulty": "easy",
+      "question": "Match each ACL address form to what it matches.",
+      "pairs": [
+        { "left": "host 10.1.1.5", "right": "Only 10.1.1.5 (wildcard 0.0.0.0)" },
+        { "left": "any", "right": "Every address (0.0.0.0 255.255.255.255)" },
+        { "left": "10.1.1.0 0.0.0.255", "right": "All of 10.1.1.0/24" },
+        { "left": "10.1.1.4 0.0.0.3", "right": "10.1.1.4 through 10.1.1.7" }
+      ],
+      "explanation": "host and any are shorthand for the all-zeros and all-ones wildcards. For contiguous wildcards, the range runs from the address to the address plus the wildcard.",
+      "concept": "host and any",
+      "section": 1
+    },
+    {
+      "id": "ccna-acls-q15",
+      "type": "mcq",
+      "difficulty": "medium",
+      "question": "An engineer enters the command below. What does show ip access-lists display for this line?",
+      "code": "R2(config)# access-list 21 permit 10.1.1.1 0.0.255.255",
+      "choices": ["10 permit 10.1.1.1, wildcard bits 0.0.255.255", "10 permit 10.1.0.0, wildcard bits 0.0.255.255", "10 permit host 10.1.1.1", "An error, because the address does not match the wildcard"],
+      "answer": 1,
+      "explanation": "IOS accepts the command but zeroes the address octets that the wildcard ignores, so 10.1.1.1 becomes 10.1.0.0. The match is the same either way.",
+      "concept": "IOS address correction",
+      "section": 1
+    },
+    {
+      "id": "ccna-acls-q16",
+      "type": "multi",
+      "difficulty": "easy",
+      "question": "Which two number ranges identify standard numbered IPv4 ACLs? (Choose two.)",
+      "choices": ["1 to 99", "100 to 199", "1300 to 1999", "2000 to 2699", "200 to 299"],
+      "answers": [0, 2],
+      "explanation": "Standard ACLs use 1-99 and 1300-1999. Extended ACLs use 100-199 and 2000-2699.",
+      "concept": "standard ACL numbers",
+      "section": 2
+    },
+    {
+      "id": "ccna-acls-q17",
+      "type": "cli",
+      "shell": "ios",
+      "difficulty": "easy",
+      "question": "You are in interface configuration mode for G0/1. Type the command that applies ACL 10 to packets leaving the router through this interface.",
+      "answer": "ip access-group 10 out",
+      "explanation": "ip access-group attaches an ACL to an interface, and out means packets exiting the interface after routing.",
+      "concept": "ip access-group",
+      "section": 2
+    },
+    {
+      "id": "ccna-acls-q18",
+      "type": "cli",
+      "shell": "ios",
+      "difficulty": "medium",
+      "question": "Type the global command that adds a line to standard ACL 15 denying the single host 10.1.1.99.",
+      "answer": "access-list 15 deny host 10.1.1.99",
+      "accept": ["access-list 15 deny 10.1.1.99", "access-list 15 deny 10.1.1.99 0.0.0.0"],
+      "explanation": "host 10.1.1.99 is shorthand for 10.1.1.99 0.0.0.0. In a standard ACL, a bare address with no wildcard is also treated as a host match.",
+      "concept": "standard ACL syntax",
+      "section": 2
+    },
+    {
+      "id": "ccna-acls-q19",
+      "type": "debug",
+      "difficulty": "medium",
+      "question": "The goal is to stop the 10.1.1.0/24 users from reaching server 10.3.3.10, while allowing everything else. The engineer applies this standard ACL outbound on the interface toward the server. What is wrong?",
+      "code": "access-list 20 deny host 10.3.3.10\naccess-list 20 permit any\n!\ninterface GigabitEthernet0/1\n ip access-group 20 out",
+      "choices": ["The permit any must come before the deny", "Standard ACLs cannot use the host keyword", "The ACL must be applied inbound, not outbound", "A standard ACL matches only the source, so this line matches packets from the server, not to it"],
+      "answer": 3,
+      "explanation": "Standard ACLs look only at the source address. Packets heading to 10.3.3.10 have source 10.1.1.x, so the deny never matches them. The line should deny 10.1.1.0 0.0.0.255 (or use an extended ACL that names both).",
+      "concept": "standard ACL limits",
+      "section": 2
+    },
+    {
+      "id": "ccna-acls-q20",
+      "type": "mcq",
+      "difficulty": "easy",
+      "question": "Which field of a packet can a standard IPv4 ACL match?",
+      "choices": ["Destination IP address", "Destination TCP port", "Protocol number", "Source IP address"],
+      "answer": 3,
+      "explanation": "Standard ACLs match only the source IP. Destination, ports and protocol require an extended ACL.",
+      "concept": "standard vs extended",
+      "section": 2
+    },
+    {
+      "id": "ccna-acls-q21",
+      "type": "multi",
+      "difficulty": "easy",
+      "question": "Which two number ranges identify extended numbered IPv4 ACLs? (Choose two.)",
+      "choices": ["1 to 99", "100 to 199", "1300 to 1999", "2000 to 2699", "700 to 799"],
+      "answers": [1, 3],
+      "explanation": "Extended ACLs use 100-199 and the expanded range 2000-2699. 1-99 and 1300-1999 are standard.",
+      "concept": "extended ACL numbers",
+      "section": 3
+    },
+    {
+      "id": "ccna-acls-q22",
+      "type": "code-fill",
+      "difficulty": "medium",
+      "question": "Complete the line so hosts in 10.1.1.0/24 may send email to the SMTP server 10.9.9.25.",
+      "code": "access-list 120 permit tcp 10.1.1.0 0.0.0.255 host 10.9.9.25 _____",
+      "choices": ["eq 25", "eq 23", "gt 25", "eq 110"],
+      "answer": 0,
+      "explanation": "SMTP is TCP port 25, and the operator follows the destination so it matches the destination port. 23 is Telnet, 110 is POP3, and gt 25 would match every port above 25 but not 25 itself.",
+      "concept": "extended ACL ports",
+      "section": 3
+    },
+    {
+      "id": "ccna-acls-q23",
+      "type": "mcq",
+      "difficulty": "hard",
+      "question": "Users in 10.1.1.0/24 can resolve names but cannot open the HTTPS site on 172.16.5.5. ACL 150 is applied inbound on their LAN interface. What is wrong?",
+      "code": "R1# show ip access-lists 150\nExtended IP access list 150\n    10 permit tcp 10.1.1.0 0.0.0.255 eq 443 host 172.16.5.5\n    20 permit udp 10.1.1.0 0.0.0.255 host 172.16.5.53 eq domain (88 matches)",
+      "choices": ["HTTPS uses UDP, so line 10 needs udp instead of tcp", "Line 10 checks source port 443; the clients use random source ports, so eq 443 belongs after the destination", "Line 20 must come before line 10", "The wildcard 0.0.0.255 is wrong for a /24"],
+      "answer": 1,
+      "explanation": "eq 443 sits after the source, so it matches packets whose source port is 443, which client requests never have. Rewriting it as permit tcp 10.1.1.0 0.0.0.255 host 172.16.5.5 eq 443 matches the destination port.",
+      "concept": "port position",
+      "section": 3
+    },
+    {
+      "id": "ccna-acls-q24",
+      "type": "cli",
+      "shell": "ios",
+      "difficulty": "hard",
+      "question": "Type one global command that adds a line to extended ACL 130 denying Telnet from any host in 10.1.1.0/24 to any destination.",
+      "answer": "access-list 130 deny tcp 10.1.1.0 0.0.0.255 any eq 23",
+      "accept": ["access-list 130 deny tcp 10.1.1.0 0.0.0.255 any eq telnet"],
+      "explanation": "Telnet is TCP port 23, matched as the destination port, so eq 23 goes after the destination any. IOS will display it as eq telnet.",
+      "concept": "extended ACL syntax",
+      "section": 3
+    },
+    {
+      "id": "ccna-acls-q25",
+      "type": "match",
+      "difficulty": "medium",
+      "question": "IOS displays some port numbers by name in ACLs. Match each keyword to its port.",
+      "pairs": [
+        { "left": "www", "right": "TCP 80" },
+        { "left": "telnet", "right": "TCP 23" },
+        { "left": "ftp", "right": "TCP 21" },
+        { "left": "smtp", "right": "TCP 25" },
+        { "left": "domain", "right": "Port 53 (DNS)" }
+      ],
+      "explanation": "Knowing these keywords lets you read show access-lists output, which uses the names even when you typed numbers.",
+      "concept": "port keywords",
+      "section": 3
+    },
+    {
+      "id": "ccna-acls-q26",
+      "type": "mcq",
+      "difficulty": "medium",
+      "question": "ACL 140 below is applied inbound on R1's internet-facing interface. What effect does it have?",
+      "code": "access-list 140 deny icmp any any echo\naccess-list 140 permit ip any any",
+      "choices": ["Blocks all ICMP, including replies to inside users' pings", "Blocks ping requests arriving from the internet, while other traffic, including echo replies, is permitted", "Blocks all traffic, because ICMP lines disable the permit", "Permits everything, because echo is not a valid keyword"],
+      "answer": 1,
+      "explanation": "echo matches ICMP echo requests only. Outside hosts cannot ping in, but replies to pings sent by inside users (echo-reply) still match the permit ip any any.",
+      "concept": "ICMP matching",
+      "section": 3
+    },
+    {
+      "id": "ccna-acls-q27",
+      "type": "mcq",
+      "difficulty": "easy",
+      "question": "After entering ip access-list extended GUEST-IN, which prompt does IOS show?",
+      "choices": ["R1(config-if)#", "R1(config-acl)#", "R1(config-ext-nacl)#", "R1(config-std-nacl)#"],
+      "answer": 2,
+      "explanation": "Extended named ACLs use config-ext-nacl mode; standard named ACLs use config-std-nacl.",
+      "concept": "named ACL mode",
+      "section": 4
+    },
+    {
+      "id": "ccna-acls-q28",
+      "type": "cli",
+      "shell": "ios",
+      "difficulty": "easy",
+      "question": "You are in configuration mode for a named ACL. Type the command that deletes only the line with sequence number 20.",
+      "answer": "no 20",
+      "explanation": "In ACL configuration mode, no followed by a sequence number removes just that line. The rest of the ACL is untouched.",
+      "concept": "deleting a line",
+      "section": 4
+    },
+    {
+      "id": "ccna-acls-q29",
+      "type": "mcq",
+      "difficulty": "medium",
+      "question": "Given the ACL below, an engineer types deny ip host 10.1.1.9 any in ACL mode without a sequence number. Where does the new line go, and is that a problem?",
+      "code": "R1# show ip access-lists EDGE\nExtended IP access list EDGE\n    10 permit tcp 10.1.1.0 0.0.0.255 any eq www\n    20 permit tcp 10.1.1.0 0.0.0.255 any eq 443\n    30 permit ip any any",
+      "choices": ["It becomes line 5 and works as intended", "It replaces line 30", "IOS sorts it into the most specific position automatically", "It becomes line 40, after permit ip any any, so it never matches anything"],
+      "answer": 3,
+      "explanation": "A line without a sequence number goes to the end. Line 30 permits everything first, so the new deny is never reached. Entering it as 5 deny ip host 10.1.1.9 any would put it at the top.",
+      "concept": "sequence numbers",
+      "section": 4
+    },
+    {
+      "id": "ccna-acls-q30",
+      "type": "mcq",
+      "difficulty": "hard",
+      "question": "Numbered ACL 101 is applied inbound on G0/0. An engineer enters no access-list 101 to remove one bad line, intending to retype it. What is the immediate effect on traffic arriving on G0/0?",
+      "choices": ["All traffic is permitted, because the interface now references an ACL that does not exist", "All traffic is denied by the implicit deny", "Only the bad line is removed; the others keep filtering", "The interface shuts down until the ACL is recreated"],
+      "answer": 0,
+      "explanation": "no access-list 101 deletes the whole ACL. The ip access-group 101 in command remains, but an empty or missing ACL filters nothing, so everything passes until lines are added again.",
+      "concept": "deleting numbered ACLs",
+      "section": 4
+    },
+    {
+      "id": "ccna-acls-q31",
+      "type": "order",
+      "difficulty": "medium",
+      "question": "Put the steps in a safe order for rebuilding a large ACL that is currently applied to a busy interface.",
+      "items": [
+        "Remove the ACL from the interface with no ip access-group",
+        "Edit or rebuild the ACL lines",
+        "Check the result with show ip access-lists",
+        "Reapply the ACL with ip access-group"
+      ],
+      "explanation": "Detaching first means the interface never filters with a half-built list. Verifying before reapplying catches ordering and wildcard mistakes.",
+      "concept": "safe ACL editing",
+      "section": 4
+    },
+    {
+      "id": "ccna-acls-q32",
+      "type": "mcq",
+      "difficulty": "easy",
+      "question": "According to Cisco's guidelines, where should an extended ACL be placed?",
+      "choices": ["As close to the source of the traffic as possible", "As close to the destination as possible", "Only on the router's internet interface", "On every router along the path"],
+      "answer": 0,
+      "explanation": "Extended ACLs match precisely, so filtering near the source drops unwanted packets early without blocking other traffic.",
+      "concept": "extended placement",
+      "section": 5
+    },
+    {
+      "id": "ccna-acls-q33",
+      "type": "mcq",
+      "difficulty": "hard",
+      "question": "Using the topology below, you must stop 10.1.1.0/24 from reaching 10.3.3.0/24 with an extended ACL while allowing all other traffic. Where should it be applied?",
+      "code": "10.1.1.0/24                                                        10.3.3.0/24\nHost A --[G0/0] R1 [G0/1]----[G0/0] R2 [G0/1]----[G0/0] R3 [G0/1]-- Servers",
+      "language": "plaintext",
+      "choices": ["R3 G0/1 inbound", "R1 G0/1 inbound", "R1 G0/0 inbound", "R3 G0/0 outbound"],
+      "answer": 2,
+      "explanation": "Host A's packets first enter R1 on G0/0, so applying the extended ACL inbound there drops them at the earliest point. R1 G0/1 inbound would see traffic coming back from R2, and R3 G0/1 inbound sees traffic from the servers.",
+      "concept": "placement and direction",
+      "section": 5
+    },
+    {
+      "id": "ccna-acls-q34",
+      "type": "mcq",
+      "difficulty": "medium",
+      "question": "An ACL that matches source 10.1.1.0/24 is applied outbound on R1 G0/0, the interface whose LAN is 10.1.1.0/24. The engineer expects it to stop those hosts from reaching other subnets. What actually happens?",
+      "choices": ["It works, because direction does not matter for standard ACLs", "It has no effect on those hosts, because their packets enter G0/0 rather than leave through it", "It blocks the hosts from reaching their default gateway only", "IOS rejects the command because the subnets overlap"],
+      "answer": 1,
+      "explanation": "Packets from the LAN enter R1 on G0/0, so an outbound ACL there never sees them. Outbound on G0/0 sees packets heading to the LAN, whose source is some other subnet.",
+      "concept": "ACL direction",
+      "section": 5
+    },
+    {
+      "id": "ccna-acls-q35",
+      "type": "mcq",
+      "difficulty": "medium",
+      "question": "Interface G0/0 already has ip access-group 101 in. The engineer then enters ip access-group 102 in on the same interface. What is the result?",
+      "choices": ["Both ACLs are checked, 101 first", "Both ACLs are checked, 102 first", "ACL 102 replaces ACL 101 for inbound traffic", "IOS rejects the second command"],
+      "answer": 2,
+      "explanation": "Only one IPv4 ACL can be applied per interface per direction. The new command replaces the old one.",
+      "concept": "one ACL per direction",
+      "section": 5
+    },
+    {
+      "id": "ccna-acls-q36",
+      "type": "mcq",
+      "difficulty": "easy",
+      "question": "Which command shows the lines of every IPv4 ACL along with how many packets each line has matched?",
+      "choices": ["show ip interface brief", "show running-config interface", "show ip access-lists", "show ip route"],
+      "answer": 2,
+      "explanation": "show ip access-lists (and show access-lists) list each ACL's lines with sequence numbers and match counters.",
+      "concept": "ACL verification",
+      "section": 6
+    },
+    {
+      "id": "ccna-acls-q37",
+      "type": "cli",
+      "shell": "ios",
+      "difficulty": "medium",
+      "question": "You are in line vty 0 15 configuration mode. Type the command that allows only sources permitted by ACL 5 to open Telnet or SSH sessions to the router.",
+      "answer": "access-class 5 in",
+      "explanation": "access-class applies an ACL to the vty lines. in filters sessions coming into the router. ip access-group is for interfaces, not lines.",
+      "concept": "vty access-class",
+      "section": 6
+    },
+    {
+      "id": "ccna-acls-q38",
+      "type": "mcq",
+      "difficulty": "medium",
+      "question": "A troubleshooter wants to see how many packets the end of an ACL is dropping, but the implicit deny has no counter. What can be done?",
+      "choices": ["Run show ip access-lists implicit", "Enable debug ip packet on the interface permanently", "Apply the ACL in both directions", "Add an explicit deny ip any any log as the final line"],
+      "answer": 3,
+      "explanation": "An explicit final deny does what the implicit deny would do, but it has a match counter and, with log, produces syslog messages.",
+      "concept": "explicit deny",
+      "section": 6
+    },
+    {
+      "id": "ccna-acls-q39",
+      "type": "mcq",
+      "difficulty": "medium",
+      "question": "Based on the output below, which statement is true?",
+      "code": "R1# show ip interface GigabitEthernet0/2 | include access list\n  Outgoing access list is not set\n  Inbound  access list is MGMT-ONLY\nR1# show ip access-lists MGMT-ONLY\nStandard IP access list MGMT-ONLY\n    10 permit 10.10.99.0, wildcard bits 0.0.0.255 (842 matches)",
+      "choices": ["Packets entering G0/2 from outside 10.10.99.0/24 are dropped", "Packets leaving G0/2 are filtered by MGMT-ONLY", "MGMT-ONLY permits all traffic because it has no deny line", "MGMT-ONLY applies only to Telnet and SSH sessions"],
+      "answer": 0,
+      "explanation": "MGMT-ONLY is applied inbound and permits only 10.10.99.0/24; every other source falls into the implicit deny. Nothing is applied outbound, and as an interface ACL it filters all IPv4 traffic, not just remote logins.",
+      "concept": "reading show output",
+      "section": 6
+    },
+    {
+      "id": "ccna-acls-q40",
+      "type": "mcq",
+      "difficulty": "hard",
+      "question": "Host 10.1.1.66 can still Telnet anywhere even though ACL 120 below is applied inbound on its LAN interface. What is the best fix?",
+      "code": "R1# show ip access-lists 120\nExtended IP access list 120\n    10 permit ip 10.1.1.0 0.0.0.255 any (4210 matches)\n    20 deny tcp host 10.1.1.66 any eq telnet\n    30 deny ip any any (12 matches)",
+      "choices": ["Change line 20 to deny ip host 10.1.1.66 any", "Apply ACL 120 outbound instead", "Move the deny above the permit, for example as 5 deny tcp host 10.1.1.66 any eq telnet, and remove line 20", "Delete line 30 so the implicit deny takes over"],
+      "answer": 2,
+      "explanation": "Line 10 matches all of 10.1.1.0/24 first, so line 20 is never reached (zero matches). Specific lines must come before broader ones. Changing line 20's contents does not help while it sits below line 10.",
+      "concept": "line order",
+      "section": 7
+    },
+    {
+      "id": "ccna-acls-q41",
+      "type": "mcq",
+      "difficulty": "medium",
+      "question": "Guest users can still reach the servers. Based on the output below, why?",
+      "code": "R1# show running-config interface GigabitEthernet0/0\ninterface GigabitEthernet0/0\n ip address 10.1.50.1 255.255.255.0\n ip access-group BLOCK-GUEST in\nR1# show ip access-lists\nExtended IP access list BLOCK-GEUST\n    10 deny ip 10.1.50.0 0.0.0.255 10.1.10.0 0.0.0.255\n    20 permit ip any any",
+      "choices": ["The deny line needs a log keyword to take effect", "The ACL should be applied outbound", "The wildcard 0.0.0.255 is wrong for the guest subnet", "The interface references BLOCK-GUEST, but the ACL was created as BLOCK-GEUST, so no ACL is filtering"],
+      "answer": 3,
+      "explanation": "The names differ by a typo. An interface that points at an ACL that does not exist filters nothing, so all traffic passes. Fix the name in one place or the other.",
+      "concept": "missing ACL",
+      "section": 7
+    },
+    {
+      "id": "ccna-acls-q42",
+      "type": "mcq",
+      "difficulty": "hard",
+      "question": "After BRANCH-IN is applied inbound on G0/1, web traffic works but the OSPF neighbor on G0/1 drops and stays down. Which change fixes it while keeping the filter?",
+      "code": "ip access-list extended BRANCH-IN\n 10 permit tcp 10.2.2.0 0.0.0.255 any eq www\n 20 permit tcp 10.2.2.0 0.0.0.255 any eq 443",
+      "choices": ["Add 5 permit ospf any any to BRANCH-IN", "Apply BRANCH-IN outbound instead", "Add 30 permit tcp any any eq 89", "Change the OSPF network type to point-to-point"],
+      "answer": 0,
+      "explanation": "OSPF is IP protocol 89, not a TCP port. Its hellos match neither line and hit the implicit deny. permit ospf any any near the top lets them in without opening anything else.",
+      "concept": "routing protocols and ACLs",
+      "section": 7
+    },
+    {
+      "id": "ccna-acls-q43",
+      "type": "debug",
+      "difficulty": "medium",
+      "question": "This ACL is applied inbound on the interface facing the 10.1.1.0/24 LAN. It should stop that LAN from reaching the web server 10.3.3.10 and allow everything else, but web access still works. Which line is wrong?",
+      "code": "ip access-list extended NO-WEB\n 10 deny tcp host 10.3.3.10 10.1.1.0 0.0.0.255 eq 80\n 20 permit ip any any",
+      "choices": ["Line 20, because permit ip any any overrides every deny", "Line 10, because source and destination are swapped; it should be deny tcp 10.1.1.0 0.0.0.255 host 10.3.3.10 eq 80", "Line 10, because eq 80 should be eq 443", "Line 20, because it should be permit tcp any any"],
+      "answer": 1,
+      "explanation": "Traffic from the LAN has source 10.1.1.x and destination 10.3.3.10. Line 10 lists them the other way around, so it never matches and line 20 permits the requests.",
+      "concept": "source and destination order",
+      "section": 7
+    },
+    {
+      "id": "ccna-acls-q44",
+      "type": "multi",
+      "difficulty": "medium",
+      "question": "Users behind an inbound extended ACL can no longer browse by name, though browsing by IP address works. The ACL permits only TCP 80 and 443. Which two additions are most likely needed? (Choose two.)",
+      "choices": ["permit udp 10.1.1.0 0.0.0.255 any eq 53", "permit tcp 10.1.1.0 0.0.0.255 any eq 53", "permit tcp 10.1.1.0 0.0.0.255 any eq 23", "permit icmp any any echo", "permit udp 10.1.1.0 0.0.0.255 any eq 69"],
+      "answers": [0, 1],
+      "explanation": "Name resolution is DNS on port 53, mostly UDP with TCP for large responses. Telnet (23), ping and TFTP (69) have nothing to do with resolving names.",
+      "concept": "forgotten services",
+      "section": 7
+    },
+    {
+      "id": "ccna-acls-q45",
+      "type": "recall",
+      "difficulty": "medium",
+      "question": "List the checks you would make, in order, when an ACL is not doing what it should.",
+      "answer": "Confirm it is applied to the right interface and direction (show ip interface); confirm the referenced ACL exists; read it top down with the hit counters to see which line matches; check wildcards; for extended ACLs check source and destination order, port position and protocol; finally consider what the implicit deny is catching, such as DNS or routing protocols.",
+      "explanation": "Working in a fixed order avoids rewriting lines that were never the problem.",
+      "concept": "ACL troubleshooting method",
+      "section": 7
+    }
+  ]
+}

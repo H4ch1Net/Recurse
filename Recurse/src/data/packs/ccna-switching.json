@@ -1,0 +1,662 @@
+{
+  "id": "ccna-switching",
+  "name": "Ethernet Switching",
+  "version": "1.0.0",
+  "author": "Recurse",
+  "subject": "networking",
+  "level": "beginner",
+  "description": "Predict how a switch learns, forwards, floods and filters frames, and read the MAC address table to find where a host lives.",
+  "icon": "SW",
+  "language": "cisco",
+  "prereqs": [
+    "ccna-cabling-interfaces",
+    "ccna-osi-tcp-udp"
+  ],
+  "tags": [
+    "ccna",
+    "1.13",
+    "switching",
+    "mac-address-table",
+    "ethernet"
+  ],
+  "lesson": {
+    "estimatedMinutes": 22,
+    "intro": "A switch has to deliver every frame to the right port without anyone telling it where devices are. It does that with three simple behaviors (learn from source addresses, forward on destination addresses, flood when it does not know) plus a table that ages out old entries. This pack makes those behaviors precise enough to predict what a switch will do with any frame, read show mac address-table to find a host, and count collision and broadcast domains.",
+    "objectives": [
+      "Predict whether a switch forwards, filters or floods a frame from its MAC address table and VLAN",
+      "Explain MAC learning, aging and what happens when a host moves or the table fills",
+      "Read show mac address-table output to locate a host across several switches",
+      "Count collision domains and broadcast domains in a diagram"
+    ],
+    "sections": [
+      {
+        "title": "MAC addresses and the Ethernet frame",
+        "body": "Every Ethernet and Wi-Fi interface has a **MAC address**: 48 bits, written as 12 hex digits. Cisco IOS writes it in three groups of four (`0200.1111.1111`), Windows uses dashes (`02-00-11-11-11-11`) and Linux and macOS use colons (`02:00:11:11:11:11`). Same address, three spellings.\n\nThe first 24 bits are the **OUI** (organizationally unique identifier), which the IEEE assigns to a manufacturer. The manufacturer numbers the last 24 bits so that every NIC leaves the factory with a unique **burned-in address (BIA)**. Three kinds of destination address matter:\n\n- **Unicast:** one specific interface, such as `0200.2222.2222`.\n- **Broadcast:** `FFFF.FFFF.FFFF`, meaning every device in the LAN (VLAN). ARP requests and DHCP Discovers use it.\n- **Multicast:** a group of interested devices. The lowest bit of the first byte is 1, for example `0100.5E00.0005`, which carries OSPF hellos to IPv4 group 224.0.0.5.\n\nA switch makes its decisions from just three parts of the frame. It **learns** from the source MAC, **forwards** on the destination MAC, and (in the default store-and-forward mode) checks the **FCS** to drop corrupted frames. It never needs to look at the IP header to switch a frame.\n\nYou will notice that the examples in this pack (and in the Cisco books) use addresses like `0200.1111.1111`. The second lowest bit of the first byte is the universal/local bit, and `02` sets it, which marks the address as **locally administered** rather than burned in by a vendor. Virtual machines, containers and phones that randomize their Wi-Fi MAC for privacy all use locally administered addresses, so do not assume every MAC on a network maps to a physical NIC.",
+        "code": "Ethernet frame (bytes)\n+----------+-----+-------------+-------------+------+---------------+-----+\n| Preamble | SFD | Destination | Source      | Type | Data and pad  | FCS |\n|    7     |  1  |   MAC  6    |   MAC  6    |  2   |   46 to 1500  |  4  |\n+----------+-----+-------------+-------------+------+---------------+-----+\n                  ^ forward on   ^ learn from                        ^ check (store-and-forward)\n\nMAC 0200.1111.1111 = 48 bits:  OUI (24 bits, vendor)  +  vendor-assigned (24 bits)",
+        "language": "plaintext",
+        "pitfall": "Mixing up the MAC address table and the ARP table. The switch MAC table maps MAC addresses to ports. The ARP table on a host or router maps IP addresses to MAC addresses.",
+        "check": {
+          "question": "Which destination MAC address means \"deliver to every device in this LAN\"?",
+          "choices": [
+            "0000.0000.0000",
+            "0100.5E00.0005",
+            "FFFF.FFFF.FFFF",
+            "0200.1111.1111"
+          ],
+          "answer": 2,
+          "explanation": "All ones, FFFF.FFFF.FFFF, is the Ethernet broadcast address. 0100.5E00.0005 is a multicast group address and 0200.1111.1111 is a unicast address for one interface."
+        }
+      },
+      {
+        "title": "Learning: building the table from source addresses",
+        "body": "Unbox a switch, plug in four PCs and it starts switching with no configuration at all. Nobody typed in where Fred or Barney are. The switch works it out by reading the **source MAC address** of every frame that arrives and recording the port it came in on. The result is the **MAC address table** (also called the CAM table, after the fast content-addressable memory that stores it).\n\nWalk through it. The table starts empty.\n\n1. Fred, on port F0/1, sends a frame to Barney. The source is Fred's MAC, so the switch adds \"0200.1111.1111 is on F0/1\". It does not know Barney yet.\n2. Barney replies from F0/2. The switch adds \"0200.2222.2222 is on F0/2\".\n\nThe logic is literally: \"this address just arrived on this port, so this address must be reachable out this port.\" Each entry also records the **VLAN**, because a switch keeps a separate view of every VLAN.\n\nLearning uses only source addresses. A host that never sends anything never appears in the table, no matter how many frames are sent to it. That is rarely a problem because almost every conversation goes both ways.",
+        "code": "Fred 0200.1111.1111 --- F0/1 [ SW1 ] F0/3 --- Wilma  0200.3333.3333\nBarney 0200.2222.2222 - F0/2 [     ] F0/4 --- Betty  0200.4444.4444\n\nStart            After frame 1 (Fred -> Barney)   After frame 2 (Barney -> Fred)\n(empty)          0200.1111.1111   F0/1             0200.1111.1111   F0/1\n                                                   0200.2222.2222   F0/2",
+        "language": "plaintext",
+        "activity": {
+          "type": "mac-learning",
+          "title": "Teach the switch",
+          "prompt": "Start with an empty table. Before each frame you send, predict two things: which entry will be added, and whether the frame will be flooded or forwarded to one port. Try to fill the table using as few frames as possible.",
+          "props": {}
+        },
+        "check": {
+          "question": "A switch with an empty table receives a frame on Fa0/7 from 0200.AAAA.AAAA to 0200.BBBB.BBBB. What does it add to its MAC address table?",
+          "choices": [
+            "0200.BBBB.BBBB on Fa0/7",
+            "0200.AAAA.AAAA on Fa0/7",
+            "Both addresses on Fa0/7",
+            "Nothing until 0200.BBBB.BBBB replies"
+          ],
+          "answer": 1,
+          "explanation": "Learning uses the source address and the arrival port only. The destination is unknown, so the switch floods the frame, and it will learn 0200.BBBB.BBBB when that host sends a frame."
+        }
+      },
+      {
+        "title": "Forwarding, filtering and flooding",
+        "body": "Learning fills the table. **Forwarding** uses it. For each frame, the switch looks up the **destination MAC** in the table for that frame's VLAN and picks one of three actions:\n\n- **Known unicast, different port:** forward the frame out that one port only. Every other port never sees it.\n- **Known unicast, same port it arrived on:** **filter** it, meaning drop it quietly. The destination is already on that segment (for example, two PCs behind a small hub on one switch port).\n- **Unknown unicast, broadcast or multicast:** **flood** it out every port in the same VLAN **except the port it arrived on**. For an unknown unicast that is a fallback: send it everywhere, the right host will answer, and the reply teaches the switch where it lives. (Switches running IGMP snooping can limit multicast to interested ports.)\n\nFlooding never leaves the VLAN. A broadcast in VLAN 10 is never sent out an access port in VLAN 20.\n\nSwitches can also differ in *when* they start forwarding:\n\n- **Store-and-forward:** receive the whole frame, check the FCS, then forward. Corrupted frames are dropped. This is the usual mode on Catalyst access switches.\n- **Cut-through:** start forwarding as soon as the destination MAC has been read. Lowest latency, but frames with a bad FCS get forwarded too, since the FCS has not arrived yet.\n- **Fragment-free:** wait for the first 64 bytes, so collision fragments (runts) are filtered, then forward.\n\nFlooding has one dangerous side effect. If switches are connected in a loop for redundancy, a flooded frame goes around the loop forever, copied again at every switch: Ethernet frames have no TTL to stop them. Broadcasts multiply into a **broadcast storm** within seconds and the MAC tables flap as the same source address keeps arriving on different ports. That is why every switch runs **Spanning Tree Protocol (STP)** by default, which blocks just enough ports to leave one loop-free path. STP has its own pack; for now, remember that learning, forwarding, flooding and loop prevention are the four core jobs of a LAN switch.",
+        "code": "Frame arrives on port P in VLAN V\n  |\n  +-- learn: source MAC -> port P (VLAN V)\n  |\n  +-- look up destination MAC in VLAN V\n        |-- broadcast, multicast, or not found  ->  FLOOD out all ports in V except P\n        |-- found on port P                     ->  FILTER (drop)\n        |-- found on another port Q             ->  FORWARD out Q only",
+        "language": "plaintext",
+        "pitfall": "Saying a switch \"floods everything\". It floods only unknown unicast, broadcast and (usually) multicast frames, and only inside the frame's VLAN. Known unicast frames go out exactly one port.",
+        "check": {
+          "question": "A frame arrives on Gi0/5 in VLAN 20. Its destination MAC is not in the table. Where does the switch send it?",
+          "choices": [
+            "Out every port on the switch, including Gi0/5",
+            "Only to the default gateway",
+            "Nowhere; unknown unicast frames are dropped",
+            "Out every other port in VLAN 20 (including trunks carrying VLAN 20), but not Gi0/5"
+          ],
+          "answer": 3,
+          "explanation": "Unknown unicast frames are flooded within their VLAN, out every port except the one they arrived on. Ports in other VLANs never receive them. Switches have no idea what a default gateway is; that is a Layer 3 concept."
+        }
+      },
+      {
+        "title": "Aging, moves and table limits",
+        "body": "A laptop is unplugged from port Gi0/4 and taken home for the weekend. Should the switch remember it forever? No. Every dynamic entry has an **inactivity timer**. Each time a frame arrives with that source address, the timer resets to zero. If nothing arrives for the **aging time**, **300 seconds by default** on Cisco switches, the entry is removed. Quiet hosts age out; busy hosts stay put.\n\nWhen a device moves, say the laptop is plugged into Gi0/9 on Monday, the first frame it sends arrives on Gi0/9 and the switch updates the entry to the new port. Until that frame arrives, frames for the laptop still go to the old port (or are flooded if the entry already aged out).\n\nThe table has a fixed size set by the switch's CAM memory, often a few thousand to tens of thousands of entries. A switch whose table is full cannot hold every address it sees, so frames to the addresses it cannot keep get flooded. Attackers abuse this with **MAC flooding**: send thousands of frames from fake source addresses, fill the table, and the switch starts flooding everyone's traffic to the attacker's port. Port security, covered in the Layer 2 security pack, stops it by limiting how many MAC addresses a port may learn.\n\nUseful commands:\n\n- `show mac address-table aging-time` shows the timer.\n- `mac address-table aging-time 600` (global config) changes it, globally or per VLAN.\n- `clear mac address-table dynamic` empties the dynamic entries so the switch relearns them.\n- `mac address-table static 0200.1111.1111 vlan 10 interface gigabitethernet0/3` pins an address to a port permanently.",
+        "code": "SW1# show mac address-table aging-time\nGlobal Aging Time:  300\nVlan    Aging Time\n----    ----------\n\nSW1# configure terminal\nSW1(config)# mac address-table aging-time 600\nSW1(config)# end\nSW1# clear mac address-table dynamic",
+        "language": "cisco",
+        "pitfall": "Expecting a moved device to work instantly from the switch's point of view. The switch only updates the entry when the device sends a frame from its new port. Silent devices (some printers, cameras) may need to send traffic first.",
+        "check": {
+          "question": "A switch learned a host's MAC 250 seconds ago and the host sent another frame 10 seconds ago. With the default aging time, when will the entry be removed if the host stays silent from now on?",
+          "choices": [
+            "In about 50 seconds",
+            "In about 300 seconds from when it was first learned",
+            "Never, because the host has already been learned",
+            "In about 290 seconds"
+          ],
+          "answer": 3,
+          "explanation": "Every frame from the host resets the inactivity timer. The last frame was 10 seconds ago, so the entry ages out 300 seconds after that frame, about 290 seconds from now."
+        }
+      },
+      {
+        "title": "Reading show mac address-table",
+        "body": "A user reports their PC, MAC `0200.5555.5555`, keeps dropping off the network. Your first job: find which switch port it is on. `show mac address-table` (add `dynamic` to hide the built-in static entries) lists every entry with four columns: **Vlan**, **Mac Address**, **Type** (DYNAMIC for learned, STATIC for configured or system entries) and **Ports**. The entries with port **CPU** belong to the switch itself, such as the broadcast address and the CDP multicast address.\n\nFilters save time on a busy switch:\n\n- `show mac address-table address 0200.5555.5555`\n- `show mac address-table interface gigabitethernet0/1`\n- `show mac address-table vlan 20`\n- `show mac address-table count` (how many entries and how much space is left)\n\nIn the exhibit, `0200.5555.5555` shows up on **Gi0/1**. Notice that Gi0/1 also has addresses from two different VLANs. One access port with one PC learns one address; a port with many addresses, across VLANs, is almost always an **uplink to another switch** (a trunk). The host is not on SW1 at all. Use CDP or LLDP to see which switch is on the other end of Gi0/1, log in to it, and run the same command. Repeat until the address appears on an access port with only that one address. That is where the cable goes.\n\nA typical trace looks like this: on SW1, `show mac address-table address 0200.5555.5555` points to Gi0/1. Then `show cdp neighbors gigabitethernet0/1` shows that SW2 is on the other end, connected to SW2's Gi0/24. On SW2, the same address lookup shows Fa0/12, and `show mac address-table interface fastethernet0/12` lists only that one address, so Fa0/12 is the user's port. Two more things in the Type column: entries created by port security or by the `mac address-table static` command show as STATIC, and an IP phone port with a PC behind it legitimately shows two addresses, one in the voice VLAN and one in the data VLAN.",
+        "code": "SW1# show mac address-table\n          Mac Address Table\n-------------------------------------------\n\nVlan    Mac Address       Type        Ports\n----    -----------       --------    -----\n All    0100.0ccc.cccc    STATIC      CPU\n All    ffff.ffff.ffff    STATIC      CPU\n  10    0200.1111.1111    DYNAMIC     Gi0/3\n  10    0200.2222.2222    DYNAMIC     Gi0/4\n  10    0200.3333.3333    DYNAMIC     Gi0/1\n  20    0200.4444.4444    DYNAMIC     Gi0/5\n  20    0200.5555.5555    DYNAMIC     Gi0/1\n  20    0200.6666.6666    DYNAMIC     Gi0/1\nTotal Mac Addresses for this criterion: 8",
+        "language": "cisco",
+        "tip": "A MAC table lookup is per VLAN. An address learned in VLAN 20 is unknown to a frame in VLAN 10, so that frame is flooded within VLAN 10.",
+        "check": {
+          "question": "In the exhibit, why does Gi0/1 list three MAC addresses from two VLANs?",
+          "choices": [
+            "Gi0/1 has three PCs plugged into it through a hub in two VLANs",
+            "Gi0/1 is most likely an uplink (trunk) to another switch that has those hosts behind it",
+            "Gi0/1 is in err-disabled state",
+            "The entries are static addresses for the switch CPU"
+          ],
+          "answer": 1,
+          "explanation": "Multiple addresses from several VLANs on one port point to a trunk toward another switch, which forwards frames from many hosts. The CPU entries are the ones listed with port CPU."
+        }
+      },
+      {
+        "title": "Collision domains and broadcast domains",
+        "body": "Two classic terms let you describe how far traffic spreads.\n\nA **collision domain** is the set of devices whose frames could collide with each other. Everything connected to a hub is one collision domain. Every switch port is its own collision domain, and so is every router port. On a modern full-duplex switched link, collisions never happen at all, but each link still counts as one collision domain when you count.\n\nA **broadcast domain** is the set of devices that receive a broadcast sent by any one of them. A switch floods broadcasts out every port in the VLAN, so one switch (or a whole set of connected switches) with one VLAN is one broadcast domain. Switches do **not** split broadcast domains. **Routers** do, because they never forward broadcasts: each router interface is its own broadcast domain. **VLANs** do too: each VLAN is a separate broadcast domain, which is exactly why you need a router or Layer 3 switch to move traffic between VLANs.\n\nA quick counting method for exam diagrams: for collision domains, count every switch and router port that has a cable, and count each hub as one domain. For broadcast domains, count router interfaces (with one VLAN per LAN), or count VLANs.\n\nWhy do broadcast domains matter in practice? Every host must stop and process every broadcast it receives: ARP requests, DHCP messages and chatty discovery protocols. In one flat VLAN with 2,000 devices, that background noise wastes bandwidth and CPU on every machine, and a single misbehaving NIC or a loop can take down everyone at once. It is also a security boundary: devices in one broadcast domain can reach each other directly at Layer 2. Splitting a campus into VLANs of a few hundred hosts each, with routing between them, keeps failures and broadcasts contained.",
+        "code": "   PC  PC  PC  PC\n    \\   |   |   /\n[  SW1  (VLAN 1)  ]               collision domains here: 4 PC links + 1 uplink = 5\n         |\n  G0/0 [ R1 ] G0/1                broadcast domains: one per router interface = 2\n                 |\n           [ HUB ]                collision domains here: hub + its PCs + R1 G0/1 = 1\n          /   |   \\\n        PC   PC   PC\n\nTotal: 6 collision domains, 2 broadcast domains",
+        "language": "plaintext",
+        "pitfall": "Saying a switch breaks up broadcast domains. It only breaks up collision domains. Broadcasts stop at a router interface or a VLAN boundary.",
+        "check": {
+          "question": "Which statement about a single Layer 2 switch with all ports in VLAN 1 is true?",
+          "choices": [
+            "Each port is a separate broadcast domain",
+            "The whole switch is one collision domain",
+            "Each port is a separate collision domain and the whole switch is one broadcast domain",
+            "The switch creates one broadcast domain per connected PC"
+          ],
+          "answer": 2,
+          "explanation": "Switch ports split collision domains but forward broadcasts everywhere in the VLAN. Splitting broadcast domains takes a router or additional VLANs."
+        }
+      },
+      {
+        "title": "Switching end to end: ARP across two switches",
+        "body": "Put it together. PC1 (`10.1.1.11`, MAC `0200.1111.1111`) on SW1 port Gi0/1 pings PC3 (`10.1.1.13`, MAC `0200.3333.3333`) on SW2 port Gi0/3. Same subnet, same VLAN. SW1 and SW2 connect through their Gi0/24 ports. Both MAC tables start empty, and PC1 does not know PC3's MAC address yet.\n\n1. PC1 broadcasts an **ARP request**: destination `FFFF.FFFF.FFFF`, source `0200.1111.1111`, \"who has 10.1.1.13?\"\n2. SW1 learns PC1 on Gi0/1 and floods the broadcast out every other port in the VLAN, including Gi0/24.\n3. SW2 receives it on Gi0/24, learns PC1 on **Gi0/24**, and floods it out its other ports.\n4. PC3 sees its own IP and sends a unicast **ARP reply** to `0200.1111.1111`.\n5. SW2 learns PC3 on Gi0/3. PC1's MAC is already known on Gi0/24, so SW2 forwards the reply out Gi0/24 only.\n6. SW1 learns PC3 on **Gi0/24** and forwards the reply out Gi0/1 only.\n7. Now PC1 sends the ICMP echo as a unicast frame to PC3's MAC, and both switches forward it out exactly one port. No more flooding.\n\nNotice what each switch believes. SW2 thinks PC1 lives \"out Gi0/24\", and SW1 thinks PC3 lives \"out Gi0/24\". A switch never knows the whole path, only which of its own ports leads toward each address. That is enough.\n\nWhat if PC1 pings a server in a different subnet instead? PC1 works out that the destination is remote, so it ARPs for its **default gateway's** IP address and sends the ping in a frame addressed to the router's MAC. The switches do exactly the same learn, flood and forward work, just toward the router's port. The IP header still names the far server; only the Ethernet header points at the router. Switches never notice the difference, because they never read the IP header.",
+        "code": "PC1 0200.1111.1111 --Gi0/1 [SW1] Gi0/24 ===== Gi0/24 [SW2] Gi0/3-- PC3 0200.3333.3333\n     10.1.1.11                                                         10.1.1.13\n\nSW1 table after the exchange          SW2 table after the exchange\n0200.1111.1111   Gi0/1                0200.1111.1111   Gi0/24\n0200.3333.3333   Gi0/24               0200.3333.3333   Gi0/3",
+        "language": "plaintext",
+        "activity": {
+          "type": "packet-journey",
+          "title": "ARP first, then the ping",
+          "prompt": "Follow the journey and stop at every switch. For the ARP request, say whether the switch floods or forwards and why. Then compare with the ping that follows: it should be forwarded out exactly one port everywhere.",
+          "props": {}
+        },
+        "check": {
+          "question": "After the ARP exchange, which entry does SW2 hold for PC1's MAC address 0200.1111.1111?",
+          "choices": [
+            "Gi0/24, the port it received PC1's frames on",
+            "Gi0/1, because PC1 is plugged into Gi0/1",
+            "Gi0/3, because that is where the reply went out",
+            "No entry, because PC1 is on another switch"
+          ],
+          "answer": 0,
+          "explanation": "SW2 learns from the port where PC1's frames arrive, which is its uplink Gi0/24. PC1's physical port Gi0/1 is on SW1, and SW2 has no way of knowing about it."
+        }
+      }
+    ],
+    "keyTerms": [
+      {
+        "term": "MAC address table",
+        "definition": "The switch table mapping each learned MAC address (per VLAN) to the port it was learned on; also called the CAM table."
+      },
+      {
+        "term": "MAC learning",
+        "definition": "Adding the source MAC address and arrival port of each incoming frame to the table."
+      },
+      {
+        "term": "Known unicast",
+        "definition": "A unicast frame whose destination MAC is in the table; forwarded out exactly one port."
+      },
+      {
+        "term": "Unknown unicast",
+        "definition": "A unicast frame whose destination MAC is not in the table; flooded within the VLAN."
+      },
+      {
+        "term": "Flooding",
+        "definition": "Sending a frame out every port in its VLAN except the port it arrived on."
+      },
+      {
+        "term": "Filtering",
+        "definition": "Dropping a frame whose destination is on the same port it arrived on."
+      },
+      {
+        "term": "Aging time",
+        "definition": "How long an entry may stay without a frame from that source; 300 seconds by default."
+      },
+      {
+        "term": "Collision domain",
+        "definition": "Devices whose transmissions could collide; one per switch or router port, one per hub."
+      },
+      {
+        "term": "Broadcast domain",
+        "definition": "Devices that receive each other's broadcasts; bounded by routers and VLANs, not by switches."
+      },
+      {
+        "term": "Store-and-forward",
+        "definition": "Switching method that receives the whole frame and checks the FCS before forwarding."
+      }
+    ],
+    "summary": [
+      "Switches learn from source MAC addresses and forward on destination MAC addresses, always within one VLAN.",
+      "Known unicast goes out one port, unknown unicast, broadcast and multicast are flooded except back out the arrival port, and same-port destinations are filtered.",
+      "Dynamic entries age out after 300 seconds of silence; a moved host is relearned when it next sends a frame.",
+      "Many MAC addresses on one port means an uplink to another switch; follow it with CDP or LLDP to find the host.",
+      "Every switch port is its own collision domain; broadcast domains end only at routers and VLAN boundaries."
+    ],
+    "feynmanPrompt": "Explain to a friend how a brand-new switch, with nobody configuring it, figures out where every computer is and gets frames to the right one, including what it does before it knows."
+  },
+  "questions": [
+    {
+      "id": "ccna-switching-q01",
+      "type": "mcq",
+      "difficulty": "easy",
+      "question": "A host sends an ARP request to every device in its VLAN. Which destination MAC address does the frame carry?",
+      "choices": [
+        "0000.0000.0000",
+        "The default gateway's MAC address",
+        "FFFF.FFFF.FFFF",
+        "0100.5E00.0001"
+      ],
+      "answer": 2,
+      "explanation": "ARP requests are broadcasts, so the destination is FFFF.FFFF.FFFF. 0100.5E00.0001 is an IPv4 multicast MAC, and the host does not know the target's MAC yet, which is the whole reason for the ARP request.",
+      "concept": "broadcast MAC",
+      "section": 0
+    },
+    {
+      "id": "ccna-switching-q02",
+      "type": "typed",
+      "difficulty": "easy",
+      "question": "How many bits long is an Ethernet MAC address?",
+      "answer": "48",
+      "accept": [
+        "48 bits"
+      ],
+      "explanation": "A MAC address is 48 bits, written as 12 hex digits. The first 24 bits are the OUI assigned to the manufacturer.",
+      "concept": "MAC length",
+      "section": 0
+    },
+    {
+      "id": "ccna-switching-q03",
+      "type": "mcq",
+      "difficulty": "medium",
+      "question": "What do the first 24 bits of a burned-in MAC address identify?",
+      "choices": [
+        "The manufacturer, through the IEEE-assigned OUI",
+        "The VLAN the device belongs to",
+        "The switch port the device is connected to",
+        "The device's IP subnet"
+      ],
+      "answer": 0,
+      "explanation": "The OUI is assigned by the IEEE to a vendor, and the vendor assigns the remaining 24 bits uniquely. MAC addresses carry no VLAN, port or subnet information.",
+      "concept": "OUI",
+      "section": 0
+    },
+    {
+      "id": "ccna-switching-q04",
+      "type": "multi",
+      "difficulty": "medium",
+      "question": "Which two frame fields does a Layer 2 switch use to learn addresses and make forwarding decisions? (Choose two.)",
+      "choices": [
+        "Source MAC address",
+        "Destination IP address",
+        "Destination MAC address",
+        "IP time to live",
+        "TCP destination port"
+      ],
+      "answers": [
+        0,
+        2
+      ],
+      "explanation": "Learning uses the source MAC and forwarding uses the destination MAC. IP and TCP fields belong to higher layers that a Layer 2 switch does not need.",
+      "concept": "fields a switch uses",
+      "section": 0
+    },
+    {
+      "id": "ccna-switching-q05",
+      "type": "mcq",
+      "difficulty": "easy",
+      "question": "What information does a switch record when it learns a MAC address?",
+      "choices": [
+        "The destination MAC address and the port the frame will leave on",
+        "The source IP address and the source MAC address",
+        "The destination IP address and the VLAN",
+        "The source MAC address, the port the frame arrived on, and its VLAN"
+      ],
+      "answer": 3,
+      "explanation": "Learning maps the source MAC address to the arrival port, per VLAN. Destination addresses are only used for forwarding, and IP addresses are not part of the MAC table.",
+      "concept": "learning source",
+      "section": 1
+    },
+    {
+      "id": "ccna-switching-q06",
+      "type": "order",
+      "difficulty": "medium",
+      "question": "SW1 boots with an empty MAC table. PC1 on Fa0/1 sends a frame to PC2 on Fa0/2, and PC2 replies. Put the events in order.",
+      "items": [
+        "PC1 sends a frame addressed to PC2",
+        "SW1 adds PC1's MAC address on Fa0/1",
+        "SW1 floods the frame because PC2 is unknown",
+        "PC2 replies to PC1",
+        "SW1 adds PC2's MAC address on Fa0/2 and forwards the reply out Fa0/1 only"
+      ],
+      "explanation": "Learning happens as each frame arrives. The first frame teaches the switch about PC1 but must be flooded; the reply teaches it about PC2 and can be forwarded to one port because PC1 is now known.",
+      "concept": "learning sequence",
+      "section": 1
+    },
+    {
+      "id": "ccna-switching-q07",
+      "type": "mcq",
+      "difficulty": "medium",
+      "question": "A network camera only receives traffic and never sends a single frame. What will the switch MAC table show for it?",
+      "choices": [
+        "A dynamic entry on its port, learned from frames sent to it",
+        "No entry, so frames to it are flooded as unknown unicast",
+        "A static entry created automatically",
+        "An entry on every port in its VLAN"
+      ],
+      "answer": 1,
+      "explanation": "Switches learn only from source addresses. A device that never sends is never learned, so frames to it stay unknown unicast and get flooded. Real devices almost always send something, such as ARP replies, which teaches the switch.",
+      "concept": "silent host",
+      "section": 1
+    },
+    {
+      "id": "ccna-switching-q08",
+      "type": "match",
+      "difficulty": "medium",
+      "question": "Match each situation to what the switch does with the frame.",
+      "pairs": [
+        {
+          "left": "Destination MAC known, on another port",
+          "right": "Forward out that one port"
+        },
+        {
+          "left": "Destination MAC known, on the arrival port",
+          "right": "Filter: do not forward it"
+        },
+        {
+          "left": "Destination MAC not in the table",
+          "right": "Flood as an unknown unicast"
+        },
+        {
+          "left": "Destination FFFF.FFFF.FFFF",
+          "right": "Flood as a broadcast"
+        }
+      ],
+      "explanation": "Forward, filter and flood cover every case. Both flooding cases stay inside the VLAN and skip the arrival port.",
+      "concept": "forwarding decisions",
+      "section": 2
+    },
+    {
+      "id": "ccna-switching-q09",
+      "type": "mcq",
+      "difficulty": "hard",
+      "question": "Which switching method can forward a frame that has a bad FCS?",
+      "choices": [
+        "Cut-through",
+        "Store-and-forward",
+        "Fragment-free",
+        "None; every switch checks the FCS before forwarding"
+      ],
+      "answer": 0,
+      "explanation": "Cut-through starts forwarding once the destination MAC is read, before the FCS at the end of the frame arrives, so corrupted frames slip through. Store-and-forward checks the FCS first, and fragment-free only waits for the first 64 bytes.",
+      "concept": "cut-through",
+      "section": 2
+    },
+    {
+      "id": "ccna-switching-q10",
+      "type": "mcq",
+      "difficulty": "medium",
+      "question": "Hosts A and B both connect to an old hub, which plugs into switch port Fa0/1. The switch has learned both on Fa0/1. A sends a frame to B. What does the switch do?",
+      "choices": [
+        "Floods the frame out all ports",
+        "Forwards the frame back out Fa0/1",
+        "Filters the frame, because the destination is on the arrival port",
+        "Sends the frame to its CPU"
+      ],
+      "answer": 2,
+      "explanation": "The destination is known on the same port the frame arrived on. B has already received it through the hub, so the switch filters (drops) it rather than sending it anywhere.",
+      "concept": "filtering",
+      "section": 2
+    },
+    {
+      "id": "ccna-switching-q11",
+      "type": "mcq",
+      "difficulty": "easy",
+      "question": "A switch has 0200.2222.2222 in its table on Gi0/2 in VLAN 1. A frame for 0200.2222.2222 arrives on Gi0/7 in VLAN 1. What happens?",
+      "choices": [
+        "It is flooded to all ports in VLAN 1",
+        "It is forwarded out Gi0/2 only",
+        "It is dropped",
+        "It is sent out every port on the switch"
+      ],
+      "answer": 1,
+      "explanation": "This is a known unicast on a different port, so the switch forwards it out Gi0/2 and nowhere else. That is what makes switches far more efficient than hubs.",
+      "concept": "known unicast",
+      "section": 2
+    },
+    {
+      "id": "ccna-switching-q12",
+      "type": "typed",
+      "difficulty": "easy",
+      "question": "What is the default MAC address table aging time on Cisco Catalyst switches, in seconds?",
+      "answer": "300",
+      "accept": [
+        "300 seconds",
+        "5 minutes"
+      ],
+      "explanation": "Dynamic entries are removed after 300 seconds (5 minutes) with no frames from that source. The timer resets every time the source sends a frame.",
+      "concept": "aging default",
+      "section": 3
+    },
+    {
+      "id": "ccna-switching-q13",
+      "type": "mcq",
+      "difficulty": "medium",
+      "question": "A laptop is unplugged from Gi0/4 and plugged into Gi0/9 on the same switch and VLAN. When does the switch update its table?",
+      "choices": [
+        "Immediately when the cable is unplugged",
+        "Only after an administrator clears the table",
+        "Only after 300 seconds pass",
+        "When the laptop sends its next frame, which arrives on Gi0/9"
+      ],
+      "answer": 3,
+      "explanation": "The switch relearns the address as soon as a frame from that source arrives on a different port. It does not watch cables for this purpose, and no manual clearing is needed.",
+      "concept": "host move",
+      "section": 3
+    },
+    {
+      "id": "ccna-switching-q14",
+      "type": "cli",
+      "difficulty": "medium",
+      "question": "Which privileged EXEC command removes all dynamically learned entries from the MAC address table?",
+      "answer": "clear mac address-table dynamic",
+      "shell": "ios",
+      "explanation": "clear mac address-table dynamic empties the learned entries, and the switch relearns them from the next frames. You can limit it with options such as vlan or interface.",
+      "concept": "clear dynamic entries",
+      "section": 3
+    },
+    {
+      "id": "ccna-switching-q15",
+      "type": "cli",
+      "difficulty": "hard",
+      "question": "In global configuration mode, which command changes the MAC address table aging time to 600 seconds for all VLANs?",
+      "answer": "mac address-table aging-time 600",
+      "shell": "ios",
+      "explanation": "mac address-table aging-time takes the time in seconds, and an optional vlan keyword sets it for one VLAN only. Verify with show mac address-table aging-time.",
+      "concept": "set aging time",
+      "section": 3
+    },
+    {
+      "id": "ccna-switching-q16",
+      "type": "mcq",
+      "difficulty": "hard",
+      "question": "An attacker sends thousands of frames with random source MAC addresses into one access port. What is the attacker trying to achieve?",
+      "choices": [
+        "Cause a duplex mismatch on the uplink",
+        "Change the switch's aging time to zero",
+        "Create a new broadcast domain",
+        "Fill the MAC table so the switch floods frames it cannot place, including other users' traffic, to the attacker"
+      ],
+      "answer": 3,
+      "explanation": "This is MAC flooding. Once the table is full of fake entries, legitimate addresses cannot be kept, frames to them become unknown unicast and are flooded, and the attacker can capture them. Port security limits the addresses a port may learn.",
+      "concept": "MAC flooding",
+      "section": 3
+    },
+    {
+      "id": "ccna-switching-q17",
+      "type": "cli",
+      "difficulty": "easy",
+      "question": "Which command displays the switch's MAC address table?",
+      "answer": "show mac address-table",
+      "shell": "ios",
+      "explanation": "show mac address-table lists VLAN, MAC address, type and port for every entry. Add dynamic, address, interface or vlan to filter it.",
+      "concept": "show MAC table",
+      "section": 4
+    },
+    {
+      "id": "ccna-switching-q18",
+      "type": "mcq",
+      "difficulty": "medium",
+      "question": "Based on the exhibit, which SW1 port is most likely an uplink to another switch?",
+      "code": "SW1# show mac address-table\n          Mac Address Table\n-------------------------------------------\n\nVlan    Mac Address       Type        Ports\n----    -----------       --------    -----\n All    0100.0ccc.cccc    STATIC      CPU\n All    ffff.ffff.ffff    STATIC      CPU\n  10    0200.1111.1111    DYNAMIC     Gi0/3\n  10    0200.2222.2222    DYNAMIC     Gi0/4\n  10    0200.3333.3333    DYNAMIC     Gi0/1\n  20    0200.4444.4444    DYNAMIC     Gi0/5\n  20    0200.5555.5555    DYNAMIC     Gi0/1\n  20    0200.6666.6666    DYNAMIC     Gi0/1\nTotal Mac Addresses for this criterion: 8",
+      "language": "cisco",
+      "choices": [
+        "Gi0/3",
+        "Gi0/1",
+        "Gi0/4",
+        "Gi0/5"
+      ],
+      "answer": 1,
+      "explanation": "Gi0/1 has learned three addresses from two VLANs. Access ports with one PC learn one address in one VLAN; many addresses across VLANs mean a trunk toward another switch.",
+      "concept": "uplink port",
+      "section": 4
+    },
+    {
+      "id": "ccna-switching-q19",
+      "type": "mcq",
+      "difficulty": "hard",
+      "question": "Using the exhibit, a frame arrives on Gi0/3 in VLAN 10 with destination MAC 0200.4444.4444. What does SW1 do?",
+      "code": "SW1# show mac address-table\n          Mac Address Table\n-------------------------------------------\n\nVlan    Mac Address       Type        Ports\n----    -----------       --------    -----\n All    0100.0ccc.cccc    STATIC      CPU\n All    ffff.ffff.ffff    STATIC      CPU\n  10    0200.1111.1111    DYNAMIC     Gi0/3\n  10    0200.2222.2222    DYNAMIC     Gi0/4\n  10    0200.3333.3333    DYNAMIC     Gi0/1\n  20    0200.4444.4444    DYNAMIC     Gi0/5\n  20    0200.5555.5555    DYNAMIC     Gi0/1\n  20    0200.6666.6666    DYNAMIC     Gi0/1\nTotal Mac Addresses for this criterion: 8",
+      "language": "cisco",
+      "choices": [
+        "Forwards it out Gi0/5",
+        "Drops it, because the address belongs to another VLAN",
+        "Floods it out the other ports in VLAN 10, because the address is only known in VLAN 20",
+        "Forwards it out Gi0/1 toward the other switch"
+      ],
+      "answer": 2,
+      "explanation": "Lookups are per VLAN. 0200.4444.4444 is learned only in VLAN 20, so in VLAN 10 it is an unknown unicast and is flooded within VLAN 10. The switch will not move a frame between VLANs.",
+      "concept": "per-VLAN lookup",
+      "section": 4
+    },
+    {
+      "id": "ccna-switching-q20",
+      "type": "cli",
+      "difficulty": "medium",
+      "question": "Which command shows only the MAC address table entry for 0200.5555.5555?",
+      "answer": "show mac address-table address 0200.5555.5555",
+      "accept": [
+        "show mac address-table dynamic address 0200.5555.5555"
+      ],
+      "shell": "ios",
+      "explanation": "The address keyword filters the table to one MAC address, which is much faster than reading the whole table on a busy switch.",
+      "concept": "find one MAC",
+      "section": 4
+    },
+    {
+      "id": "ccna-switching-q21",
+      "type": "mcq",
+      "difficulty": "easy",
+      "question": "Which device creates a separate collision domain on every port but keeps all ports in one VLAN in the same broadcast domain?",
+      "choices": [
+        "Layer 2 switch",
+        "Hub",
+        "Router",
+        "Repeater"
+      ],
+      "answer": 0,
+      "explanation": "Each switch port is its own collision domain, but broadcasts are flooded to every port in the VLAN. A hub creates one collision domain, and a router separates broadcast domains.",
+      "concept": "switch domains",
+      "section": 5
+    },
+    {
+      "id": "ccna-switching-q22",
+      "type": "typed",
+      "difficulty": "medium",
+      "question": "A router has two LAN interfaces. G0/0 connects to a switch with four PCs. G0/1 connects to a hub with three PCs. How many collision domains are there?",
+      "answer": "6",
+      "accept": [
+        "six"
+      ],
+      "explanation": "The switch side has five: four PC links plus the switch-to-router link. Everything on the hub, including the router's G0/1, is one more. 5 + 1 = 6.",
+      "concept": "count collision domains",
+      "section": 5
+    },
+    {
+      "id": "ccna-switching-q23",
+      "type": "typed",
+      "difficulty": "medium",
+      "question": "In the same network (router with G0/0 to a switch with four PCs and G0/1 to a hub with three PCs, no VLANs configured), how many broadcast domains are there?",
+      "answer": "2",
+      "accept": [
+        "two"
+      ],
+      "explanation": "Routers do not forward broadcasts, so each router LAN interface bounds one broadcast domain. Switches and hubs pass broadcasts along, so they do not add any.",
+      "concept": "count broadcast domains",
+      "section": 5
+    },
+    {
+      "id": "ccna-switching-q24",
+      "type": "mcq",
+      "difficulty": "medium",
+      "question": "A single switch has access ports in VLANs 10, 20 and 30 and no routing. How many broadcast domains does it create?",
+      "choices": [
+        "1",
+        "One per port",
+        "3",
+        "0"
+      ],
+      "answer": 2,
+      "explanation": "Each VLAN is a separate broadcast domain, so three VLANs mean three. A broadcast in VLAN 10 is flooded only to ports in VLAN 10.",
+      "concept": "VLANs as broadcast domains",
+      "section": 5
+    },
+    {
+      "id": "ccna-switching-q25",
+      "type": "order",
+      "difficulty": "hard",
+      "question": "PC1 on SW1 pings PC3 on SW2 (same VLAN, empty MAC tables, PC1 has no ARP entry). Put the events in order.",
+      "items": [
+        "PC1 broadcasts an ARP request for PC3's IP address",
+        "SW1 learns PC1 on its access port and floods the request, including out the uplink",
+        "SW2 learns PC1 on its uplink and floods the request to its ports",
+        "PC3 sends a unicast ARP reply to PC1's MAC address",
+        "SW2 learns PC3 and forwards the reply out its uplink only",
+        "SW1 learns PC3 on its uplink and forwards the reply to PC1 only"
+      ],
+      "explanation": "The broadcast request is flooded and teaches both switches where PC1 is. The unicast reply is forwarded to one port at each switch, because PC1 is already known, and teaches both switches where PC3 is.",
+      "concept": "ARP across two switches",
+      "section": 6
+    },
+    {
+      "id": "ccna-switching-q26",
+      "type": "mcq",
+      "difficulty": "hard",
+      "question": "After the ARP exchange in the lesson, which pair of entries is in SW1's MAC address table?",
+      "choices": [
+        "PC1 on Gi0/1 and PC3 on Gi0/24",
+        "PC1 on Gi0/1 and PC3 on Gi0/3",
+        "PC1 on Gi0/24 and PC3 on Gi0/24",
+        "Only PC1 on Gi0/1"
+      ],
+      "answer": 0,
+      "explanation": "SW1 learned PC1 from its access port Gi0/1 and PC3 from the reply that arrived on its uplink Gi0/24. Gi0/3 is a port on SW2, which SW1 knows nothing about.",
+      "concept": "tables after ARP",
+      "section": 6
+    },
+    {
+      "id": "ccna-switching-q27",
+      "type": "mcq",
+      "difficulty": "easy",
+      "question": "Which table maps IP addresses to MAC addresses?",
+      "choices": [
+        "The switch MAC address table",
+        "The routing table",
+        "The CAM table",
+        "The ARP table on hosts and routers"
+      ],
+      "answer": 3,
+      "explanation": "ARP builds the IP-to-MAC mapping that hosts and routers need to address frames. A switch's MAC (CAM) table maps MAC addresses to ports and holds no IP information.",
+      "concept": "ARP table vs MAC table",
+      "section": 6
+    },
+    {
+      "id": "ccna-switching-q28",
+      "type": "mcq",
+      "difficulty": "medium",
+      "question": "Once ARP has completed, PC1 sends an ICMP echo request to PC3 on the other switch. How do the two switches handle that frame?",
+      "choices": [
+        "Both flood it, because ICMP uses broadcasts",
+        "Each forwards it out exactly one port, because PC3's MAC is known",
+        "SW1 forwards it and SW2 floods it",
+        "Both drop it until PC3 sends another ARP reply"
+      ],
+      "answer": 1,
+      "explanation": "The echo request is a unicast frame to PC3's MAC, which both switches learned from the ARP reply. Each forwards it out a single port: SW1 out its uplink, SW2 out PC3's port.",
+      "concept": "ping after ARP",
+      "section": 6
+    }
+  ]
+}

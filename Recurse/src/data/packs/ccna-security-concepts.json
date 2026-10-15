@@ -1,0 +1,493 @@
+{
+  "id": "ccna-security-concepts",
+  "name": "Security Concepts",
+  "version": "1.0.0",
+  "author": "Recurse",
+  "subject": "networking",
+  "level": "beginner",
+  "description": "Tell threats, vulnerabilities and exploits apart, recognize common network attacks and pick the mitigation for each.",
+  "icon": "SC",
+  "language": "plaintext",
+  "prereqs": ["networking-basics", "ccna-osi-tcp-udp"],
+  "tags": ["ccna", "5.1", "5.2", "security", "threats", "attacks"],
+  "lesson": {
+    "estimatedMinutes": 24,
+    "intro": "Every security feature you configure later in the CCNA (ACLs, port security, DHCP snooping, VPNs, AAA) exists to stop a specific attack. This lesson gives you the vocabulary and the attacker's playbook: what a vulnerability, exploit and threat are, how spoofing, denial of service, man in the middle, malware, phishing and password attacks actually work, and the human side of security that no device can configure for you.",
+    "objectives": [
+      "Distinguish a vulnerability, an exploit, a threat and a mitigation in a real scenario",
+      "Explain how spoofing, DoS, DDoS, reflection, amplification and man-in-the-middle attacks work",
+      "Classify malware, social engineering and password attacks from a description",
+      "Match common attacks to the mitigation that stops or limits them",
+      "Describe the three security program elements: user awareness, training and physical access control"
+    ],
+    "sections": [
+      {
+        "title": "Vulnerability, exploit, threat, mitigation",
+        "body": "A branch switch still runs an old software image with a published bug in its web interface, and that web interface is reachable from the guest Wi-Fi. Nothing bad has happened yet. Is the network at risk? Security people answer that question with four precise words.\n\n- **Vulnerability**: a weakness that could compromise security. The bug is one, the reachable web interface is another, and so are a default password or an unlocked wiring closet.\n- **Exploit**: a tool or technique that takes advantage of a specific vulnerability, such as a script that sends the malformed request the bug cannot handle.\n- **Threat**: the real potential for harm, meaning someone (or some malware) that has an exploit and the intent and opportunity to use it.\n- **Mitigation**: anything that reduces the risk, such as patching the image, disabling the HTTP server or blocking guest access with an ACL.\n\nA useful way to judge any attack is the **CIA triad**: does it hurt **confidentiality** (someone reads what they should not), **integrity** (someone changes data) or **availability** (legitimate users cannot get service)? A denial-of-service attack hits availability, an eavesdropper hits confidentiality, and a man in the middle who edits traffic hits integrity.\n\nNo single control covers everything, so real networks layer mitigations: patching plus ACLs plus monitoring plus trained users. That idea is called **defense in depth**, and you will see it in every pack of this domain.",
+        "code": "Odom's locked-box analogy\n\n  A door in the box ........... VULNERABILITY  (a way in that could be abused)\n  A pry bar ................... EXPLOIT        (a tool that works on that door)\n  A burglar holding the bar ... THREAT         (someone able and willing to use it)\n  Better lock, alarm, guard ... MITIGATION     (reduces the risk)",
+        "tip": "Read exam scenarios for the noun: a weakness is a vulnerability, a tool is an exploit, an actor with intent is a threat, a fix is a mitigation.",
+        "pitfall": "Calling a vulnerability a threat. The weakness exists even when nobody is attacking; it only becomes a threat when someone has the means and intent to exploit it.",
+        "check": {
+          "question": "A router's software has a publicly documented flaw, but no attack code exists for it yet. What is the flaw?",
+          "choices": ["A threat", "An exploit", "A vulnerability", "A mitigation"],
+          "answer": 2,
+          "explanation": "The flaw is a weakness, which makes it a vulnerability. An exploit would be the code that abuses it, and a threat needs someone with that exploit and the intent to use it."
+        }
+      },
+      {
+        "title": "Spoofing, denial of service and amplification",
+        "body": "Networks trust addresses by default. When a packet arrives with source IP 192.0.2.10, the receiver assumes 192.0.2.10 sent it. A **spoofing** attack breaks that trust by writing a fake source IP or MAC address into the packet or frame. Spoofing is rarely the goal by itself; it is the trick that powers the next attacks.\n\nA **denial-of-service (DoS)** attack tries to exhaust a resource so legitimate users get no service. The classic example is the **TCP SYN flood**: the attacker sends thousands of TCP SYNs with spoofed source addresses. The server answers each with a SYN-ACK and holds a half-open connection while it waits for the final ACK that never comes. Its connection table fills, and real clients are turned away. Floods of ICMP or UDP packets work the same way against bandwidth or CPU.\n\nA **distributed DoS (DDoS)** spreads the flood across thousands of infected machines (**bots**) controlled from a command-and-control server. Because the traffic comes from everywhere, blocking one source address does nothing.\n\nIn a **reflection** attack, the attacker sends requests to an innocent server (the **reflector**) with the victim's address as the spoofed source, so the replies land on the victim. When a small request produces a large reply, it becomes an **amplification** attack: open DNS resolvers and old NTP servers have been abused this way to multiply an attacker's bandwidth dozens of times.\n\nMitigations: filter spoofed sources at your edge (packets arriving from the internet should never carry your own inside addresses, and packets leaving should only carry yours), rate-limit, use firewalls or IPS features that protect against SYN floods, do not run open resolvers, and use an upstream DDoS scrubbing service for large attacks.",
+        "code": "Reflection with amplification\n\n1. Attacker sends a small DNS query (about 60 bytes)\n     src = 203.0.113.50 (the VICTIM, spoofed)   dst = open DNS resolver\n2. The resolver answers the address it believes asked\n     src = open resolver   dst = 203.0.113.50   reply = several kilobytes\n3. Repeat through thousands of resolvers: the victim's link is flooded,\n   and not one packet carries the attacker's real address.",
+        "language": "plaintext",
+        "activity": {
+          "type": "tcp-handshake",
+          "title": "Where a SYN flood bites",
+          "prompt": "Step through a normal handshake, then the lost-segment case. Notice that after SYN and SYN-ACK the server is holding state while it waits for the final ACK. Now picture thousands of SYNs from spoofed addresses whose ACK never arrives: that waiting state is what a SYN flood multiplies until the server's table is full."
+        },
+        "pitfall": "Mixing up the reflector and the target. The reflector is an innocent middleman that answers what looks like a normal request; the target is whoever owns the spoofed source address.",
+        "check": {
+          "question": "In a reflection attack, which address does the attacker place in the source field of the requests it sends?",
+          "choices": ["Its own real address", "The reflector's address", "A broadcast address", "The target's address"],
+          "answer": 3,
+          "explanation": "The attacker spoofs the target's address so that every reply from the reflector is sent to the target. Using its own address would just send the replies back to the attacker."
+        }
+      },
+      {
+        "title": "Man-in-the-middle attacks",
+        "body": "Some attackers do not want to break anything. They want to sit quietly between two devices and read or change what passes. That is a **man-in-the-middle (MITM)** attack.\n\nThe most common LAN version abuses ARP. Hosts trust ARP replies blindly and even accept **gratuitous ARP** (a reply nobody asked for). The attacker sends replies saying \"the default gateway's IP address is at my MAC address.\" Every poisoned host now sends its off-subnet traffic to the attacker, who copies it and forwards it to the real router so the victims notice nothing. This is called **ARP poisoning** or ARP spoofing.\n\nA second LAN version uses a **rogue DHCP server**. The attacker answers DHCP Discovers faster than the real server and hands out a valid address with the attacker's own IP as the default gateway. The result is the same: all traffic flows through the attacker.\n\nOnce in the middle, the attacker can eavesdrop (breaking confidentiality) or modify data (breaking integrity). Mitigations come in two layers. On the switch, **Dynamic ARP Inspection** drops forged ARP messages and **DHCP snooping** drops DHCP server messages on user ports (both are covered in the Layer 2 Security pack). End to end, **encryption** such as TLS, SSH and IPsec makes intercepted data unreadable and makes tampering detectable, even if the attacker does get in the path.",
+        "code": "ARP poisoning on a LAN\n\nBefore:  PC1 ARP cache   10.1.1.1 (gateway) -> 0000.1111.1111  (router R1)\n\nAttacker 10.1.1.66 sends unsolicited ARP replies:\n         \"10.1.1.1 is at 0000.aaaa.aaaa\"\n\nAfter:   PC1 ARP cache   10.1.1.1 (gateway) -> 0000.aaaa.aaaa  (attacker!)\n\n         PC1 ---> Attacker (copies, maybe edits) ---> R1 ---> Internet",
+        "activity": {
+          "type": "packet-journey",
+          "title": "Watch ARP do its job",
+          "prompt": "Step through the journey and pause at the ARP step. The sender caches whatever reply arrives; nothing in ARP proves the reply came from the real owner of the IP address. Ask yourself what would happen if a different host answered first, or kept answering. That gap is what ARP poisoning exploits."
+        },
+        "pitfall": "Assuming a MITM attack breaks the connection. A skilled attacker forwards everything onward so the victim's applications keep working; the absence of symptoms is the point.",
+        "check": {
+          "question": "After poisoning ARP caches, why does the attacker forward the victims' packets on to the real gateway?",
+          "choices": ["ARP requires every reply to be forwarded", "So the victims' traffic keeps working and the interception goes unnoticed", "To refresh the switch's MAC address table", "Because the attacker cannot drop packets once in the path"],
+          "answer": 1,
+          "explanation": "If the attacker dropped the traffic, users would notice an outage. Forwarding keeps everything working while the attacker reads or alters the data in transit."
+        }
+      },
+      {
+        "title": "Reconnaissance and buffer overflows",
+        "body": "Before a serious attack, attackers scout. A **reconnaissance attack** gathers information so the real attack can be focused. It usually starts with public data: `whois` shows who owns a domain and its address blocks, and `nslookup` or `dig` reveal name servers, mail servers and host addresses. Then come **ping sweeps** to find live hosts and **port scans** (tools such as nmap) to find which TCP and UDP services answer, and often which software versions they run.\n\nReconnaissance exploits nothing by itself, which is why it is easy to dismiss. Do not. A scan from the internet is often step one of an attack, and an IPS or firewall log full of scans is an early warning. Mitigations: expose only the services you need, filter unnecessary ICMP and ports at the edge, and alert on scan patterns.\n\nA **buffer overflow** attack targets a programming flaw. Software stores incoming data in fixed-size memory buffers. If a program does not check the length of what it receives, an attacker can send more data than the buffer holds, and the extra bytes overwrite neighboring memory. At best that crashes the service (a DoS). At worst the attacker crafts the overflow so the program runs the attacker's own code. The mitigation is keeping software patched, which on network gear means upgrading IOS images when Cisco publishes security advisories.",
+        "code": "A typical reconnaissance sequence\n\nStep 1  whois / nslookup / dig   who owns example.com, which address blocks?\nStep 2  ping sweep               which of 192.0.2.1 to 192.0.2.254 reply?\nStep 3  port scan                192.0.2.10 open: 22/tcp, 80/tcp, 443/tcp\nStep 4  version detection        port 80 runs an old, unpatched web server\n\nResult: a short list of live hosts and weak services to attack next",
+        "pitfall": "Thinking a scan is harmless because nothing broke. Reconnaissance is the planning phase; treat it as a signal that someone is choosing targets.",
+        "check": {
+          "question": "An attacker pings every address in a /24, then probes the hosts that answered on TCP ports 1 to 1024. What kind of attack is this?",
+          "choices": ["Buffer overflow", "Reconnaissance", "Amplification", "Man in the middle"],
+          "answer": 1,
+          "explanation": "A ping sweep followed by a port scan gathers information about live hosts and services. That is reconnaissance; nothing has been exploited yet."
+        }
+      },
+      {
+        "title": "Malware",
+        "body": "**Malware** is malicious software. The CCNA expects you to tell three classic types apart by how they spread.\n\n- A **trojan horse** hides inside software that looks legitimate, such as a free PDF converter. The user installs the useful program and silently installs the malware too. Trojans spread only through user actions: downloading, opening attachments, plugging in a USB drive.\n- A **virus** injects itself into other programs or files. It spreads when users copy or share those infected files.\n- A **worm** spreads on its own. It exploits a vulnerability in a network service, copies itself to the next vulnerable host, and repeats, with no user action at all. That is why worms can cross an entire network in minutes.\n\nYou will also hear about **ransomware** (encrypts your data and demands payment), **spyware** and **keyloggers** (steal information quietly) and **bots** (wait for orders from a command-and-control server, as in a DDoS).\n\nMitigations: endpoint protection on hosts, prompt patching (worms live on unpatched services), email and web filtering, least privilege so malware cannot do much, network segmentation and ACLs that slow a worm's spread, and offline backups so ransomware is an inconvenience instead of a disaster.",
+        "code": "Characteristic                         Trojan horse   Virus   Worm\nPackaged inside other, useful software Yes            No      No\nInjects itself into other programs     No             Yes     No\nPropagates automatically over the net  No             No      Yes",
+        "pitfall": "Calling every piece of malware a virus. On the exam, the deciding question is how it spreads: hidden in software (trojan), attached to files (virus) or by itself (worm).",
+        "check": {
+          "question": "Malware spreads from server to server by exploiting an unpatched file-sharing service, with no user opening or running anything. Which type is it?",
+          "choices": ["Worm", "Trojan horse", "Virus", "Spyware"],
+          "answer": 0,
+          "explanation": "Spreading by itself through a network vulnerability, with no user action, is the defining trait of a worm. Trojans and viruses both need a user to install, open or share something."
+        }
+      },
+      {
+        "title": "Social engineering and phishing",
+        "body": "The easiest system to hack is often the person using it. **Social engineering** exploits human trust and helpfulness: a caller claiming to be from IT asks a user to read out a password or set it to a \"temporary\" value, someone watches a user type a PIN (shoulder surfing), or a stranger follows an employee through a badge door (tailgating).\n\n**Phishing** disguises a malicious invitation as something legitimate, usually an email with a link to a fake login page or a malicious attachment. It has several named variants, and the exam likes to test them by scenario:\n\n- **Spear phishing** targets a specific group, such as everyone in one company's finance team, with a convincing tailored message.\n- **Whaling** targets high-profile individuals such as executives.\n- **Vishing** uses voice calls; **smishing** uses SMS text messages.\n- **Pharming** does not need a fake link at all. It compromises name resolution (a DNS server or a host's hosts file) so that even the correct URL leads to the attacker's site.\n- A **watering hole** attack compromises a website the targets already visit regularly, so the malware reaches exactly that group.\n\nMitigations are mostly human: awareness and training, a culture of verifying unusual requests through a second channel, and multifactor authentication so a phished password alone is not enough. Technical help includes email filtering and secure, monitored DNS.",
+        "code": "Attack              How it reaches the victim\nSocial engineering  Exploits trust: \"Hi, this is IT, I need your password\"\nPhishing            Email disguised as a real company or service\nSpear phishing      Tailored message to a specific group of similar users\nWhaling             Phishing aimed at executives and other high-value people\nVishing             Voice calls\nSmishing            SMS text messages\nPharming            Poisoned DNS or hosts file sends the real URL to a fake site\nWatering hole       Malware planted on a site the targets already visit",
+        "pitfall": "Confusing pharming with phishing. Phishing lures you with a fake link; pharming redirects you even when you type the real address.",
+        "check": {
+          "question": "Users type their bank's correct URL but land on a convincing fake site, because a DNS server was tampered with. What is this attack?",
+          "choices": ["Spear phishing", "Whaling", "Pharming", "Smishing"],
+          "answer": 2,
+          "explanation": "Pharming corrupts name resolution so the correct name resolves to the attacker's address. No deceptive link was needed, which rules out the phishing variants."
+        }
+      },
+      {
+        "title": "Password attacks",
+        "body": "Most logins still come down to a username and a password, and usernames are easy to guess (often a person's name or simply admin). That leaves the password as the only barrier.\n\n- **Password guessing** tries obvious values: defaults like admin/admin or cisco/cisco, password123, the company name.\n- A **dictionary attack** uses software to try every entry in a word list, often millions of real passwords leaked from earlier breaches.\n- A **brute-force attack** tries every possible combination of characters. It always succeeds eventually; the question is whether \"eventually\" means seconds or centuries.\n\nWhere the guessing happens matters. An **online attack** types guesses into the real login prompt, so it is slow and can be stopped by lockouts or login delays. An **offline attack** first steals the stored passwords (for example a configuration file or a hash database), then cracks them on the attacker's own hardware at billions of guesses per second, with no lockout possible.\n\nThe math in the table below shows why length beats everything else. Mitigations: long passphrases, no default or reused passwords, slow and salted hashing for stored passwords, login rate limiting, and multifactor authentication. The Device Access Security pack turns this into IOS configuration and policy.",
+        "code": "Character set               Length  Possible passwords   Time at 10 billion guesses/s\nlowercase only (26)         8       26^8  = 2.1 x 10^11  about 21 seconds\nupper, lower, digits (62)   8       62^8  = 2.2 x 10^14  about 6 hours\nupper, lower, digits (62)   12      62^12 = 3.2 x 10^21  about 10,000 years",
+        "pitfall": "Believing account lockout stops password cracking. Lockouts only slow online attacks; an offline attack on stolen hashes never touches the login prompt.",
+        "check": {
+          "question": "An attacker copies a configuration backup containing password hashes and cracks them on a GPU rig at home. What kind of attack is this?",
+          "choices": ["An online dictionary attack", "A social engineering attack", "A reconnaissance attack", "An offline password attack"],
+          "answer": 3,
+          "explanation": "The guessing happens on the attacker's own hardware against stolen hashes, which makes it an offline attack. Login lockouts and delays on the device cannot slow it down."
+        }
+      },
+      {
+        "title": "Security program elements",
+        "body": "Firewalls and ACLs cannot stop a user from reading a password over the phone or a visitor from walking into an unlocked wiring closet. That is why the CCNA blueprint lists three **security program elements**, the human and physical layer of defense.\n\n- **User awareness**: everyone knows the threats that target them, how to spot a scam, how to handle sensitive data and how to report an incident. Awareness is ongoing: reminders, short messages, banners, a well-known reporting address.\n- **User training**: periodic, formal training on the organization's written security policies, often with simulated phishing emails and follow-up lessons for those who click. It implies the organization actually has published policies to train on.\n- **Physical access control**: locked network closets and data centers, badge readers that keep an audit trail of who entered and when, visitor escorts and cameras. Badges scale well because access can be granted per room and revoked instantly when someone leaves.\n\nPhysical access deserves special respect. Anyone with console access to a router or switch can run password recovery during a reboot and take full control of the device, no matter how strong its passwords are. Locks on the closet are as much a network control as any ACL.",
+        "code": "Element                  What it looks like in practice\nUser awareness           Ongoing reminders: \"IT will never ask for your password\",\n                         how to report a suspicious email, data handling rules\nUser training            Required formal course on the security policy, plus\n                         simulated phishing campaigns with follow-up lessons\nPhysical access control  Locked closets, badge readers with audit logs,\n                         visitor escorts, cameras on the data center door",
+        "pitfall": "Treating awareness and training as the same thing. Awareness is continuous, informal reminding; training is scheduled, formal instruction on policy.",
+        "check": {
+          "question": "Why is physical access to a network closet treated as a serious security risk even when every device has strong passwords?",
+          "choices": ["Console access allows password recovery and full control of the device", "Physical access lets an attacker read the passwords off the cables", "Strong passwords only protect devices that are powered on", "Switches send their passwords to any device plugged into them"],
+          "answer": 0,
+          "explanation": "With the console port and the ability to power-cycle a device, an attacker can run password recovery and reset the configuration's passwords. Passwords protect logins, not the hardware itself."
+        }
+      }
+    ],
+    "keyTerms": [
+      { "term": "Vulnerability", "definition": "A weakness that could be used to compromise security, such as unpatched software, a default password or an unlocked closet." },
+      { "term": "Exploit", "definition": "A tool or technique that takes advantage of a specific vulnerability." },
+      { "term": "Threat", "definition": "The real potential for harm: someone or something with an exploit and the intent to use it against a vulnerability." },
+      { "term": "Mitigation", "definition": "A control that reduces risk, such as patching, filtering, encryption or training." },
+      { "term": "Spoofing", "definition": "Forging a source address (IP or MAC) or impersonating a service so that receivers trust the attacker's traffic." },
+      { "term": "DDoS", "definition": "Distributed denial of service: many compromised hosts (bots) flood one target on command so it cannot serve legitimate users." },
+      { "term": "Amplification attack", "definition": "A reflection attack in which small spoofed requests trigger much larger replies toward the target, multiplying the attacker's bandwidth." },
+      { "term": "Man-in-the-middle", "definition": "An attacker inserts itself into the path between two devices, for example by ARP poisoning, to eavesdrop on or modify traffic." },
+      { "term": "Reconnaissance attack", "definition": "Information gathering (whois, DNS lookups, ping sweeps, port scans) that finds targets and weaknesses before a real attack." },
+      { "term": "Worm", "definition": "Malware that spreads by itself across a network by exploiting vulnerabilities, with no user action." },
+      { "term": "Pharming", "definition": "Redirecting users to a malicious site by compromising name resolution, so even the correct URL leads to the fake site." },
+      { "term": "Brute-force attack", "definition": "Trying every possible combination of characters until the password is found." }
+    ],
+    "summary": [
+      "A vulnerability is a weakness, an exploit is the tool, a threat is someone able and willing to use it, and a mitigation reduces the risk.",
+      "Spoofing fakes source addresses; it powers SYN floods, reflection and amplification attacks, where the spoofed source is the victim.",
+      "Man-in-the-middle attacks on a LAN usually come from ARP poisoning or a rogue DHCP server; DAI, DHCP snooping and encryption mitigate them.",
+      "Trojans hide in useful software, viruses attach to files, worms spread by themselves; phishing variants are named by target or channel.",
+      "Offline password attacks ignore lockouts, so length, strong hashing and multifactor authentication matter most.",
+      "User awareness, user training and physical access control are the security program elements; console access means full control."
+    ],
+    "feynmanPrompt": "Explain to a new help desk hire the difference between a vulnerability, an exploit and a threat using one real network example, then walk through how ARP poisoning puts an attacker in the middle and what would stop it."
+  },
+  "questions": [
+    {
+      "id": "ccna-security-concepts-q01",
+      "type": "mcq",
+      "difficulty": "easy",
+      "question": "Which term describes a weakness, such as an unpatched service or a default password, that could be used to compromise a system?",
+      "choices": ["Exploit", "Vulnerability", "Threat", "Mitigation"],
+      "answer": 1,
+      "explanation": "A vulnerability is the weakness itself. An exploit is the tool that abuses it, and a threat is someone with the means and intent to do so.",
+      "concept": "security terminology",
+      "section": 0
+    },
+    {
+      "id": "ccna-security-concepts-q02",
+      "type": "match",
+      "difficulty": "medium",
+      "question": "A switch's web interface has a known bug. Match each term to the piece of this scenario it describes.",
+      "pairs": [
+        { "left": "Vulnerability", "right": "The bug in the web interface software" },
+        { "left": "Exploit", "right": "A script that sends the malformed request the bug mishandles" },
+        { "left": "Threat", "right": "An attacker on the guest Wi-Fi who has the script and wants in" },
+        { "left": "Mitigation", "right": "Upgrading the image and disabling the HTTP server" }
+      ],
+      "explanation": "The weakness is the vulnerability, the tool is the exploit, the actor with means and intent is the threat, and anything that lowers the risk is a mitigation.",
+      "concept": "security terminology",
+      "section": 0
+    },
+    {
+      "id": "ccna-security-concepts-q03",
+      "type": "typed",
+      "difficulty": "easy",
+      "question": "In the CIA triad of confidentiality, integrity and availability, which property does a denial-of-service attack target?",
+      "answer": "availability",
+      "accept": ["A"],
+      "explanation": "A DoS attack keeps legitimate users from getting service, which is an attack on availability. It does not necessarily read or change any data.",
+      "concept": "CIA triad",
+      "section": 0
+    },
+    {
+      "id": "ccna-security-concepts-q04",
+      "type": "mcq",
+      "difficulty": "easy",
+      "question": "Thousands of infected home computers start flooding one web server at the same moment on a command from a central server. What is this?",
+      "choices": ["A reconnaissance attack", "A man-in-the-middle attack", "A distributed denial-of-service attack", "A buffer overflow attack"],
+      "answer": 2,
+      "explanation": "Many compromised hosts (a botnet) attacking one target on command is a DDoS. The distribution across many sources is what makes it hard to block.",
+      "concept": "DDoS",
+      "section": 1
+    },
+    {
+      "id": "ccna-security-concepts-q05",
+      "type": "mcq",
+      "difficulty": "medium",
+      "question": "A web server becomes unreachable for users. The administrator runs the commands below. What attack is most likely underway?",
+      "code": "$ netstat -ant | grep SYN_RECV | head -4\ntcp  0  0 192.0.2.10:443   198.51.100.7:51034    SYN_RECV\ntcp  0  0 192.0.2.10:443   203.0.113.91:40112    SYN_RECV\ntcp  0  0 192.0.2.10:443   100.64.12.200:3307    SYN_RECV\ntcp  0  0 192.0.2.10:443   198.18.4.55:61999     SYN_RECV\n$ netstat -ant | grep -c SYN_RECV\n8192",
+      "language": "bash",
+      "choices": ["A TCP SYN flood filling the server's table of half-open connections", "An ARP poisoning attack redirecting the server's gateway", "A port scan looking for open services", "A worm copying itself to the server over HTTPS"],
+      "answer": 0,
+      "explanation": "Thousands of connections stuck in SYN_RECV from scattered addresses means SYNs arrive but the final ACK never does. The half-open table fills and real clients are refused: a SYN flood, usually with spoofed sources.",
+      "concept": "SYN flood",
+      "section": 1
+    },
+    {
+      "id": "ccna-security-concepts-q06",
+      "type": "mcq",
+      "difficulty": "hard",
+      "question": "Why do attackers favor open DNS resolvers and old NTP servers for amplification attacks?",
+      "choices": ["They run on TCP, so the handshake hides the attacker's address", "They accept spoofed UDP requests and send replies far larger than the requests", "They cache the attacker's address and block the target", "They forward requests through encrypted tunnels"],
+      "answer": 1,
+      "explanation": "These UDP services answer anyone, with no handshake to defeat spoofing, and a small query can produce a reply many times larger. With the victim's address as the spoofed source, the large replies flood the victim.",
+      "concept": "amplification attack",
+      "section": 1
+    },
+    {
+      "id": "ccna-security-concepts-q07",
+      "type": "multi",
+      "difficulty": "medium",
+      "question": "Which two steps reduce the chance that your network takes part in reflection and amplification attacks against others? (Choose two.)",
+      "choices": ["Do not run DNS resolvers that answer queries from anyone on the internet", "Filter outbound packets whose source address is not from your own address block", "Increase the MTU on the internet link", "Disable spanning tree on access ports", "Permit all inbound ICMP so attacks are easier to trace"],
+      "answers": [0, 1],
+      "explanation": "Closing open resolvers removes a reflector, and egress filtering stops hosts inside your network from sending spoofed packets at all. MTU, spanning tree and ICMP policy have nothing to do with reflection.",
+      "concept": "reflection mitigation",
+      "section": 1
+    },
+    {
+      "id": "ccna-security-concepts-q08",
+      "type": "match",
+      "difficulty": "medium",
+      "question": "Match each attack to its main goal.",
+      "pairs": [
+        { "left": "DoS or DDoS", "right": "Exhaust a resource so the target cannot serve users" },
+        { "left": "Reflection", "right": "Trick an innocent host into sending traffic to the target" },
+        { "left": "Amplification", "right": "Turn small requests into much larger replies aimed at the target" },
+        { "left": "Man-in-the-middle", "right": "Eavesdrop on or modify traffic between two devices" }
+      ],
+      "explanation": "DoS exhausts resources directly; reflection and amplification use innocent hosts as unwitting senders (amplification adds a size multiplier); MITM sits in the path to read or alter traffic.",
+      "concept": "attack goals",
+      "section": 1
+    },
+    {
+      "id": "ccna-security-concepts-q09",
+      "type": "mcq",
+      "difficulty": "medium",
+      "question": "A user complains that everything is working but feels slow. You check the user's PC (10.1.1.25), whose default gateway is 10.1.1.1. What does the output suggest?",
+      "code": "C:\\> arp -a\nInterface: 10.1.1.25 --- 0x7\n  Internet Address      Physical Address      Type\n  10.1.1.1              00-0c-29-aa-bb-cc     dynamic\n  10.1.1.66             00-0c-29-aa-bb-cc     dynamic\n  10.1.1.80             00-50-56-12-34-56     dynamic",
+      "language": "plaintext",
+      "choices": ["The gateway has two IP addresses configured on one interface", "The PC has a duplicate IP address with 10.1.1.66", "ARP poisoning: host 10.1.1.66 has claimed the gateway's IP, putting itself in the middle", "A DHCP server has run out of addresses"],
+      "answer": 2,
+      "explanation": "The gateway IP and another host map to the same MAC, so frames meant for the router go to 10.1.1.66. Combined with traffic still working, that is the signature of an ARP-poisoning man in the middle.",
+      "concept": "ARP poisoning",
+      "section": 2
+    },
+    {
+      "id": "ccna-security-concepts-q10",
+      "type": "mcq",
+      "difficulty": "medium",
+      "question": "A rogue DHCP server on a LAN hands clients valid addresses but lists the attacker's own IP as the default gateway. What does the attacker gain?",
+      "choices": ["Nothing, because clients ignore the gateway in a DHCP offer", "A man-in-the-middle position for all traffic that leaves the subnet", "Control of the switch's MAC address table", "The ability to change the clients' MAC addresses"],
+      "answer": 1,
+      "explanation": "Clients send every off-subnet packet to their default gateway, so a fake gateway places the attacker in the path of that traffic. DHCP snooping exists to block exactly this.",
+      "concept": "rogue DHCP",
+      "section": 2
+    },
+    {
+      "id": "ccna-security-concepts-q11",
+      "type": "mcq",
+      "difficulty": "medium",
+      "question": "Staff use public hotel Wi-Fi, where a man in the middle is possible. Which mitigation still protects the confidentiality and integrity of their traffic even if an attacker intercepts it?",
+      "choices": ["Encrypting the traffic with a VPN or TLS", "Using a longer SSID", "Disabling IPv6 on the laptops", "Turning on port security on the office switches"],
+      "answer": 0,
+      "explanation": "Encryption makes intercepted data unreadable and lets the endpoints detect tampering. The office's port security does nothing on a hotel network, and SSID length or IPv6 settings do not protect data.",
+      "concept": "MITM mitigation",
+      "section": 2
+    },
+    {
+      "id": "ccna-security-concepts-q12",
+      "type": "order",
+      "difficulty": "medium",
+      "question": "Put the steps of a typical targeted attack in the order an attacker usually performs them.",
+      "items": [
+        "Look up the target's domain and address blocks with whois and DNS tools",
+        "Ping sweep the address range to find live hosts",
+        "Port scan the live hosts to find listening services",
+        "Identify an outdated service version with a known vulnerability",
+        "Run an exploit against that vulnerable service"
+      ],
+      "explanation": "Reconnaissance narrows from public records to live hosts to open ports to specific weak software. Only then does the attacker exploit something.",
+      "concept": "reconnaissance stages",
+      "section": 3
+    },
+    {
+      "id": "ccna-security-concepts-q13",
+      "type": "mcq",
+      "difficulty": "easy",
+      "question": "You find the output below in a log of commands run from a compromised guest laptop. What phase of an attack does it represent?",
+      "code": "$ nmap -sS 192.0.2.0/28\nNmap scan report for 192.0.2.10\nPORT    STATE SERVICE\n22/tcp  open  ssh\n80/tcp  open  http\n443/tcp open  https\nNmap scan report for 192.0.2.12\nPORT     STATE SERVICE\n3389/tcp open  ms-wbt-server",
+      "language": "bash",
+      "choices": ["Exploitation", "Amplification", "Reconnaissance", "Data exfiltration"],
+      "answer": 2,
+      "explanation": "A port scan maps which hosts and services exist. Nothing has been exploited yet, but the attacker now knows where to aim.",
+      "concept": "port scanning",
+      "section": 3
+    },
+    {
+      "id": "ccna-security-concepts-q14",
+      "type": "mcq",
+      "difficulty": "hard",
+      "question": "What makes a buffer overflow vulnerability more dangerous than a simple crash?",
+      "choices": ["It always deletes the device's configuration", "It spreads automatically to every host in the subnet", "It forces the device to send its passwords in clear text", "Carefully crafted overflow data can make the program run the attacker's own code"],
+      "answer": 3,
+      "explanation": "Overflowing a buffer overwrites neighboring memory. If the attacker controls what gets written, the program can be steered into running injected code. Spreading automatically describes a worm, not the overflow itself.",
+      "concept": "buffer overflow",
+      "section": 3
+    },
+    {
+      "id": "ccna-security-concepts-q15",
+      "type": "match",
+      "difficulty": "easy",
+      "question": "Match each malware type to how it behaves.",
+      "pairs": [
+        { "left": "Trojan horse", "right": "Hidden inside software that looks useful and legitimate" },
+        { "left": "Virus", "right": "Injects itself into other programs and spreads when files are shared" },
+        { "left": "Worm", "right": "Copies itself across the network through vulnerabilities, no user needed" },
+        { "left": "Ransomware", "right": "Encrypts the victim's data and demands payment" }
+      ],
+      "explanation": "The classic three differ in how they spread: packaged inside software, attached to other code, or self-propagating. Ransomware is defined by what it does once inside.",
+      "concept": "malware types",
+      "section": 4
+    },
+    {
+      "id": "ccna-security-concepts-q16",
+      "type": "mcq",
+      "difficulty": "medium",
+      "question": "An employee installs a free screen-recording tool from a download site. The tool works fine, but it also quietly installs a backdoor. Which type of malware is this?",
+      "choices": ["Trojan horse", "Worm", "Virus", "Adware toolbar"],
+      "answer": 0,
+      "explanation": "Malware packaged inside useful-looking software that the user chooses to install is a trojan horse. A worm would not need the user to install anything.",
+      "concept": "trojan horse",
+      "section": 4
+    },
+    {
+      "id": "ccna-security-concepts-q17",
+      "type": "multi",
+      "difficulty": "medium",
+      "question": "Which two measures most directly limit how far a network worm can spread? (Choose two.)",
+      "choices": ["Patching the vulnerable service on every host promptly", "Segmenting the network and filtering traffic between segments with ACLs", "Adding a login banner to every switch", "Using a longer DHCP lease time", "Enabling CDP on all ports"],
+      "answers": [0, 1],
+      "explanation": "Worms move by exploiting a vulnerable service, so patching removes the path and segmentation with filtering blocks it. Banners, lease times and CDP do not affect worm propagation.",
+      "concept": "worm mitigation",
+      "section": 4
+    },
+    {
+      "id": "ccna-security-concepts-q18",
+      "type": "match",
+      "difficulty": "medium",
+      "question": "Match each social engineering variant to its description.",
+      "pairs": [
+        { "left": "Spear phishing", "right": "Tailored email to a specific group, such as one company's finance team" },
+        { "left": "Whaling", "right": "Phishing aimed at a CEO or other high-profile person" },
+        { "left": "Vishing", "right": "Phishing done over voice phone calls" },
+        { "left": "Smishing", "right": "Phishing done over SMS text messages" },
+        { "left": "Watering hole", "right": "Malware planted on a website the targets regularly visit" }
+      ],
+      "explanation": "The phishing names describe either the target (spear, whaling) or the channel (vishing, smishing). A watering hole waits on a site the victims already trust.",
+      "concept": "phishing variants",
+      "section": 5
+    },
+    {
+      "id": "ccna-security-concepts-q19",
+      "type": "mcq",
+      "difficulty": "medium",
+      "question": "A finance clerk receives a call from someone claiming to be the help desk, asking her to set her password to \"Temp1234\" for a maintenance window. What kind of attack is this?",
+      "choices": ["Social engineering", "Pharming", "Brute-force attack", "Reconnaissance scan"],
+      "answer": 0,
+      "explanation": "The attacker exploits trust and helpfulness by impersonating IT. No technical flaw is used; the person is the vulnerability.",
+      "concept": "social engineering",
+      "section": 5
+    },
+    {
+      "id": "ccna-security-concepts-q20",
+      "type": "mcq",
+      "difficulty": "hard",
+      "question": "Attackers learn that engineers at a chip maker often read one small industry forum. They compromise the forum so it serves malware, and only visitors from the chip maker's address range get infected. What is this attack called?",
+      "choices": ["Whaling", "Pharming", "Spear phishing", "Watering hole"],
+      "answer": 3,
+      "explanation": "A watering hole attack compromises a site the targets already visit and waits for them. Pharming would redirect name resolution, and spear phishing would send the targets a message.",
+      "concept": "watering hole",
+      "section": 5
+    },
+    {
+      "id": "ccna-security-concepts-q21",
+      "type": "mcq",
+      "difficulty": "medium",
+      "question": "What is the difference between a dictionary attack and a brute-force attack?",
+      "choices": ["A dictionary attack is offline; a brute-force attack is always online", "A dictionary attack targets usernames; brute force targets passwords", "They are two names for the same attack", "A dictionary attack tries entries from a word list; brute force tries every possible character combination"],
+      "answer": 3,
+      "explanation": "Dictionary attacks bet that the password is a known word or a leaked password, which is fast. Brute force guarantees a result by trying everything, which can take far longer. Either can be run online or offline.",
+      "concept": "password attacks",
+      "section": 6
+    },
+    {
+      "id": "ccna-security-concepts-q22",
+      "type": "multi",
+      "difficulty": "hard",
+      "question": "An attacker has already stolen a file of password hashes. Which two factors most affect how long the offline cracking will take? (Choose two.)",
+      "choices": ["The length and character variety of the original passwords", "How slow and strong the hashing algorithm used to store them is", "The device's account lockout threshold", "Whether the login banner warns against unauthorized access", "The exec-timeout on the vty lines"],
+      "answers": [0, 1],
+      "explanation": "Offline cracking only depends on the size of the search space (length and character set) and the cost of each guess (the hash algorithm). Lockouts, banners and timeouts act on the live login prompt, which an offline attack never uses.",
+      "concept": "offline attacks",
+      "section": 6
+    },
+    {
+      "id": "ccna-security-concepts-q23",
+      "type": "mcq",
+      "difficulty": "easy",
+      "question": "Which password is most resistant to brute force?",
+      "choices": ["Cisco123", "P@ssw0rd", "blue-river-lamp-cactus-42", "Admin!"],
+      "answer": 2,
+      "explanation": "Length grows the search space exponentially, so a long passphrase beats a short complex one. The other three are short and also appear in common dictionary lists.",
+      "concept": "password length",
+      "section": 6
+    },
+    {
+      "id": "ccna-security-concepts-q24",
+      "type": "mcq",
+      "difficulty": "easy",
+      "question": "Which of these is an example of physical access control?",
+      "choices": ["A login banner on every router", "Badge readers that log entry to the network closet", "An extended ACL on the internet router", "WPA2 encryption on the guest WLAN"],
+      "answer": 1,
+      "explanation": "Physical access control limits who can physically reach equipment. Badge readers also leave an audit trail of who entered and when.",
+      "concept": "physical access control",
+      "section": 7
+    },
+    {
+      "id": "ccna-security-concepts-q25",
+      "type": "mcq",
+      "difficulty": "medium",
+      "question": "A company sends short monthly reminders that IT never asks for passwords, and also requires every employee to complete a yearly course on the written security policy. Which two program elements are these, in order?",
+      "choices": ["Physical access control, then user awareness", "User training, then user awareness", "User awareness, then user training", "User training, then physical access control"],
+      "answer": 2,
+      "explanation": "Ongoing informal reminders are user awareness. The scheduled, formal course on written policy is user training.",
+      "concept": "security program elements",
+      "section": 7
+    },
+    {
+      "id": "ccna-security-concepts-q26",
+      "type": "recall",
+      "difficulty": "medium",
+      "question": "Why does an attacker with physical access to a router's console port effectively own the device, even if its passwords are strong?",
+      "answer": "With console access and the ability to reboot the device, the attacker can perform password recovery, bypass the stored passwords and take full control of the configuration. Locking the closet is therefore a network security control.",
+      "explanation": "Password recovery is designed for people standing at the console. Physical security is what keeps that power in the right hands.",
+      "concept": "physical security",
+      "section": 7
+    },
+    {
+      "id": "ccna-security-concepts-q27",
+      "type": "recall",
+      "difficulty": "medium",
+      "question": "In one or two sentences, explain the difference between a reflection attack and an amplification attack.",
+      "answer": "In a reflection attack the attacker spoofs the target's address so innocent servers send their replies to the target. An amplification attack is a reflection attack where each small request triggers a much larger reply, multiplying the traffic that hits the target.",
+      "explanation": "Both rely on spoofing the victim as the source. Amplification adds the size multiplier, which is why DNS and NTP have been favorite reflectors.",
+      "concept": "reflection vs amplification",
+      "section": 1
+    },
+    {
+      "id": "ccna-security-concepts-q28",
+      "type": "mcq",
+      "difficulty": "hard",
+      "question": "A security team plans layered controls against ARP-poisoning MITM attacks on the office LAN. Which pair combines a switch-level control with an end-to-end one?",
+      "choices": ["Port security and a login banner", "Dynamic ARP Inspection and TLS or SSH for sensitive sessions", "A longer DHCP lease and NTP authentication", "Disabling CDP and enabling PortFast"],
+      "answer": 1,
+      "explanation": "DAI drops forged ARP messages at the switch, and encryption keeps data confidential and tamper-evident even if an attacker gets in the path. That is defense in depth. The other pairs do not address ARP poisoning.",
+      "concept": "defense in depth",
+      "section": 2
+    }
+  ]
+}

@@ -37,6 +37,19 @@ export const QUESTION_TYPE_LABELS = {
   match: 'Match pairs'
 }
 
+/** One-line instruction shown under each question, by type. */
+export const QUESTION_PROMPTS = {
+  mcq: 'Choose the best answer.',
+  'code-fill': 'Which option fills the blank?',
+  debug: 'Find the bug.',
+  typed: 'Type your answer.',
+  cli: 'Type the command.',
+  recall: 'Answer in your head, or write it down, then reveal.',
+  multi: 'Select every answer that applies, then check.',
+  order: 'Tap the steps in the right order.',
+  match: 'Tap an item on the left, then its partner on the right.'
+}
+
 const LEVEL_BASE = { beginner: 100, intermediate: 200, advanced: 300 }
 
 /**

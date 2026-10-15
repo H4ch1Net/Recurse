@@ -9,6 +9,8 @@ import '@fontsource-variable/jetbrains-mono/wght.css'
 import './styles/app.css'
 import './styles/pages.css'
 import './styles/activities.css'
+import './styles/themes.css'
+import './styles/features.css'
 
 createRoot(document.getElementById('root')).render(
   <StrictMode>

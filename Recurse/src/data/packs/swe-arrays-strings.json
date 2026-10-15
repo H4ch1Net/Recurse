@@ -1,0 +1,735 @@
+{
+  "id": "swe-arrays-strings",
+  "name": "Arrays and Strings",
+  "version": "1.0.0",
+  "author": "Recurse",
+  "subject": "swe",
+  "level": "beginner",
+  "description": "Interview techniques for arrays and strings: in-place edits, prefix sums, string building and off-by-one discipline.",
+  "icon": "[]",
+  "language": "python",
+  "prereqs": [
+    "data-structures",
+    "big-o",
+    "python-basics"
+  ],
+  "tags": [
+    "interviews",
+    "arrays",
+    "strings",
+    "prefix sums",
+    "in-place"
+  ],
+  "lesson": {
+    "estimatedMinutes": 32,
+    "intro": "Arrays and strings are the raw material of most coding interviews. This pack teaches the techniques interviewers expect you to reach for without being told: in-place edits, prefix sums, efficient string building, and the off-by-one discipline that keeps your loops correct.",
+    "objectives": [
+      "Estimate the cost of common list and string operations in Python and JavaScript, including hidden O(n) calls inside loops",
+      "Modify arrays in place with a write pointer, swaps and reversals",
+      "Build prefix sums and use them for range sums and except-self products",
+      "Build strings efficiently and explain what string immutability means in both languages",
+      "Prevent off-by-one errors with consistent range conventions and deliberate edge-case tests"
+    ],
+    "sections": [
+      {
+        "title": "What arrays and strings really cost",
+        "body": "Picture an interviewer handing you `nums = [4, 9, 2, 7]` and asking for something \"in O(n) time and O(1) extra space\". Before you can design that, you need the price list for the operations you will be tempted to use.\n\nAn **array** stores its items side by side in one block of memory. That is why reading `nums[i]` is O(1): the computer jumps straight to the start address plus i times the item size. Python's `list` and JavaScript's `Array` are **dynamic arrays**: they keep spare capacity at the end, so appending is O(1) amortized. An occasional resize copies everything, but it happens rarely enough that the cost averages out to a constant per append.\n\nThe expensive operations are the ones that shift or copy items:\n\n- Inserting or deleting at the front or in the middle shifts every later item: O(n). That includes `nums.pop(0)` and `nums.insert(0, x)` in Python and `arr.shift()` and `arr.unshift(x)` in JavaScript.\n- Slicing copies: `nums[a:b]` and `arr.slice(a, b)` cost O(b - a) time and the same amount of new memory.\n- Searching an unsorted array with `x in nums` or `arr.includes(x)` checks items one by one: O(n).\n\nA **string** behaves like an array of characters with one big difference: in both Python and JavaScript it is **immutable**. Every operation that seems to change a string, such as `upper()`, `replace()` or `+`, builds a new one.\n\nInterviewers rarely quiz you on these costs directly. They show up as the hidden O(n) inside a loop that quietly turns your O(n) plan into O(n^2). Every time you write a line inside a loop, ask what that line costs.",
+        "code": "Operation                  Python             JavaScript         Cost\nread or write by index     nums[i]            arr[i]             O(1)\nappend at the end          nums.append(x)     arr.push(x)        O(1) amortized\nremove from the end        nums.pop()         arr.pop()          O(1)\ninsert at the front        nums.insert(0, x)  arr.unshift(x)     O(n)\nremove from the front      nums.pop(0)        arr.shift()        O(n)\ncopy a slice of k items    nums[a:b]          arr.slice(a, b)    O(k)\nmembership test            x in nums          arr.includes(x)    O(n)\nlength                     len(nums)          arr.length         O(1)\nsort                       nums.sort()        arr.sort(cmp)      O(n log n)",
+        "language": "plaintext",
+        "tip": "Say the cost of each line out loud while you write it in an interview. It shows you track complexity, and it catches hidden O(n) calls before the interviewer does.",
+        "pitfall": "In JavaScript, `arr.sort()` with no comparator compares items as strings, so `[10, 9, 1].sort()` gives `[1, 10, 9]`. Always pass `(a, b) => a - b` when sorting numbers.",
+        "check": {
+          "question": "A loop runs n times and calls `nums.pop(0)` once per iteration on a Python list that starts with n items. What is the total cost?",
+          "choices": [
+            "O(n), because pop is always O(1)",
+            "O(n log n), because the list shrinks each time",
+            "O(n^2), because each pop(0) shifts all remaining items left",
+            "O(1) amortized overall"
+          ],
+          "answer": 2,
+          "explanation": "pop() from the end is O(1), but pop(0) removes the first item and shifts every other item one place left. The shifts add up to about n + (n - 1) + ... + 1, which is O(n^2). The list shrinking does not make it logarithmic. Use collections.deque if you need fast removal from the front."
+        }
+      },
+      {
+        "title": "Strings are immutable: build them, don't patch them",
+        "body": "Suppose you need to turn `\"hello world\"` into `\"Hello World\"`. Your first instinct might be `s[0] = \"H\"`. In Python that raises `TypeError: 'str' object does not support item assignment`. JavaScript is sneakier: in normal (sloppy) mode the assignment is silently ignored and `s` stays `\"hello world\"`; only in strict mode does it throw a `TypeError`. Either way, a string cannot be changed in place.\n\nSo when a problem asks you to modify a string, you have two honest options:\n\n- Convert it to a mutable array of characters, edit that, then join it back: `chars = list(s)` and `\"\".join(chars)` in Python, `const chars = [...s]` and `chars.join(\"\")` in JavaScript.\n- Build a new string piece by piece: collect the pieces in a list and join once at the end.\n\nThe trap is building a string with `+=` in a loop. Each `result += piece` may create a brand new string and copy everything built so far, so the total work can grow like 1 + 2 + 3 + ... + n, which is O(n^2). CPython sometimes avoids the copy with an internal optimization, and JavaScript engines use rope-like structures that make `+=` cheap in many cases, but neither language guarantees it. The portable habit, and the one interviewers expect, is a list of parts plus one join: O(n) in total.\n\nImmutability has an upside. Strings are safe to use as dictionary keys and to share between functions, because nobody can change them behind your back. Python lists cannot be dictionary keys for exactly this reason; use a tuple instead.\n\nWhen you state complexity for string problems, count the output. A function that returns a new string of length n uses O(n) space even with no other helpers. Many interviewers accept \"O(1) extra space besides the output\", but say which one you mean.",
+        "code": "# Risky pattern: each += may copy everything built so far\ndef shout_slow(words):\n    result = \"\"\n    for w in words:\n        result += w.upper() + \"!\"\n    return result\n\n# Standard pattern: collect parts, join once, O(total length)\ndef shout(words):\n    parts = []\n    for w in words:\n        parts.append(w.upper())\n        parts.append(\"!\")\n    return \"\".join(parts)\n\n# Editing characters: convert to a list, edit, join back\ndef capitalize_words(s):\n    chars = list(s)\n    for i in range(len(chars)):\n        if i == 0 or chars[i - 1] == \" \":\n            chars[i] = chars[i].upper()\n    return \"\".join(chars)\n\nprint(shout([\"hi\", \"there\"]))           # HI!THERE!\nprint(capitalize_words(\"hello world\"))  # Hello World",
+        "pitfall": "`s.upper()` and `s.replace(\"a\", \"b\")` return new strings and leave `s` alone. Calling `s.upper()` on its own line and expecting `s` to change is a classic bug; write `s = s.upper()`.",
+        "check": {
+          "question": "Why is collecting parts in a list and calling `\"\".join(parts)` once preferred over `result += part` inside a loop?",
+          "choices": [
+            "join copies each character once, while repeated += can copy the growing result on every step",
+            "+= raises an error when the string gets longer than 1,000 characters",
+            "join sorts the parts, which makes the result easier to search",
+            "Lists use less memory than strings for the same characters"
+          ],
+          "answer": 0,
+          "explanation": "Because strings are immutable, += may build a new string and copy everything so far each time, which totals O(n^2) in the worst case. join computes the final length once and copies each part a single time, O(n). Lists of one-character strings actually use more memory, not less."
+        }
+      },
+      {
+        "title": "In place: write pointers, swaps and reversals",
+        "body": "Interviewers love the phrase **in place**. It means you modify the input array itself and use only O(1) extra memory: a few variables, not a second array. Three moves cover most in-place problems.\n\n**1. The write pointer.** To keep some items and drop others, walk the array with a read index and keep a second index, `write`, that marks where the next kept item goes. Everything before `write` is the finished part. Moving all zeros to the end works this way: copy each non-zero item to `nums[write]`, then fill the rest with zeros.\n\n**2. Swapping.** `nums[i], nums[j] = nums[j], nums[i]` in Python, or `[arr[i], arr[j]] = [arr[j], arr[i]]` in JavaScript, exchanges two items in O(1).\n\n**3. Reversing a range.** Swap the two ends and walk inward until the indexes meet. Reversal is a building block for surprising things, such as rotation.\n\nHere is the rotation trick traced. To rotate `[1, 2, 3, 4, 5, 6, 7]` right by k = 3, so the last three items move to the front:\n\n- Reverse the whole array: `[7, 6, 5, 4, 3, 2, 1]`\n- Reverse the first k items: `[5, 6, 7, 4, 3, 2, 1]`\n- Reverse the remaining n - k items: `[5, 6, 7, 1, 2, 3, 4]`\n\nEach item is swapped a constant number of times, so this is O(n) time and O(1) space. Before you start, reduce k with `k %= n`: rotating by n leaves the array unchanged, and a k larger than n would send your indexes out of range.\n\nIn Python, `nums[:] = nums[-k:] + nums[:-k]` also rotates the caller's list, and it is fine in everyday code. It builds new lists, though, so it uses O(n) extra space. If the interviewer asked for O(1) space, say so and use the reversals.",
+        "code": "def move_zeros(nums):\n    write = 0                       # nums[:write] is the finished part\n    for read in range(len(nums)):\n        if nums[read] != 0:\n            nums[write] = nums[read]\n            write += 1\n    for i in range(write, len(nums)):\n        nums[i] = 0\n\ndef reverse(nums, lo, hi):\n    \"\"\"Reverse nums[lo..hi], both ends inclusive, in place.\"\"\"\n    while lo < hi:\n        nums[lo], nums[hi] = nums[hi], nums[lo]\n        lo += 1\n        hi -= 1\n\nnums = [0, 1, 0, 3, 12]\nmove_zeros(nums)\nprint(nums)                 # [1, 3, 12, 0, 0]\n\nletters = list(\"abcdef\")\nreverse(letters, 1, 4)\nprint(\"\".join(letters))     # aedcbf",
+        "pitfall": "Inside a function, `nums = nums[::-1]` only rebinds the local name and the caller's list stays the same. To change the caller's list, assign into it (`nums[:] = ...`) or change items by index.",
+        "activity": {
+          "type": "challenge",
+          "title": "Rotate in place",
+          "prompt": "Use the three-reversal trick from this section. Reduce k with k % n first, and test k = 0 and a k larger than the array before you submit.",
+          "props": {
+            "id": "rotate-array"
+          }
+        },
+        "check": {
+          "question": "While move_zeros runs, what does `nums[:write]` hold at any moment?",
+          "choices": [
+            "All the zeros seen so far",
+            "The items that have not been read yet",
+            "A sorted copy of the non-zero items",
+            "The non-zero items seen so far, in their original order"
+          ],
+          "answer": 3,
+          "explanation": "This is the write pointer's invariant: each non-zero item is copied to nums[write] and write moves up, so the prefix nums[:write] is exactly the kept items in their original relative order. The zeros are only written at the end."
+        }
+      },
+      {
+        "title": "Prefix sums: answer range questions in O(1)",
+        "body": "Say a fitness app stores daily step counts and keeps asking: how many steps from day 2 to day 4? Adding up the range each time costs O(n) per question, and with thousands of questions that adds up fast.\n\nA **prefix sum** array fixes this with one O(n) pass up front. Define `prefix[0] = 0` and `prefix[i + 1] = prefix[i] + nums[i]`, so `prefix[i]` is the sum of the first i items. The sum of `nums[i..j]` (inclusive) is then `prefix[j + 1] - prefix[i]`: everything up to j, minus everything before i. Each query becomes one subtraction.\n\nTrace it with `nums = [3, 1, 4, 1, 5, 9]`:\n\n- `prefix = [0, 3, 4, 8, 9, 14, 23]`, one slot longer than nums.\n- The sum of `nums[2..4]` is `prefix[5] - prefix[2]` = 14 - 4 = 10, and indeed 4 + 1 + 5 = 10.\n- The sum of the whole array is `prefix[6] - prefix[0]` = 23.\n\nThe leading zero is what makes the formula work for ranges that start at index 0 without a special case. Forgetting it is the most common prefix-sum bug.\n\nThe same idea works with other operations. **Product of array except self** asks, for every index, for the product of all the other items, without using division. The product of everything except `nums[i]` is (the product of everything to its left) times (the product of everything to its right). One pass from the left builds the left products and one pass from the right multiplies in the right products. For `[1, 2, 3, 4]` the left products are `[1, 1, 2, 6]`, the right products are `[24, 12, 4, 1]`, and multiplying them position by position gives `[24, 12, 8, 6]`.\n\nPrefix sums also pair with hash maps: to count subarrays that sum to k, you store how often each prefix sum has appeared and look up `current - k`. The hash maps pack covers that. Signals for this pattern: \"sum of a range\", \"many queries\", \"subarray sum\", \"pivot or balance index\", \"product of all other items\".",
+        "code": "def build_prefix(nums):\n    prefix = [0] * (len(nums) + 1)      # prefix[i] = sum of the first i items\n    for i, x in enumerate(nums):\n        prefix[i + 1] = prefix[i] + x\n    return prefix\n\ndef range_sum(prefix, i, j):\n    \"\"\"Sum of nums[i..j], both ends inclusive.\"\"\"\n    return prefix[j + 1] - prefix[i]\n\nnums = [3, 1, 4, 1, 5, 9]\nprefix = build_prefix(nums)\nprint(prefix)                   # [0, 3, 4, 8, 9, 14, 23]\nprint(range_sum(prefix, 2, 4))  # 10  (4 + 1 + 5)\nprint(range_sum(prefix, 0, 5))  # 23  (the whole array)",
+        "pitfall": "`prefix[j] - prefix[i]` gives the sum of `nums[i..j-1]`, not `nums[i..j]`. Write the meaning of `prefix[i]` as a comment (the sum of the first i items) and derive the formula from it instead of guessing.",
+        "activity": {
+          "type": "code-runner",
+          "title": "Query the prefix array",
+          "prompt": "Predict each number before you run it. Then add the two queries the comment asks for, using range_sum with inclusive indexes.",
+          "props": {
+            "language": "python",
+            "code": "nums = [3, 1, 4, 1, 5, 9]\n\nprefix = [0] * (len(nums) + 1)\nfor i, x in enumerate(nums):\n    prefix[i + 1] = prefix[i] + x\n\ndef range_sum(i, j):\n    return prefix[j + 1] - prefix[i]\n\nprint(prefix)\nprint(range_sum(2, 4))\n# Your turn: print the sum of nums[1..3], then the sum of nums[5] alone\n",
+            "task": "Add two lines that print the sum of nums[1..3] and the sum of nums[5] alone, using range_sum.",
+            "expectOutput": "[0, 3, 4, 8, 9, 14, 23]\n10\n6\n9"
+          }
+        },
+        "check": {
+          "question": "With prefix = [0, 3, 4, 8, 9, 14, 23] for nums = [3, 1, 4, 1, 5, 9], which expression equals nums[1] + nums[2] + nums[3]?",
+          "choices": [
+            "prefix[3] - prefix[1]",
+            "prefix[4] - prefix[1]",
+            "prefix[4] - prefix[0]",
+            "prefix[3] - prefix[0]"
+          ],
+          "answer": 1,
+          "explanation": "The range is i = 1 to j = 3, so the sum is prefix[j + 1] - prefix[i] = prefix[4] - prefix[1] = 9 - 3 = 6, which matches 1 + 4 + 1. prefix[3] - prefix[1] stops one item short and gives 5."
+        }
+      },
+      {
+        "title": "Off-by-one discipline",
+        "body": "Most bugs in array code are not wrong ideas. They are a loop that runs one step too far or stops one step short. Strong candidates avoid them with habits, not luck.\n\n**Know what your indexes mean.** Decide whether a range is inclusive `[lo, hi]` or half-open `[lo, hi)` and stick to it. Half-open is the default in both languages: `range(a, b)`, `nums[a:b]` and `arr.slice(a, b)` include a and exclude b, and the length is simply b - a.\n\n**Guard every neighbor access.** If the loop body reads `s[i + 1]`, the loop must stop at `len(s) - 1`. If it reads `s[i - 1]`, it must start at 1. The `count_equal_neighbors` function below shows the first case.\n\n**Know how each language fails.** In Python, `nums[10]` on a short list raises `IndexError`, which is loud and helpful, while slices never raise: `nums[3:100]` quietly stops at the end. In JavaScript, `arr[10]` returns `undefined` without any error, and `undefined + 1` is `NaN`, so a bad index can travel a long way before anything looks wrong.\n\n**Test the edges on purpose.** Before you say \"done\", run your code in your head on an empty input, one item, two items, all items equal, and a case where the answer sits at the very first or very last position. These few cases catch nearly every off-by-one.\n\nA classic place to practice this is **longest common prefix**: compare the strings column by column and stop as soon as a column disagrees or any string runs out of characters. The \"ran out\" check must come before you index into the shorter word. In Python, `i == len(w) or w[i] != first[i]` is safe because `or` stops at the first true condition; swap the two conditions and the shortest word raises `IndexError`.",
+        "code": "def count_equal_neighbors(s):\n    count = 0\n    for i in range(len(s) - 1):     # stop one early: the body reads s[i + 1]\n        if s[i] == s[i + 1]:\n            count += 1\n    return count\n\nprint(count_equal_neighbors(\"aabccc\"))  # 3  (aa, cc, cc)\nprint(count_equal_neighbors(\"\"))        # 0  (range(-1) is empty)\nprint(count_equal_neighbors(\"x\"))       # 0\n\nnums = [10, 20, 30]\nprint(nums[1:100])    # [20, 30]  slices never raise\n# print(nums[3])      # IndexError: list index out of range",
+        "pitfall": "Writing `for i in range(len(s))` and then reading `s[i + 1]` crashes on the last index in Python and silently compares with `undefined` in JavaScript. Whenever you index with an offset, fix the loop bound at the same moment.",
+        "check": {
+          "question": "Which loop header safely compares each item with the next one, nums[i] with nums[i + 1]?",
+          "choices": [
+            "for i in range(len(nums)):",
+            "for i in range(1, len(nums) + 1):",
+            "for i in range(len(nums) + 1):",
+            "for i in range(len(nums) - 1):"
+          ],
+          "answer": 3,
+          "explanation": "The body reads nums[i + 1], so the largest safe i is len(nums) - 2, which range(len(nums) - 1) produces. range(len(nums)) reaches i = len(nums) - 1 and reads one past the end."
+        }
+      },
+      {
+        "title": "Practice: recognize, plan, test",
+        "body": "Here is how a strong candidate handles an array problem in an interview, using **product of array except self** as the example.\n\n1. **Clarify.** Can the array contain zeros or negatives? Is division allowed? It usually is not, which rules out \"total product divided by `nums[i]`\", and division breaks on zeros anyway. How big can n be?\n2. **State the brute force out loud.** For each index, multiply all the others: O(n^2). This shows you can solve it and gives you a baseline.\n3. **Look for repeated work.** The brute force recomputes the same left and right products over and over. Repeated range work is the signal for prefix (and suffix) products.\n4. **Plan the better version.** Left products in one pass, right products in a second pass, multiplied together: O(n) time. Store the left products in the output array and keep the right product in one variable, and the extra space is O(1) besides the output.\n5. **Trace a small example** before writing code, then **test the edges**: two items, one zero, two zeros, negatives.\n\nThe signal table below is worth memorizing. When you read a problem statement, these phrases point to a technique.\n\nThe other challenges in this set use the same toolkit: rotate an array (reversals), longest common prefix (bounds checks), string compression (runs plus join), pivot index (prefix sums) and the palindrome-after-one-deletion check (two indexes moving inward, with one allowed skip).",
+        "code": "Signal in the problem                      Technique to try\n\"in place\", \"O(1) extra space\"             write pointer, swaps, reversal\n\"rotate\", \"shift by k\"                     k %= n, then three reversals\n\"sum of a range\", \"many queries\"           prefix sums\n\"product or sum of all other items\"        prefix and suffix passes\n\"build or change a string\"                 list of parts plus one join\n\"compare strings position by position\"     index scan with bounds checks\n\"palindrome\", \"reverse\"                    two indexes moving inward",
+        "language": "plaintext",
+        "tip": "If you get stuck, solve the brute force on paper and circle the work it repeats. The repeated work is almost always what the optimal technique removes.",
+        "activity": {
+          "type": "challenge",
+          "title": "Product of array except self",
+          "prompt": "Write the two-pass solution: left products into the output array, then a right-to-left pass with one running variable. Trace [1, 2, 3, 4] and an input with a zero before you submit.",
+          "props": {
+            "id": "product-except-self"
+          }
+        },
+        "check": {
+          "question": "Why does the optimized product-except-self avoid dividing the total product by nums[i]?",
+          "choices": [
+            "Division is slower than multiplication by a factor of n",
+            "Division breaks when the array contains a zero, and the problem usually forbids it",
+            "Division gives wrong answers for negative numbers",
+            "Integer division always rounds the result down"
+          ],
+          "answer": 1,
+          "explanation": "With a zero in the array the total product is 0, and you cannot recover the other products by dividing by zero. Interviewers also forbid division to push you toward prefix and suffix products. Negative numbers divide exactly, so they are not the problem."
+        }
+      }
+    ],
+    "keyTerms": [
+      {
+        "term": "Dynamic array",
+        "definition": "An array that keeps spare capacity and grows by copying into a bigger block when full, as Python lists and JavaScript arrays do."
+      },
+      {
+        "term": "Amortized O(1)",
+        "definition": "An operation that is occasionally expensive but averages a constant cost per call over a long run, like appending to a dynamic array."
+      },
+      {
+        "term": "Immutable string",
+        "definition": "A string that cannot be changed after creation; operations that seem to modify it return a new string. True in both Python and JavaScript."
+      },
+      {
+        "term": "In place",
+        "definition": "Modifying the input directly while using only O(1) extra memory beyond a few variables."
+      },
+      {
+        "term": "Write pointer",
+        "definition": "An index marking where the next kept item goes while a read index scans the array; everything before it is finished."
+      },
+      {
+        "term": "Prefix sum",
+        "definition": "An array where prefix[i] is the sum of the first i items, so any range sum is prefix[j + 1] - prefix[i]."
+      },
+      {
+        "term": "Half-open range",
+        "definition": "A range [a, b) that includes a and excludes b, used by range(), slices and slice(); its length is b - a."
+      },
+      {
+        "term": "Off-by-one error",
+        "definition": "A bug where a loop or index goes one step too far or stops one step short, often at the start or end of an array."
+      }
+    ],
+    "summary": [
+      "Index access is O(1), but front inserts and deletes, slices and membership checks are O(n): watch for them inside loops.",
+      "Strings are immutable in Python and JavaScript, so collect parts in a list and join once.",
+      "In place means O(1) extra memory: use a write pointer, swaps and reversals (three reversals rotate an array).",
+      "A prefix array with a leading zero turns any range sum into one subtraction: prefix[j + 1] - prefix[i].",
+      "Pick inclusive or half-open ranges on purpose, guard neighbor accesses, and test empty, single-item and boundary inputs."
+    ],
+    "feynmanPrompt": "Explain to a friend who just learned Python why building a long string with += in a loop can be slow, and how a prefix-sum array answers 'how many steps from day i to day j' instantly. Use small concrete numbers."
+  },
+  "questions": [
+    {
+      "id": "swe-arrays-strings-q01",
+      "type": "mcq",
+      "difficulty": "easy",
+      "question": "Which of these operations is O(n) on a Python list of n items?",
+      "choices": [
+        "nums.pop()",
+        "nums[i] = x",
+        "nums.pop(0)",
+        "len(nums)"
+      ],
+      "answer": 2,
+      "explanation": "pop(0) removes the first item, so every other item shifts one place left: O(n). pop() from the end, index assignment and len() are all O(1).",
+      "concept": "list operation costs",
+      "section": 0
+    },
+    {
+      "id": "swe-arrays-strings-q02",
+      "type": "typed",
+      "difficulty": "medium",
+      "question": "What is the worst-case time complexity of this function for a list of n items? Answer in Big-O notation.",
+      "code": "def dedupe(nums):\n    out = []\n    for x in nums:\n        if x not in out:\n            out.append(x)\n    return out",
+      "answer": "O(n^2)",
+      "accept": [
+        "n^2",
+        "O(n**2)",
+        "O(n²)",
+        "quadratic",
+        "O(n*n)"
+      ],
+      "explanation": "The loop runs n times, and `x not in out` scans the list, which can hold up to n items when they are all distinct. That hidden O(n) inside the loop makes it O(n^2). Using a set for the membership test brings it down to O(n).",
+      "concept": "hidden O(n) in a loop",
+      "section": 0
+    },
+    {
+      "id": "swe-arrays-strings-q03",
+      "type": "mcq",
+      "difficulty": "medium",
+      "language": "javascript",
+      "question": "What does this JavaScript expression return?",
+      "code": "[10, 9, 1].sort()",
+      "choices": [
+        "[1, 9, 10]",
+        "[10, 9, 1]",
+        "[9, 10, 1]",
+        "[1, 10, 9]"
+      ],
+      "answer": 3,
+      "explanation": "With no comparator, sort converts items to strings and compares them as text: \"1\" < \"10\" < \"9\". Pass (a, b) => a - b to sort numbers by value and get [1, 9, 10].",
+      "concept": "JavaScript default sort",
+      "section": 0
+    },
+    {
+      "id": "swe-arrays-strings-q04",
+      "type": "match",
+      "difficulty": "easy",
+      "question": "Match each JavaScript array operation with its time cost on an array of n items.",
+      "pairs": [
+        {
+          "left": "arr[i]",
+          "right": "O(1)"
+        },
+        {
+          "left": "arr.push(x)",
+          "right": "O(1) amortized"
+        },
+        {
+          "left": "arr.shift()",
+          "right": "O(n)"
+        },
+        {
+          "left": "arr.slice(a, b)",
+          "right": "O(b - a)"
+        },
+        {
+          "left": "arr.sort((a, b) => a - b)",
+          "right": "O(n log n)"
+        }
+      ],
+      "explanation": "Index access jumps straight to the address. push has spare capacity, with an occasional resize. shift removes the first item and shifts the rest. slice copies exactly the items in the range. Comparison sorting is O(n log n).",
+      "concept": "array operation costs",
+      "section": 0
+    },
+    {
+      "id": "swe-arrays-strings-q05",
+      "type": "mcq",
+      "difficulty": "easy",
+      "question": "What happens when Python runs `s = \"cat\"` and then `s[0] = \"b\"`?",
+      "choices": [
+        "s becomes \"bat\"",
+        "It raises a TypeError because strings are immutable",
+        "The assignment is silently ignored and s stays \"cat\"",
+        "It raises an IndexError"
+      ],
+      "answer": 1,
+      "explanation": "Python strings do not support item assignment, so this raises TypeError: 'str' object does not support item assignment. Silently ignoring the assignment is what non-strict JavaScript does. To change a character, build a new string or edit list(s) and join it.",
+      "concept": "string immutability",
+      "section": 1
+    },
+    {
+      "id": "swe-arrays-strings-q06",
+      "type": "mcq",
+      "difficulty": "medium",
+      "language": "javascript",
+      "question": "This JavaScript runs in normal (non-strict) mode. What does it log?",
+      "code": "let s = \"cat\"\ns[0] = \"b\"\nconsole.log(s)",
+      "choices": [
+        "bat",
+        "cat",
+        "undefined",
+        "b"
+      ],
+      "answer": 1,
+      "explanation": "JavaScript strings are immutable too. In non-strict code the assignment to s[0] is silently ignored, so s is still \"cat\". In strict mode the same line throws a TypeError. Either way, use [...s] and join(\"\") to edit characters.",
+      "concept": "string immutability in JavaScript",
+      "section": 1
+    },
+    {
+      "id": "swe-arrays-strings-q07",
+      "type": "debug",
+      "difficulty": "medium",
+      "question": "shout(\"hey\") returns \"hey!\" instead of \"HEY!\". What is the bug?",
+      "code": "def shout(s):\n    s.upper()\n    return s + \"!\"",
+      "choices": [
+        "upper() only works on single characters",
+        "The + operator cannot join a string with \"!\"",
+        "The function must convert s to a list before calling upper()",
+        "s.upper() returns a new string that is thrown away; it should be s = s.upper()"
+      ],
+      "answer": 3,
+      "explanation": "Strings are immutable, so upper() cannot change s. It returns a new uppercase string, and this code discards it. Assigning the result (s = s.upper()) or returning s.upper() + \"!\" fixes it.",
+      "concept": "string methods return new strings",
+      "section": 1
+    },
+    {
+      "id": "swe-arrays-strings-q08",
+      "type": "code-fill",
+      "difficulty": "easy",
+      "question": "Fill the blank so the function prints `three two one`.",
+      "code": "def reverse_words(sentence):\n    words = sentence.split()\n    return _____\n\nprint(reverse_words(\"one two three\"))",
+      "choices": [
+        "\" \".join(reversed(words))",
+        "\"\".join(reversed(words))",
+        "words.reverse()",
+        "\" \".join(words.sort())"
+      ],
+      "answer": 0,
+      "explanation": "reversed(words) yields the words backward and \" \".join puts single spaces between them. Joining with \"\" glues the words together. words.reverse() reverses in place and returns None, and words.sort() also returns None.",
+      "concept": "join to build strings",
+      "section": 1
+    },
+    {
+      "id": "swe-arrays-strings-q09",
+      "type": "recall",
+      "difficulty": "medium",
+      "question": "Why can a Python tuple be a dictionary key while a list cannot?",
+      "answer": "Dictionary keys must be hashable, and a key's hash must never change while it is in the dictionary. A tuple of hashable items is immutable, so its hash is stable. A list can be changed after insertion, so Python refuses to hash it.",
+      "explanation": "If a key could change, it would sit in the bucket for its old hash and lookups with the new value would miss it. That is why mutable containers are unhashable, and why grouping problems use tuple or string keys.",
+      "concept": "immutability and hashing",
+      "section": 1
+    },
+    {
+      "id": "swe-arrays-strings-q10",
+      "type": "mcq",
+      "difficulty": "hard",
+      "question": "A function builds its result with `result += piece` in a loop over n pieces of similar size. Which statement is most accurate?",
+      "choices": [
+        "Each += can copy everything built so far, so the total can reach O(n^2); a list of parts plus one join is O(n)",
+        "join has the same cost as +=, because it also copies every part",
+        "+= is always O(1) because Python strings are mutable under the hood",
+        "+= is quadratic in every language, so JavaScript code must never use it"
+      ],
+      "answer": 0,
+      "explanation": "The language does not guarantee in-place growth, so each += may copy the whole result, giving 1 + 2 + ... + n copies. join copies each part exactly once, O(n) in total. Some implementations optimize += (CPython in some cases, JavaScript engines with ropes), which is why \"always quadratic\" is too strong, but you should not rely on it.",
+      "concept": "string building cost",
+      "section": 1
+    },
+    {
+      "id": "swe-arrays-strings-q11",
+      "type": "order",
+      "difficulty": "easy",
+      "question": "Put the steps for rotating an array right by k in place, with O(1) extra space, in order.",
+      "items": [
+        "Set k = k % n",
+        "Reverse the whole array",
+        "Reverse the first k items",
+        "Reverse the remaining n - k items"
+      ],
+      "explanation": "Reducing k first keeps the indexes in range. Reversing everything brings the last k items to the front, backward; the two partial reversals then put each block back in its original order. For [1..7] and k = 3: [7,6,5,4,3,2,1], then [5,6,7,4,3,2,1], then [5,6,7,1,2,3,4].",
+      "concept": "rotation by reversal",
+      "section": 2
+    },
+    {
+      "id": "swe-arrays-strings-q12",
+      "type": "typed",
+      "difficulty": "easy",
+      "question": "You rotate an array of 6 items right by k = 8. After reducing k with k %= n, what is k?",
+      "answer": "2",
+      "explanation": "8 % 6 = 2. Rotating by 6 brings every item back to where it started, so rotating by 8 is the same as rotating by 2.",
+      "concept": "reducing k modulo n",
+      "section": 2
+    },
+    {
+      "id": "swe-arrays-strings-q13",
+      "type": "debug",
+      "difficulty": "medium",
+      "question": "The caller expects data to become [4, 5, 1, 2, 3], but it prints [1, 2, 3, 4, 5]. What is wrong?",
+      "code": "def rotate(nums, k):\n    k %= len(nums)\n    nums = nums[-k:] + nums[:-k]\n\ndata = [1, 2, 3, 4, 5]\nrotate(data, 2)\nprint(data)",
+      "choices": [
+        "The slices are in the wrong order: it should be nums[:-k] + nums[-k:]",
+        "nums = ... rebinds the local name, so the caller's list never changes; use nums[:] = ...",
+        "k %= len(nums) makes k zero",
+        "Lists cannot be joined with +"
+      ],
+      "answer": 1,
+      "explanation": "The right-hand side correctly builds [4, 5, 1, 2, 3], but assigning it to nums only points the local variable at a new list. The caller's list is untouched. nums[:] = ... writes into the existing list. Note that this fix uses O(n) extra space; the reversal method uses O(1).",
+      "concept": "rebinding vs mutating",
+      "section": 2
+    },
+    {
+      "id": "swe-arrays-strings-q14",
+      "type": "code-fill",
+      "difficulty": "medium",
+      "question": "Fill the blank to complete the in-place move-zeros function.",
+      "code": "def move_zeros(nums):\n    write = 0\n    for read in range(len(nums)):\n        if nums[read] != 0:\n            _____\n            write += 1\n    for i in range(write, len(nums)):\n        nums[i] = 0",
+      "choices": [
+        "nums[read] = nums[write]",
+        "nums[write] = 0",
+        "nums.append(nums[read])",
+        "nums[write] = nums[read]"
+      ],
+      "answer": 3,
+      "explanation": "Each non-zero item is copied down to the write position, then write moves up. Since write never passes read, nothing unread is overwritten. Appending would grow the list and break the O(1) space requirement.",
+      "concept": "write pointer",
+      "section": 2
+    },
+    {
+      "id": "swe-arrays-strings-q15",
+      "type": "mcq",
+      "difficulty": "hard",
+      "question": "What does this print?",
+      "code": "def remove_value(nums, val):\n    write = 0\n    for x in nums:\n        if x != val:\n            nums[write] = x\n            write += 1\n    return write\n\nnums = [3, 2, 2, 3, 4]\nk = remove_value(nums, 3)\nprint(k, nums)",
+      "choices": [
+        "3 [2, 2, 4, 3, 4]",
+        "3 [2, 2, 4]",
+        "3 [2, 2, 4, 0, 0]",
+        "2 [2, 2, 3, 4]"
+      ],
+      "answer": 0,
+      "explanation": "The kept items 2, 2, 4 are written to indexes 0 to 2 and write ends at 3. Nothing touches indexes 3 and 4, so they keep their old values, 3 and 4. In-place removal only promises that the first k slots are correct; the tail is leftover data.",
+      "concept": "write pointer leaves a tail",
+      "section": 2
+    },
+    {
+      "id": "swe-arrays-strings-q16",
+      "type": "multi",
+      "difficulty": "medium",
+      "question": "Which of these use only O(1) extra space? Select all that apply.",
+      "choices": [
+        "Reversing a list by swapping inward from both ends",
+        "Rotating with nums[:] = nums[-k:] + nums[:-k]",
+        "Moving zeros to the end with a write pointer",
+        "Sorting a copy with sorted(nums)",
+        "Swapping two items with nums[i], nums[j] = nums[j], nums[i]"
+      ],
+      "answers": [
+        0,
+        2,
+        4
+      ],
+      "explanation": "Inward swaps, a write pointer and a single swap each need a constant number of variables. The slicing rotation builds two new lists before copying them back, and sorted() returns a new list, so both use O(n) extra space.",
+      "concept": "in-place space cost",
+      "section": 2
+    },
+    {
+      "id": "swe-arrays-strings-q17",
+      "type": "typed",
+      "difficulty": "easy",
+      "question": "For nums = [2, 4, 6, 8], with prefix[0] = 0 and prefix[i + 1] = prefix[i] + nums[i], what is prefix[3]?",
+      "answer": "12",
+      "explanation": "prefix is [0, 2, 6, 12, 20]. prefix[3] is the sum of the first three items: 2 + 4 + 6 = 12.",
+      "concept": "building prefix sums",
+      "section": 3
+    },
+    {
+      "id": "swe-arrays-strings-q18",
+      "type": "code-fill",
+      "difficulty": "medium",
+      "question": "prefix[i] holds the sum of the first i items of nums. Fill the blank so range_sum returns nums[i] + ... + nums[j], both ends inclusive.",
+      "code": "def range_sum(prefix, i, j):\n    return _____",
+      "choices": [
+        "prefix[j] - prefix[i]",
+        "prefix[j + 1] - prefix[i]",
+        "prefix[j + 1] - prefix[i + 1]",
+        "prefix[j] - prefix[i - 1]"
+      ],
+      "answer": 1,
+      "explanation": "prefix[j + 1] is the sum of items 0 to j, and prefix[i] is the sum of items 0 to i - 1. Subtracting leaves items i to j. prefix[j] - prefix[i] drops nums[j], and prefix[i - 1] breaks when i is 0.",
+      "concept": "range sum formula",
+      "section": 3
+    },
+    {
+      "id": "swe-arrays-strings-q19",
+      "type": "mcq",
+      "difficulty": "medium",
+      "question": "You must answer 100,000 range-sum queries on an array of 100,000 numbers that never changes. Which approach fits best?",
+      "choices": [
+        "Sum each range with a loop; O(n) per query is fine",
+        "Sort the array first so ranges add up faster",
+        "Build a prefix-sum array once in O(n), then answer each query in O(1)",
+        "Store each index in a hash map and look the values up"
+      ],
+      "answer": 2,
+      "explanation": "Looping per query could cost 100,000 x 100,000 = 10^10 steps. One O(n) prefix pass makes every query a single subtraction. Sorting would scramble which items belong to a range.",
+      "concept": "when to use prefix sums",
+      "section": 3
+    },
+    {
+      "id": "swe-arrays-strings-q20",
+      "type": "mcq",
+      "difficulty": "hard",
+      "question": "In the two-pass product-except-self solution for nums = [2, 3, 4, 5], what does the output array hold after the left-to-right pass, before the right-to-left pass?",
+      "choices": [
+        "[2, 6, 24, 120]",
+        "[60, 40, 30, 24]",
+        "[1, 3, 12, 60]",
+        "[1, 2, 6, 24]"
+      ],
+      "answer": 3,
+      "explanation": "The first pass stores the product of everything strictly to the left of each index: 1 (nothing), 2, 2 x 3, 2 x 3 x 4. [2, 6, 24, 120] includes the item itself, which is the off-by-one to avoid. [60, 40, 30, 24] is the final answer after the right pass.",
+      "concept": "prefix products",
+      "section": 3
+    },
+    {
+      "id": "swe-arrays-strings-q21",
+      "type": "recall",
+      "difficulty": "medium",
+      "question": "Why does a prefix-sum array have one more slot than the input, with prefix[0] = 0?",
+      "answer": "So prefix[i] can mean the sum of the first i items for every i from 0 to n. Then the sum of nums[i..j] is always prefix[j + 1] - prefix[i], including ranges that start at index 0, with no special case.",
+      "explanation": "Without the leading zero, a range starting at 0 would need its own branch, and the formula would shift by one, which is where most prefix-sum bugs come from.",
+      "concept": "prefix sum sentinel",
+      "section": 3
+    },
+    {
+      "id": "swe-arrays-strings-q22",
+      "type": "mcq",
+      "difficulty": "hard",
+      "question": "You need the leftmost index where the sum of items to its left equals the sum of items to its right. The array may contain negative numbers. Which O(n) idea works?",
+      "choices": [
+        "Sort the array and move two pointers inward until the sides balance",
+        "Compute the total once, keep a running left sum, and take the right sum as total - left - nums[i]",
+        "For every index, sum the left and right slices and compare",
+        "Binary search for the index where the left half outweighs the right"
+      ],
+      "answer": 1,
+      "explanation": "One pass with a running left sum gives the right sum by subtraction, so each index costs O(1). Slicing at every index is O(n^2). Sorting destroys the positions you are asked about, and binary search assumes the balance changes in one direction, which negative numbers break.",
+      "concept": "pivot index with prefix sums",
+      "section": 3
+    },
+    {
+      "id": "swe-arrays-strings-q23",
+      "type": "debug",
+      "difficulty": "medium",
+      "question": "is_sorted([1, 2, 3]) raises IndexError. What is the fix?",
+      "code": "def is_sorted(nums):\n    for i in range(len(nums)):\n        if nums[i] > nums[i + 1]:\n            return False\n    return True",
+      "choices": [
+        "Loop over range(len(nums) - 1), because the body reads nums[i + 1]",
+        "Compare with >= instead of >",
+        "Loop over range(1, len(nums)) and keep comparing nums[i] with nums[i + 1]",
+        "Move return True inside the loop"
+      ],
+      "answer": 0,
+      "explanation": "On the last iteration i is len(nums) - 1, so nums[i + 1] is one past the end. Stopping the loop one early fixes it. Starting at 1 still reads past the end on the last step, and >= would wrongly reject equal neighbors.",
+      "concept": "neighbor access bounds",
+      "section": 4
+    },
+    {
+      "id": "swe-arrays-strings-q24",
+      "type": "mcq",
+      "difficulty": "medium",
+      "language": "javascript",
+      "question": "What does this JavaScript log?",
+      "code": "const arr = [5, 6, 7]\nlet total = 0\nfor (let i = 0; i <= arr.length; i++) {\n  total += arr[i]\n}\nconsole.log(total)",
+      "choices": [
+        "18",
+        "NaN",
+        "25",
+        "RangeError: index out of range"
+      ],
+      "answer": 1,
+      "explanation": "The loop runs with i = 3, and arr[3] is undefined rather than an error. 18 + undefined is NaN. The fix is i < arr.length. Python would have raised IndexError instead, which is easier to spot.",
+      "concept": "out-of-range reads in JavaScript",
+      "section": 4
+    },
+    {
+      "id": "swe-arrays-strings-q25",
+      "type": "typed",
+      "difficulty": "easy",
+      "question": "nums has 10 items. How many items does the slice nums[3:7] contain?",
+      "answer": "4",
+      "explanation": "Slices are half-open: they include index 3 and exclude index 7, so the length is 7 - 3 = 4 (indexes 3, 4, 5 and 6).",
+      "concept": "half-open ranges",
+      "section": 4
+    },
+    {
+      "id": "swe-arrays-strings-q26",
+      "type": "multi",
+      "difficulty": "medium",
+      "question": "You just wrote a function that scans a string. Which inputs are worth testing to catch off-by-one bugs? Select all that apply.",
+      "choices": [
+        "An empty string",
+        "A single character",
+        "A string whose answer is at the last position",
+        "Only one long random string, since short inputs are trivial",
+        "Exactly two characters"
+      ],
+      "answers": [
+        0,
+        1,
+        2,
+        4
+      ],
+      "explanation": "Off-by-one bugs live at the boundaries, so tiny inputs and answers at the ends are exactly where they show up. A long random string rarely hits those cases and makes a manual trace hard.",
+      "concept": "edge-case testing",
+      "section": 4
+    },
+    {
+      "id": "swe-arrays-strings-q27",
+      "type": "debug",
+      "difficulty": "hard",
+      "question": "lcp([\"flower\", \"flow\"]) raises IndexError instead of returning \"flow\". What is the fix?",
+      "code": "def lcp(words):\n    first = words[0]\n    for i in range(len(first)):\n        for w in words[1:]:\n            if w[i] != first[i] or i == len(w):\n                return first[:i]\n    return first",
+      "choices": [
+        "Loop over range(len(first) - 1)",
+        "Return first[:i + 1] instead of first[:i]",
+        "Check i == len(w) before reading w[i], so or stops before the bad index",
+        "Start the inner loop at words[0]"
+      ],
+      "answer": 2,
+      "explanation": "At i = 4, \"flow\" has no index 4, but w[i] is evaluated first and raises. Writing i == len(w) or w[i] != first[i] lets or short-circuit when the word has run out. Shortening the outer loop would wrongly cut \"flower\" vs \"flowers\".",
+      "concept": "short-circuit bounds checks",
+      "section": 4
+    },
+    {
+      "id": "swe-arrays-strings-q28",
+      "type": "mcq",
+      "difficulty": "medium",
+      "question": "A problem asks for an array where each position holds the sum of all the other elements. Which approach is O(n)?",
+      "choices": [
+        "A nested loop that sums every other element for each position",
+        "Sort the array, then use two pointers",
+        "Compute the total once, then output total - nums[i] for each i",
+        "Use a write pointer to compact the array"
+      ],
+      "answer": 2,
+      "explanation": "Unlike products, sums can be undone with subtraction, so one pass for the total and one pass to subtract gives O(n). The nested loop is the O(n^2) brute force, and sorting would lose track of positions.",
+      "concept": "sum of all others",
+      "section": 5
+    },
+    {
+      "id": "swe-arrays-strings-q29",
+      "type": "order",
+      "difficulty": "medium",
+      "question": "Put these steps for tackling an interview array problem in a sensible order.",
+      "items": [
+        "Clarify the input and edge cases",
+        "State a brute-force solution and its cost",
+        "Spot the repeated work and choose a technique",
+        "Trace a small example with the plan",
+        "Write the code",
+        "Test edge cases and state the final complexity"
+      ],
+      "explanation": "Clarifying first avoids solving the wrong problem. The brute force gives a baseline and often reveals the repeated work to remove. Tracing before coding catches design flaws cheaply, and testing at the end catches off-by-one bugs.",
+      "concept": "interview problem approach",
+      "section": 5
+    },
+    {
+      "id": "swe-arrays-strings-q30",
+      "type": "mcq",
+      "difficulty": "medium",
+      "question": "To compress \"aabaa\" into \"a2b1a2\", which approach is correct and O(n)?",
+      "choices": [
+        "Count each letter with a dictionary, then write letter and count pairs",
+        "Sort the string, then count runs",
+        "Scan runs with two indexes, collect char-and-count parts in a list, then join",
+        "Append each run to a result string with +=, since runs are short"
+      ],
+      "answer": 2,
+      "explanation": "Compression works on consecutive runs, so you must scan in order. A dictionary or sorting merges the two separate runs of a into a4b1, which is wrong. += may be quadratic in the worst case; collecting parts and joining once is reliably O(n).",
+      "concept": "run-length scanning",
+      "section": 5
+    },
+    {
+      "id": "swe-arrays-strings-q31",
+      "type": "match",
+      "difficulty": "easy",
+      "question": "Match each signal in a problem statement with the technique to try first.",
+      "pairs": [
+        {
+          "left": "Rotate the array by k",
+          "right": "Three reversals"
+        },
+        {
+          "left": "Answer many range-sum queries",
+          "right": "Prefix sums"
+        },
+        {
+          "left": "Remove items in place",
+          "right": "Write pointer"
+        },
+        {
+          "left": "Build a long result string",
+          "right": "List of parts plus one join"
+        },
+        {
+          "left": "Check whether a string is a palindrome",
+          "right": "Two indexes moving inward"
+        }
+      ],
+      "explanation": "These are the standard pairings from the signal table. Recognizing the signal quickly is what lets you skip straight to a good plan in an interview.",
+      "concept": "pattern recognition",
+      "section": 5
+    }
+  ]
+}

@@ -1,0 +1,448 @@
+{
+  "id": "ccna-vpn",
+  "name": "VPNs and IPsec",
+  "version": "1.0.0",
+  "author": "Recurse",
+  "subject": "networking",
+  "level": "intermediate",
+  "description": "Explain how site-to-site and remote access VPNs protect traffic, what IPsec, IKE, ESP and AH do, and why GRE rides over IPsec.",
+  "icon": "VPN",
+  "language": "plaintext",
+  "prereqs": ["ccna-security-concepts", "ccna-osi-tcp-udp"],
+  "tags": ["ccna", "5.5", "vpn", "ipsec", "tls", "gre"],
+  "lesson": {
+    "estimatedMinutes": 22,
+    "intro": "The internet is cheap and everywhere, but it is also untrusted: anyone along the path can read, copy or change your packets. A VPN builds a protected tunnel across it so two offices, or one laptop and an office, can talk as if they shared a private network. This lesson covers the two VPN types the CCNA names (site-to-site and remote access), what IPsec actually provides, the roles of IKE, ESP and AH, TLS-based client VPNs, and why GRE is so often run inside IPsec.",
+    "objectives": [
+      "Explain the four security goals of a VPN: confidentiality, integrity, authentication and anti-replay",
+      "Compare site-to-site and remote access VPNs by endpoints, protocol and how they are used",
+      "Describe the roles of IKE, ESP and AH, and the difference between tunnel and transport mode",
+      "Explain why GRE over IPsec is used and what overlay and underlay mean"
+    ],
+    "sections": [
+      {
+        "title": "Why VPNs: a private network over the internet",
+        "body": "A company has a headquarters and twelve branches. Private WAN circuits to every branch are expensive and slow to install, while a business internet connection is cheap and available almost anywhere. The catch: on the internet your packets cross networks you do not control, where they can be read, copied or modified.\n\nA **virtual private network (VPN)** solves this by building a **tunnel**: a device at one end takes the original packet, protects it, and wraps it inside a new packet with public IP addresses that can be routed across the internet. The device at the other end unwraps and checks it, then forwards the original packet as if it had crossed a private link. Tunneling is just encapsulation, the same idea as a TCP segment inside an IP packet, with one extra layer.\n\nA secure VPN delivers four things:\n\n- **Confidentiality**: anyone who captures the packet sees only encrypted data.\n- **Data integrity**: the receiver can tell if the packet was changed in transit.\n- **Authentication**: each end verifies the other is really the expected peer, not an impostor.\n- **Anti-replay**: an attacker who copies valid packets cannot resend them later to pose as a legitimate sender.\n\nKeep the word \"tunnel\" separate from \"secure\" in your head. A tunnel only means encapsulation. Some tunnels, like plain GRE, encrypt nothing at all.",
+        "code": "Original packet (private addresses)\n  [ IP 10.2.2.2 -> 10.1.1.1 | TCP | data ]\n\nAfter the branch VPN gateway (IPsec ESP, tunnel mode)\n  [ new IP 64.100.9.9 -> 128.107.1.1 | ESP | encrypted: IP 10.2.2.2 -> 10.1.1.1 | TCP | data | ESP auth ]\n    public addresses, routed on the internet   nobody on the path can read or silently change this part",
+        "activity": {
+          "type": "packet-journey",
+          "title": "Encapsulation, one more time",
+          "prompt": "Step through the journey and watch each layer wrap the one above it, then get unwrapped at the far end. A VPN gateway adds one more wrapper: it encrypts the whole IP packet and puts a new IP header (with public addresses) in front. Ask yourself which header the internet routers read once the packet is inside the tunnel."
+        },
+        "pitfall": "Assuming every tunnel is encrypted. Tunnel means encapsulation; GRE tunnels, for example, carry traffic in the clear unless IPsec is added.",
+        "check": {
+          "question": "An attacker records valid packets from a VPN session and sends them again later, hoping the receiver accepts them. Which VPN goal defeats this?",
+          "choices": ["Confidentiality", "Anti-replay", "Data integrity", "Authentication"],
+          "answer": 1,
+          "explanation": "Anti-replay protection tracks sequence numbers and rejects packets it has already seen. The replayed packets are unchanged, so integrity checks alone would pass them."
+        }
+      },
+      {
+        "title": "Site-to-site VPNs",
+        "body": "A **site-to-site VPN** connects whole networks. The network engineers configure a VPN gateway at each site, usually a router or a firewall, and the gateways build a tunnel between their public internet addresses. The tunnel stays up permanently, so whenever any host at either site sends traffic to the other site, the protection is already there.\n\nThe hosts know nothing about it. A PC in the branch sends a normal packet to a server at headquarters, addressed with private IPs as always. The branch router sees that the destination is reachable through the VPN, encrypts the packet, adds the VPN headers and a new public IP header, and sends it across the internet. The headquarters firewall verifies the sender and the integrity of the packet, decrypts it and forwards the original packet to the server.\n\nThat makes site-to-site VPNs a cheap replacement or backup for private WAN links: any internet access works underneath (fiber, cable, DSL, 4G or 5G), and dozens of devices per site share one tunnel without installing anything. With many branches, designs range from hub-and-spoke (every branch tunnels to headquarters) to full mesh, and Cisco technologies such as DMVPN build spoke-to-spoke tunnels on demand.\n\n**IPsec** is the protocol family the CCNA associates with site-to-site VPNs, and it is the subject of the next two sections.",
+        "code": "Branch                                                         HQ\nPC1 10.2.2.2 -- R-BR [64.100.9.9] ==== internet ==== FW1 [128.107.1.1] -- S1 10.1.1.1\n\n1. PC1 sends a normal packet to 10.1.1.1. It knows nothing about the VPN.\n2. R-BR encrypts it, adds VPN headers and a new IP header (64.100.9.9 -> 128.107.1.1).\n3. Anyone copying the packet on the internet sees only ciphertext.\n4. FW1 confirms the sender and that nothing changed, then decrypts.\n5. S1 receives the original packet from 10.2.2.2, exactly as PC1 sent it.",
+        "pitfall": "Thinking every branch PC needs VPN client software for a site-to-site VPN. Only the two gateways are configured; the hosts send ordinary packets.",
+        "check": {
+          "question": "In a site-to-site IPsec VPN between two offices, which devices need VPN configuration?",
+          "choices": ["Every PC and server at both sites", "Only the PCs that access the other site", "The ISP routers along the internet path", "Only the VPN gateways, such as the two edge routers or firewalls"],
+          "answer": 3,
+          "explanation": "Site-to-site VPNs are built between gateways. Hosts send normal packets, and the gateways encrypt and decrypt on their behalf. The ISP simply routes the outer packets."
+        }
+      },
+      {
+        "title": "What IPsec provides, and how",
+        "body": "**IPsec** (IP Security, defined in RFC 4301) is not a single protocol. It is a framework that says how two devices achieve the four VPN goals, while letting them choose among algorithms for each one. That flexibility is why IPsec has lasted decades: when an algorithm weakens, peers just agree on a better one.\n\n- **Confidentiality** comes from symmetric encryption. Both peers hold the same secret session key, and today that cipher is **AES**. The older DES and 3DES are obsolete.\n- **Integrity** comes from a keyed hash, an **HMAC** such as HMAC-SHA-256. The sender computes a hash over the packet plus a secret key and attaches it. The receiver recomputes it; if a single bit changed, the values differ and the packet is dropped. A hash proves nothing was changed but hides nothing.\n- **Authentication** of the peers uses either a **pre-shared key** configured on both gateways or **digital certificates** signed by a trusted certificate authority. Certificates scale better because you do not have to share a secret with every peer.\n- **Anti-replay** uses a sequence number in every protected packet; the receiver drops duplicates and very old numbers.\n\nOne puzzle remains: how do two routers agree on a secret key across the very internet they do not trust? **Diffie-Hellman (DH)** key exchange lets each side combine public values with its own private value so both compute the same shared secret, without that secret ever crossing the wire. An eavesdropper who sees the whole exchange still cannot calculate it.",
+        "code": "Goal             What it means                          Typical IPsec choice\nConfidentiality  Eavesdroppers cannot read the data     AES (DES and 3DES are obsolete)\nIntegrity        Changes in transit are detected        HMAC with SHA-256 or stronger\nAuthentication   The peer is who it claims to be        Pre-shared key or digital certificates\nAnti-replay      Copied packets cannot be reused        Sequence numbers in each packet\nKey agreement    Peers derive shared keys safely        Diffie-Hellman",
+        "pitfall": "Mixing up integrity and confidentiality. A hash like SHA-256 proves the data was not altered, but the data is still readable unless it is also encrypted.",
+        "check": {
+          "question": "What problem does Diffie-Hellman solve for two IPsec peers?",
+          "choices": ["It lets them derive the same secret key without ever sending the key across the network", "It encrypts every data packet in the tunnel", "It proves that each packet arrived unchanged", "It assigns private IP addresses to remote users"],
+          "answer": 0,
+          "explanation": "Diffie-Hellman is a key agreement method: both sides compute the same shared secret from exchanged public values. The bulk encryption itself is done by a symmetric cipher such as AES."
+        }
+      },
+      {
+        "title": "IKE, ESP and AH",
+        "body": "IPsec work happens in two stages: first the peers negotiate, then they protect data.\n\n**IKE (Internet Key Exchange)** does the negotiating. It runs on **UDP port 500** (moving to **UDP 4500** when a NAT device is detected in the path, a feature called NAT traversal or NAT-T). Using IKE, the peers authenticate each other, agree on algorithms, run Diffie-Hellman and create **security associations (SAs)**: agreements about keys and algorithms for traffic in one direction. In IKEv1, **phase 1** builds a protected channel for the negotiation itself, and **phase 2** negotiates the IPsec SAs that will protect user data (one SA per direction). **IKEv2** does the same job with fewer messages and is the modern choice.\n\nUser data is then protected by one of two IPsec protocols, which sit directly on top of IP with their own protocol numbers:\n\n- **ESP (Encapsulating Security Payload, IP protocol 50)** provides encryption, integrity, peer authentication and anti-replay. It is what nearly every VPN uses.\n- **AH (Authentication Header, IP protocol 51)** provides integrity, authentication and anti-replay but **no encryption**. Because AH also protects the outer IP header, NAT (which rewrites that header) breaks it. AH is rarely used.\n\nIPsec can run in two modes. **Tunnel mode** encrypts the entire original packet and adds a new IP header; site-to-site gateways use it. **Transport mode** keeps the original IP header and protects only the payload; it suits host-to-host traffic and GRE over IPsec, where GRE already supplies the outer header.",
+        "code": "                         ESP                          AH\nIP protocol number       50                           51\nEncrypts the payload     Yes                          No\nIntegrity and origin     Yes                          Yes\nAnti-replay              Yes                          Yes\nThrough NAT              Yes (NAT-T, UDP 4500)        No (NAT breaks its checks)\nUsed in practice         Almost always                Rarely\n\nIKE: UDP 500 (UDP 4500 with NAT traversal)",
+        "pitfall": "Believing AH encrypts because it is part of IPsec. AH only authenticates; if a question requires confidentiality, the answer is ESP.",
+        "check": {
+          "question": "Which IPsec protocol provides confidentiality by encrypting the payload?",
+          "choices": ["AH", "IKE", "ESP", "GRE"],
+          "answer": 2,
+          "explanation": "ESP (IP protocol 50) encrypts and authenticates. AH authenticates without encrypting, IKE only negotiates keys and SAs, and GRE is an unencrypted tunneling protocol."
+        }
+      },
+      {
+        "title": "Remote access VPNs",
+        "body": "A sales engineer opens a laptop on hotel Wi-Fi and needs the company's internal apps. There is no site-to-site tunnel from the hotel, and the hotel network is exactly the kind of place where a man in the middle lurks. The answer is a **remote access VPN**: a single device builds its own tunnel back to the enterprise, on demand.\n\nThe laptop runs VPN client software, such as **Cisco AnyConnect** (now called Cisco Secure Client), which connects to a VPN headend, typically a firewall or router at headquarters. The user starts it, authenticates (often with MFA), and from then on the client encrypts all traffic headed to the enterprise.\n\nThe CCNA associates remote access VPNs with **TLS**, the same protocol that secures HTTPS. TLS on TCP port 443 passes through almost any hotel or coffee shop firewall, which is a big practical advantage. (Clients often add DTLS on UDP 443 for better performance, and IPsec with IKEv2 can also be used for remote access.)\n\nTwo variations are worth knowing. A **clientless** VPN needs no installed software: the user browses to a TLS portal and reaches only web-based applications through it. And a client VPN can run as a **full tunnel** (all traffic, including internet browsing, goes to headquarters) or a **split tunnel** (only traffic for company subnets goes through the tunnel; everything else goes straight to the internet).",
+        "code": "                       Remote access VPN               Site-to-site VPN\nProtects               One device                      Every device at both sites\nWhen it is up          On demand, the user starts it   Permanently\nEndpoints              Client software + headend       Two gateways (routers, firewalls)\nTypical protocol       TLS (IPsec IKEv2 also possible) IPsec\nVisible to the user    Yes, they launch the client     No, hosts never notice",
+        "pitfall": "Equating any HTTPS website with a client VPN. A browser's TLS session protects that one session only; a client VPN carries all of the device's enterprise traffic through one protected tunnel.",
+        "check": {
+          "question": "Which protocol does the CCNA associate with remote access VPN clients such as Cisco AnyConnect?",
+          "choices": ["TLS", "GRE", "AH", "PPP"],
+          "answer": 0,
+          "explanation": "Remote access client VPNs typically use TLS, often on port 443 so they pass through public firewalls. IPsec is the typical site-to-site protocol, and GRE and AH provide no encryption."
+        }
+      },
+      {
+        "title": "GRE over IPsec, tunnels and overlays",
+        "body": "Two offices are joined by a classic IPsec tunnel, and the engineer wants OSPF to run between them so new subnets are learned automatically. It does not work. Classic IPsec tunnels protect unicast IP traffic that matches a policy, but OSPF hellos are multicast (224.0.0.5), and they never make it across.\n\n**GRE (Generic Routing Encapsulation, IP protocol 47)** fixes the reachability side. GRE creates a virtual point-to-point **tunnel interface** between two routers. Anything routed into that interface is wrapped in a GRE header plus a new IP header, including multicast, broadcast and even non-IP traffic, so routing protocols form neighbors across it just as on a serial link. The problem: GRE has **no encryption, integrity or authentication**.\n\n**GRE over IPsec** combines the two. The router first encapsulates traffic in GRE, then IPsec encrypts the GRE packet. You get the flexibility of a real interface (routing protocols, multicast) with the protection of IPsec. Cisco's DMVPN builds on the same idea to create tunnels between many sites dynamically.\n\nThis is also your first look at **overlay** and **underlay** networks. The physical network or internet that actually moves the packets is the underlay. The tunnels built on top of it, with their own addressing and routing, form the overlay. You will meet the same idea again in SD-WAN and in software-defined access, which uses VXLAN tunnels.",
+        "code": "interface Tunnel0\n ip address 172.16.0.1 255.255.255.252\n tunnel source GigabitEthernet0/0            ! public interface (underlay)\n tunnel destination 128.107.1.1              ! remote router's public address\n tunnel protection ipsec profile VPN-PROFILE  ! encrypt the GRE traffic\n!\nrouter ospf 1\n network 172.16.0.0 0.0.0.3 area 0           ! OSPF neighbors form across the tunnel (overlay)",
+        "language": "cisco",
+        "pitfall": "Assuming a GRE tunnel is a VPN in the secure sense. Without IPsec, anyone on the path can read and change everything inside it.",
+        "check": {
+          "question": "Why do engineers often run GRE inside IPsec instead of using IPsec alone between two sites?",
+          "choices": ["GRE adds the encryption that IPsec lacks", "GRE carries multicast and routing protocol traffic such as OSPF, which a classic IPsec tunnel does not", "GRE makes the tunnel faster by compressing packets", "IPsec cannot cross the internet without GRE"],
+          "answer": 1,
+          "explanation": "GRE provides a tunnel interface that carries multicast, so routing protocols work; IPsec then provides the security GRE lacks. GRE itself encrypts nothing."
+        }
+      }
+    ],
+    "keyTerms": [
+      { "term": "VPN", "definition": "A secure tunnel across an untrusted network that provides confidentiality, integrity, authentication and anti-replay." },
+      { "term": "Site-to-site VPN", "definition": "A permanent VPN between gateways at two sites that protects traffic for every device at both sites; usually IPsec." },
+      { "term": "Remote access VPN", "definition": "An on-demand VPN from one device's client software to an enterprise headend; usually TLS." },
+      { "term": "IPsec", "definition": "A framework of protocols (IKE, ESP, AH) that secures IP traffic with a choice of algorithms for each security goal." },
+      { "term": "IKE", "definition": "Internet Key Exchange: authenticates IPsec peers, negotiates algorithms and builds security associations over UDP 500 (4500 with NAT-T)." },
+      { "term": "ESP", "definition": "Encapsulating Security Payload, IP protocol 50: provides encryption, integrity, authentication and anti-replay." },
+      { "term": "AH", "definition": "Authentication Header, IP protocol 51: provides integrity and authentication but no encryption, and does not work through NAT." },
+      { "term": "Diffie-Hellman", "definition": "A key agreement method that lets two peers compute the same secret key without sending it over the network." },
+      { "term": "Tunnel mode", "definition": "IPsec mode that encrypts the whole original packet and adds a new IP header; used by site-to-site gateways." },
+      { "term": "GRE", "definition": "Generic Routing Encapsulation, IP protocol 47: a tunnel that carries multicast and routing protocols but provides no security." }
+    ],
+    "summary": [
+      "A VPN tunnels packets across an untrusted network and provides confidentiality, integrity, authentication and anti-replay.",
+      "Site-to-site VPNs are permanent tunnels between gateways, invisible to hosts, typically IPsec.",
+      "IPsec chooses algorithms per goal: AES for confidentiality, HMAC-SHA for integrity, PSK or certificates for authentication, Diffie-Hellman for keys.",
+      "IKE (UDP 500, 4500 with NAT-T) negotiates SAs; ESP (protocol 50) encrypts, while AH (protocol 51) only authenticates and breaks with NAT.",
+      "Remote access VPNs are on demand from one device, typically TLS with a client such as AnyConnect; full or split tunnel.",
+      "GRE (protocol 47) carries multicast and routing protocols but is unencrypted, so GRE over IPsec combines both; tunnels form an overlay on the underlay."
+    ],
+    "feynmanPrompt": "Explain to a branch manager how a packet from a branch PC reaches a headquarters server safely across the internet through a site-to-site IPsec VPN, naming what IKE, ESP and Diffie-Hellman each contribute, and then explain how this differs from a salesperson's remote access VPN from a hotel."
+  },
+  "questions": [
+    {
+      "id": "ccna-vpn-q01",
+      "type": "mcq",
+      "difficulty": "easy",
+      "question": "What is the main purpose of a VPN?",
+      "choices": ["To increase the bandwidth of an internet connection", "To assign private IP addresses to remote users", "To carry traffic securely across an untrusted network such as the internet", "To replace routing protocols between sites"],
+      "answer": 2,
+      "explanation": "A VPN builds a protected tunnel so traffic can cross an untrusted network with confidentiality, integrity, authentication and anti-replay.",
+      "concept": "VPN purpose",
+      "section": 0
+    },
+    {
+      "id": "ccna-vpn-q02",
+      "type": "match",
+      "difficulty": "medium",
+      "question": "Match each VPN security goal to what it guarantees.",
+      "pairs": [
+        { "left": "Confidentiality", "right": "Someone who captures the packet cannot read it" },
+        { "left": "Data integrity", "right": "Any change to the packet in transit is detected" },
+        { "left": "Authentication", "right": "The far end is the expected peer, not an impostor" },
+        { "left": "Anti-replay", "right": "Copied packets cannot be resent later and accepted" }
+      ],
+      "explanation": "These are the four goals Cisco lists for VPNs. Encryption provides confidentiality, HMACs provide integrity, PSKs or certificates authenticate peers, and sequence numbers stop replays.",
+      "concept": "VPN goals",
+      "section": 0
+    },
+    {
+      "id": "ccna-vpn-q03",
+      "type": "mcq",
+      "difficulty": "hard",
+      "question": "A packet travels through a site-to-site IPsec tunnel in tunnel mode. Which addresses do internet routers use to forward it?",
+      "choices": ["The original private source and destination addresses", "The public addresses of the two VPN gateways in the new outer IP header", "The MAC addresses of the two VPN gateways", "The addresses inside the ESP trailer"],
+      "answer": 1,
+      "explanation": "In tunnel mode the original packet is encrypted and a new IP header with the gateways' public addresses is added. Internet routers only see and route on that outer header.",
+      "concept": "tunnel encapsulation",
+      "section": 0
+    },
+    {
+      "id": "ccna-vpn-q04",
+      "type": "mcq",
+      "difficulty": "easy",
+      "question": "Which statement describes a site-to-site VPN?",
+      "choices": ["A permanent tunnel between gateways that protects traffic for all devices at both sites", "An on-demand tunnel started by one user's laptop", "A browser session to a single secure website", "A private leased line from a service provider"],
+      "answer": 0,
+      "explanation": "Site-to-site VPNs connect networks through gateways and stay up all the time. On-demand tunnels from a single laptop are remote access VPNs.",
+      "concept": "site-to-site VPN",
+      "section": 1
+    },
+    {
+      "id": "ccna-vpn-q05",
+      "type": "order",
+      "difficulty": "medium",
+      "question": "Put the steps in order for a branch PC sending a packet to a headquarters server over a site-to-site IPsec VPN.",
+      "items": [
+        "The PC sends a normal packet addressed to the server's private IP",
+        "The branch router encrypts the packet and adds ESP and a new public IP header",
+        "Internet routers forward the packet using the outer public addresses",
+        "The headquarters gateway verifies integrity and the sender, then decrypts",
+        "The server receives the original packet from the PC"
+      ],
+      "explanation": "The host is unaware of the VPN. The gateways do all the protecting and unprotecting, and the internet only sees the outer header.",
+      "concept": "site-to-site flow",
+      "section": 1
+    },
+    {
+      "id": "ccna-vpn-q06",
+      "type": "mcq",
+      "difficulty": "easy",
+      "question": "A new branch joins the company's site-to-site VPN. What must be installed on the branch's 40 PCs so they can reach headquarters securely?",
+      "choices": ["The Cisco Secure Client on every PC", "A digital certificate on every PC", "Nothing; the branch gateway protects their traffic", "A GRE tunnel interface on every PC"],
+      "answer": 2,
+      "explanation": "In a site-to-site VPN the gateways encrypt and decrypt for everyone behind them. The PCs send ordinary packets and need no VPN software.",
+      "concept": "site-to-site transparency",
+      "section": 1
+    },
+    {
+      "id": "ccna-vpn-q07",
+      "type": "mcq",
+      "difficulty": "medium",
+      "question": "Which IPsec mechanism lets the receiver detect that a packet was modified in transit?",
+      "choices": ["AES encryption", "Diffie-Hellman key exchange", "An HMAC such as HMAC-SHA-256", "NAT traversal"],
+      "answer": 2,
+      "explanation": "A keyed hash computed over the packet changes if any bit changes, so the receiver drops altered packets. AES hides data but integrity is the job of the HMAC.",
+      "concept": "integrity",
+      "section": 2
+    },
+    {
+      "id": "ccna-vpn-q08",
+      "type": "mcq",
+      "difficulty": "hard",
+      "question": "Two IPsec peers have never communicated before and share no session key. How do they end up with the same secret key without an eavesdropper on the internet learning it?",
+      "choices": ["One peer sends the key in clear text inside the first IKE message", "They use Diffie-Hellman, combining exchanged public values with their own private values", "They hash their IP addresses with SHA-256", "The certificate authority emails the key to both peers"],
+      "answer": 1,
+      "explanation": "Diffie-Hellman lets both sides compute the same shared secret from public values plus private values that never leave each device. Watching the exchange is not enough to compute the secret.",
+      "concept": "Diffie-Hellman",
+      "section": 2
+    },
+    {
+      "id": "ccna-vpn-q09",
+      "type": "mcq",
+      "difficulty": "easy",
+      "question": "Which algorithm provides the confidentiality in a modern IPsec VPN?",
+      "choices": ["SHA-256", "Diffie-Hellman group 14", "RSA signatures", "AES"],
+      "answer": 3,
+      "explanation": "AES is the symmetric cipher that encrypts the data. SHA-256 provides integrity, Diffie-Hellman agrees on keys and RSA signatures authenticate peers.",
+      "concept": "IPsec algorithms",
+      "section": 2
+    },
+    {
+      "id": "ccna-vpn-q10",
+      "type": "multi",
+      "difficulty": "medium",
+      "question": "Which two methods can IPsec peers use to authenticate each other? (Choose two.)",
+      "choices": ["A pre-shared key configured on both peers", "Digital certificates signed by a trusted CA", "Matching OSPF router IDs", "Comparing MAC addresses", "A shared SNMP community string"],
+      "answers": [0, 1],
+      "explanation": "IPsec peers authenticate with a pre-shared key or with certificates (RSA signatures). Certificates scale better because no secret must be shared with every peer.",
+      "concept": "peer authentication",
+      "section": 2
+    },
+    {
+      "id": "ccna-vpn-q11",
+      "type": "typed",
+      "difficulty": "easy",
+      "question": "ESP is carried directly over IP. What is its IP protocol number?",
+      "answer": "50",
+      "explanation": "ESP is IP protocol 50 and AH is IP protocol 51. Neither uses TCP or UDP ports, unless NAT traversal wraps ESP in UDP 4500.",
+      "concept": "ESP protocol number",
+      "section": 3
+    },
+    {
+      "id": "ccna-vpn-q12",
+      "type": "mcq",
+      "difficulty": "medium",
+      "question": "A security policy requires that VPN traffic be unreadable to eavesdroppers. Why would an engineer reject a design that uses only AH?",
+      "choices": ["AH does not encrypt the payload", "AH cannot authenticate the peer", "AH has no anti-replay protection", "AH only works over TCP"],
+      "answer": 0,
+      "explanation": "AH provides integrity, authentication and anti-replay but no encryption, so the data stays readable. ESP is needed for confidentiality.",
+      "concept": "AH vs ESP",
+      "section": 3
+    },
+    {
+      "id": "ccna-vpn-q13",
+      "type": "mcq",
+      "difficulty": "hard",
+      "question": "A tunnel configured to use AH fails whenever the branch router sits behind the ISP's NAT device, while ESP works. Why?",
+      "choices": ["NAT devices block IP protocol 50 but allow 51", "AH protects the outer IP header, so NAT's address rewrite makes every integrity check fail", "AH requires multicast, which NAT cannot translate", "NAT encrypts AH packets a second time"],
+      "answer": 1,
+      "explanation": "AH's integrity check covers the outer IP addresses. When NAT rewrites the source address, the receiver's check fails. ESP does not protect the outer header and can be wrapped in UDP 4500 for NAT traversal.",
+      "concept": "AH and NAT",
+      "section": 3
+    },
+    {
+      "id": "ccna-vpn-q14",
+      "type": "match",
+      "difficulty": "medium",
+      "question": "Match each protocol to the number it uses on the wire.",
+      "pairs": [
+        { "left": "ESP", "right": "IP protocol 50" },
+        { "left": "AH", "right": "IP protocol 51" },
+        { "left": "GRE", "right": "IP protocol 47" },
+        { "left": "IKE", "right": "UDP port 500" },
+        { "left": "IKE and ESP with NAT traversal", "right": "UDP port 4500" }
+      ],
+      "explanation": "ESP, AH and GRE sit directly on IP with protocol numbers. IKE uses UDP 500, and when NAT is detected, IKE and the ESP traffic move to UDP 4500.",
+      "concept": "VPN protocol numbers",
+      "section": 3
+    },
+    {
+      "id": "ccna-vpn-q15",
+      "type": "mcq",
+      "difficulty": "medium",
+      "question": "What is the difference between IPsec tunnel mode and transport mode?",
+      "choices": ["Tunnel mode encrypts only the payload; transport mode encrypts the whole packet", "Tunnel mode uses AH; transport mode uses ESP", "Tunnel mode encrypts the whole original packet and adds a new IP header; transport mode keeps the original header and protects the payload", "Tunnel mode is for remote access; transport mode is for site-to-site"],
+      "answer": 2,
+      "explanation": "Tunnel mode hides the original addresses inside the encrypted part, which is what site-to-site gateways need. Transport mode keeps the original header, which suits host-to-host use and GRE over IPsec.",
+      "concept": "tunnel vs transport",
+      "section": 3
+    },
+    {
+      "id": "ccna-vpn-q16",
+      "type": "mcq",
+      "difficulty": "hard",
+      "question": "In IKEv1, what is the purpose of phase 2?",
+      "choices": ["To discover the peer's MAC address", "To negotiate the IPsec security associations that protect user data", "To build the GRE tunnel interface", "To elect a designated VPN gateway"],
+      "answer": 1,
+      "explanation": "Phase 1 builds a protected channel for the negotiation itself; phase 2, inside that channel, negotiates the IPsec SAs (one per direction) used for user traffic.",
+      "concept": "IKE phases",
+      "section": 3
+    },
+    {
+      "id": "ccna-vpn-q17",
+      "type": "mcq",
+      "difficulty": "hard",
+      "question": "The HQ router filters inbound internet traffic with the ACL below. The branch router (public address 64.100.9.9) now sits behind its ISP's NAT device, and the tunnel will no longer come up. What must be added?",
+      "code": "ip access-list extended OUTSIDE-IN\n permit udp host 64.100.9.9 host 128.107.1.1 eq isakmp\n permit esp host 64.100.9.9 host 128.107.1.1\n deny   ip any any log",
+      "language": "cisco",
+      "choices": ["permit ahp host 64.100.9.9 host 128.107.1.1", "permit gre host 64.100.9.9 host 128.107.1.1", "permit tcp host 64.100.9.9 host 128.107.1.1 eq 443", "permit udp host 64.100.9.9 host 128.107.1.1 eq 4500"],
+      "answer": 3,
+      "explanation": "With NAT in the path, NAT traversal moves IKE and the ESP traffic into UDP 4500, which the ACL denies. isakmp is UDP 500, already permitted. AH would not work through NAT anyway.",
+      "concept": "NAT traversal",
+      "section": 3
+    },
+    {
+      "id": "ccna-vpn-q18",
+      "type": "mcq",
+      "difficulty": "easy",
+      "question": "Which statement best describes a remote access VPN?",
+      "choices": ["A permanent tunnel between two branch routers", "An on-demand tunnel from one user's device to the enterprise", "A tunnel that only carries routing protocol updates", "A private WAN circuit leased from a carrier"],
+      "answer": 1,
+      "explanation": "Remote access VPNs protect one device and are started when the user needs them. Permanent gateway-to-gateway tunnels are site-to-site.",
+      "concept": "remote access VPN",
+      "section": 4
+    },
+    {
+      "id": "ccna-vpn-q19",
+      "type": "mcq",
+      "difficulty": "medium",
+      "question": "Why does running remote access VPNs over TLS on port 443 help travelers?",
+      "choices": ["Port 443 traffic is faster than other ports", "TLS does not need any authentication", "Hotels and coffee shops almost always allow port 443 through their firewalls", "TLS automatically assigns a public IP to the laptop"],
+      "answer": 2,
+      "explanation": "Port 443 is the HTTPS port, so public networks rarely block it. A VPN using IPsec ports or protocol 50 is more likely to be blocked on a guest network.",
+      "concept": "TLS VPN",
+      "section": 4
+    },
+    {
+      "id": "ccna-vpn-q20",
+      "type": "mcq",
+      "difficulty": "medium",
+      "question": "A contractor needs to reach only the company's web-based timesheet app, from a personal computer where installing software is not allowed. Which option fits?",
+      "choices": ["A clientless TLS VPN through a web portal", "A site-to-site IPsec VPN to the contractor's home", "A GRE tunnel from the contractor's PC", "An AH-only IPsec tunnel"],
+      "answer": 0,
+      "explanation": "Clientless VPNs need only a browser and give access to web applications through a TLS portal. Site-to-site and GRE tunnels need configured gateways, and AH does not encrypt.",
+      "concept": "clientless VPN",
+      "section": 4
+    },
+    {
+      "id": "ccna-vpn-q21",
+      "type": "multi",
+      "difficulty": "medium",
+      "question": "Which two statements are typical of remote access VPNs rather than site-to-site VPNs? (Choose two.)",
+      "choices": ["The user starts the VPN when needed", "A single device is protected by the tunnel", "The tunnel is permanently up between two routers", "Hosts are unaware that the VPN exists", "IPsec between two firewalls is the usual protocol"],
+      "answers": [0, 1],
+      "explanation": "Remote access VPNs are on demand and protect one device. Permanent tunnels, host transparency and gateway-to-gateway IPsec describe site-to-site VPNs.",
+      "concept": "VPN comparison",
+      "section": 4
+    },
+    {
+      "id": "ccna-vpn-q22",
+      "type": "mcq",
+      "difficulty": "medium",
+      "question": "With a split-tunnel remote access VPN, a user on hotel Wi-Fi opens a news website. How does that traffic travel?",
+      "choices": ["Through the tunnel to headquarters, then out to the internet", "Directly from the hotel network to the internet, outside the tunnel", "Through a GRE tunnel to the nearest branch", "It is blocked until the VPN disconnects"],
+      "answer": 1,
+      "explanation": "Split tunneling sends only traffic for company subnets through the VPN. Other internet traffic goes out directly. A full tunnel would send everything to headquarters first.",
+      "concept": "split tunnel",
+      "section": 4
+    },
+    {
+      "id": "ccna-vpn-q23",
+      "type": "mcq",
+      "difficulty": "medium",
+      "question": "Two sites are joined by a classic IPsec tunnel, but OSPF will not form a neighbor relationship across it. What is the usual fix?",
+      "choices": ["Switch from ESP to AH", "Run GRE over IPsec so the tunnel interface carries OSPF's multicast hellos", "Disable Diffie-Hellman", "Replace OSPF with static NAT"],
+      "answer": 1,
+      "explanation": "Classic IPsec tunnels carry matching unicast traffic only, and OSPF hellos are multicast. A GRE tunnel interface carries them, and IPsec then encrypts the GRE packets.",
+      "concept": "GRE over IPsec",
+      "section": 5
+    },
+    {
+      "id": "ccna-vpn-q24",
+      "type": "typed",
+      "difficulty": "easy",
+      "question": "GRE packets are identified in the IP header by which protocol number?",
+      "answer": "47",
+      "explanation": "GRE is IP protocol 47. A firewall between two GRE endpoints must permit protocol 47 (or the IPsec traffic that carries it).",
+      "concept": "GRE protocol number",
+      "section": 5
+    },
+    {
+      "id": "ccna-vpn-q25",
+      "type": "mcq",
+      "difficulty": "hard",
+      "question": "R1 and R2 use the tunnel configuration below across the internet, and OSPF works fine. A packet capture on the ISP's network shows the users' traffic in readable form. Why?",
+      "code": "interface Tunnel0\n ip address 172.16.0.1 255.255.255.252\n tunnel source GigabitEthernet0/0\n tunnel destination 128.107.1.1\n!\nrouter ospf 1\n network 172.16.0.0 0.0.0.3 area 0",
+      "language": "cisco",
+      "choices": ["The tunnel needs a /24 mask to enable encryption", "OSPF disables encryption on tunnel interfaces", "The tunnel source should be a loopback for encryption to work", "This is plain GRE, which encrypts nothing; it needs IPsec, such as tunnel protection ipsec profile"],
+      "answer": 3,
+      "explanation": "A GRE tunnel only encapsulates. Without IPsec protection the inner packets cross the internet in the clear. Adding tunnel protection (GRE over IPsec) encrypts them.",
+      "concept": "GRE has no security",
+      "section": 5
+    },
+    {
+      "id": "ccna-vpn-q26",
+      "type": "mcq",
+      "difficulty": "medium",
+      "question": "In an SD-WAN or DMVPN design, what is the underlay?",
+      "choices": ["The physical network or internet transport that actually carries the tunneled packets", "The set of virtual tunnels and their routing", "The encryption algorithm used inside the tunnels", "The management VLAN of the WAN routers"],
+      "answer": 0,
+      "explanation": "The underlay is the real transport network. The tunnels built on top of it, with their own addressing and routing, form the overlay.",
+      "concept": "overlay and underlay",
+      "section": 5
+    },
+    {
+      "id": "ccna-vpn-q27",
+      "type": "recall",
+      "difficulty": "medium",
+      "question": "In one or two sentences, what does IKE do, and what does ESP do, in an IPsec VPN?",
+      "answer": "IKE negotiates the tunnel: it authenticates the peers, agrees on algorithms, runs Diffie-Hellman and builds the security associations (UDP 500 or 4500). ESP then protects the actual user packets with encryption, integrity and anti-replay (IP protocol 50).",
+      "explanation": "Separating negotiation (IKE) from data protection (ESP or AH) is the core structure of IPsec.",
+      "concept": "IKE vs ESP",
+      "section": 3
+    },
+    {
+      "id": "ccna-vpn-q28",
+      "type": "recall",
+      "difficulty": "easy",
+      "question": "What is the difference between a tunnel and a secure VPN?",
+      "answer": "A tunnel is just encapsulation: a packet wrapped inside another packet. It becomes a secure VPN only when protection such as IPsec or TLS adds encryption, integrity and authentication; a plain GRE tunnel has none of these.",
+      "explanation": "The exam likes to test that GRE is a tunneling protocol without security, which is why it is paired with IPsec.",
+      "concept": "tunnel vs VPN",
+      "section": 0
+    }
+  ]
+}

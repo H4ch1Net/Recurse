@@ -1,0 +1,776 @@
+{
+  "id": "swe-recursion-backtracking",
+  "name": "Recursion and Backtracking",
+  "version": "1.0.0",
+  "author": "Recurse",
+  "subject": "swe",
+  "level": "intermediate",
+  "description": "Base cases, the call stack, and the choose, explore, un-choose template for subsets, permutations and grid search.",
+  "icon": "BT",
+  "language": "python",
+  "prereqs": [
+    "loops-functions",
+    "algorithms",
+    "big-o",
+    "swe-arrays-strings",
+    "swe-trees"
+  ],
+  "tags": [
+    "recursion",
+    "backtracking",
+    "call stack",
+    "subsets",
+    "permutations",
+    "pruning",
+    "interviews"
+  ],
+  "lesson": {
+    "estimatedMinutes": 40,
+    "intro": "Backtracking is how you search through every possible answer without writing a nested loop for each choice. It is recursion with a twist: make a choice, explore everything that follows from it, then undo the choice and try the next one. Subsets, permutations, combination sums, balanced parentheses and word search all fall to the same short template once you can see the tree of choices behind them.",
+    "objectives": [
+      "Write a recursive function with a correct base case and trace its call stack",
+      "Apply the choose, explore, un-choose template to subsets, permutations and combination problems",
+      "Prune branches that cannot lead to a valid answer",
+      "Estimate the time and space of a backtracking solution from its branching factor and depth",
+      "Recognize problem statements that call for backtracking"
+    ],
+    "sections": [
+      {
+        "title": "Recursion: solve a smaller copy of the problem",
+        "body": "Imagine adding up a list of numbers, but you may only look at the first number. You hand the rest of the list to a colleague who works exactly like you, and you add your number to whatever they report back. They do the same with an even shorter list, until someone receives an empty list and simply says 0. That chain of colleagues is recursion.\n\nA recursive function has two parts:\n\n- A **base case**: an input small enough to answer directly, without another call.\n- A **recursive case**: shrink the input to a smaller copy of the same problem, call yourself on it, and combine the result with your own bit of work.\n\nThe key mental move is the **leap of faith**. When you write the recursive case, assume the smaller call already returns the right answer, and only work out how to use it. Do not trace every call down to the bottom in your head. Ask two questions instead: is the base case right, and does every call move closer to it? If both answers are yes, the function is correct for every input, by the same reasoning as a proof by induction.\n\nRecursion fits naturally when the data is recursive: a tree is a node plus smaller trees, a list is an item plus a shorter list, and a set of choices is one choice plus the remaining choices. That last view is exactly what backtracking exploits.",
+        "code": "def total(nums, i=0):\n    if i == len(nums):                  # base case: nothing left\n        return 0\n    return nums[i] + total(nums, i + 1) # my item + the rest\n\ndef reverse(s):\n    if len(s) <= 1:                     # base case: \"\" or one character\n        return s\n    return reverse(s[1:]) + s[0]\n\nprint(total([4, 5, 6]))   # 15\nprint(reverse(\"stack\"))   # kcats",
+        "language": "python",
+        "tip": "Passing an index (`i + 1`) instead of a slice (`nums[1:]`) avoids copying the list on every call, which keeps a linear recursion O(n) instead of O(n^2).",
+        "pitfall": "A base case the input can jump over. `if n == 0: return` never fires for `f(n - 2)` called with an odd n, so the calls continue into negative numbers until Python raises RecursionError. Prefer a range check such as `n <= 0` when the input can skip values.",
+        "check": {
+          "question": "`count(n)` has the base case `if n == 1: return 1` and the recursive case `return 1 + count(n - 2)`. What happens when you call `count(4)`?",
+          "choices": [
+            "It returns 2",
+            "It returns 3",
+            "It calls count(2), count(0), count(-2) and so on until Python raises RecursionError",
+            "It returns 1 immediately"
+          ],
+          "answer": 2,
+          "explanation": "4 goes to 2, then 0, then -2: the input jumps over 1, so the base case never matches. Each call adds a stack frame until Python stops at its recursion limit. A base case of `n <= 1` would catch every path."
+        }
+      },
+      {
+        "title": "The call stack, frame by frame",
+        "body": "Every call gets its own **stack frame**: a small record that holds the call's arguments, its local variables and the spot to resume from when the call it is waiting on returns. Frames pile up as calls go deeper and come off as they return, last in, first out. The code below traces `fact(3)` frame by frame.\n\nTwo facts fall out of this picture.\n\n- **Space**: a recursion uses at least as much memory as its maximum depth, even if it never builds a list. `fact(n)` has n frames alive at its deepest point, so it uses O(n) space.\n- **Limits**: depth is capped. CPython stops at about 1,000 frames by default (`sys.getrecursionlimit()` returns 1000) and raises `RecursionError`. JavaScript engines throw `RangeError: Maximum call stack size exceeded` at a depth that depends on the engine and the frame size, usually in the thousands to tens of thousands. Python does not optimize tail calls, so writing the call last does not help.\n\nWhen a function calls itself more than once, the calls form a **recursion tree**. The stack only ever holds one root-to-current path of that tree. That gives you two separate numbers to reason about: the depth of the tree costs memory, and the total number of nodes costs time. Keep them apart and the complexity of any recursion, including backtracking, becomes much easier to state.",
+        "code": "def fact(n):\n    if n <= 1:\n        return 1\n    return n * fact(n - 1)\n\n# Calling fact(3). The stack grows to the right:\n# [fact(3)]                      fact(3) waits on fact(2)\n# [fact(3), fact(2)]             fact(2) waits on fact(1)\n# [fact(3), fact(2), fact(1)]    base case: fact(1) returns 1\n# [fact(3), fact(2)]             fact(2) returns 2 * 1 = 2\n# [fact(3)]                      fact(3) returns 3 * 2 = 6\n# []                             result: 6",
+        "language": "python",
+        "tip": "Say the depth out loud in interviews: \"this recursion goes at most n deep, so it uses O(n) stack space.\" Interviewers listen for it.",
+        "pitfall": "Assuming recursion is free on memory. A recursive walk over a 100,000-node linked list, or a tree shaped like a long path, overflows the stack even though it allocates nothing else. When the depth can grow with a large input, switch to a loop or an explicit stack.",
+        "activity": {
+          "type": "recursion-tree",
+          "title": "Watch the tree and the stack",
+          "prompt": "Step through fib(5) without memoization. Keep an eye on the call stack: it only ever holds one path from the root down to the current call, so it stays short while the tree keeps growing. Count how many times fib(2) is called. That repeated work is exactly what dynamic programming removes later.",
+          "props": {
+            "fn": "fib",
+            "n": 5,
+            "memo": false
+          }
+        },
+        "check": {
+          "question": "`def depth(n): return 0 if n == 0 else 1 + depth(n - 1)`. What is the space complexity of `depth(n)`, and why?",
+          "choices": [
+            "O(n), because all the frames down to depth(0) are on the stack at once",
+            "O(1), because it creates no lists or extra variables",
+            "O(log n), because each call does constant work",
+            "O(n^2), because each frame stores its own copy of n"
+          ],
+          "answer": 0,
+          "explanation": "Each call must wait for `depth(n - 1)` before it can add 1, so at the bottom n + 1 frames are alive together. Not creating lists does not make it O(1): the frames themselves are the memory."
+        }
+      },
+      {
+        "title": "The backtracking template: choose, explore, un-choose",
+        "body": "List every subset of `[1, 2, 3]`. Reason item by item: take 1 or skip it, then take 2 or skip it, then the same for 3. Each item is a fork with two branches, and every path from the top of that **decision tree** to the bottom spells out one subset. Three items with two choices each give 2^3 = 8 subsets.\n\n**Backtracking** walks the decision tree depth first while keeping one shared, growing partial answer, usually called the **path**. At every node it repeats three steps:\n\n- **Choose**: add a candidate to the path.\n- **Explore**: recurse to make the remaining decisions.\n- **Un-choose**: remove that candidate, so the path is exactly what it was before, and the next candidate starts from a clean state.\n\nWhen the path is a complete answer (for subsets, every node is one), record a **copy** of it. The code below uses the loop form of the template. Trace it and the subsets come out in this order: `[]`, `[1]`, `[1, 2]`, `[1, 2, 3]`, back up and pop 3, back up and pop 2, `[1, 3]`, back up to the top, `[2]`, `[2, 3]`, `[3]`.\n\nNotice the `start` index. After choosing `nums[i]`, the recursive call only considers items after i. That is what stops `[2, 1]` from appearing as a second copy of `[1, 2]`. Subsets and combinations care about which items are in the answer, not their order, so the search only ever moves forward through the input.",
+        "code": "def subsets(nums):\n    result, path = [], []\n\n    def backtrack(start):\n        result.append(path[:])          # record a COPY of the path\n        for i in range(start, len(nums)):\n            path.append(nums[i])        # choose\n            backtrack(i + 1)            # explore: only items after i\n            path.pop()                  # un-choose\n\n    backtrack(0)\n    return result\n\nprint(subsets([1, 2, 3]))\n# [[], [1], [1, 2], [1, 2, 3], [1, 3], [2], [2, 3], [3]]",
+        "language": "python",
+        "tip": "Forgetting the un-choose step is the other classic bug: the path keeps growing across branches, and answers come out longer and longer.",
+        "pitfall": "Appending `path` instead of a copy. Every entry in `result` is then the same list object, which is empty again after the last pop, so you get `[[], [], [], ...]`. Copy with `path[:]`, `list(path)` or `path.copy()` in Python and `[...path]` in JavaScript.",
+        "activity": {
+          "type": "code-runner",
+          "title": "Fix the shared path",
+          "prompt": "Run this version first. Every subset prints as [], because result holds eight references to the same list, which is empty when the search finishes. Change result.append(path) to result.append(path[:]) and run it again.",
+          "props": {
+            "language": "python",
+            "code": "def subsets(nums):\n    result, path = [], []\n\n    def backtrack(start):\n        result.append(path)             # bug: stores the list itself\n        for i in range(start, len(nums)):\n            path.append(nums[i])\n            backtrack(i + 1)\n            path.pop()\n\n    backtrack(0)\n    return result\n\nprint(subsets([1, 2, 3]))",
+            "task": "Make it print all 8 subsets of [1, 2, 3].",
+            "expectOutput": "[[], [1], [1, 2], [1, 2, 3], [1, 3], [2], [2, 3], [3]]"
+          }
+        },
+        "check": {
+          "question": "In the subsets template, what does `path.pop()` after the recursive call do?",
+          "choices": [
+            "It removes the most recently recorded subset from the result",
+            "It removes the item just chosen, so the next loop iteration starts from the same path the caller had",
+            "It ends the recursion once the path has every item",
+            "It skips duplicate values in nums"
+          ],
+          "answer": 1,
+          "explanation": "Choose and un-choose are a matched pair: append before exploring, pop after. The pop restores the path so the next candidate at this level is tried on a clean state. It never touches `result`, which holds separate copies."
+        }
+      },
+      {
+        "title": "Shaping the tree: permutations and combination sum",
+        "body": "Most backtracking problems reuse the same template. What changes is **which candidates are allowed at each step**, and one small piece of bookkeeping decides that. Compare three problems:\n\n- **Subsets and combinations**: order does not matter, so after choosing index i you only look at indexes after i. A `start` index does this, and you recurse with `i + 1`.\n- **Permutations**: order matters, so `[1, 2]` and `[2, 1]` are different answers. Every unused item is a candidate at every step, so you track a `used` array (or set) instead of a start index, and record the path once it has all n items.\n- **Combination sum** (positive candidates that may be reused, find every combination that adds up to a target): order does not matter, so keep a start index, but recurse with `i` instead of `i + 1` so the same candidate can be picked again. A branch ends when the remaining target hits 0 (record it) or drops below 0 (dead end).\n\nThe permutation tree has n choices at the first level, n - 1 at the second, and so on down to 1, which is why there are n! permutations. The Python below shows the `used` bookkeeping. In JavaScript the shape is identical, with `[...path]` to copy the path.\n\nIf the input can contain **duplicates**, such as `[1, 1, 2]`, sort it first and then skip a candidate that equals the previous candidate at the same level: `if i > start and nums[i] == nums[i - 1]: continue`. Both 1s would start identical subtrees, so exploring only the first one keeps each answer unique. For `[1, 1, 2]` that gives 6 subsets instead of 8 with repeats.",
+        "code": "def permute(nums):\n    result, path = [], []\n    used = [False] * len(nums)\n\n    def backtrack():\n        if len(path) == len(nums):      # complete: record a copy\n            result.append(path[:])\n            return\n        for i in range(len(nums)):\n            if used[i]:\n                continue                # each item once per permutation\n            used[i] = True              # choose\n            path.append(nums[i])\n            backtrack()                 # explore\n            path.pop()                  # un-choose\n            used[i] = False\n\n    backtrack()\n    return result\n\nprint(permute([1, 2, 3]))\n# [[1, 2, 3], [1, 3, 2], [2, 1, 3], [2, 3, 1], [3, 1, 2], [3, 2, 1]]",
+        "language": "python",
+        "pitfall": "Mixing up the bookkeeping. A start index in a permutation problem only ever produces one ordering, and a used array in a combination problem produces `[1, 2]` and `[2, 1]` as separate answers. Ask first: does order matter in the answer? Yes means a used array, no means a start index.",
+        "check": {
+          "question": "In combination sum, candidates may be reused. Which recursive call allows reuse while making sure [2, 3] and [3, 2] are not both returned?",
+          "choices": [
+            "backtrack(i + 1, remaining - candidates[i])",
+            "backtrack(0, remaining - candidates[i])",
+            "backtrack(start, remaining)",
+            "backtrack(i, remaining - candidates[i])"
+          ],
+          "answer": 3,
+          "explanation": "Passing `i` lets the same candidate be picked again at the next level, and never going back below `i` keeps every combination in one index order, so [3, 2] is never built. `i + 1` forbids reuse, and 0 allows every order, which produces duplicates."
+        }
+      },
+      {
+        "title": "Pruning: stop exploring dead branches",
+        "body": "Generate every string of n pairs of balanced parentheses. Brute force builds all 2^(2n) strings of `(` and `)` and keeps the valid ones: for n = 3 that is 64 strings built to keep 5. Backtracking does far better by never building a prefix that cannot become valid.\n\nTwo rules decide whether a character may come next:\n\n- Add `(` only while fewer than n have been used.\n- Add `)` only while there are more `(` than `)` so far. Otherwise the prefix is already broken, like `())`.\n\nBranches that would break a rule are never entered. That is **pruning**: testing a condition before recursing, so whole subtrees disappear instead of being generated and thrown away later. Another example: in combination sum, sort the candidates first, and you can `break` out of the loop as soon as a candidate is bigger than the remaining target, because every later candidate is bigger still.\n\nPruning does not change how many answers exist (you still output every valid string), but it can cut the work by orders of magnitude, and it is the classic interview follow-up once your first solution works: which branches can you rule out early? The number of valid strings is the Catalan number: 1, 2, 5, 14, 42 for n = 1 to 5.",
+        "code": "def generate_parentheses(n):\n    result = []\n\n    def backtrack(path, opened, closed):\n        if len(path) == 2 * n:\n            result.append(\"\".join(path))\n            return\n        if opened < n:                  # can still open\n            path.append(\"(\")\n            backtrack(path, opened + 1, closed)\n            path.pop()\n        if closed < opened:             # closing keeps it valid\n            path.append(\")\")\n            backtrack(path, opened, closed + 1)\n            path.pop()\n\n    backtrack([], 0, 0)\n    return result\n\nprint(generate_parentheses(3))\n# ['((()))', '(()())', '(())()', '()(())', '()()()']",
+        "language": "python",
+        "tip": "Python strings are immutable, so you can also pass `path + \"(\"` into the call and skip the un-choose step. Each call then copies the string, which costs O(n) per call.",
+        "pitfall": "A pruning rule that is too strict. If it cuts even one branch that could lead to a valid answer, the output silently loses answers. Check a pruned solution against brute force for small inputs (n = 1 to 4) before trusting it.",
+        "check": {
+          "question": "In `generate_parentheses`, what goes wrong if the condition for adding `)` is changed from `closed < opened` to `closed < n`?",
+          "choices": [
+            "It also returns unbalanced strings such as `())(()`, because a `)` can come before its matching `(`",
+            "It returns fewer strings, because valid branches are cut",
+            "It never reaches the base case and raises RecursionError",
+            "Nothing changes, because closed can never exceed opened anyway"
+          ],
+          "answer": 0,
+          "explanation": "With `closed < n` the only limit is the total count of each character, so all 20 arrangements of three `(` and three `)` are produced, and 15 of them are invalid. The `closed < opened` rule is what keeps every prefix balanced."
+        }
+      },
+      {
+        "title": "Backtracking on a grid: word search",
+        "body": "Given a grid of letters, decide whether a word can be traced through horizontally or vertically adjacent cells, using each cell at most once. This is backtracking where the choices at each step are the up to four neighbors of the current cell.\n\nTry every cell as a starting point. From a cell, `dfs(r, c, k)` answers: can the word from letter k onward be matched starting here?\n\n- Success: `k == len(word)`, every letter has been matched.\n- Failure: the cell is off the grid, its letter does not match `word[k]`, or it is already on the current path.\n- Choose: mark the cell as used. A common trick is to overwrite it with a sentinel such as `#`, which never matches a letter, so the mismatch test also catches used cells.\n- Explore: try the four neighbors with k + 1.\n- Un-choose: put the original letter back.\n\nThe restore step is not optional. Without it, a failed attempt leaves `#` marks behind, and a later path that needs those cells, including a search from a different starting cell, is wrongly rejected.\n\nComplexity: there are R x C starting cells. The first step has up to 4 directions and every later step at most 3, since going back to the cell you came from always fails. So the time is O(R x C x 3^L) for a word of length L, and the space is O(L) for the recursion.",
+        "code": "def exist(board, word):\n    rows, cols = len(board), len(board[0])\n\n    def dfs(r, c, k):\n        if k == len(word):\n            return True\n        if (r < 0 or r >= rows or c < 0 or c >= cols\n                or board[r][c] != word[k]):\n            return False\n        saved = board[r][c]\n        board[r][c] = \"#\"                   # choose: mark as used\n        found = (dfs(r + 1, c, k + 1) or dfs(r - 1, c, k + 1) or\n                 dfs(r, c + 1, k + 1) or dfs(r, c - 1, k + 1))\n        board[r][c] = saved                 # un-choose: restore\n        return found\n\n    return any(dfs(r, c, 0) for r in range(rows) for c in range(cols))\n\ngrid = [list(\"CAT\"), list(\"XRS\"), list(\"MAP\")]\nprint(exist(grid, \"CARS\"), exist(grid, \"TAC\"), exist(grid, \"CAC\"))\n# True True False   (CAC would need to reuse the C)",
+        "language": "python",
+        "pitfall": "Returning early before restoring the cell, for example `if dfs(...): return True` right after marking it. The grid is left with `#` marks, which breaks the caller if it reuses the board. Restore first, then return, as in the code above.",
+        "check": {
+          "question": "Why does word search put the original letter back into `board[r][c]` after exploring the neighbors?",
+          "choices": [
+            "So the function returns True instead of False",
+            "Because Python strings are immutable",
+            "So later paths, including searches from other starting cells, can still use that cell",
+            "To stop the search from walking off the edge of the grid"
+          ],
+          "answer": 2,
+          "explanation": "The `#` mark only means \"on the current path\". Once this path is abandoned the cell is free again, and another path may need it. Leaving marks behind makes later searches fail on words that are really in the grid."
+        }
+      },
+      {
+        "title": "Counting the cost of a backtracking tree",
+        "body": "Interviewers expect a complexity for every backtracking solution, and it is easier than it looks. Picture the decision tree and multiply two numbers: **how many nodes the tree has** and **how much work each node does**.\n\nA tree with **branching factor** b and depth d has at most about b^d leaves, and the internal nodes rarely add more than a constant factor on top. The work per node is usually O(1) for choose and un-choose, plus O(n) at each recorded answer to copy the path. The table below collects the classic results.\n\nSpace has two parts: the recursion depth plus the path (usually O(n)), and the output itself. Say both, for example: \"O(n) extra space for the stack and the path, not counting the 2^n subsets in the output.\"\n\nYou rarely need an exact count. A sentence such as \"the tree has 2^n leaves and copying each costs O(n), so O(n * 2^n)\" is the reasoning that earns full credit.\n\nInput limits are a strong hint. Backtracking is only practical for small inputs, so a limit like n <= 10, n <= 15 or a 6 x 6 board says an exponential search is intended. A limit like n <= 10^5 says it is not, and you should look for dynamic programming, greedy or another pattern.",
+        "code": "Problem                 Branching       Depth   Answers          Time\nSubsets                 2 (take/skip)   n       2^n              O(n * 2^n)\nPermutations            n, n-1, ..., 1  n       n!               O(n * n!)\nCombinations C(n, k)    up to n         k       C(n, k)          O(k * C(n, k))\nCombination sum         up to n         T / m   exponential      about O(n^(T/m + 1))\nParentheses, n pairs    2, pruned       2n      Catalan(n)       O(4^n / sqrt(n))\nWord search, length L   4, then 3       L       yes or no        O(R * C * 3^L)\n\nT = target, m = smallest candidate, R x C = grid size",
+        "language": "plaintext",
+        "pitfall": "Quoting only the number of answers. Subsets has 2^n answers, but each one is copied in O(n), so the time is O(n * 2^n), not O(2^n). Likewise permutations are O(n * n!).",
+        "check": {
+          "question": "A function tries both + and - in front of each of n numbers, keeping a running total as it goes, and counts the sign patterns whose total equals a target. What is its time complexity?",
+          "choices": [
+            "O(n^2)",
+            "O(2^n)",
+            "O(n!)",
+            "O(n log n)"
+          ],
+          "answer": 1,
+          "explanation": "Each number is a 2-way choice, so the tree has depth n and 2^n leaves. The running total makes each node O(1), so the time is O(2^n). There is no n! here because the order of the numbers is fixed."
+        }
+      },
+      {
+        "title": "Practice: spot it, then solve it",
+        "body": "Backtracking is the right tool when a problem asks you to **list all** solutions, or to decide whether **any** arrangement works, and each answer is built from a sequence of small choices. Signals in the wording:\n\n- \"Return all subsets, permutations, combinations or partitions\"\n- \"Generate every valid ...\" (parentheses, IP addresses, phone keypad letter combinations)\n- \"Can you place, arrange or fill ...\" (N-Queens, Sudoku, word search)\n- Small input limits, such as n <= 10 or a small board\n\nSignals that it is the wrong tool: the problem asks for a **count** or a **best value** (fewest coins, number of ways, longest sequence) on a large input. Then many branches solve the same subproblem again and again, and dynamic programming, the next pack, usually wins. \"How many\" instead of \"list them all\" is the strongest hint.\n\nA five-step script for the interview:\n\n- Say what one decision is: take or skip an item, pick the next character, step to a neighbor.\n- Say what makes a path complete: length n, remaining target 0, word fully matched.\n- Write the template: base case, loop over the allowed candidates, choose, explore, un-choose.\n- Add pruning for branches that cannot succeed.\n- State the complexity from the tree: branching, depth and work per answer.\n\nThen solve the challenge below. It combines a start index, reuse of candidates and pruning, so it exercises everything in this pack.",
+        "pitfall": "Reaching for backtracking when the problem only needs a count. Counting the ways to climb n stairs by listing every path takes exponential time; the same count takes O(n) with dynamic programming.",
+        "activity": {
+          "type": "challenge",
+          "title": "Challenge: combination sum",
+          "prompt": "Write it with a start index, recurse with i so a candidate can be reused, and prune once a candidate is bigger than what remains. Python or JavaScript, your choice.",
+          "props": {
+            "id": "combination-sum"
+          }
+        },
+        "check": {
+          "question": "Which problem statement is the best fit for backtracking?",
+          "choices": [
+            "Return the length of the longest increasing subsequence of 10^5 numbers",
+            "Return how many ways there are to make change for an amount up to 10^4",
+            "Return the largest sum of any contiguous subarray",
+            "Return every way to split a string into pieces that are all palindromes"
+          ],
+          "answer": 3,
+          "explanation": "\"Return every way\" asks you to list all answers built from a sequence of choices (where to cut next), which is backtracking. The others ask for a single number on a large input, where dynamic programming or a greedy scan is the right tool."
+        }
+      }
+    ],
+    "keyTerms": [
+      {
+        "term": "base case",
+        "definition": "An input the function answers directly, without recursing. Every chain of calls must reach one."
+      },
+      {
+        "term": "recursive case",
+        "definition": "The part of a recursive function that calls itself on a smaller input and combines the result."
+      },
+      {
+        "term": "stack frame",
+        "definition": "The record for one active call: its arguments, local variables and return point."
+      },
+      {
+        "term": "recursion depth",
+        "definition": "The longest chain of calls active at the same time. It sets the stack space a recursion uses."
+      },
+      {
+        "term": "backtracking",
+        "definition": "Depth-first search over a tree of choices that builds a candidate step by step and undoes each step to try the next."
+      },
+      {
+        "term": "decision tree",
+        "definition": "A tree whose edges are choices and whose root-to-leaf paths are candidate answers."
+      },
+      {
+        "term": "choose, explore, un-choose",
+        "definition": "The three steps at each node: add a candidate to the path, recurse, then remove it to restore the state."
+      },
+      {
+        "term": "pruning",
+        "definition": "Skipping a branch before exploring it because it cannot lead to a valid answer."
+      },
+      {
+        "term": "branching factor",
+        "definition": "How many children each node of the recursion tree has. With depth d it gives about b^d leaves."
+      },
+      {
+        "term": "start index",
+        "definition": "Where the candidate loop begins in combination problems, so items are only picked in one order."
+      }
+    ],
+    "summary": [
+      "Every recursion needs a base case that every input reaches and a recursive case that shrinks the input; trust the smaller call.",
+      "Recursion uses stack space equal to its maximum depth, and CPython stops at about 1,000 frames.",
+      "Backtracking is choose, explore, un-choose, recording a copy of the path when it is a complete answer.",
+      "A start index gives combinations, a used array gives permutations, and recursing with i instead of i + 1 allows reuse.",
+      "Prune branches that cannot succeed, and state complexity as tree size times work per node, such as O(n * 2^n) for subsets."
+    ],
+    "feynmanPrompt": "Explain to a friend how backtracking lists every subset of [1, 2, 3]: what the path is, why you undo each choice after exploring it, why the result stores a copy of the path, and how big the search tree gets for n items."
+  },
+  "questions": [
+    {
+      "id": "swe-recursion-backtracking-q01",
+      "type": "typed",
+      "difficulty": "easy",
+      "question": "What does `f(4096)` return?",
+      "code": "def f(n):\n    if n < 10:\n        return n\n    return f(n // 10) + n % 10",
+      "answer": "19",
+      "explanation": "f(4096) = f(409) + 6 = f(40) + 9 + 6 = f(4) + 0 + 9 + 6 = 4 + 0 + 9 + 6 = 19. Each call strips the last digit with `% 10` and recurses on the rest with `// 10`, so the function adds up the digits.",
+      "concept": "tracing a recursion",
+      "section": 0
+    },
+    {
+      "id": "swe-recursion-backtracking-q02",
+      "type": "debug",
+      "difficulty": "medium",
+      "question": "`count_down(5)` prints 5, 3 and 1, then crashes. Why?",
+      "code": "def count_down(n):\n    if n == 0:\n        print(\"liftoff\")\n        return\n    print(n)\n    count_down(n - 2)\n\ncount_down(5)",
+      "choices": [
+        "print(n) must come after the recursive call",
+        "The base case tests n == 0, and n jumps from 1 to -1, so it never matches",
+        "A recursive function cannot return None",
+        "n - 2 creates a new variable that hides the parameter"
+      ],
+      "answer": 1,
+      "explanation": "The input moves by 2, so from an odd start it skips 0 entirely and keeps going: -1, -3 and so on until RecursionError. Use `if n <= 0` so every path reaches the base case. Returning None and the order of print are both fine.",
+      "concept": "unreachable base case",
+      "section": 0
+    },
+    {
+      "id": "swe-recursion-backtracking-q03",
+      "type": "mcq",
+      "difficulty": "easy",
+      "question": "When writing the recursive case, what is the \"leap of faith\"?",
+      "choices": [
+        "Assume the base case is rarely reached, so it can be left out for large inputs",
+        "Trace every call by hand down to the base case before writing any code",
+        "Assume the recursion depth stays constant as the input grows",
+        "Assume the call on the smaller input already returns the right answer, and only work out how to use it"
+      ],
+      "answer": 3,
+      "explanation": "You check two things, a correct base case and progress toward it, and then trust the smaller call, just like the inductive step of a proof. Tracing every call by hand is slow and error prone for anything but tiny inputs.",
+      "concept": "leap of faith",
+      "section": 0
+    },
+    {
+      "id": "swe-recursion-backtracking-q04",
+      "type": "code-fill",
+      "difficulty": "easy",
+      "question": "Fill the blank so `power(x, n)` returns x to the power n for n >= 0.",
+      "code": "def power(x, n):\n    if n == 0:\n        _____\n    return x * power(x, n - 1)",
+      "choices": [
+        "return 1",
+        "return x",
+        "return 0",
+        "return n"
+      ],
+      "answer": 0,
+      "explanation": "x^0 is 1, and that is the value every multiplication chain builds on. With `return x`, power(2, 3) would compute 2 * 2 * 2 * 2 = 16, and with `return 0` every result would be 0.",
+      "concept": "base case value",
+      "section": 0
+    },
+    {
+      "id": "swe-recursion-backtracking-q05",
+      "type": "mcq",
+      "difficulty": "medium",
+      "question": "You call `f(5000)` in a standard CPython interpreter. What happens?",
+      "code": "def f(n):\n    if n == 0:\n        return 0\n    return n + f(n - 1)",
+      "choices": [
+        "It returns 12502500 after a short delay",
+        "The operating system kills it for using too much heap memory",
+        "It raises RecursionError, because 5,000 frames is more than the default limit of about 1,000",
+        "It returns quickly because Python optimizes the tail call"
+      ],
+      "answer": 2,
+      "explanation": "Each call waits on the next, so 5,000 frames would need to be alive at once, and CPython's default limit is 1,000. Python does not do tail call optimization, and this call is not even a tail call because the addition happens after it returns.",
+      "concept": "recursion limit",
+      "section": 1
+    },
+    {
+      "id": "swe-recursion-backtracking-q06",
+      "type": "typed",
+      "difficulty": "easy",
+      "question": "Calling `fact(4)`, what is the largest number of `fact` frames on the call stack at the same moment?",
+      "code": "def fact(n):\n    if n <= 1:\n        return 1\n    return n * fact(n - 1)",
+      "answer": "4",
+      "explanation": "fact(4) waits on fact(3), which waits on fact(2), which waits on fact(1), the base case. At that moment all four frames are on the stack. Then they return one by one.",
+      "concept": "maximum stack depth",
+      "section": 1
+    },
+    {
+      "id": "swe-recursion-backtracking-q07",
+      "type": "mcq",
+      "difficulty": "medium",
+      "question": "A recursive function visits every node of a balanced binary tree with n nodes once. How much call stack space does it use?",
+      "choices": [
+        "O(log n)",
+        "O(n)",
+        "O(1)",
+        "O(n log n)"
+      ],
+      "answer": 0,
+      "explanation": "The stack holds one root-to-node path at a time, so its size is the height of the tree, which is about log2(n) when balanced. For a skewed tree shaped like a linked list the height is n, and the space becomes O(n).",
+      "concept": "stack space on trees",
+      "section": 1
+    },
+    {
+      "id": "swe-recursion-backtracking-q08",
+      "type": "recall",
+      "difficulty": "easy",
+      "question": "What does a stack frame hold, and why does deep recursion run out of stack?",
+      "answer": "A frame holds one call's arguments, local variables and return point. Frames stay on the stack until their call returns, so a recursion n levels deep keeps n frames alive at once and hits the limit when n is large.",
+      "explanation": "This is why recursion depth, not just the data you allocate, counts toward space complexity.",
+      "concept": "stack frames",
+      "section": 1
+    },
+    {
+      "id": "swe-recursion-backtracking-q09",
+      "type": "mcq",
+      "difficulty": "medium",
+      "question": "What does this JavaScript print?",
+      "code": "function depth(n) {\n  return n === 0 ? 0 : 1 + depth(n - 1)\n}\n\ntry {\n  depth(1e6)\n  console.log(\"done\")\n} catch (e) {\n  console.log(e.name)\n}",
+      "language": "javascript",
+      "choices": [
+        "done",
+        "RecursionError",
+        "StackOverflowError",
+        "RangeError"
+      ],
+      "answer": 3,
+      "explanation": "A million nested calls is far beyond any JavaScript engine's stack, so it throws `RangeError: Maximum call stack size exceeded`, and `e.name` is \"RangeError\". RecursionError is Python's name and StackOverflowError is Java's.",
+      "concept": "JavaScript stack overflow",
+      "section": 1
+    },
+    {
+      "id": "swe-recursion-backtracking-q10",
+      "type": "debug",
+      "difficulty": "medium",
+      "question": "For `[1, 2, 3]` this returns `[[], [], [], [], [], [], [], []]`. Which change fixes it?",
+      "code": "def subsets(nums):\n    result, path = [], []\n    def backtrack(start):\n        result.append(path)\n        for i in range(start, len(nums)):\n            path.append(nums[i])\n            backtrack(i + 1)\n            path.pop()\n    backtrack(0)\n    return result",
+      "choices": [
+        "Record a copy: result.append(path[:])",
+        "Move path.pop() before the recursive call",
+        "Start the loop at range(start + 1, len(nums))",
+        "Make path a tuple instead of a list"
+      ],
+      "answer": 0,
+      "explanation": "The result holds eight references to the one `path` list, which is empty once the search finishes. Appending a copy freezes each subset at the moment it is recorded. Moving the pop would break the choose and un-choose pairing.",
+      "concept": "copying the path",
+      "section": 2
+    },
+    {
+      "id": "swe-recursion-backtracking-q11",
+      "type": "order",
+      "difficulty": "medium",
+      "question": "Put the steps of one call of a backtracking function in order.",
+      "items": [
+        "If the path is a complete answer, record a copy of it",
+        "Loop over the candidates allowed at this step",
+        "Choose: add the candidate to the path",
+        "Explore: recurse with the updated path",
+        "Un-choose: remove the candidate from the path"
+      ],
+      "explanation": "Check for a finished answer first, then for each allowed candidate run choose, explore, un-choose. The un-choose must come after exploring, so the subtree sees the choice, and before the next candidate, so it does not.",
+      "concept": "backtracking template steps",
+      "section": 2
+    },
+    {
+      "id": "swe-recursion-backtracking-q12",
+      "type": "typed",
+      "difficulty": "easy",
+      "question": "How many subsets does a set of 5 distinct items have, counting the empty set and the full set?",
+      "answer": "32",
+      "explanation": "Each item is independently in or out, so there are 2^5 = 32 subsets. That is also the number of leaves in the take-or-skip decision tree.",
+      "concept": "number of subsets",
+      "section": 2
+    },
+    {
+      "id": "swe-recursion-backtracking-q13",
+      "type": "mcq",
+      "difficulty": "medium",
+      "question": "What does this print?",
+      "code": "def combos(nums, k):\n    out, path = [], []\n    def bt(start):\n        if len(path) == k:\n            out.append(path[:])\n            return\n        for i in range(start, len(nums)):\n            path.append(nums[i])\n            bt(i + 1)\n            path.pop()\n    bt(0)\n    return out\n\nprint(combos([1, 2, 3, 4], 2))",
+      "choices": [
+        "[[1, 2], [2, 3], [3, 4]]",
+        "[[1, 2], [1, 3], [1, 4], [2, 3], [2, 4], [3, 4]]",
+        "[[1, 2], [1, 3], [1, 4]]",
+        "[[1, 2], [2, 1], [1, 3], [3, 1], [2, 3], [3, 2]]"
+      ],
+      "answer": 1,
+      "explanation": "The path is recorded when it has k = 2 items. Recursing with `i + 1` means the second item always comes after the first, so you get all C(4, 2) = 6 pairs in increasing order and never `[2, 1]`.",
+      "concept": "start index output",
+      "section": 2
+    },
+    {
+      "id": "swe-recursion-backtracking-q14",
+      "type": "code-fill",
+      "difficulty": "hard",
+      "question": "Fill the blank so this returns each subset of a list of distinct numbers exactly once.",
+      "code": "def subsets(nums):\n    result, path = [], []\n    def backtrack(start):\n        result.append(path[:])\n        for i in range(start, len(nums)):\n            path.append(nums[i])\n            backtrack(_____)\n            path.pop()\n    backtrack(0)\n    return result",
+      "choices": [
+        "start + 1",
+        "i",
+        "i + 1",
+        "0"
+      ],
+      "answer": 2,
+      "explanation": "After choosing `nums[i]`, the next level must only consider items after it. `start + 1` lets the next level go back to items between start and i, so for [1, 2, 3] you get repeats such as [2, 2] and [3, 2]. `i` allows reusing the same item, and 0 restarts from the beginning.",
+      "concept": "recursing past the chosen item",
+      "section": 2
+    },
+    {
+      "id": "swe-recursion-backtracking-q15",
+      "type": "typed",
+      "difficulty": "easy",
+      "question": "How many lists does `permute([1, 2, 3, 4])` return?",
+      "answer": "24",
+      "explanation": "4 choices for the first slot, 3 for the second, 2 for the third and 1 for the last: 4! = 24 permutations.",
+      "concept": "number of permutations",
+      "section": 3
+    },
+    {
+      "id": "swe-recursion-backtracking-q16",
+      "type": "multi",
+      "difficulty": "medium",
+      "question": "Which changes turn the subsets template into a correct permutations solution? Select all that apply.",
+      "choices": [
+        "Replace the start index with a used array and loop over every index",
+        "Record the path only when its length equals len(nums)",
+        "Recurse with i instead of i + 1",
+        "Sort the input first",
+        "Set used[i] back to False after the recursive call"
+      ],
+      "answers": [
+        0,
+        1,
+        4
+      ],
+      "explanation": "Permutations need every unused item as a candidate at each level (used array), complete answers only (record at length n), and the used flag must be undone along with the path. Recursing with i allows reuse, which is combination sum, and sorting is not needed for distinct inputs.",
+      "concept": "subsets to permutations",
+      "section": 3
+    },
+    {
+      "id": "swe-recursion-backtracking-q17",
+      "type": "debug",
+      "difficulty": "hard",
+      "question": "`combination_sum([2, 3], 5)` returns `[[2, 3], [3, 2]]`. What is the bug?",
+      "code": "def combination_sum(candidates, target):\n    result, path = [], []\n    def backtrack(start, remaining):\n        if remaining == 0:\n            result.append(path[:])\n            return\n        if remaining < 0:\n            return\n        for i in range(start, len(candidates)):\n            path.append(candidates[i])\n            backtrack(0, remaining - candidates[i])\n            path.pop()\n    backtrack(0, target)\n    return result",
+      "choices": [
+        "The check remaining < 0 must come before remaining == 0",
+        "path.pop() should be path.clear()",
+        "The recursive call passes 0 instead of i, so later picks can go back to earlier candidates",
+        "The loop should start at start + 1"
+      ],
+      "answer": 2,
+      "explanation": "Restarting each level at index 0 lets the search pick 3 and then 2, so the same combination appears in two orders. Passing `i` keeps each combination in one index order and still allows reuse of the current candidate.",
+      "concept": "duplicate combinations",
+      "section": 3
+    },
+    {
+      "id": "swe-recursion-backtracking-q18",
+      "type": "match",
+      "difficulty": "medium",
+      "question": "Match each problem to the bookkeeping that shapes its search tree.",
+      "pairs": [
+        {
+          "left": "Permutations of distinct numbers",
+          "right": "Used array, record when the path has n items"
+        },
+        {
+          "left": "Subsets of distinct numbers",
+          "right": "Start index, recurse with i + 1, record at every node"
+        },
+        {
+          "left": "Combination sum with reuse",
+          "right": "Start index, recurse with i, record when the remainder is 0"
+        },
+        {
+          "left": "Subsets of a list with duplicates",
+          "right": "Sort, then skip a value equal to the previous one at the same level"
+        }
+      ],
+      "explanation": "Order mattering means a used array; order not mattering means a start index. Reuse changes i + 1 to i, and duplicates need sorting plus a same-level skip.",
+      "concept": "bookkeeping per problem",
+      "section": 3
+    },
+    {
+      "id": "swe-recursion-backtracking-q19",
+      "type": "typed",
+      "difficulty": "hard",
+      "question": "With the input sorted and the rule `if i > start and nums[i] == nums[i - 1]: continue` added to the subsets template, how many subsets does it return for `[1, 1, 2]`?",
+      "answer": "6",
+      "explanation": "The unique subsets are [], [1], [1, 1], [1, 1, 2], [1, 2] and [2]. Without the rule you would get 8, because [1] and [1, 2] would each appear twice, once for each copy of 1.",
+      "concept": "skipping duplicates",
+      "section": 3
+    },
+    {
+      "id": "swe-recursion-backtracking-q20",
+      "type": "mcq",
+      "difficulty": "easy",
+      "question": "What is pruning in backtracking?",
+      "choices": [
+        "Skipping a branch before exploring it because it cannot lead to a valid answer",
+        "Removing duplicate answers from the result after the search ends",
+        "Popping the last choice off the path after exploring",
+        "Caching the result of each subproblem so it is computed once"
+      ],
+      "answer": 0,
+      "explanation": "Pruning happens before the recursive call, so the whole subtree is never generated. Filtering afterwards does the full work anyway, and caching results is memoization, a dynamic programming idea.",
+      "concept": "what pruning is",
+      "section": 4
+    },
+    {
+      "id": "swe-recursion-backtracking-q21",
+      "type": "typed",
+      "difficulty": "medium",
+      "question": "How many strings does `generate_parentheses(4)` return?",
+      "answer": "14",
+      "explanation": "The counts of balanced strings with n pairs are the Catalan numbers: 1, 2, 5, 14, 42. For n = 4 there are 14.",
+      "concept": "Catalan numbers",
+      "section": 4
+    },
+    {
+      "id": "swe-recursion-backtracking-q22",
+      "type": "code-fill",
+      "difficulty": "medium",
+      "question": "The candidates are sorted in increasing order. Fill the blank so the loop stops trying candidates as soon as none of the remaining ones can fit.",
+      "code": "candidates.sort()\n\ndef backtrack(start, remaining):\n    if remaining == 0:\n        result.append(path[:])\n        return\n    for i in range(start, len(candidates)):\n        if candidates[i] > remaining:\n            _____\n        path.append(candidates[i])\n        backtrack(i, remaining - candidates[i])\n        path.pop()",
+      "choices": [
+        "continue",
+        "break",
+        "return result",
+        "remaining -= candidates[i]"
+      ],
+      "answer": 1,
+      "explanation": "Because the list is sorted, every later candidate is at least as big, so none of them fits either and `break` ends the loop. `continue` gives the right answer but keeps testing candidates that cannot fit.",
+      "concept": "pruning with a sorted list",
+      "section": 4
+    },
+    {
+      "id": "swe-recursion-backtracking-q23",
+      "type": "mcq",
+      "difficulty": "easy",
+      "question": "For n = 3, brute force builds every string of six parentheses and keeps the balanced ones. How many does it build, and how many are balanced?",
+      "choices": [
+        "20 built, 5 balanced",
+        "64 built, 14 balanced",
+        "64 built, 5 balanced",
+        "8 built, 5 balanced"
+      ],
+      "answer": 2,
+      "explanation": "Six positions with two characters each give 2^6 = 64 strings, and only 5 are balanced. Pruned backtracking never builds the other 59 in full.",
+      "concept": "brute force vs pruning",
+      "section": 4
+    },
+    {
+      "id": "swe-recursion-backtracking-q24",
+      "type": "debug",
+      "difficulty": "hard",
+      "question": "With `board = [[\"T\", \"O\", \"O\"]]` and `word = \"OOT\"`, this version returns False even though the word is in the grid. Why?",
+      "code": "def dfs(r, c, k):\n    if k == len(word):\n        return True\n    if (r < 0 or r >= rows or c < 0 or c >= cols\n            or board[r][c] != word[k]):\n        return False\n    board[r][c] = \"#\"\n    return (dfs(r + 1, c, k + 1) or dfs(r - 1, c, k + 1) or\n            dfs(r, c + 1, k + 1) or dfs(r, c - 1, k + 1))",
+      "choices": [
+        "The success check k == len(word) must come after the bounds check",
+        "The or chain stops at the first True, so some neighbors are never tried",
+        "Cells should be marked with an empty string instead of #",
+        "Marked cells are never restored, so a failed path leaves # marks that block the path that would work"
+      ],
+      "answer": 3,
+      "explanation": "The search from the middle O goes right to the last O, fails to find T, and leaves both cells as #. The correct path starts at the last O and goes left, but that cell is now #. Restoring the letter after exploring fixes it. Stopping at the first True is fine, since one path is enough.",
+      "concept": "restoring grid cells",
+      "section": 5
+    },
+    {
+      "id": "swe-recursion-backtracking-q25",
+      "type": "mcq",
+      "difficulty": "medium",
+      "question": "What is the time complexity of word search on an R x C grid for a word of length L?",
+      "choices": [
+        "O(R * C * L)",
+        "O(R * C * 3^L)",
+        "O((R * C)^L)",
+        "O(R * C + L)"
+      ],
+      "answer": 1,
+      "explanation": "Each of the R x C cells can start a search, and each search branches into at most 3 new directions per letter after the first, so a single start costs O(3^L). R x C x L would only hold if each start followed one path.",
+      "concept": "word search complexity",
+      "section": 5
+    },
+    {
+      "id": "swe-recursion-backtracking-q26",
+      "type": "mcq",
+      "difficulty": "easy",
+      "question": "Word search overwrites a used cell with `#`. Why is no separate visited check needed?",
+      "choices": [
+        "Python skips # characters when comparing strings",
+        "The bounds check rejects any cell holding #",
+        "A cell holding # never equals a letter of the word, so the mismatch test rejects it",
+        "Each cell can only be reached from one direction"
+      ],
+      "answer": 2,
+      "explanation": "The test `board[r][c] != word[k]` already fails for `#`, because the word contains letters only. That folds \"already used\" into the existing mismatch check for free.",
+      "concept": "sentinel marking",
+      "section": 5
+    },
+    {
+      "id": "swe-recursion-backtracking-q27",
+      "type": "match",
+      "difficulty": "hard",
+      "question": "Match each problem to its time complexity.",
+      "pairs": [
+        {
+          "left": "All subsets of n items",
+          "right": "O(n * 2^n)"
+        },
+        {
+          "left": "All permutations of n items",
+          "right": "O(n * n!)"
+        },
+        {
+          "left": "Word search, R x C grid, word length L",
+          "right": "O(R * C * 3^L)"
+        },
+        {
+          "left": "All balanced strings of n pairs of parentheses",
+          "right": "O(4^n / sqrt(n))"
+        }
+      ],
+      "explanation": "Each is tree size times work per answer: 2^n subsets copied in O(n), n! permutations copied in O(n), up to 3^L steps from each of R x C starts, and the Catalan number (about 4^n / n^1.5) of strings, each built in O(n).",
+      "concept": "backtracking complexities",
+      "section": 6
+    },
+    {
+      "id": "swe-recursion-backtracking-q28",
+      "type": "mcq",
+      "difficulty": "hard",
+      "question": "A phone keypad maps each digit to 3 or 4 letters. A backtracking function returns every letter string for a digit string of length n. What is its worst-case time?",
+      "choices": [
+        "O(4n)",
+        "O(n!)",
+        "O(3^n)",
+        "O(n * 4^n)"
+      ],
+      "answer": 3,
+      "explanation": "With up to 4 branches per digit and depth n, there are up to 4^n strings, and building each costs O(n). O(3^n) undercounts, because 7 and 9 have four letters each.",
+      "concept": "letter combinations complexity",
+      "section": 6
+    },
+    {
+      "id": "swe-recursion-backtracking-q29",
+      "type": "mcq",
+      "difficulty": "medium",
+      "question": "Not counting the output, how much extra space does the subsets backtracking solution use?",
+      "choices": [
+        "O(n)",
+        "O(2^n)",
+        "O(n * 2^n)",
+        "O(1)"
+      ],
+      "answer": 0,
+      "explanation": "The recursion is at most n deep and the path holds at most n items, so the working space is O(n). The 2^n subsets are output, which you mention separately.",
+      "concept": "space of backtracking",
+      "section": 6
+    },
+    {
+      "id": "swe-recursion-backtracking-q30",
+      "type": "multi",
+      "difficulty": "medium",
+      "question": "Select every problem statement that signals backtracking.",
+      "choices": [
+        "Return all ways to place 8 queens on a chessboard so that no two attack each other",
+        "Return every combination of k numbers chosen from 1 to n",
+        "Return the fewest coins needed to make an amount up to 10^4",
+        "Return all valid IP addresses that can be formed by inserting dots into a digit string",
+        "Return the length of the longest substring without repeating characters"
+      ],
+      "answers": [
+        0,
+        1,
+        3
+      ],
+      "explanation": "Listing every arrangement, combination or way of inserting dots is backtracking. The fewest coins for a large amount is dynamic programming, and the longest substring without repeats is a sliding window.",
+      "concept": "recognizing backtracking",
+      "section": 7
+    },
+    {
+      "id": "swe-recursion-backtracking-q31",
+      "type": "mcq",
+      "difficulty": "medium",
+      "question": "A problem asks for every valid arrangement and says 1 <= n <= 10. What does the limit suggest?",
+      "choices": [
+        "You need an O(n log n) algorithm",
+        "You must use dynamic programming because n is small",
+        "An exponential backtracking search is expected and will finish in time",
+        "The answer can be computed with a formula in O(1)"
+      ],
+      "answer": 2,
+      "explanation": "Small limits exist so exponential searches pass. Even 10! is about 3.6 million, which is fine. Limits around 10^5 are what force O(n) or O(n log n) solutions.",
+      "concept": "input limits as hints",
+      "section": 7
+    },
+    {
+      "id": "swe-recursion-backtracking-q32",
+      "type": "recall",
+      "difficulty": "hard",
+      "question": "Interview prompt: \"Return all subsets of a list of distinct numbers.\" Explain your approach and its complexity in two or three sentences.",
+      "answer": "Backtracking: each item is a take-or-skip decision, so the search tree has depth n and 2^n subsets. I loop from a start index, add an item, recurse on the items after it, then pop it, and record a copy of the path at every node. That is O(n * 2^n) time and O(n) extra space besides the output.",
+      "explanation": "A strong answer names the pattern, the decision at each step, how duplicates are avoided (the start index) and the complexity with its reason.",
+      "concept": "explaining an approach",
+      "section": 7
+    }
+  ]
+}

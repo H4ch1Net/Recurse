@@ -1,0 +1,621 @@
+{
+  "id": "ccna-ipv6",
+  "name": "IPv6 Addressing",
+  "version": "1.0.0",
+  "author": "Recurse",
+  "subject": "networking",
+  "level": "intermediate",
+  "description": "Read, compress, and classify IPv6 addresses, build EUI-64 IDs, explain SLAAC and NDP, and configure IPv6 on a Cisco router.",
+  "icon": "v6",
+  "language": "plaintext",
+  "prereqs": ["ccna-ipv4-addressing", "ccna-subnetting"],
+  "tags": ["ccna", "1.8", "1.9", "ipv6", "eui-64", "slaac", "ndp"],
+  "lesson": {
+    "estimatedMinutes": 40,
+    "intro": "IPv6 looks intimidating mostly because of its notation. Underneath it is a handful of rules: how to shorten and expand an address, which leading digits mean which address type, how a host builds its own address, and the few commands that turn it on in IOS. This lesson covers all of it at the depth the CCNA asks, with a console lab at the end.",
+    "objectives": [
+      "Compress and expand IPv6 addresses with the two abbreviation rules",
+      "Find the prefix of an IPv6 address and explain the /64 convention",
+      "Classify global unicast, unique local, link-local, multicast, and anycast addresses on sight",
+      "Build a modified EUI-64 interface ID and explain how SLAAC, DHCPv6, and NDP give hosts their settings",
+      "Configure and verify IPv6 addressing on a Cisco router interface"
+    ],
+    "sections": [
+      {
+        "title": "Why IPv6, and what an address looks like",
+        "body": "In 2011 IANA handed its last five blocks of IPv4 space to the regional registries, and within a few years most regions had run dry. NAT and private addressing bought decades, but at a cost: hosts behind NAT are hard to reach from outside, and every translation adds state and complexity to the network. **IPv6** is the real fix.\n\nAn IPv6 address is **128 bits** long, four times the 32 bits of IPv4. That is 2^128 addresses, about 3.4 x 10^38. A single standard LAN subnet (a /64) holds 2^64 addresses, which is the entire IPv4 address space multiplied by itself.\n\nWriting 128 bits needs a compact format, so IPv6 uses **hexadecimal**. Each hex digit stands for 4 bits (0 to 9, then a to f for 10 to 15). An address is written as **eight groups of four hex digits** separated by colons. Each group is 16 bits and is usually called a **hextet** (Odom calls it a quartet). Hex is not case-sensitive: 2001:DB8 and 2001:db8 are the same, and IOS displays uppercase.\n\nIPv6 changes more than the address size:\n\n- **No broadcast.** Jobs that used broadcast use multicast instead.\n- **NDP replaces ARP.** Neighbor Discovery, part of ICMPv6, finds MAC addresses and routers.\n- **Autoconfiguration.** Hosts can build their own address from a router's advertisement (SLAAC), with no DHCP server.\n- **No NAT needed.** Every device can have a globally unique address.\n- **A simpler fixed 40-byte header**, which makes forwarding cheaper.\n\nIPv4 is not going away soon, so most networks run **dual stack**: interfaces carry both an IPv4 and an IPv6 address, and hosts generally prefer IPv6 when both work. On a Cisco router, that means the IPv4 configuration you already know plus the IPv6 commands in this lesson.",
+        "code": "2001:0db8:00a3:0000:0000:8a2e:0370:7334\n|-1--|-2--|-3--|-4--|-5--|-6--|-7--|-8--|   8 hextets x 16 bits = 128 bits\n\nOne hextet:  0db8  =  0000 1101 1011 1000\n                      0    d    b    8      each hex digit is 4 bits\n\nHex  Binary   Hex  Binary   Hex  Binary   Hex  Binary\n0    0000     4    0100     8    1000     c    1100\n1    0001     5    0101     9    1001     d    1101\n2    0010     6    0110     a    1010     e    1110\n3    0011     7    0111     b    1011     f    1111",
+        "tip": "2001:db8::/32 is reserved for documentation, which is why it fills books and exam questions. Real global prefixes come from your ISP or registry.",
+        "pitfall": "Treating IPv6 groups like IPv4 octets. Each group is 16 bits (four hex digits), so there are 8 groups, and each hex digit is 4 bits.",
+        "check": {
+          "question": "How many bits does one hextet (one colon-separated group of four hex digits) hold?",
+          "choices": ["8", "16", "32", "4"],
+          "answer": 1,
+          "explanation": "Four hex digits at 4 bits each make 16 bits, and eight hextets make 128 bits. 8 bits is an IPv4 octet, and 4 bits is a single hex digit."
+        }
+      },
+      {
+        "title": "Shortening and expanding addresses",
+        "body": "Typing 2001:0db8:0000:0000:0000:ff00:0042:8329 into a router is slow and error-prone, so IPv6 has two rules for shortening an address. Routers and hosts always display the short form, so you need to read it fluently, not just write it.\n\n**Rule 1: drop leading zeros in each hextet.** 0db8 becomes db8, 0042 becomes 42, and 0000 becomes 0. Only leading zeros go: ff00 stays ff00, because its zeros are trailing.\n\n**Rule 2: replace one run of two or more consecutive all-zero hextets with ::.** You may use :: only **once** in an address. If it appeared twice, nobody could tell how many zero hextets each one stood for. If there are two runs, compress the longer one; if they are the same length, the recommended convention (RFC 5952) compresses the first. Do not use :: for a single zero hextet; write 0.\n\nApplying both rules:\n\n- Full: 2001:0db8:0000:0000:0000:ff00:0042:8329\n- After rule 1: 2001:db8:0:0:0:ff00:42:8329\n- After rule 2: 2001:db8::ff00:42:8329\n\n**Expanding** reverses the rules. Pad every hextet back to four digits with leading zeros, then count the hextets you have and replace :: with enough 0000 groups to make eight. 2001:db8:a::1 shows four hextets, so :: stands for four zero hextets: 2001:0db8:000a:0000:0000:0000:0000:0001.\n\nA few forms look odd but are normal: :: by itself is the all-zeros (unspecified) address, ::1 is loopback, and an address may begin or end with ::, as in fe80::1 or the prefix 2001:db8:1:2::.",
+        "code": "Full      fe00:0000:0000:0001:0000:0000:0000:0056\nRule 1    fe00:0:0:1:0:0:0:56       leading zeros gone, fe00 kept whole\nRule 2    fe00:0:0:1::56            longest zero run (3 hextets) becomes ::\n\nWrong     fe:0:0:1::56              dropped the trailing zeros of fe00\nWrong     fe00::1::56               :: used twice, so the address is ambiguous",
+        "pitfall": "Removing trailing zeros. In fe00 or 2a00 the zeros are trailing and must stay; only leading zeros in a hextet can be dropped.",
+        "activity": {
+          "type": "ipv6-tool",
+          "title": "Compress and expand",
+          "prompt": "Compress five addresses. Before you check each one, say which run of zero hextets you will replace with :: and why. Then expand one back to all 32 hex digits and confirm you end up with exactly eight hextets.",
+          "props": {}
+        },
+        "check": {
+          "question": "Which is the shortest valid form of 2001:0db8:0000:0001:0000:0000:0000:0001?",
+          "choices": ["2001:db8::1::1", "2001:db8::1:0:0:0:1", "2001:db8:0:1::1", "2001:db8:0:1:0::1"],
+          "answer": 2,
+          "explanation": "Drop leading zeros, then compress the longest zero run (hextets 5 to 7) into :: to get 2001:db8:0:1::1. Compressing the single zero hextet instead is longer, and ::1::1 uses :: twice, which is illegal."
+        }
+      },
+      {
+        "title": "Prefixes and the /64 convention",
+        "body": "IPv6 still has a network part and a host part, and it writes the split the same way IPv4 CIDR does: a prefix length after a slash. There are no dotted-decimal masks in IPv6.\n\nA typical global unicast address on a LAN breaks into three parts:\n\n- **Global routing prefix**, assigned by an ISP or registry, often a /48 for a site.\n- **Subnet ID**, the bits between the routing prefix and /64. With a /48 that is the whole fourth hextet: 16 bits, or 65,536 possible /64 subnets for one site.\n- **Interface ID**, the last 64 bits, which identifies the host on its link.\n\nTo find the prefix (the subnet) of an address, keep the bits covered by the prefix length and set the rest to 0. When the prefix ends on a hextet boundary (/16, /32, /48, /64), just keep that many hextets: the /64 prefix of 2001:db8:acad:10:20c:29ff:fe12:3456 is 2001:db8:acad:10::/64. When it does not, count hex digits, since each is 4 bits. A /56 keeps the first 14 hex digits, so the /56 prefix of 2001:db8:1:2a3c::1 keeps the 2a of the fourth hextet and zeros the 3c: 2001:db8:1:2a00::/56.\n\nWhy is nearly every LAN a **/64**? SLAAC and modified EUI-64 build a 64-bit interface ID, so they only work when the prefix leaves exactly 64 bits. No LAN will ever run out of host addresses in a /64, so IPv6 design is about choosing subnet IDs, not squeezing hosts into masks. You will still see other lengths: /48 or /56 for a whole site, /127 on some router-to-router links (RFC 6164), and /128 for a single address such as a loopback or a router's local route.\n\nRouter output shows the prefix next to each address, for example `2001:DB8:ACAD:10::1, subnet is 2001:DB8:ACAD:10::/64`.",
+        "code": "2001:0db8:acad : 0010 : 020c:29ff:fe12:3456\n|--- 48 bits --| 16 bits |----- 64 bits -----|\n global routing  subnet ID     interface ID\n prefix (/48)\n|-------- /64 prefix ----|\n\n/64 prefix    2001:db8:acad:10::/64\n/56 example   2001:db8:1:2a3c::1/56  keep 14 hex digits  ->  2001:db8:1:2a00::/56",
+        "pitfall": "Zeroing whole hextets for a prefix that ends mid-hextet. A /56 ends after the second hex digit of the fourth hextet, so 2a3c becomes 2a00, not 0000 and not 2a3c.",
+        "check": {
+          "question": "A site has 2001:db8:5::/48 and uses /64 LAN subnets. How many subnets can it create?",
+          "choices": ["256", "16", "65,536", "2^64"],
+          "answer": 2,
+          "explanation": "From /48 to /64 is 16 subnet bits, and 2^16 = 65,536. 2^64 is the number of interface IDs in each /64, not the number of subnets."
+        }
+      },
+      {
+        "title": "Unicast address types",
+        "body": "Run `show ipv6 interface brief` on a router where you configured one address and you will see two on the interface: the one you typed, starting with 2001, and one you did not, starting with FE80. Both are **unicast** (one address, one interface), but they do very different jobs. The exam expects you to classify an address from its first few hex digits.\n\n- **Global unicast (2000::/3).** Publicly routable and globally unique, the IPv6 version of a public IPv4 address. Current assignments all begin with 2 or 3. These go on LANs and servers.\n- **Unique local (fc00::/7, fd00::/8 in practice).** The private range, IPv6's answer to RFC 1918, not routed on the internet. The format is fd, then a randomly chosen 40-bit global ID (so two organizations are unlikely to collide if they ever connect), then a 16-bit subnet ID and a 64-bit interface ID. fd plus the 40-bit ID gives the organization a /48.\n- **Link-local (fe80::/10).** Created automatically on every IPv6-enabled interface, valid only on that link, and never forwarded by routers. NDP uses link-local addresses, routing protocols use them as next hops, and hosts use the router's link-local address as their default gateway. In practice they always begin fe80:0000:0000:0000. Because each link is separate, a router can reuse the same link-local address, such as fe80::1, on every interface.\n- **Loopback (::1)** is the host itself, like 127.0.0.1.\n- **Unspecified (::)** means no address yet. A host uses it as a source while it checks its first address.\n\nOlder material mentions **site-local** addresses (fec0::/10). They were deprecated in 2004 and replaced by unique local addresses.",
+        "code": "Type             Prefix      Starts with        Routed on the internet?\nGlobal unicast   2000::/3    2 or 3             Yes\nUnique local     fc00::/7    fd (in practice)   No (private)\nLink-local       fe80::/10   fe80               No, never leaves the link\nMulticast        ff00::/8    ff                 Depends on scope\nLoopback         ::1/128     ::1                No\nUnspecified      ::/128      ::                 No",
+        "pitfall": "Dismissing fe80 addresses because they are not routable. Link-local addresses run IPv6's control plane: neighbor discovery, router discovery, routing protocol next hops, and the hosts' default gateway.",
+        "check": {
+          "question": "A host shows the address fd4c:2a1b:93e0:10::25. What type of address is it?",
+          "choices": ["Global unicast", "Unique local", "Link-local", "Multicast"],
+          "answer": 1,
+          "explanation": "Addresses beginning with fd come from fc00::/7, the unique local (private) range. Global unicast begins with 2 or 3, link-local with fe80, and multicast with ff."
+        }
+      },
+      {
+        "title": "Multicast, anycast, and no broadcast",
+        "body": "An IPv4 ARP request interrupts every host on the VLAN, even though only one of them owns the address being asked about. IPv6 removes broadcast completely. Messages that must reach several devices go to a **multicast** group, and only devices that joined the group need to process them.\n\nIPv6 multicast addresses start with **ff** (ff00::/8). The fourth hex digit is the **scope**: ff02 is link-local scope (never routed), ff05 site-local, ff08 organization-local, and ff0e global. The link-local groups you should know:\n\n- **ff02::1**: all nodes on the link, the closest thing IPv6 has to a broadcast.\n- **ff02::2**: all routers on the link. Hosts send Router Solicitations here.\n- **ff02::5 and ff02::6**: OSPFv3 routers and designated routers.\n- **ff02::a**: EIGRP for IPv6 routers.\n- **ff02::1:2**: all DHCPv6 servers and relay agents.\n\nThe **solicited-node multicast** address is calculated from each unicast address on an interface: ff02::1:ff followed by the last 24 bits (six hex digits) of the unicast address. 2001:db8:0:12::1 ends in 00:0001, so its group is ff02::1:ff00:1. NDP sends neighbor solicitations to this group, so only hosts whose addresses end in the same six hex digits even look at the packet.\n\n**Anycast** is the third delivery type. The same unicast address is configured on several devices (on IOS, for example, `ipv6 address 2001:db8:1:2::99/128 anycast`), each advertises it into routing, and every packet goes to whichever one is nearest by the routing metric. There is no special anycast range; an anycast address looks exactly like a global unicast one. DNS root servers are the famous example.",
+        "code": "Address              Meaning                                    IPv4 cousin\nff02::1              All nodes on the link                      224.0.0.1\nff02::2              All routers on the link                    224.0.0.2\nff02::5 / ff02::6    OSPFv3 routers / designated routers        224.0.0.5 / 224.0.0.6\nff02::a              EIGRPv6 routers                            224.0.0.10\nff02::1:2            DHCPv6 servers and relay agents            none\nff02::1:ffxx:xxxx    Solicited-node (last 24 bits of unicast)   none\n\nUnicast          2001:db8:0:12:0000:0000:00|00:0001\nSolicited-node   ff02::1:ff  +  00:0001   ->   ff02::1:ff00:1",
+        "pitfall": "Saying IPv6 uses broadcast to find neighbors. IPv6 has no broadcast at all; NDP uses solicited-node multicast and ff02::1 instead.",
+        "check": {
+          "question": "What is the solicited-node multicast address for 2001:db8:0:12::1?",
+          "choices": ["ff02::1", "ff05::1:ff00:1", "ff02::2:1", "ff02::1:ff00:1"],
+          "answer": 3,
+          "explanation": "Take ff02::1:ff and append the last six hex digits of the unicast address (00:0001), giving ff02::1:ff00:1. ff02::1 is all nodes, and ff05 would be site scope."
+        }
+      },
+      {
+        "title": "Modified EUI-64",
+        "body": "Configure `ipv6 address 2001:db8:1:1::/64 eui-64` on an interface and the router fills in the last 64 bits itself, from its own MAC address. The rules are called **modified EUI-64**, and the exam expects you to do them by hand:\n\n1. Split the 48-bit MAC into two 24-bit halves (six hex digits each).\n2. Insert **fffe** between the halves, making 64 bits.\n3. **Invert the seventh bit** of the first byte, reading from the left (the universal/local bit).\n\nWorked example with MAC 0013.1234.abcd: the halves are 001312 and 34abcd, inserting fffe gives 001312fffe34abcd, and the first byte 00 is 0000 0000 in binary. Flipping the seventh bit gives 0000 0010, which is 02. The interface ID is 0213:12ff:fe34:abcd, and with the prefix the address is 2001:db8:1:1:213:12ff:fe34:abcd.\n\nThe flip only ever changes the **second hex digit**, and always by 2: 0 and 2 swap, 1 and 3, 4 and 6, 5 and 7, 8 and a, 9 and b, c and e, d and f. So a MAC starting 00 gives 02, one starting 02 gives 00, one starting 16 gives 14, and one starting 30 gives 32.\n\nCisco routers also use EUI-64 to build their link-local addresses automatically: fe80:: plus the same interface ID. That is why you can often spot a MAC address inside fe80 addresses in show output, with ff:fe in the middle. Hosts may do the same, but many operating systems use random interface IDs instead, for privacy, so do not expect fffe on every PC.\n\nIf you type a full address together with the `eui-64` keyword, IOS keeps only the prefix and calculates the interface ID anyway.",
+        "code": "MAC              0013.1234.abcd\nSplit            001312 | 34abcd\nInsert fffe      001312 fffe 34abcd\nFirst byte       00 = 0000 0000  -> flip 7th bit ->  0000 0010 = 02\nInterface ID     0213:12ff:fe34:abcd\n\nPrefix           2001:db8:1:1::/64\nEUI-64 address   2001:db8:1:1:213:12ff:fe34:abcd\nLink-local       fe80::213:12ff:fe34:abcd",
+        "pitfall": "Forgetting the bit flip. MAC 0013.1234.abcd does not become 0013:12ff:fe34:abcd; the seventh bit must be inverted, giving 0213:12ff:fe34:abcd.",
+        "activity": {
+          "type": "ipv6-tool",
+          "title": "Build EUI-64 interface IDs",
+          "prompt": "Use the EUI-64 builder with a MAC that starts with 00, then one that starts with 02. Predict the second hex digit of each interface ID before you look, and notice exactly where fffe lands.",
+          "props": {}
+        },
+        "check": {
+          "question": "What modified EUI-64 interface ID does MAC 30f7.0d29.8568 produce?",
+          "choices": ["30f7:dff:fe29:8568", "32f7:d29:fffe:8568", "32f7:dff:fe29:8568", "30f7:0d29:fffe:8568"],
+          "answer": 2,
+          "explanation": "Split into 30f70d and 298568, insert fffe to get 30f70dfffe298568, and flip the seventh bit of 30 (0011 0000 becomes 0011 0010, which is 32). Grouped and shortened: 32f7:dff:fe29:8568. The first choice skips the flip, and the others put fffe in the wrong place."
+        }
+      },
+      {
+        "title": "SLAAC, DHCPv6, and NDP",
+        "body": "Plug a laptop into an IPv6 LAN and within a second it has a global address and a default gateway, with no DHCP server involved. That is **NDP** (Neighbor Discovery Protocol), part of ICMPv6, at work. Its five messages:\n\n- **Router Solicitation (RS):** a host asks routers on the link, at ff02::2, to identify themselves.\n- **Router Advertisement (RA):** a router announces itself, the link's prefix and prefix length, and flags telling hosts how to get addresses. Routers send RAs periodically to ff02::1 and in reply to an RS. The router's link-local address in the RA becomes the hosts' default gateway.\n- **Neighbor Solicitation (NS):** asks the owner of an IPv6 address for its MAC address, sent to that address's solicited-node group. It replaces the ARP request.\n- **Neighbor Advertisement (NA):** the reply carrying the MAC address. It replaces the ARP reply. Results go in the neighbor table (`show ipv6 neighbors`).\n- **Redirect:** a router tells a host about a better first hop.\n\n**Duplicate Address Detection (DAD)** reuses NS and NA. Before using any unicast address, a host sends an NS for its own address. If anyone answers with an NA, the address is a duplicate and the host does not use it.\n\nHosts get their addresses in one of three ways:\n\n- **SLAAC** (Stateless Address Autoconfiguration): the host learns the /64 prefix from the RA, builds its own interface ID (EUI-64 or random), runs DAD, and starts using the address. No server tracks who has which address.\n- **Stateless DHCPv6:** the address still comes from SLAAC, but the host asks a DHCPv6 server for other settings such as DNS servers. The RA's **O flag** (other configuration) tells hosts to do this.\n- **Stateful DHCPv6:** a DHCPv6 server assigns the address and other settings and keeps a record of leases, much like DHCP for IPv4. The RA's **M flag** (managed) tells hosts to do this. The default gateway still comes from the RA, because DHCPv6 has no gateway option.\n\nBy default a Cisco router sends RAs with both flags off, so hosts use SLAAC, and `show ipv6 interface` says Hosts use stateless autoconfig for addresses. A router interface can also be a client: `ipv6 address autoconfig` uses SLAAC and `ipv6 address dhcp` uses DHCPv6. When the DHCPv6 server sits on another subnet, the router relays requests with `ipv6 dhcp relay destination`, the IPv6 counterpart of `ip helper-address`.",
+        "code": "NDP message  Sent by    Sent to                       Job\nRS           Host       ff02::2 (all routers)         Any routers on this link?\nRA           Router     ff02::1, or the asking host   Prefix, length, gateway, M and O flags\nNS           Any node   Solicited-node multicast      Replaces ARP request; also used for DAD\nNA           Any node   Back to the asker             Replaces ARP reply\nRedirect     Router     A host                        Better first hop\n\nMethod             Address from             Other settings (DNS)   RA flags\nSLAAC              RA prefix + own ID       RA                     M=0, O=0\nStateless DHCPv6   RA prefix + own ID       DHCPv6 server          M=0, O=1\nStateful DHCPv6    DHCPv6 server            DHCPv6 server          M=1\nDefault gateway in all three: the router's link-local address, learned from the RA",
+        "pitfall": "Expecting a stateful DHCPv6 server to hand out the default gateway. DHCPv6 has no gateway option; hosts always learn the gateway from router advertisements.",
+        "check": {
+          "question": "Which NDP message does the job of an IPv4 ARP request?",
+          "choices": ["Router Solicitation", "Router Advertisement", "Neighbor Advertisement", "Neighbor Solicitation"],
+          "answer": 3,
+          "explanation": "A Neighbor Solicitation asks the owner of an IPv6 address for its MAC address, sent to the target's solicited-node group. The Neighbor Advertisement is the reply, like an ARP reply. RS and RA are about finding routers and prefixes."
+        }
+      },
+      {
+        "title": "Configuring and verifying IPv6 on a router",
+        "body": "R1's G0/0 faces a link that should use 2001:db8:0:12::1/64. Unlike IPv4, IPv6 routing is **off by default** on Cisco routers, so the configuration has a global step and an interface step:\n\n- `ipv6 unicast-routing` (global) turns on IPv6 routing. Without it the router still accepts interface addresses but acts like an IPv6 host: it does not forward IPv6 packets between interfaces and does not send router advertisements, so SLAAC hosts on its LANs never learn a prefix.\n- `ipv6 address 2001:db8:0:12::1/64` (interface) assigns a global or unique local address. The prefix length goes straight onto the address, with no space and no mask.\n- `ipv6 address 2001:db8:0:12::/64 eui-64` assigns the prefix and lets the router build the interface ID.\n- `ipv6 address fe80::1 link-local` replaces the automatic link-local address with an easy one to read. It must be inside fe80::/10.\n- `ipv6 enable` turns on IPv6 with only a link-local address, which is enough on a router-to-router link because routing protocols use link-local next hops.\n- `no shutdown`, as always.\n\nAn interface can hold several IPv6 addresses, so a second `ipv6 address` command adds an address instead of replacing the first (remove a wrong one with `no ipv6 address` followed by the address).\n\nVerify with:\n\n- `show ipv6 interface brief`: each interface's status in brackets and its addresses, including the automatic fe80 link-local, but no prefix lengths.\n- `show ipv6 interface g0/0`: the link-local address, each global address with its subnet, and the multicast groups joined. ff02::2 appears only when `ipv6 unicast-routing` is on.\n- `show ipv6 route`: a C route for the /64 and an L route for the router's own address as a /128.\n- `show ipv6 neighbors`: the NDP neighbor table, IPv6's version of the ARP cache.",
+        "code": "R1(config)# ipv6 unicast-routing\nR1(config)# interface g0/0\nR1(config-if)# ipv6 address 2001:db8:0:12::1/64\nR1(config-if)# no shutdown\nR1(config-if)# end\n\nR1# show ipv6 interface brief\nGigabitEthernet0/0     [up/up]\n    FE80::250:56FF:FEAB:12CD\n    2001:DB8:0:12::1\nGigabitEthernet0/1     [administratively down/down]\n    unassigned\n\nR1# show ipv6 interface g0/0\nGigabitEthernet0/0 is up, line protocol is up\n  IPv6 is enabled, link-local address is FE80::250:56FF:FEAB:12CD\n  No Virtual link-local address(es):\n  Global unicast address(es):\n    2001:DB8:0:12::1, subnet is 2001:DB8:0:12::/64\n  Joined group address(es):\n    FF02::1\n    FF02::2\n    FF02::1:FF00:1\n    FF02::1:FFAB:12CD\n  MTU is 1500 bytes\n  ND DAD is enabled, number of DAD attempts: 1\n  Hosts use stateless autoconfig for addresses.\n\nR1# show ipv6 route\n! codes legend omitted\nC   2001:DB8:0:12::/64 [0/0]\n     via GigabitEthernet0/0, directly connected\nL   2001:DB8:0:12::1/128 [0/0]\n     via GigabitEthernet0/0, receive\nL   FF00::/8 [0/0]\n     via Null0, receive",
+        "language": "cisco",
+        "tip": "The automatic link-local address here is EUI-64 from G0/0's MAC 0050.56ab.12cd: 00 flips to 02, giving FE80::250:56FF:FEAB:12CD.",
+        "pitfall": "Configuring interface addresses but forgetting ipv6 unicast-routing. Everything looks right in show ipv6 interface brief, yet the router forwards no IPv6 packets and sends no router advertisements.",
+        "activity": {
+          "type": "ios-console",
+          "title": "Lab: IPv6 on a router link",
+          "prompt": "Enable IPv6 routing, give G0/0 the address 2001:db8:0:12::1/64, and bring the interface up. Then run show ipv6 interface brief and find the fe80 link-local address you never typed. Abbreviations work here just like IPv4 (sh ipv6 int br).",
+          "props": { "lab": "cl-d1-ipv6" }
+        },
+        "check": {
+          "question": "R1's interfaces already have IPv6 addresses and are up/up. Which command must be added so R1 forwards IPv6 packets between them?",
+          "choices": ["ipv6 unicast-routing", "ipv6 enable", "ip routing", "ipv6 address autoconfig"],
+          "answer": 0,
+          "explanation": "IPv6 routing is off by default; ipv6 unicast-routing in global configuration turns it on. ipv6 enable only adds a link-local address to one interface, and ip routing controls IPv4."
+        }
+      }
+    ],
+    "keyTerms": [
+      { "term": "Hextet", "definition": "One 16-bit group of an IPv6 address, written as four hex digits; an address has eight." },
+      { "term": "Double colon (::)", "definition": "Shorthand for one run of two or more all-zero hextets; allowed only once per address." },
+      { "term": "Interface ID", "definition": "The host part of an IPv6 address, normally the last 64 bits." },
+      { "term": "Global unicast", "definition": "Publicly routable IPv6 unicast address from 2000::/3, starting with 2 or 3." },
+      { "term": "Unique local", "definition": "Private IPv6 range fc00::/7 (fd00::/8 in practice), not routed on the internet." },
+      { "term": "Link-local", "definition": "fe80::/10 address created automatically on every IPv6 interface; never routed, used by NDP and as next hop and default gateway." },
+      { "term": "Solicited-node multicast", "definition": "ff02::1:ff plus the last 24 bits of a unicast address; the target of neighbor solicitations." },
+      { "term": "Anycast", "definition": "One unicast address configured on several devices; routing delivers each packet to the nearest." },
+      { "term": "Modified EUI-64", "definition": "Builds a 64-bit interface ID from a MAC: split it, insert fffe, invert the seventh bit." },
+      { "term": "NDP", "definition": "Neighbor Discovery Protocol, part of ICMPv6: RS, RA, NS, NA, and Redirect; replaces ARP and finds routers." },
+      { "term": "SLAAC", "definition": "Stateless Address Autoconfiguration: a host builds its address from the RA prefix plus its own interface ID." },
+      { "term": "Stateful and stateless DHCPv6", "definition": "Stateful assigns addresses (M flag); stateless gives only other settings such as DNS (O flag). Neither gives a gateway." }
+    ],
+    "summary": [
+      "IPv6 addresses are 128 bits: eight 16-bit hextets in hex. Drop leading zeros and replace one run of zero hextets with ::, once.",
+      "Most LANs are /64: a 64-bit prefix (often a /48 routing prefix plus a 16-bit subnet ID) and a 64-bit interface ID.",
+      "Classify by leading digits: 2 or 3 global unicast, fd unique local, fe80 link-local, ff multicast; ::1 loopback, :: unspecified.",
+      "IPv6 has no broadcast: ff02::1, ff02::2, and solicited-node groups (ff02::1:ff plus the last 24 bits) do that work; anycast is one address on many devices.",
+      "EUI-64: split the MAC, insert fffe, flip the seventh bit. SLAAC uses the RA prefix; stateless DHCPv6 adds DNS; stateful DHCPv6 assigns addresses; the gateway always comes from the RA.",
+      "On IOS: ipv6 unicast-routing, then ipv6 address prefix/length (or eui-64, or link-local); verify with show ipv6 interface brief, show ipv6 interface, show ipv6 route."
+    ],
+    "feynmanPrompt": "Explain to a teammate who only knows IPv4 how a laptop plugged into an IPv6 LAN ends up with a global address and a default gateway without any DHCP server: what the router advertises, how the laptop builds and checks its address, which NDP messages replace ARP, and why its gateway is an fe80 address."
+  },
+  "questions": [
+    {
+      "id": "ccna-ipv6-q01",
+      "type": "mcq",
+      "difficulty": "easy",
+      "question": "How long is an IPv6 address?",
+      "choices": ["64 bits", "32 bits", "128 bits", "48 bits"],
+      "answer": 2,
+      "explanation": "IPv6 addresses are 128 bits. The interface ID is usually 64 bits, IPv4 addresses are 32, and MAC addresses are 48.",
+      "concept": "IPv6 address length",
+      "section": 0
+    },
+    {
+      "id": "ccna-ipv6-q02",
+      "type": "typed",
+      "difficulty": "easy",
+      "question": "How many hextets (colon-separated groups) are in a full, unabbreviated IPv6 address?",
+      "answer": "8",
+      "accept": ["eight"],
+      "explanation": "128 bits divided into 16-bit hextets gives 8 groups of four hex digits each.",
+      "concept": "hextets",
+      "section": 0
+    },
+    {
+      "id": "ccna-ipv6-q03",
+      "type": "multi",
+      "difficulty": "medium",
+      "question": "Which statements about IPv6 compared with IPv4 are true? Choose three.",
+      "choices": ["IPv6 has no broadcast addresses", "Hosts can build their own addresses with SLAAC", "NDP replaces ARP for finding MAC addresses", "IPv6 addresses are 64 bits long", "Every IPv6 network needs NAT to reach the internet"],
+      "answers": [0, 1, 2],
+      "explanation": "IPv6 uses multicast instead of broadcast, supports SLAAC, and uses NDP (ICMPv6) instead of ARP. Addresses are 128 bits, and the huge address space removes the need for NAT.",
+      "concept": "IPv6 versus IPv4",
+      "section": 0
+    },
+    {
+      "id": "ccna-ipv6-q04",
+      "type": "typed",
+      "difficulty": "medium",
+      "question": "Write 2001:0db8:0000:0000:0000:ff00:0042:8329 in its shortest form.",
+      "answer": "2001:db8::ff00:42:8329",
+      "explanation": "Drop leading zeros (0db8 to db8, 0042 to 42, 0000 to 0), then replace the three zero hextets with ::. ff00 keeps its trailing zeros.",
+      "concept": "compressing addresses",
+      "section": 1
+    },
+    {
+      "id": "ccna-ipv6-q05",
+      "type": "typed",
+      "difficulty": "medium",
+      "question": "Write FE00:0000:0000:0001:0000:0000:0000:0056 in its shortest form.",
+      "answer": "fe00:0:0:1::56",
+      "explanation": "After dropping leading zeros you have fe00:0:0:1:0:0:0:56. The run of three zero hextets is longer than the run of two, so it becomes ::. FE00 cannot shrink because its zeros trail.",
+      "concept": "longest zero run",
+      "section": 1
+    },
+    {
+      "id": "ccna-ipv6-q06",
+      "type": "typed",
+      "difficulty": "medium",
+      "question": "Expand 2001:db8:a::1 to its full form with all 32 hex digits, keeping the colons.",
+      "answer": "2001:0db8:000a:0000:0000:0000:0000:0001",
+      "explanation": "Four hextets are shown, so :: stands for four zero hextets. Then pad each hextet to four digits: db8 to 0db8, a to 000a, and 1 to 0001.",
+      "concept": "expanding addresses",
+      "section": 1
+    },
+    {
+      "id": "ccna-ipv6-q07",
+      "type": "multi",
+      "difficulty": "medium",
+      "question": "Which are valid ways to write 2001:0db8:0000:0000:0001:0000:0000:0001? Choose three.",
+      "choices": ["2001:db8::1::1", "2001:db8::1:0:0:1", "2001:db8:0:0:1::1", "2001:db8::1:1", "2001:db8:0:0:1:0:0:1"],
+      "answers": [1, 2, 4],
+      "explanation": "You may compress either zero run, or neither, but only once. ::1::1 uses :: twice, and 2001:db8::1:1 expands to 2001:db8:0:0:0:0:1:1, a different address.",
+      "concept": "one double colon",
+      "section": 1
+    },
+    {
+      "id": "ccna-ipv6-q08",
+      "type": "mcq",
+      "difficulty": "hard",
+      "question": "2001:0db8:0000:0000:0001:0000:0000:0001 has two equal runs of zero hextets. Which form follows the recommended canonical format (RFC 5952)?",
+      "choices": ["2001:db8::1:0:0:1", "2001:db8:0:0:1::1", "2001:db8::1::1", "2001:db8:0:0:1:0:0:1"],
+      "answer": 0,
+      "explanation": "When two zero runs are the same length, RFC 5952 compresses the first one. 2001:db8:0:0:1::1 is still a valid address, just not the canonical form, and ::1::1 is illegal.",
+      "concept": "canonical form tie rule",
+      "section": 1
+    },
+    {
+      "id": "ccna-ipv6-q09",
+      "type": "mcq",
+      "difficulty": "easy",
+      "question": "Which of these is not a valid IPv6 address?",
+      "choices": ["fe80::1", "2001:db8::abcd::1", "2001:db8:0:1::", "::1"],
+      "answer": 1,
+      "explanation": "2001:db8::abcd::1 uses :: twice, so the number of zero hextets in each gap is unknown. An address may end in :: (2001:db8:0:1::), and ::1 is the loopback.",
+      "concept": "double colon once",
+      "section": 1
+    },
+    {
+      "id": "ccna-ipv6-q10",
+      "type": "typed",
+      "difficulty": "medium",
+      "question": "What is the /64 prefix of 2001:db8:acad:10:20c:29ff:fe12:3456? Include the prefix length.",
+      "answer": "2001:db8:acad:10::/64",
+      "accept": ["2001:db8:acad:10:0:0:0:0/64", "2001:0db8:acad:0010::/64"],
+      "explanation": "A /64 keeps the first four hextets and zeros the interface ID: 2001:db8:acad:10::/64.",
+      "concept": "finding the prefix",
+      "section": 2
+    },
+    {
+      "id": "ccna-ipv6-q11",
+      "type": "typed",
+      "difficulty": "hard",
+      "question": "What is the /56 prefix of 2001:db8:cafe:1234::1? Include the prefix length.",
+      "answer": "2001:db8:cafe:1200::/56",
+      "accept": ["2001:0db8:cafe:1200::/56"],
+      "explanation": "/56 is 14 hex digits: the first three hextets (12 digits) plus the first two digits of the fourth. So 1234 becomes 1200 and everything after is 0.",
+      "concept": "prefix mid-hextet",
+      "section": 2
+    },
+    {
+      "id": "ccna-ipv6-q12",
+      "type": "typed",
+      "difficulty": "medium",
+      "question": "A site is assigned a /56 prefix. How many /64 subnets can it create?",
+      "answer": "256",
+      "accept": ["2^8"],
+      "explanation": "From /56 to /64 is 8 subnet bits, and 2^8 = 256. A /48 would give 2^16 = 65,536.",
+      "concept": "IPv6 subnet count",
+      "section": 2
+    },
+    {
+      "id": "ccna-ipv6-q13",
+      "type": "mcq",
+      "difficulty": "medium",
+      "question": "Why are IPv6 LAN subnets almost always /64?",
+      "choices": ["Routers cannot route prefixes longer than /64", "A /64 holds exactly 65,536 hosts", "IPv6 prefixes must be multiples of 32", "SLAAC and EUI-64 build a 64-bit interface ID, so the prefix must leave 64 bits"],
+      "answer": 3,
+      "explanation": "Autoconfiguration assumes a 64-bit interface ID. Longer prefixes are routable (for example /127 links and /128 host routes), and a /64 holds 2^64 addresses, not 65,536.",
+      "concept": "/64 convention",
+      "section": 2
+    },
+    {
+      "id": "ccna-ipv6-q14",
+      "type": "match",
+      "difficulty": "medium",
+      "question": "Match each address to its type.",
+      "pairs": [
+        { "left": "2001:db8:1::1", "right": "Global unicast" },
+        { "left": "fd12:3456:789a::1", "right": "Unique local" },
+        { "left": "fe80::1", "right": "Link-local" },
+        { "left": "ff02::2", "right": "Multicast" },
+        { "left": "::1", "right": "Loopback" },
+        { "left": "::", "right": "Unspecified" }
+      ],
+      "explanation": "Read the leading digits: 2 or 3 is global unicast, fd unique local, fe80 link-local, ff multicast. ::1 is loopback and :: (all zeros) is unspecified.",
+      "concept": "classifying addresses",
+      "section": 3
+    },
+    {
+      "id": "ccna-ipv6-q15",
+      "type": "mcq",
+      "difficulty": "easy",
+      "question": "Which prefix identifies IPv6 link-local addresses?",
+      "choices": ["fc00::/7", "ff00::/8", "fe80::/10", "2000::/3"],
+      "answer": 2,
+      "explanation": "Link-local addresses come from fe80::/10. fc00::/7 is unique local, ff00::/8 multicast, and 2000::/3 global unicast.",
+      "concept": "link-local prefix",
+      "section": 3
+    },
+    {
+      "id": "ccna-ipv6-q16",
+      "type": "multi",
+      "difficulty": "medium",
+      "question": "Which statements about IPv6 link-local addresses are true? Choose two.",
+      "choices": ["Every IPv6-enabled interface has one", "Routers never forward packets addressed to them", "They must be unique across the internet", "They are assigned from 2000::/3", "They require a DHCPv6 server"],
+      "answers": [0, 1],
+      "explanation": "Link-local addresses are created automatically on every IPv6 interface and are only valid on their link. They only need to be unique on that link, which is why fe80::1 can be reused on every interface of a router.",
+      "concept": "link-local behavior",
+      "section": 3
+    },
+    {
+      "id": "ccna-ipv6-q17",
+      "type": "mcq",
+      "difficulty": "medium",
+      "question": "Which IPv6 range plays the role that RFC 1918 private space plays in IPv4?",
+      "choices": ["Unique local, fc00::/7 (fd00::/8 in practice)", "Link-local, fe80::/10", "Site-local, fec0::/10", "Documentation, 2001:db8::/32"],
+      "answer": 0,
+      "explanation": "Unique local addresses are private and routable inside an organization but not on the internet. Site-local was the original idea but was deprecated, and link-local cannot be routed at all.",
+      "concept": "unique local addresses",
+      "section": 3
+    },
+    {
+      "id": "ccna-ipv6-q18",
+      "type": "mcq",
+      "difficulty": "medium",
+      "question": "A unique local prefix is fd followed by a randomly chosen 40-bit global ID. What prefix length does that give the organization?",
+      "choices": ["/40", "/48", "/56", "/64"],
+      "answer": 1,
+      "explanation": "fd is 8 bits, plus 40 bits of global ID, is 48 bits. The next 16 bits are the subnet ID, leaving a 64-bit interface ID.",
+      "concept": "unique local format",
+      "section": 3
+    },
+    {
+      "id": "ccna-ipv6-q19",
+      "type": "match",
+      "difficulty": "medium",
+      "question": "Match each multicast address to the group it reaches.",
+      "pairs": [
+        { "left": "ff02::1", "right": "All nodes on the link" },
+        { "left": "ff02::2", "right": "All routers on the link" },
+        { "left": "ff02::5", "right": "All OSPFv3 routers" },
+        { "left": "ff02::1:2", "right": "DHCPv6 servers and relay agents" },
+        { "left": "ff02::1:ff00:1", "right": "Solicited-node group for addresses ending 00:0001" }
+      ],
+      "explanation": "All of these are link-local scope (ff02), so routers never forward them off the link.",
+      "concept": "well-known multicast",
+      "section": 4
+    },
+    {
+      "id": "ccna-ipv6-q20",
+      "type": "typed",
+      "difficulty": "hard",
+      "question": "What is the solicited-node multicast address for 2001:db8:1::a:12cd? Give the shortest form.",
+      "answer": "ff02::1:ff0a:12cd",
+      "accept": ["ff02:0:0:0:0:1:ff0a:12cd"],
+      "explanation": "Expanded, the address ends in 000a:12cd, so its last 24 bits (six hex digits) are 0a:12cd. Append them to ff02::1:ff to get ff02::1:ff0a:12cd.",
+      "concept": "solicited-node address",
+      "section": 4
+    },
+    {
+      "id": "ccna-ipv6-q21",
+      "type": "mcq",
+      "difficulty": "medium",
+      "question": "What makes an IPv6 address an anycast address?",
+      "choices": ["It comes from the reserved range ff00::/8", "It is delivered to every device that holds it", "It starts with fe80 and stays on one link", "The same unicast address is configured on several devices, and routing delivers each packet to the nearest one"],
+      "answer": 3,
+      "explanation": "Anycast has no special range; it is a unicast address used on several devices (on IOS, with the anycast keyword). Delivery to every member describes multicast, and ff00::/8 is the multicast range.",
+      "concept": "anycast",
+      "section": 4
+    },
+    {
+      "id": "ccna-ipv6-q22",
+      "type": "mcq",
+      "difficulty": "easy",
+      "question": "How does IPv6 handle the jobs IPv4 did with broadcast?",
+      "choices": ["With broadcasts to ffff::", "With anycast to the nearest router", "With multicast to groups such as ff02::1", "With unicast to every host in turn"],
+      "answer": 2,
+      "explanation": "IPv6 has no broadcast. It uses multicast groups such as all nodes (ff02::1), all routers (ff02::2), and solicited-node groups so only interested devices process each message.",
+      "concept": "no broadcast",
+      "section": 4
+    },
+    {
+      "id": "ccna-ipv6-q23",
+      "type": "typed",
+      "difficulty": "hard",
+      "question": "An interface with MAC 0013.1234.abcd is configured with ipv6 address 2001:db8:1:1::/64 eui-64. What is its global address, in shortest form?",
+      "answer": "2001:db8:1:1:213:12ff:fe34:abcd",
+      "explanation": "Split the MAC (001312 and 34abcd), insert fffe, and flip the seventh bit of 00 to get 02: 0213:12ff:fe34:abcd. Dropping the leading zero gives 2001:db8:1:1:213:12ff:fe34:abcd.",
+      "concept": "EUI-64 calculation",
+      "section": 5
+    },
+    {
+      "id": "ccna-ipv6-q24",
+      "type": "order",
+      "difficulty": "medium",
+      "question": "Put the steps of building a modified EUI-64 address in order.",
+      "items": ["Take the interface's 48-bit MAC address", "Split it into two 24-bit halves", "Insert fffe between the halves", "Invert the seventh bit of the first byte", "Append the 64-bit result to the /64 prefix"],
+      "explanation": "The MAC is split, padded with fffe to 64 bits, the universal/local bit is flipped, and the result becomes the interface ID after the prefix.",
+      "concept": "EUI-64 steps",
+      "section": 5
+    },
+    {
+      "id": "ccna-ipv6-q25",
+      "type": "mcq",
+      "difficulty": "easy",
+      "question": "Which hex value sits in the middle of every modified EUI-64 interface ID?",
+      "choices": ["ffff", "fffe", "fe80", "0000"],
+      "answer": 1,
+      "explanation": "EUI-64 inserts fffe between the two halves of the MAC, which is why you see ff:fe in the middle of addresses like fe80::213:12ff:fe34:abcd.",
+      "concept": "fffe insertion",
+      "section": 5
+    },
+    {
+      "id": "ccna-ipv6-q26",
+      "type": "mcq",
+      "difficulty": "medium",
+      "question": "A MAC address begins with 02. After the EUI-64 seventh-bit flip, what does that first byte become?",
+      "choices": ["00", "02", "03", "04"],
+      "answer": 0,
+      "explanation": "02 is 0000 0010, and the seventh bit is the 1. Inverting it gives 0000 0000, which is 00. The flip goes both ways: 00 becomes 02 and 02 becomes 00.",
+      "concept": "seventh bit flip",
+      "section": 5
+    },
+    {
+      "id": "ccna-ipv6-q27",
+      "type": "cli",
+      "shell": "ios",
+      "difficulty": "medium",
+      "question": "You are in interface configuration mode for G0/1. Type the command that assigns prefix 2001:db8:0:34::/64 and lets the router build the interface ID from its MAC address.",
+      "answer": "ipv6 address 2001:db8:0:34::/64 eui-64",
+      "explanation": "The eui-64 keyword tells IOS to calculate the last 64 bits from the interface MAC using modified EUI-64.",
+      "concept": "eui-64 configuration",
+      "section": 5
+    },
+    {
+      "id": "ccna-ipv6-q28",
+      "type": "match",
+      "difficulty": "medium",
+      "question": "Match each NDP message to its job.",
+      "pairs": [
+        { "left": "Router Solicitation", "right": "Host asks routers on the link to identify themselves" },
+        { "left": "Router Advertisement", "right": "Router announces the prefix, prefix length, and itself as gateway" },
+        { "left": "Neighbor Solicitation", "right": "Asks for the MAC of an IPv6 address, like an ARP request" },
+        { "left": "Neighbor Advertisement", "right": "Replies with a MAC address, like an ARP reply" }
+      ],
+      "explanation": "RS and RA handle router and prefix discovery; NS and NA handle address resolution and duplicate address detection.",
+      "concept": "NDP messages",
+      "section": 6
+    },
+    {
+      "id": "ccna-ipv6-q29",
+      "type": "mcq",
+      "difficulty": "medium",
+      "question": "A host configures itself with SLAAC. Where does it get its default gateway?",
+      "choices": ["From a DHCPv6 server's gateway option", "From the router's RA: the gateway is the router's link-local address", "From a neighbor solicitation sent to ff02::1", "It calculates the gateway with EUI-64"],
+      "answer": 1,
+      "explanation": "The router advertisement's source is the router's link-local address, and hosts use it as their default gateway. DHCPv6 has no gateway option at all.",
+      "concept": "default gateway in IPv6",
+      "section": 6
+    },
+    {
+      "id": "ccna-ipv6-q30",
+      "type": "mcq",
+      "difficulty": "hard",
+      "question": "A LAN uses stateful DHCPv6. Which statement is true?",
+      "choices": ["Hosts get their address, prefix length, and default gateway all from DHCPv6", "Hosts ignore router advertisements", "Hosts build their address with EUI-64 and get only DNS from DHCPv6", "Hosts get their address from the DHCPv6 server but still learn the default gateway from router advertisements"],
+      "answer": 3,
+      "explanation": "With the M flag set, hosts request an address from the DHCPv6 server, which tracks leases. DHCPv6 carries no gateway, so hosts still rely on RAs for it. Building the address yourself and getting only DNS from DHCPv6 is stateless DHCPv6.",
+      "concept": "stateful DHCPv6",
+      "section": 6
+    },
+    {
+      "id": "ccna-ipv6-q31",
+      "type": "mcq",
+      "difficulty": "medium",
+      "question": "What does stateless DHCPv6 provide to hosts?",
+      "choices": ["Addresses only, with DNS coming from the RA", "Everything except the prefix", "Other settings such as DNS servers, while hosts still build their addresses with SLAAC", "Only the default gateway"],
+      "answer": 2,
+      "explanation": "Stateless DHCPv6 (signaled by the RA's O flag) hands out settings like DNS but no addresses, so no server keeps per-host state. The address comes from SLAAC.",
+      "concept": "stateless DHCPv6",
+      "section": 6
+    },
+    {
+      "id": "ccna-ipv6-q32",
+      "type": "order",
+      "difficulty": "medium",
+      "question": "Put the steps of a host getting a global address with SLAAC in order.",
+      "items": ["Create a link-local address and check it with DAD", "Send a Router Solicitation to ff02::2", "Receive a Router Advertisement with the /64 prefix", "Build a global address from the prefix plus its own interface ID", "Run DAD on the new address, then start using it"],
+      "explanation": "The host needs a working link-local address to talk on the link, then asks for routers, learns the prefix, builds its address, and checks for duplicates before using it.",
+      "concept": "SLAAC process",
+      "section": 6
+    },
+    {
+      "id": "ccna-ipv6-q33",
+      "type": "mcq",
+      "difficulty": "hard",
+      "question": "PC1 needs the MAC address of PC2 at 2001:db8:1:1::22. Where does PC1 send its Neighbor Solicitation?",
+      "choices": ["ff02::1:ff00:22, PC2's solicited-node multicast group", "ff02::1, the all-nodes group", "ff02::2, the all-routers group", "The router's link-local address"],
+      "answer": 0,
+      "explanation": "An NS goes to the solicited-node group built from the target's last 24 bits (00:0022), so only hosts with matching endings process it. That is the efficiency gain over an ARP broadcast.",
+      "concept": "neighbor solicitation",
+      "section": 6
+    },
+    {
+      "id": "ccna-ipv6-q34",
+      "type": "cli",
+      "shell": "ios",
+      "difficulty": "easy",
+      "question": "Type the command that shows a router's IPv6 neighbor table, the IPv6 equivalent of the ARP cache.",
+      "answer": "show ipv6 neighbors",
+      "explanation": "show ipv6 neighbors lists each neighbor's IPv6 address, MAC address, state, and interface, learned through NS and NA messages.",
+      "concept": "neighbor table",
+      "section": 6
+    },
+    {
+      "id": "ccna-ipv6-q35",
+      "type": "cli",
+      "shell": "ios",
+      "difficulty": "easy",
+      "question": "Type the global configuration command that enables IPv6 routing on a Cisco router.",
+      "answer": "ipv6 unicast-routing",
+      "explanation": "IPv6 routing is disabled by default. Without ipv6 unicast-routing the router does not forward IPv6 packets or send router advertisements.",
+      "concept": "enable IPv6 routing",
+      "section": 7
+    },
+    {
+      "id": "ccna-ipv6-q36",
+      "type": "cli",
+      "shell": "ios",
+      "difficulty": "easy",
+      "question": "In interface configuration mode for G0/0, type the command that assigns 2001:db8:0:12::1 with a /64 prefix.",
+      "answer": "ipv6 address 2001:db8:0:12::1/64",
+      "explanation": "IPv6 addresses take the prefix length directly after the address with no space, unlike the IPv4 address-and-mask format.",
+      "concept": "ipv6 address command",
+      "section": 7
+    },
+    {
+      "id": "ccna-ipv6-q37",
+      "type": "cli",
+      "shell": "ios",
+      "difficulty": "medium",
+      "question": "Type the interface command that sets G0/0's link-local address to fe80::1 instead of the automatic one.",
+      "answer": "ipv6 address fe80::1 link-local",
+      "explanation": "The link-local keyword replaces the EUI-64 link-local address. The address must be in fe80::/10, and it takes no prefix length.",
+      "concept": "manual link-local",
+      "section": 7
+    },
+    {
+      "id": "ccna-ipv6-q38",
+      "type": "mcq",
+      "difficulty": "hard",
+      "question": "Both interfaces below are up/up. PCs on G0/0's LAN never get a SLAAC address, and R1 does not forward IPv6 between G0/0 and G0/1. What is missing?",
+      "code": "! Excerpt from show running-config\nhostname R1\n!\ninterface GigabitEthernet0/0\n ipv6 address 2001:DB8:0:10::1/64\n!\ninterface GigabitEthernet0/1\n ipv6 address 2001:DB8:0:12::1/64",
+      "language": "cisco",
+      "choices": ["ipv6 enable on both interfaces", "ipv6 unicast-routing in global configuration", "ipv6 address autoconfig on G0/0", "A manual link-local address on G0/1"],
+      "answer": 1,
+      "explanation": "Without ipv6 unicast-routing, R1 behaves as an IPv6 host: it neither routes nor sends RAs, so SLAAC hosts never learn a prefix. The ipv6 address commands already enable IPv6 and create link-local addresses.",
+      "concept": "ipv6 unicast-routing",
+      "section": 7
+    },
+    {
+      "id": "ccna-ipv6-q39",
+      "type": "mcq",
+      "difficulty": "medium",
+      "question": "Hosts on this LAN learn their default gateway from R1's router advertisements. Which address will they use as the gateway?",
+      "code": "R1# show ipv6 interface g0/0\nGigabitEthernet0/0 is up, line protocol is up\n  IPv6 is enabled, link-local address is FE80::250:56FF:FEAB:12CD\n  Global unicast address(es):\n    2001:DB8:0:12::1, subnet is 2001:DB8:0:12::/64\n  Joined group address(es):\n    FF02::1\n    FF02::2\n    FF02::1:FF00:1\n    FF02::1:FFAB:12CD",
+      "language": "cisco",
+      "choices": ["2001:DB8:0:12::1", "FF02::2", "FF02::1:FF00:1", "FE80::250:56FF:FEAB:12CD"],
+      "answer": 3,
+      "explanation": "RAs are sourced from the router's link-local address, so that is what hosts install as their default gateway. FF02 addresses are multicast groups the interface listens on.",
+      "concept": "reading show ipv6 interface",
+      "section": 7
+    },
+    {
+      "id": "ccna-ipv6-q40",
+      "type": "multi",
+      "difficulty": "hard",
+      "question": "R1 has ipv6 unicast-routing enabled, and G0/0 has only 2001:db8:0:12::1/64 plus its automatic link-local address. No routing protocol or DHCPv6 is configured. Which of these groups will show ipv6 interface g0/0 list as joined? Choose three.",
+      "choices": ["FF02::1", "FF02::2", "FF02::1:FF00:1", "FF02::1:2", "FF05::1:3"],
+      "answers": [0, 1, 2],
+      "explanation": "Every IPv6 interface joins all nodes (FF02::1); a routing interface also joins all routers (FF02::2); and each unicast address adds a solicited-node group, FF02::1:FF00:1 for ::1. FF02::1:2 and FF05::1:3 are DHCPv6 relay and server groups that are not in use here.",
+      "concept": "joined multicast groups",
+      "section": 7
+    }
+  ]
+}

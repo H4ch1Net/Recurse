@@ -1,0 +1,537 @@
+{
+  "id": "ccna-device-security",
+  "name": "Device Access Security",
+  "version": "1.0.0",
+  "author": "Recurse",
+  "subject": "networking",
+  "level": "intermediate",
+  "description": "Lock down console, vty and enable access with secrets and local users, set password policy and compare RADIUS with TACACS+.",
+  "icon": "DS",
+  "language": "cisco",
+  "prereqs": ["ccna-security-concepts", "ccna-ssh-tftp-ftp"],
+  "tags": ["ccna", "5.3", "5.4", "5.8", "passwords", "aaa", "radius", "tacacs"],
+  "lesson": {
+    "estimatedMinutes": 30,
+    "intro": "A router or switch that anyone can log in to is a gift to an attacker: one login can reroute, sniff or shut down a whole network. This lesson builds device access control from the ground up: line passwords, enable secret, how IOS stores passwords (types 0, 5, 7, 8 and 9), local usernames, timeouts and banners. Then it zooms out to password policy, multifactor authentication and centralized AAA with RADIUS and TACACS+.",
+    "objectives": [
+      "Configure console, vty and enable-mode protection and predict which password IOS will ask for",
+      "Identify password types 0, 5, 7, 8 and 9 in a configuration and explain why type 7 is weak",
+      "Build a hardened login baseline with local users, login local, exec-timeout and banners",
+      "Describe password policy elements and the alternatives: MFA, certificates and biometrics",
+      "Compare authentication, authorization and accounting, and contrast RADIUS with TACACS+"
+    ],
+    "sections": [
+      {
+        "title": "Lines, modes and line passwords",
+        "body": "Unbox a new switch, plug in a console cable, and you are at a prompt with no password. Type `enable` and you have full control. Device access control is about closing those doors.\n\nIOS has two main access levels. **User EXEC** mode (prompt `R1>`) allows basic show commands. **Privileged EXEC** mode (prompt `R1#`), reached with the `enable` command, allows everything: configuration, reloads, erasing. You protect the way *into* the device and, separately, the step *up* to privileged mode.\n\nThe ways in are called **lines**:\n\n- `line console 0`: the physical console port.\n- `line vty 0 4` (or `0 15` on most switches and newer routers): virtual terminals used by Telnet and SSH sessions.\n- `line aux 0`: an auxiliary port on some routers.\n\nThe simplest protection is a shared **line password**. Under the line, `password` sets the value and `login` tells IOS to actually ask for it. Both are needed: a password without `login` is never requested, and `login` without a password refuses the connection.\n\nDefaults matter here. The console starts with no `login`, so it lets anyone in. The vty lines start with `login` but no password, so Telnet users are turned away with \"Password required, but none set.\" That safe default disappears the moment someone adds a weak password.",
+        "code": "! Shared line passwords: simple, but everyone knows the same password\nline console 0\n password C0nsole!Pass\n login\n!\nline vty 0 15\n password Vty!Pass2024\n login",
+        "tip": "Line passwords prove that someone knows the password, not who they are. The local usernames later in this lesson fix that.",
+        "pitfall": "Setting a console password and forgetting the login command. IOS stores the password but never prompts for it, so the console stays wide open.",
+        "check": {
+          "question": "A new router's vty lines show login but no password. What happens when someone tries to Telnet in?",
+          "choices": ["They reach user EXEC mode without a prompt", "They reach privileged EXEC mode directly", "The connection is refused with \"Password required, but none set\"", "They are prompted for the enable secret instead"],
+          "answer": 2,
+          "explanation": "vty lines default to login with no password, so IOS has nothing to check and refuses the session. The console, by contrast, defaults to no login and lets users straight in."
+        }
+      },
+      {
+        "title": "enable password versus enable secret",
+        "body": "Two global commands protect the step from user EXEC to privileged EXEC, and they exist side by side for historical reasons.\n\n- `enable password` stores the password in clear text in the configuration.\n- `enable secret` stores a one-way **hash** of the password. When a user types a password after `enable`, IOS hashes what they typed and compares the result with the stored hash. The clear text is never kept, so it cannot be displayed or copied out of the config.\n\nWhich one does IOS ask for? Memorize these rules, because the exam tests them:\n\n- **Both configured**: only the enable secret works. The enable password is ignored.\n- **Only one configured**: that one is used.\n- **Neither configured**: console users go straight into privileged mode. Telnet and SSH users are refused with \"% No password set.\"\n\nYou cannot view an enable secret, but from privileged mode you can overwrite it by entering `enable secret` again or remove it with `no enable secret`. In real life, configure only `enable secret` and never reuse the same value as an enable password (IOS even warns you if you try).",
+        "code": "R1# show running-config | include enable\nenable secret 9 $9$nhEmQVczB7dqsO$X.HsgL6x1il0RxkOSSvyQYwucySCt7qFm4v7pqCxkKM\nenable password Cisco123\n!\n! A user who types \"enable\" must enter the secret.\n! \"Cisco123\" is ignored because an enable secret exists.",
+        "pitfall": "Treating enable password as a backup that works if the secret is forgotten. When both exist, only the secret is accepted, so the old password is dead weight that still leaks in clear text.",
+        "check": {
+          "question": "A router has both enable password Cisco123 and an enable secret configured. A user types enable and enters Cisco123. What happens?",
+          "choices": ["Access is granted, because either password works", "Access is granted, because enable password is checked first", "IOS asks for a username instead", "Access is denied, because only the enable secret is accepted"],
+          "answer": 3,
+          "explanation": "When both commands exist, IOS checks only the enable secret. The enable password is ignored entirely."
+        }
+      },
+      {
+        "title": "Password types: 0, 7, 5, 8 and 9",
+        "body": "Look at any running configuration and you will see a number in front of stored passwords. That number tells you how the password is stored, and the CCNA expects you to read it.\n\n**Type 0** is clear text. **Type 7** is what the global command `service password-encryption` produces. It encrypts the passwords that would otherwise be clear text: line passwords, `enable password` and `username ... password`. Type 7 uses a weak, reversible Cisco algorithm, and free tools decode it instantly. It stops someone glancing over your shoulder or reading a printout, nothing more. Also note that `no service password-encryption` does not decrypt anything; existing passwords stay type 7 until you change them.\n\n**Type 5** is a salted MD5-based hash, the classic result of `enable secret` and `username ... secret`. It is one-way, but MD5 is old and fast to attack with modern hardware.\n\n**Type 8** (PBKDF2 with SHA-256) and **type 9** (scrypt) are the modern hashes, deliberately slow to compute so offline cracking is expensive. You ask for them with `algorithm-type`: `enable algorithm-type scrypt secret ...` gives type 9 and `enable algorithm-type sha256 secret ...` gives type 8. Some newer IOS releases use type 9 by default. A **type 4** hash exists in old releases but was flawed and should not be used.\n\nOnly one enable secret can exist: configuring it again with a different algorithm replaces the old one.",
+        "code": "Type  Stored as                      Produced by                                Strength\n0     Clear text                     password X, enable password X              None\n7     Reversible Cisco encryption    service password-encryption                Weak, decodes instantly\n5     Salted MD5 hash                enable secret X, username U secret X       Acceptable, aging\n8     PBKDF2 with SHA-256 hash       ... algorithm-type sha256 secret X         Strong\n9     scrypt hash                    ... algorithm-type scrypt secret X         Strongest",
+        "language": "plaintext",
+        "pitfall": "Believing service password-encryption makes passwords safe. Type 7 is obfuscation: anyone with a copy of the config can reverse it in seconds. Use secrets (types 5, 8, 9) wherever IOS offers them.",
+        "check": {
+          "question": "A configuration contains: password 7 070C285F4D06. What is true about this line password?",
+          "choices": ["It is an scrypt hash that cannot be reversed", "It was hidden by service password-encryption and can be decoded easily", "It is clear text that IOS displays with a 7 prefix", "It can only be produced by the enable secret command"],
+          "answer": 1,
+          "explanation": "Type 7 is the weak reversible encryption applied by service password-encryption. Free tools turn 070C285F4D06 back into the original password, which is why secrets are preferred."
+        }
+      },
+      {
+        "title": "Local usernames and login local",
+        "body": "With shared line passwords, the logs can only say \"someone logged in.\" When a change breaks the network at 2 a.m., you want a name. A **local username database** gives every administrator their own credentials.\n\n- `username admin secret ...` creates a user with a hashed password. Add `algorithm-type scrypt` for a type 9 hash, and `privilege 15` to drop the user straight into privileged EXEC after login.\n- `username admin password ...` is the legacy form with a clear-text (or type 7) password. A given username can have a password or a secret, not both; prefer secret.\n- `login local`, under a line, tells IOS to prompt for a username and password and check them against the local database. Plain `login` uses the line password instead and ignores your usernames.\n\nSSH requires a username to authenticate, so vty lines that accept SSH need `login local` (or AAA, later in this lesson). That is why the SSH setup in the earlier pack always pairs `username` with `login local`.\n\nLocal usernames also serve as the fallback when a central AAA server is unreachable, so even networks that use RADIUS or TACACS+ keep one or two strong local accounts.",
+        "code": "username admin privilege 15 algorithm-type scrypt secret Adm1n!Str0ng\nusername helpdesk secret H3lp!Desk2024\n!\nline console 0\n login local\n!\nline vty 0 15\n login local\n transport input ssh",
+        "tip": "Use `show running-config | section username` to review accounts. A secret shows as type 5, 8 or 9; a password shows as 0 or 7.",
+        "pitfall": "Typing login when you meant login local. The line then asks for the line password only, so SSH logins fail and your user accounts are silently ignored.",
+        "check": {
+          "question": "Which line subcommand makes IOS prompt for a username and password and check them against the usernames configured on the device?",
+          "choices": ["login", "password local", "login local", "transport input ssh"],
+          "answer": 2,
+          "explanation": "login local uses the local username database. Plain login checks the line's shared password, and transport input only controls which protocols may connect."
+        }
+      },
+      {
+        "title": "A hardened login baseline",
+        "body": "Passwords are only part of the job. A few more commands close common gaps.\n\n- **exec-timeout** `minutes seconds`, under a line, disconnects idle sessions so an unattended, logged-in console cannot be abused. `exec-timeout 5 0` means five minutes. `exec-timeout 0 0` means never time out: fine in a lab, a bad idea in production.\n- **transport input ssh** on the vty lines allows SSH only. Telnet sends everything, passwords included, in clear text.\n- **access-class** `acl in` on the vty lines lets only management subnets reach the login prompt (the ACL pack covers this in detail).\n- **Banners** warn users before they log in. `banner motd` (message of the day) is shown first to every connecting user, `banner login` comes next, just before the login prompt, and `banner exec` appears after a successful login. Each banner starts and ends with a delimiter character of your choice, such as `#`.\n\nBanner wording matters. A login banner should state that access is for authorized users only and that activity is monitored. Never write \"Welcome\", and do not reveal the device model, software or location to someone who has not logged in yet.\n\nThe configuration below pulls everything in this lesson so far into one baseline. Then try it yourself in the console lab.",
+        "code": "hostname R1\nenable algorithm-type scrypt secret En@ble!Secret9\nservice password-encryption\nusername admin privilege 15 algorithm-type scrypt secret Adm1n!Str0ng\n!\nbanner motd #\nAuthorized access only. All activity is logged and monitored.\n#\n!\nline console 0\n login local\n exec-timeout 5 0\n!\nline vty 0 15\n login local\n transport input ssh\n exec-timeout 10 0\n access-class 10 in\n!\naccess-list 10 permit 10.10.99.0 0.0.0.255",
+        "activity": {
+          "type": "ios-console",
+          "title": "Harden a router's logins",
+          "prompt": "Work through each lab check: protect enable mode with a secret, create a local user, make the console and vty lines use login local, add a timeout and a banner. After each step run show running-config and look at how IOS stored each password (the type number). Ask yourself which of them an attacker holding a copy of this config could read.",
+          "props": { "lab": "cl-d5-device-hardening" }
+        },
+        "tip": "SSH on the vty lines also needs a hostname, ip domain-name and an RSA key, as covered in the SSH pack.",
+        "pitfall": "Leaving exec-timeout 0 0 from lab work on a production device. Any session left open, on a console or a forgotten SSH window, stays logged in forever.",
+        "check": {
+          "question": "A user connects to the console of a router that has banner motd, banner login and banner exec configured, and logs in successfully. Which banner appears last?",
+          "choices": ["The exec banner", "The MOTD banner", "The login banner", "None; only one banner can be shown per session"],
+          "answer": 0,
+          "explanation": "On a console or Telnet login, the MOTD banner shows first, then the login banner, then the credential prompts, and the exec banner appears only after a successful login."
+        }
+      },
+      {
+        "title": "Password policy: complexity and management",
+        "body": "The CCNA blueprint lists password **complexity** and **management** as policy elements. A policy is the written rule set that every account must follow.\n\n**Complexity** is about making guessing expensive. Length matters most, because every extra character multiplies the brute-force search. A long passphrase such as four random words beats a short string of symbols. Policies also ban dictionary words, names, the company name and previously breached passwords, and usually require a mix of character types.\n\n**Management** is about the life of a password:\n\n- Change every default password before a device goes live.\n- Give each administrator a unique account; never share one admin password across a team.\n- Never reuse the same password on many devices, so one leak does not open everything.\n- Change passwords periodically, and immediately on any sign of compromise or when staff leave.\n- Store passwords only as strong hashes on devices, and keep human copies in a password manager or vault, not in a spreadsheet.\n- Lock out or slow down repeated failed logins.\n\nIOS can enforce some of this itself, as shown below. `security passwords min-length` rejects new passwords shorter than the minimum. `login block-for` stops all logins for a quiet period after too many failures, which cripples online guessing.",
+        "code": "! Reject any new password shorter than 10 characters\nsecurity passwords min-length 10\n!\n! After 5 failed logins within 60 seconds,\n! refuse all login attempts for 120 seconds\nlogin block-for 120 attempts 5 within 60",
+        "tip": "Current NIST guidance favors long passwords and changing them on evidence of compromise rather than on a fixed schedule; Cisco's material still lists periodic changes as part of password management.",
+        "pitfall": "Writing a policy so painful (short expiry, strange symbol rules) that people write passwords on sticky notes. A policy users cannot live with creates a new vulnerability.",
+        "check": {
+          "question": "Which single change to a password policy adds the most resistance to brute-force attacks?",
+          "choices": ["Requiring one symbol in every password", "Raising the minimum length from 8 to 14 characters", "Changing passwords every 30 days", "Displaying a warning banner before login"],
+          "answer": 1,
+          "explanation": "Each added character multiplies the number of possible passwords, so length grows the search space far faster than adding one required symbol. Banners and expiry do not slow an attacker who already holds a hash."
+        }
+      },
+      {
+        "title": "Beyond passwords: MFA, certificates and biometrics",
+        "body": "A password is **something you know**, and anything you know can be phished, guessed or reused. The alternatives in the blueprint add other kinds of proof.\n\n**Multifactor authentication (MFA)** requires factors from at least two different categories: something you know (a password or PIN), something you have (a phone app code, a hardware token, a smart card) and something you are (a fingerprint or face). A stolen password alone no longer gets the attacker in. The categories must differ: a password plus a security question is still two things you know, so it is not MFA.\n\n**Digital certificates** prove identity with cryptography. A trusted **certificate authority (CA)** issues and digitally signs each certificate. Certificates are valid only for a set time and can be **revoked** early, for example when an employee leaves, after which authentication with them fails. Proof of possession comes from the private key that matches the certificate, which never leaves the owner's device, so copying the certificate file alone is not enough.\n\n**Biometrics** use something you are: fingerprints, face, iris, retina, palm or voice. They are convenient and hard to share, but they cannot be changed if compromised, some systems can be fooled by photos or molds, and injuries or aging can change the reading. That is why biometrics are usually one factor among several, not the only one.",
+        "code": "Method                Category                 Example\nPassword or PIN       Something you know       Typing a passphrase\nOne-time code, token  Something you have       Authenticator app, hardware key\nDigital certificate   Something you have       Private key on a laptop or smart card\nBiometric             Something you are        Fingerprint, face, iris scan\nMFA                   Two or more categories   Password plus a push approval on a phone",
+        "language": "plaintext",
+        "pitfall": "Counting two passwords, or a password plus a security question, as two-factor authentication. Both are something you know; MFA needs different categories.",
+        "check": {
+          "question": "Which login method is true multifactor authentication?",
+          "choices": ["A password followed by a second password", "A password followed by a security question", "A password followed by a code from an authenticator app", "A long passphrase with symbols"],
+          "answer": 2,
+          "explanation": "The app code proves something you have, and the password proves something you know: two different categories. The other options use only something you know."
+        }
+      },
+      {
+        "title": "AAA with RADIUS and TACACS+",
+        "body": "Local usernames work for ten devices. With two hundred routers and switches, adding or removing an administrator means touching every box, and the logs are scattered everywhere. **AAA** (\"triple A\") centralizes it:\n\n- **Authentication**: who are you? (Verify the credentials.)\n- **Authorization**: what are you allowed to do? (Which commands, which privilege level, which network.)\n- **Accounting**: what did you do? (A record of logins, commands and session times.)\n\nThe network device acts as an AAA client, often called the network access device or server (NAD or NAS). It collects the user's credentials and asks a central AAA server, such as Cisco **Identity Services Engine (ISE)**, which answers accept, reject or, for MFA, challenge. Two protocols carry that conversation, compared in the table below.\n\n**TACACS+** suits **device administration**: it runs over TCP, encrypts the whole packet body, and keeps the three A's separate, so the server can authorize every individual command an admin types and log each one. **RADIUS** suits **network access** for users: it is the open standard behind 802.1X, Wi-Fi enterprise logins and VPNs, runs over UDP and encrypts only the password.\n\nOn IOS, `aaa new-model` turns on AAA, and a method list such as `aaa authentication login default group tacacs+ local` means: ask the TACACS+ servers, and only if none respond, fall back to the local usernames.",
+        "code": "Feature            RADIUS                                TACACS+\nStandard           Open standard (IETF RFCs)             Developed by Cisco\nTransport          UDP                                   TCP\nPorts              1812 authentication, 1813 accounting  49\n                   (older servers: 1645, 1646)\nEncryption         Only the password in the request      The entire packet body\nAAA functions      Authentication and authorization      Authentication, authorization and\n                   combined; accounting separate         accounting all separate\nPer-command authz  No                                    Yes\nTypical use        Network access: 802.1X, Wi-Fi, VPN    Admin logins to network devices",
+        "language": "plaintext",
+        "tip": "Memory hook: TACACS+ has a T for TCP and for total encryption; RADIUS is the UDP one that only hides the password.",
+        "pitfall": "Expecting the local fallback to kick in when the AAA server rejects a password. The next method in the list is tried only when the server does not answer; a reject from the server is final.",
+        "check": {
+          "question": "Which protocol uses TCP port 49, encrypts the entire packet body and can authorize each command separately?",
+          "choices": ["RADIUS", "TACACS+", "SNMPv3", "LDAP"],
+          "answer": 1,
+          "explanation": "TACACS+ runs over TCP 49, encrypts the full body and separates authentication, authorization and accounting. RADIUS uses UDP 1812 and 1813 and encrypts only the password."
+        }
+      }
+    ],
+    "keyTerms": [
+      { "term": "Privileged EXEC mode", "definition": "The R1# mode reached with the enable command, where every command, including configuration, is available." },
+      { "term": "enable secret", "definition": "Global command that protects privileged mode with a one-way hash; it overrides enable password when both exist." },
+      { "term": "service password-encryption", "definition": "Global command that converts clear-text passwords to type 7, a weak reversible encryption." },
+      { "term": "Type 9 password", "definition": "A password stored as an scrypt hash, set with algorithm-type scrypt; the strongest option in IOS." },
+      { "term": "login local", "definition": "Line subcommand that authenticates users against the device's local username database instead of a line password." },
+      { "term": "exec-timeout", "definition": "Line subcommand that disconnects a session after a period of inactivity; 0 0 disables the timeout." },
+      { "term": "MOTD banner", "definition": "Message of the day banner shown to every user before login; used for legal warnings." },
+      { "term": "Multifactor authentication", "definition": "Authentication that requires factors from two or more categories: something you know, have or are." },
+      { "term": "AAA", "definition": "Authentication (who you are), authorization (what you may do) and accounting (what you did)." },
+      { "term": "RADIUS", "definition": "Open-standard AAA protocol on UDP 1812 and 1813 that encrypts only the password; used for network access such as 802.1X." },
+      { "term": "TACACS+", "definition": "Cisco-developed AAA protocol on TCP 49 that encrypts the whole body and separates all three AAA functions; used for device administration." }
+    ],
+    "summary": [
+      "Line passwords need both password and login; vty lines default to refusing connections until a password or login local is set.",
+      "When both exist, only enable secret works; with neither, console users get straight in and remote users are refused.",
+      "Type 0 is clear text and type 7 is reversible; types 5, 8 and 9 are hashes, with 8 and 9 the strong modern choices.",
+      "Local usernames with login local give per-person accountability and are required for SSH; add exec-timeout, SSH-only transport and a legal banner.",
+      "Strong policy favors length, unique accounts and MFA; certificates and biometrics are alternatives to passwords.",
+      "AAA centralizes who, what and what they did: TACACS+ (TCP 49, full encryption) for admins, RADIUS (UDP 1812/1813) for network access."
+    ],
+    "feynmanPrompt": "Explain to a new network technician how a Cisco router decides which password to ask for when someone connects to the console, connects over SSH and types enable, and why type 7 passwords are not really secret. Finish by explaining when you would pick TACACS+ over RADIUS."
+  },
+  "questions": [
+    {
+      "id": "ccna-device-security-q01",
+      "type": "mcq",
+      "difficulty": "easy",
+      "question": "Which IOS lines carry Telnet and SSH sessions to a router?",
+      "choices": ["line console 0", "line aux 0", "line tty 1", "line vty 0 4"],
+      "answer": 3,
+      "explanation": "Remote sessions use virtual terminal (vty) lines. The console and aux lines are physical ports on the device.",
+      "concept": "vty lines",
+      "section": 0
+    },
+    {
+      "id": "ccna-device-security-q02",
+      "type": "mcq",
+      "difficulty": "medium",
+      "question": "A technician plugs into the console of a switch with the configuration below. What happens?",
+      "code": "SW1# show running-config | section line con 0\nline con 0\n password C0nsole!Pass\n logging synchronous",
+      "choices": ["The switch prompts for C0nsole!Pass before allowing access", "The technician reaches user EXEC mode without any password prompt", "The console is disabled until login is added", "The switch prompts for a username and password"],
+      "answer": 1,
+      "explanation": "Without the login subcommand, IOS never asks for the line password, so the console is open. Adding login makes IOS prompt for C0nsole!Pass.",
+      "concept": "login command",
+      "section": 0
+    },
+    {
+      "id": "ccna-device-security-q03",
+      "type": "mcq",
+      "difficulty": "medium",
+      "question": "An engineer telnets to a new router and sees the output below. What is the cause?",
+      "code": "C:\\> telnet 10.1.1.1\nPassword required, but none set\n\nConnection to host lost.",
+      "language": "plaintext",
+      "choices": ["The router has no enable secret configured", "transport input ssh is blocking Telnet", "The vty lines have login configured but no password", "An access-class on the vty lines denied the engineer's address"],
+      "answer": 2,
+      "explanation": "vty lines default to login with no password, and IOS refuses the session with exactly this message. A missing enable secret only matters later, when the user types enable.",
+      "concept": "vty defaults",
+      "section": 0
+    },
+    {
+      "id": "ccna-device-security-q04",
+      "type": "mcq",
+      "difficulty": "easy",
+      "question": "A router has both enable password and enable secret configured with different values. Which value must a user enter after typing enable?",
+      "choices": ["The enable secret value", "The enable password value", "Either value", "The console line password"],
+      "answer": 0,
+      "explanation": "When both are configured, IOS uses only the enable secret and ignores the enable password.",
+      "concept": "enable secret precedence",
+      "section": 1
+    },
+    {
+      "id": "ccna-device-security-q05",
+      "type": "mcq",
+      "difficulty": "medium",
+      "question": "A router has neither enable password nor enable secret configured. An administrator logs in over SSH and types enable. What happens?",
+      "code": "R1> enable\n% No password set\nR1>",
+      "choices": ["The administrator enters privileged mode with no prompt", "IOS prompts for the vty password instead", "IOS asks the administrator to create an enable secret", "Access to privileged mode is refused"],
+      "answer": 3,
+      "explanation": "With no enable password or secret, remote users cannot reach privileged mode at all and see \"% No password set\". Only console users are let in without a password in that case.",
+      "concept": "enable defaults",
+      "section": 1
+    },
+    {
+      "id": "ccna-device-security-q06",
+      "type": "cli",
+      "shell": "ios",
+      "difficulty": "easy",
+      "question": "Type the global configuration command that protects privileged mode with a hashed password of Gr8Secret! (use the plain form, without choosing an algorithm).",
+      "answer": "enable secret Gr8Secret!",
+      "explanation": "enable secret stores a hash of the password rather than the clear text. Avoid enable password, which stores clear text.",
+      "concept": "enable secret",
+      "section": 1
+    },
+    {
+      "id": "ccna-device-security-q07",
+      "type": "match",
+      "difficulty": "medium",
+      "question": "Match each IOS password type number to how the password is stored.",
+      "pairs": [
+        { "left": "Type 0", "right": "Clear text" },
+        { "left": "Type 7", "right": "Weak reversible encryption from service password-encryption" },
+        { "left": "Type 5", "right": "Salted MD5-based hash" },
+        { "left": "Type 8", "right": "PBKDF2 with SHA-256 hash" },
+        { "left": "Type 9", "right": "scrypt hash" }
+      ],
+      "explanation": "Types 0 and 7 can be read or reversed; 5, 8 and 9 are one-way hashes, with 8 and 9 designed to be slow to crack.",
+      "concept": "password types",
+      "section": 2
+    },
+    {
+      "id": "ccna-device-security-q08",
+      "type": "mcq",
+      "difficulty": "medium",
+      "question": "A switch's configuration contains the lines below. An attacker obtains a copy of it. What can the attacker most easily learn?",
+      "code": "service password-encryption\nenable secret 9 $9$nhEmQVczB7dqsO$X.HsgL6x1il0RxkOSSvyQYwucySCt7qFm4v7pqCxkKM\n!\nline vty 0 15\n password 7 070C285F4D06\n login",
+      "choices": ["The enable secret, because type 9 is reversible", "Nothing, because both passwords are hashed", "The vty password, because type 7 can be decoded instantly", "Both passwords, because service password-encryption covers the secret too"],
+      "answer": 2,
+      "explanation": "The type 7 vty password decodes with free tools. The type 9 enable secret is an scrypt hash that would have to be cracked by guessing, which is slow.",
+      "concept": "type 7 weakness",
+      "section": 2
+    },
+    {
+      "id": "ccna-device-security-q09",
+      "type": "mcq",
+      "difficulty": "hard",
+      "question": "An engineer enables service password-encryption, then later enters no service password-encryption. What happens to the line passwords that were encrypted?",
+      "choices": ["They are decrypted back to clear text immediately", "They stay type 7 until each password is changed", "They are deleted from the configuration", "They are converted to type 5 hashes"],
+      "answer": 1,
+      "explanation": "Turning the service off only stops future encryption. Existing type 7 passwords remain encrypted until someone sets them again, at which point the new value is stored in clear text.",
+      "concept": "service password-encryption",
+      "section": 2
+    },
+    {
+      "id": "ccna-device-security-q10",
+      "type": "cli",
+      "shell": "ios",
+      "difficulty": "easy",
+      "question": "Type the global command that encrypts all clear-text passwords in the configuration as type 7.",
+      "answer": "service password-encryption",
+      "explanation": "service password-encryption converts line passwords, enable password and username password entries to type 7. It is weak, but better than clear text on a printout.",
+      "concept": "service password-encryption",
+      "section": 2
+    },
+    {
+      "id": "ccna-device-security-q11",
+      "type": "multi",
+      "difficulty": "medium",
+      "question": "Which three are changed by service password-encryption? (Choose three.)",
+      "choices": ["The console line password", "The enable password", "A username configured with the password keyword", "The enable secret", "A username configured with the secret keyword"],
+      "answers": [0, 1, 2],
+      "explanation": "service password-encryption only touches passwords that would otherwise be clear text. Secrets are already stored as hashes, so they are left alone.",
+      "concept": "service password-encryption",
+      "section": 2
+    },
+    {
+      "id": "ccna-device-security-q12",
+      "type": "mcq",
+      "difficulty": "hard",
+      "question": "Which command stores the enable password as a type 9 hash?",
+      "choices": ["enable algorithm-type sha256 secret Str0ng!Pass", "enable password 9 Str0ng!Pass", "enable algorithm-type scrypt secret Str0ng!Pass", "service password-encryption 9"],
+      "answer": 2,
+      "explanation": "algorithm-type scrypt produces type 9. algorithm-type sha256 produces type 8, and enable password never creates a hash.",
+      "concept": "type 9 secret",
+      "section": 2
+    },
+    {
+      "id": "ccna-device-security-q13",
+      "type": "cli",
+      "shell": "ios",
+      "difficulty": "medium",
+      "question": "You are in line vty 0 15 configuration mode. Type the command that makes the lines authenticate users against the local username database.",
+      "answer": "login local",
+      "explanation": "login local prompts for a username and password and checks the local database. Plain login would use the shared line password.",
+      "concept": "login local",
+      "section": 3
+    },
+    {
+      "id": "ccna-device-security-q14",
+      "type": "mcq",
+      "difficulty": "hard",
+      "question": "With the configuration below, Telnet users are asked only for a password, and SSH logins fail. Which change fixes both problems?",
+      "code": "username netadmin secret N3tAdm!n\n!\nline vty 0 4\n password Vty!2024\n login\n transport input telnet ssh",
+      "choices": ["Replace login with login local under the vty lines", "Add service password-encryption", "Change transport input to ssh only", "Add enable secret N3tAdm!n"],
+      "answer": 0,
+      "explanation": "login uses the shared line password and ignores the username database, and SSH needs username authentication. login local fixes both. Restricting transport to SSH would block Telnet but SSH would still fail.",
+      "concept": "login vs login local",
+      "section": 3
+    },
+    {
+      "id": "ccna-device-security-q15",
+      "type": "mcq",
+      "difficulty": "medium",
+      "question": "Why is username admin secret X preferred over username admin password X?",
+      "choices": ["secret allows the user to skip the enable password", "secret stores a one-way hash instead of clear text or reversible type 7", "secret is the only form that works with the console line", "secret automatically gives the user privilege level 15"],
+      "answer": 1,
+      "explanation": "The secret keyword hashes the password (type 5, 8 or 9). The password keyword stores clear text, or type 7 with service password-encryption. Privilege level is a separate option.",
+      "concept": "username secret",
+      "section": 3
+    },
+    {
+      "id": "ccna-device-security-q16",
+      "type": "order",
+      "difficulty": "easy",
+      "question": "A user connects to a router's console that has all three banners configured. Put what the user sees in order.",
+      "items": [
+        "The MOTD banner",
+        "The login banner",
+        "The username and password prompts",
+        "The exec banner"
+      ],
+      "explanation": "MOTD comes first, then the login banner, then the credential prompts. The exec banner appears only after a successful login.",
+      "concept": "banner order",
+      "section": 4
+    },
+    {
+      "id": "ccna-device-security-q17",
+      "type": "cli",
+      "shell": "ios",
+      "difficulty": "medium",
+      "question": "You are in line console 0 configuration mode. Type the command that disconnects the session after 5 minutes and 0 seconds of inactivity.",
+      "answer": "exec-timeout 5 0",
+      "accept": ["exec-timeout 5"],
+      "explanation": "exec-timeout takes minutes and then optional seconds. exec-timeout 0 0 would disable the timeout entirely.",
+      "concept": "exec-timeout",
+      "section": 4
+    },
+    {
+      "id": "ccna-device-security-q18",
+      "type": "mcq",
+      "difficulty": "easy",
+      "question": "What does exec-timeout 0 0 do on a line?",
+      "choices": ["Disconnects the session immediately", "Disables the line", "Uses the timeout set on the vty lines instead", "Disables the inactivity timeout, so sessions never time out"],
+      "answer": 3,
+      "explanation": "Zero minutes and zero seconds means no timeout at all. That is handy in a lab and risky in production.",
+      "concept": "exec-timeout",
+      "section": 4
+    },
+    {
+      "id": "ccna-device-security-q19",
+      "type": "mcq",
+      "difficulty": "medium",
+      "question": "Which MOTD banner text follows best practice?",
+      "choices": ["Welcome to the HQ core router! Please log in.", "Authorized access only. All activity is logged and monitored.", "Cisco 4331, IOS XE 17.3, Building 2 basement.", "Default login is admin, ask IT for the password."],
+      "answer": 1,
+      "explanation": "A banner should warn that access is restricted and monitored. \"Welcome\" sounds like an invitation, and model, software or location details help attackers.",
+      "concept": "banner content",
+      "section": 4
+    },
+    {
+      "id": "ccna-device-security-q20",
+      "type": "debug",
+      "difficulty": "medium",
+      "question": "Security policy says credentials must never cross the network in clear text. Which line of this configuration breaks the policy?",
+      "code": "enable algorithm-type scrypt secret En@ble!9\nusername admin algorithm-type scrypt secret Adm1n!9\n!\nline vty 0 15\n login local\n transport input telnet\n exec-timeout 10 0",
+      "choices": ["login local, because it sends the username unencrypted", "exec-timeout 10 0, because it reveals session length", "transport input telnet, because Telnet sends passwords in clear text", "algorithm-type scrypt, because scrypt is reversible"],
+      "answer": 2,
+      "explanation": "Telnet carries everything, including the typed password, unencrypted. transport input ssh is the fix. The scrypt secrets and login local are good choices.",
+      "concept": "SSH only",
+      "section": 4
+    },
+    {
+      "id": "ccna-device-security-q21",
+      "type": "mcq",
+      "difficulty": "medium",
+      "question": "What does the command below do?",
+      "code": "login block-for 120 attempts 5 within 60",
+      "choices": ["After 5 failed logins within 60 seconds, the device refuses all logins for 120 seconds", "Users may log in at most 5 times per 120 seconds", "Sessions time out after 120 seconds of inactivity", "The account that failed 5 times is deleted after 60 seconds"],
+      "answer": 0,
+      "explanation": "login block-for enters a quiet period after too many failures in a window. It cripples online password guessing, though it cannot stop offline cracking of a stolen config.",
+      "concept": "login block-for",
+      "section": 5
+    },
+    {
+      "id": "ccna-device-security-q22",
+      "type": "cli",
+      "shell": "ios",
+      "difficulty": "hard",
+      "question": "Type the global command that makes IOS reject any new password shorter than 12 characters.",
+      "answer": "security passwords min-length 12",
+      "explanation": "security passwords min-length enforces a minimum length for passwords configured after the command is entered.",
+      "concept": "minimum length",
+      "section": 5
+    },
+    {
+      "id": "ccna-device-security-q23",
+      "type": "multi",
+      "difficulty": "medium",
+      "question": "Which two are good password management practices for network devices? (Choose two.)",
+      "choices": ["Give every administrator a unique account instead of one shared admin password", "Change every default password before a device goes into production", "Use the same strong password on every device so it is easy to remember", "Keep a spreadsheet of device passwords on a shared drive", "Never change a password once it is strong enough"],
+      "answers": [0, 1],
+      "explanation": "Unique accounts give accountability and contain damage, and defaults are the first thing attackers try. Reusing one password, storing passwords in a shared file, or never rotating them all widen the blast radius of one leak.",
+      "concept": "password management",
+      "section": 5
+    },
+    {
+      "id": "ccna-device-security-q24",
+      "type": "mcq",
+      "difficulty": "easy",
+      "question": "A fingerprint reader is an example of which authentication factor?",
+      "choices": ["Something you know", "Something you have", "Something you are", "Somewhere you are"],
+      "answer": 2,
+      "explanation": "Biometrics such as fingerprints, faces and irises are something you are.",
+      "concept": "biometrics",
+      "section": 6
+    },
+    {
+      "id": "ccna-device-security-q25",
+      "type": "mcq",
+      "difficulty": "medium",
+      "question": "An employee leaves the company, and the CA revokes the certificate on her laptop. What happens if she tries to authenticate with it the next day?",
+      "choices": ["Authentication succeeds until the certificate's expiry date", "Authentication succeeds because she still has the private key", "Authentication is rejected because the certificate is revoked", "The certificate is automatically renewed for 30 days"],
+      "answer": 2,
+      "explanation": "Revocation ends a certificate's validity before its expiry date. Services that trust the CA check revocation and refuse the certificate even though she still holds the file and key.",
+      "concept": "certificate revocation",
+      "section": 6
+    },
+    {
+      "id": "ccna-device-security-q26",
+      "type": "match",
+      "difficulty": "easy",
+      "question": "Match each credential to its authentication factor category.",
+      "pairs": [
+        { "left": "Passphrase", "right": "Something you know" },
+        { "left": "Hardware security key", "right": "Something you have" },
+        { "left": "Face scan", "right": "Something you are" },
+        { "left": "Password plus authenticator app code", "right": "Multifactor authentication" }
+      ],
+      "explanation": "MFA combines categories. A hardware key or smart card is something you have; a face or fingerprint is something you are.",
+      "concept": "authentication factors",
+      "section": 6
+    },
+    {
+      "id": "ccna-device-security-q27",
+      "type": "match",
+      "difficulty": "easy",
+      "question": "Match each AAA function to the question it answers.",
+      "pairs": [
+        { "left": "Authentication", "right": "Who are you?" },
+        { "left": "Authorization", "right": "What are you allowed to do?" },
+        { "left": "Accounting", "right": "What did you do, and when?" }
+      ],
+      "explanation": "Authentication verifies identity, authorization grants permissions, and accounting records activity for auditing and billing.",
+      "concept": "AAA functions",
+      "section": 7
+    },
+    {
+      "id": "ccna-device-security-q28",
+      "type": "typed",
+      "difficulty": "easy",
+      "question": "Which UDP port does a modern RADIUS server use for authentication requests?",
+      "answer": "1812",
+      "accept": ["udp 1812"],
+      "explanation": "RADIUS uses UDP 1812 for authentication and 1813 for accounting. Older servers used 1645 and 1646.",
+      "concept": "RADIUS ports",
+      "section": 7
+    },
+    {
+      "id": "ccna-device-security-q29",
+      "type": "multi",
+      "difficulty": "hard",
+      "question": "Which three statements describe TACACS+? (Choose three.)",
+      "choices": ["It uses TCP port 49", "It encrypts the entire body of each packet", "It separates authentication, authorization and accounting, allowing per-command authorization", "It uses UDP ports 1812 and 1813", "It combines authentication and authorization in one response", "It is the protocol 802.1X uses to reach the authentication server"],
+      "answers": [0, 1, 2],
+      "explanation": "TACACS+ runs over TCP 49, encrypts the full body and keeps the AAA functions separate. UDP 1812/1813, combined authentication and authorization, and 802.1X all describe RADIUS.",
+      "concept": "TACACS+ vs RADIUS",
+      "section": 7
+    },
+    {
+      "id": "ccna-device-security-q30",
+      "type": "mcq",
+      "difficulty": "hard",
+      "question": "R1 has the configuration below. The TACACS+ server at 10.10.99.20 is powered off. What happens when admin tries to log in over SSH with a valid local username and secret?",
+      "code": "aaa new-model\n!\ntacacs server TAC1\n address ipv4 10.10.99.20\n key T@cKey!2024\n!\naaa authentication login default group tacacs+ local\n!\nusername admin privilege 15 algorithm-type scrypt secret Adm1n!9",
+      "choices": ["The login fails, because TACACS+ is listed first", "R1 tries the TACACS+ server, gets no answer, then authenticates admin against the local database", "R1 skips authentication entirely until the server returns", "R1 uses the enable secret instead of the username"],
+      "answer": 1,
+      "explanation": "The method list tries group tacacs+ first; when no server responds, IOS moves to the next method, local. If the server had answered with a reject, the login would fail without trying local.",
+      "concept": "AAA method list",
+      "section": 7
+    },
+    {
+      "id": "ccna-device-security-q31",
+      "type": "mcq",
+      "difficulty": "medium",
+      "question": "A company wants employees' laptops to authenticate to the wired and wireless network with 802.1X. Which protocol will the switches and WLC most likely use to reach the authentication server?",
+      "choices": ["TACACS+", "RADIUS", "SNMP", "Syslog"],
+      "answer": 1,
+      "explanation": "802.1X network access uses RADIUS between the authenticator (switch or WLC) and the server. TACACS+ is mainly used for administrators logging in to devices.",
+      "concept": "RADIUS use case",
+      "section": 7
+    },
+    {
+      "id": "ccna-device-security-q32",
+      "type": "recall",
+      "difficulty": "medium",
+      "question": "Why do organizations use a central AAA server instead of local usernames on every device?",
+      "answer": "One central database means accounts are added, changed and removed in one place for every device, policies such as per-command authorization and MFA are applied consistently, and accounting records of who did what are collected centrally. Local accounts are kept only as a fallback.",
+      "explanation": "Local usernames do not scale: with hundreds of devices, removing one administrator would mean editing every configuration, and logs would be scattered.",
+      "concept": "centralized AAA",
+      "section": 7
+    }
+  ]
+}

@@ -1,0 +1,805 @@
+{
+  "id": "ccna-network-components",
+  "name": "Network Components and Architectures",
+  "version": "1.0.0",
+  "author": "Recurse",
+  "subject": "networking",
+  "level": "beginner",
+  "description": "Name what each network device does and at which layer, and recognize campus, spine-leaf, WAN, SOHO and cloud designs.",
+  "icon": "NC",
+  "language": "cisco",
+  "prereqs": [
+    "networking-basics"
+  ],
+  "tags": [
+    "ccna",
+    "1.1",
+    "1.2",
+    "network-components",
+    "topologies",
+    "poe",
+    "cloud"
+  ],
+  "lesson": {
+    "estimatedMinutes": 24,
+    "intro": "Before you configure anything, you need to know what each box in a network diagram is for and how the boxes are arranged. This pack covers the components on the CCNA blueprint (routers, switches, firewalls, IPS, APs, controllers, endpoints, servers and PoE) and the common architectures they are built into: campus two-tier and three-tier, data center spine-leaf, WAN, SOHO, on-premises and cloud.",
+    "objectives": [
+      "Identify the job and OSI layer of routers, Layer 2 and Layer 3 switches, firewalls, IPS, APs, controllers, endpoints and servers",
+      "Explain how PoE detects, classifies and powers devices, and check a switch power budget",
+      "Compare two-tier, three-tier and spine-leaf designs and count links in mesh and fabric topologies",
+      "Choose among WAN, SOHO, on-premises and cloud options for a described situation"
+    ],
+    "sections": [
+      {
+        "title": "Follow one click through the network",
+        "body": "Picture a laptop on the third floor of an office. Someone clicks a link to a web app that runs in a public cloud. In the half second before the page appears, that request touches almost every kind of device on the CCNA blueprint. Walking the path once is the fastest way to learn what each box is for.\n\n- The **laptop** is an **endpoint**: a device a person uses, and the source of the traffic.\n- It talks over Wi-Fi to an **access point (AP)**, which turns 802.11 radio frames into wired Ethernet frames.\n- The AP is cabled to an **access switch**, which also feeds it electricity with **Power over Ethernet (PoE)**.\n- The access switch forwards the frame by MAC address to a **distribution switch**. This one is a **Layer 3 switch**, so it can also route between VLANs.\n- Traffic heading for the internet passes a **next-generation firewall (NGFW)** that decides whether it is allowed and inspects what is inside.\n- A **router** at the edge forwards the packet by IP address toward the ISP and the **WAN**.\n- At the far end, a **server** in the cloud provider's data center answers.\n- Off to the side, a **wireless LAN controller (WLC)** manages the APs, so nobody configures them one by one.\n\nEach device does one job and works at a particular layer. Switches care about MAC addresses (Layer 2), routers care about IP addresses (Layer 3), firewalls and IPS devices look as deep as they need to, up to the application. Exam questions in this area almost always come down to two quick checks: what job is being described, and which layer does that job live at.",
+        "code": "[Laptop] ~ ~ ~ (AP)      [IP phone]        [PC]\n                |            |               |\n            +---+------------+---------------+---+\n            |   Access switch SW1 (PoE ports)    |   Layer 2: frames by MAC\n            +-----------------+------------------+\n                              |\n            +-----------------+------------------+\n            |  Distribution switch D1 (Layer 3)  |   routes between VLANs,\n            +-----------------+------------------+   default gateway for users\n                              |             \\\n                     +--------+------+    [WLC] manages the APs\n                     |  NGFW  FW1    |    inspects and filters\n                     +--------+------+\n                              |\n                     +--------+------+\n                     |  Router  R1   |    edge to the WAN and ISP\n                     +--------+------+\n                              |\n                     ( Internet / WAN )\n                              |\n                     [ Cloud web server ]",
+        "language": "plaintext",
+        "tip": "When a question describes a device, underline the verb: forwards frames, routes packets, filters sessions, powers devices, manages APs. The verb gives you the device.",
+        "activity": {
+          "type": "packet-journey",
+          "title": "Watch the request travel",
+          "prompt": "Step through the journey one hop at a time. At every device, say out loud which header it reads (MAC or IP) before you advance. Notice that the switch never changes the IP header and the router builds a brand new Ethernet frame.",
+          "props": {}
+        },
+        "check": {
+          "question": "The laptop in the diagram sends a packet to the cloud server. Which device makes the first forwarding decision based on the destination IP address?",
+          "choices": [
+            "The access point",
+            "The access switch",
+            "The Layer 3 distribution switch acting as default gateway",
+            "The wireless LAN controller"
+          ],
+          "answer": 2,
+          "explanation": "The AP and the access switch move frames using Layer 2 information only. The first device that looks at the destination IP address and picks a route is the default gateway, here the Layer 3 distribution switch. The WLC manages APs; it is not in the forwarding path for this wired uplink."
+        }
+      },
+      {
+        "title": "Routers, Layer 2 switches and Layer 3 switches",
+        "body": "A small office has 40 PCs on one floor and a printer room next door. Plug them all into a switch and they can talk immediately. A **Layer 2 switch** reads the destination MAC address of each Ethernet frame and sends it out the one port where that address lives. It learns those locations from source addresses, floods frames it cannot place, and keeps everything inside one LAN (one VLAN). It does not look at IP addresses to make its decision.\n\nNow the office opens a second site across town. Different site, different subnet. A **router** connects networks: it reads the destination IP address of each packet, looks it up in its routing table, and forwards it toward the next hop. Routers do not forward broadcasts, so each router interface is the edge of a broadcast domain. Routers also tend to sit where the network meets the outside world, because they support WAN interfaces and edge services such as NAT and VPNs.\n\nA **Layer 3 switch** (also called a multilayer switch) is a switch that can also route. Inside a VLAN it switches frames by MAC address like any switch. Between VLANs it routes packets using **switched virtual interfaces (SVIs)** such as `interface vlan 10`, in hardware, at full speed. That is why campus distribution switches are usually Layer 3 switches: lots of fast routing between VLANs, few exotic interfaces. Routing is enabled on them with the global command `ip routing`.\n\nRule of thumb: switches connect devices inside a network, routers connect networks, and a Layer 3 switch does both jobs for the inside of a campus.",
+        "code": "                Layer 2 switch          Layer 3 switch                Router\nDecides using   destination MAC         MAC inside a VLAN,            destination IP\n                                        IP between VLANs\nMoves           frames                  frames and packets            packets\nUnknown dest    floods in the VLAN      floods (L2), or uses          drops it, unless a\n                                        routes / default (L3)         default route exists\nBroadcasts      floods in the VLAN      floods in the VLAN only       never forwards them\nTypical spot    access layer            distribution and core         WAN edge, branch",
+        "language": "plaintext",
+        "pitfall": "Saying a switch \"routes\" frames. A Layer 2 switch only switches inside a VLAN. Traffic between VLANs or subnets always needs a Layer 3 device: a router or a Layer 3 switch.",
+        "activity": {
+          "type": "osi-layers",
+          "title": "Put each device on its layer",
+          "prompt": "Drag the devices first (hub, switch, router, firewall), then the protocols and PDUs. Pay attention to where you put the Layer 3 switch idea: it lives on two layers at once because it switches and routes.",
+          "props": {}
+        },
+        "check": {
+          "question": "Users in VLAN 10 and VLAN 20 on the same campus need fast routing between the two VLANs. Which device is the usual choice?",
+          "choices": [
+            "A Layer 2 access switch with both VLANs configured",
+            "A Layer 3 switch with an SVI in each VLAN",
+            "A hub connecting both VLANs",
+            "An access point with two SSIDs"
+          ],
+          "answer": 1,
+          "explanation": "A Layer 3 switch routes between VLANs in hardware using one SVI per VLAN as each VLAN's default gateway. A Layer 2 switch can carry both VLANs but cannot route between them, and an AP with two SSIDs only maps each SSID to a VLAN."
+        }
+      },
+      {
+        "title": "Firewalls, next-generation firewalls and IPS",
+        "body": "A router will happily forward any packet it has a route for. That is a problem at the internet edge, where you want traffic that users start to go out and come back, while unsolicited traffic from strangers stays out. That job belongs to a **firewall**.\n\nA traditional **stateful firewall** filters on addresses and ports, and it remembers sessions. When a user inside opens a web connection, the firewall records it and allows the server's replies back in, even though no rule permits inbound web traffic. Firewalls organize interfaces into **zones**: inside (trusted), outside (internet) and usually a **DMZ** for servers the public must reach, such as a company web server. Rules say which zone may start sessions to which.\n\nA **next-generation firewall (NGFW)** does all of that and looks much deeper. Cisco Secure Firewall (Firepower) is the Cisco example. Key extras the exam names:\n\n- **Application visibility and control (AVC):** identifies the actual application (for example a file-sharing app hiding on port 443) and applies rules per application, not just per port.\n- **URL filtering:** blocks or allows web categories and sites by reputation.\n- **Integrated NGIPS:** intrusion prevention built into the same box.\n- **Advanced malware protection (AMP):** checks files against known and suspected malware.\n\nAn **intrusion prevention system (IPS)** sits inline and compares traffic to **signatures** of known attacks, dropping matches as they pass. An **IDS** does the same analysis on a copy of the traffic and only alerts, so it cannot stop the first packet. A **next-generation IPS (NGIPS)** adds context: it knows which hosts and operating systems are on the network, so it can rate how relevant an attack is, and it can block known bad addresses by reputation.",
+        "code": "       (Internet)\n           |\n      [  NGFW  ]-------- DMZ zone: public web server 203.0.113.10\n           |\n      Inside zone: users and internal servers\n\ninside  -> outside : allowed, replies come back (stateful)\noutside -> DMZ     : allowed for HTTPS to the web server only\noutside -> inside  : denied unless it is a reply to an inside session",
+        "language": "plaintext",
+        "pitfall": "Thinking \"firewall\" means \"a router with an ACL\". An ACL checks each packet on its own with no memory. A stateful firewall remembers sessions, which is what lets replies in while blocking unsolicited traffic.",
+        "check": {
+          "question": "Which statement best separates an IPS from an IDS?",
+          "choices": [
+            "An IPS only alerts; an IDS can drop traffic",
+            "An IPS works at Layer 2 only; an IDS works at Layer 7 only",
+            "An IPS filters by port numbers; an IDS filters by MAC address",
+            "An IPS sits inline and can drop matching traffic; an IDS watches a copy and alerts"
+          ],
+          "answer": 3,
+          "explanation": "Prevention requires being in the path. An IPS is inline, so it can drop a malicious packet before it arrives. An IDS receives a copy of the traffic (for example from a SPAN port), so it can detect and alert but not block."
+        }
+      },
+      {
+        "title": "Access points and controllers",
+        "body": "A hotel needs Wi-Fi in 300 rooms. That means dozens of **access points (APs)**. An AP is the bridge between the radio world and the wired world: it talks 802.11 to wireless clients on one side and 802.3 Ethernet to a switch on the other, translating frames between the two. It advertises one or more network names (SSIDs) and maps each one to a VLAN on the wired side.\n\nThere are two ways to run those APs:\n\n- **Autonomous APs** are configured one at a time. Each holds its own SSIDs, security settings and channel. Fine for a home or a tiny office, painful for 60 APs.\n- **Lightweight APs** do the real-time radio work but hand management to a **wireless LAN controller (WLC)**. The AP builds a **CAPWAP** tunnel to the WLC, which pushes configuration, picks channels and power levels, handles client authentication and makes roaming smooth. This split of duties is called split-MAC.\n\nCloud-managed APs (Cisco Meraki, for example) move the controller into a cloud dashboard. The details of WLC deployments come later in the wireless architectures pack.\n\nThe blueprint word **controllers** also covers a second idea: **SDN controllers**, such as Cisco Catalyst Center (formerly DNA Center), which centralize management of switches, routers and APs and expose APIs for automation. For now, remember the pattern: a controller is the one central brain that configures and monitors many devices, so you stop logging in to each one.",
+        "tip": "Autonomous AP = configured by itself. Lightweight AP = needs a WLC. If a question mentions CAPWAP, a controller is involved.",
+        "pitfall": "Treating an AP as a router. An AP bridges wireless clients onto a VLAN. The clients' default gateway is still a router or Layer 3 switch on the wired side.",
+        "check": {
+          "question": "A company has 120 lightweight APs. Which device pushes their configuration and coordinates roaming?",
+          "choices": [
+            "The core router",
+            "The DHCP server",
+            "The access switch each AP is plugged into",
+            "A wireless LAN controller"
+          ],
+          "answer": 3,
+          "explanation": "Lightweight APs depend on a WLC. They form CAPWAP tunnels to it, and the WLC supplies configuration, RF management and roaming coordination. The access switch only gives the AP a port, a VLAN and PoE."
+        }
+      },
+      {
+        "title": "Endpoints, servers and Power over Ethernet",
+        "body": "**Endpoints** are the devices at the edge that people or things use: laptops, desktops, phones, tablets, printers, IP phones, security cameras and all the IoT sensors that now show up on networks. **Servers** provide services to them: web, email, file storage, DNS, DHCP, authentication. In the client-server model, the endpoint asks and the server answers. Servers today are often virtual machines or containers rather than physical boxes, which you will meet in the virtualization pack.\n\nNow look up at the ceiling of any office: APs and cameras, with no power outlets nearby. **Power over Ethernet (PoE)** solves that by sending DC power down the same UTP cable that carries data. The switch is the **power sourcing equipment (PSE)** and the AP, phone or camera is the **powered device (PD)**. One cable run, no power brick, and the network team can power-cycle a stuck AP remotely by bouncing its port.\n\nPoE is careful. The switch does not push power into whatever you plug in. It first sends a low-voltage test to detect a PD signature, then classifies how much power the device needs, then powers it, and keeps watching (CDP or LLDP messages can refine the request). A laptop plugged into a PoE port simply gets no power.\n\nCommon standards to know:\n\n- **PoE**, IEEE 802.3af: about 15 W at the switch port (15.4 W), two pairs.\n- **PoE+**, IEEE 802.3at: 30 W, two pairs.\n- **UPoE**, IEEE 802.3bt Type 3: 60 W, all four pairs.\n- **UPoE+**, IEEE 802.3bt Type 4: up to 90 W, all four pairs.\n\nEvery PoE switch has a **power budget**: its power supply can only deliver so many watts in total. Plan it the way you plan IP addresses, before the APs arrive.",
+        "code": "SW1# show power inline\nModule   Available     Used     Remaining\n          (Watts)     (Watts)    (Watts)\n------   ---------   --------   ---------\n1            370.0       37.0       333.0\nInterface Admin  Oper       Power   Device              Class Max\n                            (Watts)\n--------- ------ ---------- ------- ------------------- ----- ----\nGi1/0/1   auto   on         7.0     IP Phone 8845       2     30.0\nGi1/0/2   auto   on         30.0    AIR-AP2802I-B-K9    4     30.0\nGi1/0/3   auto   off        0.0     n/a                 n/a   30.0",
+        "language": "cisco",
+        "pitfall": "Assuming every port can power a full-load device at once. A 48-port PoE+ switch with a 370 W budget can give 30 W to only 12 ports. Check the budget with show power inline before adding APs.",
+        "check": {
+          "question": "In a PoE link between a switch and an IP phone, which device is the PSE?",
+          "choices": [
+            "The IP phone",
+            "The switch",
+            "The power outlet behind the switch",
+            "The WLC"
+          ],
+          "answer": 1,
+          "explanation": "The power sourcing equipment is the device that supplies power over the cable, normally the switch. The phone that receives the power is the powered device (PD)."
+        }
+      },
+      {
+        "title": "Campus designs: two-tier, three-tier and topology words",
+        "body": "A company has 1,000 users on several floors. Connecting every access switch to every other access switch would need hundreds of cables. Instead, campus LANs are built in tiers, each with one role:\n\n- **Access layer:** the switches users and APs plug into. Usually PoE, port security and VLAN assignment live here. Access switches do not connect to each other.\n- **Distribution layer:** aggregates the access switches, usually with two uplinks from each access switch to two distribution switches for redundancy. Typically Layer 3 switches, routing between VLANs and applying policy.\n- **Core layer:** a high-speed backbone that connects distribution blocks (for example one per building) and does nothing fancy, so it can forward as fast as possible.\n\nA **two-tier** design has access and distribution only. It is also called a **collapsed core**, because the core's job has been folded into the distribution switches. It is the most common campus design. A **three-tier** design adds the core when there are enough distribution blocks that connecting them all to each other would waste links and costly fiber between buildings.\n\nThe exam also uses some general topology words:\n\n- **Star:** one central device with links radiating out. Each access switch and its endpoints form a star.\n- **Full mesh:** every node links to every other node. With N nodes you need N(N - 1) / 2 links, so 6 switches need 15 links.\n- **Partial mesh:** some pairs are linked, not all. Access-to-distribution uplinks form a partial mesh.\n- **Hybrid:** a mix, which describes nearly every real design.",
+        "code": "Two-tier (collapsed core)\n\n     [D1]-------------[D2]        distribution, also doing the core job\n      |  \\           /  |\n      |    \\       /    |\n      |      \\   /      |\n      |        X        |\n      |      /   \\      |\n     [A1]  /       \\  [A2]       access: one uplink to D1 and one to D2\n\nThree-tier\n\n           [Core1]=========[Core2]              core\n      (every distribution switch links to both cores)\n    [D11]     [D12]           [D21]     [D22]   distribution, one pair per building\n      |  \\   /  |               |  \\   /  |\n      |    X    |               |    X    |\n      |  /   \\  |               |  /   \\  |\n    [A11]     [A12]           [A21]     [A22]   access",
+        "language": "plaintext",
+        "pitfall": "Plugging servers or user PCs into core switches. Endpoints connect at the access layer (or to leaf switches in a data center). Keeping the core free of endpoints is what keeps it simple and fast.",
+        "check": {
+          "question": "What is another name for a two-tier campus design?",
+          "choices": [
+            "Spine-leaf",
+            "Full mesh",
+            "Collapsed core",
+            "Hub and spoke"
+          ],
+          "answer": 2,
+          "explanation": "A two-tier design merges the core and distribution roles into the distribution switches, so it is called a collapsed core. Spine-leaf is a data center design and hub and spoke is a WAN topology."
+        }
+      },
+      {
+        "title": "Spine-leaf, WAN and SOHO",
+        "body": "**Data centers** have a different traffic pattern from campuses. Most traffic flows server to server (east-west), for example a web VM calling a database VM. The **spine-leaf** design (also called a Clos fabric) is built for that, and it follows strict rules:\n\n- Every **leaf** switch connects to every **spine** switch.\n- Spine switches do not connect to each other.\n- Leaf switches do not connect to each other.\n- Endpoints (servers, firewalls, routers to the outside) connect only to leaves, never to spines.\n\nThe payoff is predictability: traffic between servers on different leaves always crosses exactly three switches (leaf, spine, leaf), so latency is the same everywhere, and all the spine paths can be used at once. Need more ports? Add a leaf. Need more bandwidth between leaves? Add a spine. Cisco ACI requires this topology.\n\nA **WAN** connects sites that are far apart, using a service provider's network. Options you should recognize: leased lines (a private point-to-point circuit), **Metro Ethernet** (the provider offers an Ethernet service between sites), **MPLS VPNs** (the provider routes your traffic privately across its MPLS network between customer edge routers), and **internet VPNs** over broadband such as DSL, cable, fiber or 4G/5G. WAN topologies are described as point-to-point, **hub and spoke** (branches connect only to headquarters), full mesh or partial mesh, and a site with two WAN links is **dual-homed**.\n\nA **SOHO** (small office/home office) network turns the whole campus into one box: a consumer wireless router that is really a router, a small switch, an autonomous AP and a basic firewall in one case, connected to the ISP through a cable or DSL modem or fiber.",
+        "code": "[Spine1]      [Spine2]      [Spine3]      no spine-to-spine links\n     \\  every leaf links to every spine  /\n[Leaf1]     [Leaf2]     [Leaf3]     [Leaf4]   no leaf-to-leaf links\n |   |       |   |       |   |       |   |\nsrv srv     srv srv     srv srv     srv [FW to outside]\n\nLink matrix (X = one cable)\n           Spine1  Spine2  Spine3\nLeaf1        X       X       X\nLeaf2        X       X       X\nLeaf3        X       X       X\nLeaf4        X       X       X        4 leaves x 3 spines = 12 links\n\nServer on Leaf1 to server on Leaf4: Leaf1 -> any spine -> Leaf4 (3 switches)",
+        "language": "plaintext",
+        "tip": "Counting links in a full spine-leaf fabric is just spines times leaves: 4 spines and 20 leaves need 80 links.",
+        "check": {
+          "question": "Which link breaks the rules of a spine-leaf design?",
+          "choices": [
+            "A link directly between two spine switches",
+            "A link from a leaf to every spine",
+            "A server connected to a leaf switch",
+            "A firewall connected to a border leaf"
+          ],
+          "answer": 0,
+          "explanation": "In spine-leaf, spines never connect to each other and leaves never connect to each other. Every leaf links to every spine, and all endpoints, including firewalls and routers, attach to leaves."
+        }
+      },
+      {
+        "title": "On-premises versus cloud",
+        "body": "A startup needs ten servers next week. Option one: buy hardware, rack it in a room it controls, and run it. That is **on-premises**: you own the equipment, pay up front (capital expense), control everything, and you are responsible for power, cooling, spare parts and growth. Option two: rent the servers from a cloud provider and have them running in minutes, paying monthly for what you use (operating expense). That is **cloud computing**.\n\nNIST defines cloud computing by five characteristics, and the exam likes them:\n\n- **On-demand self-service:** you create resources yourself through a portal or API, no ticket to an admin.\n- **Broad network access:** reachable over the network from many kinds of devices.\n- **Resource pooling:** the provider shares a big pool of hardware among many customers.\n- **Rapid elasticity:** scale up and down quickly, so it looks unlimited.\n- **Measured service:** usage is metered and billed.\n\nService models describe how much the provider manages. With **IaaS** you rent VMs and manage the OS and apps. With **PaaS** you hand over your code and the provider runs the OS and runtime. With **SaaS** you just use a finished application, such as web email. A **public cloud** runs in the provider's data centers and is shared by many customers. A **private cloud** gives your own data center the same self-service, pooled, elastic behavior. **Hybrid** mixes both.\n\nGetting to a public cloud is a WAN choice: the plain **internet** (cheap and quick, but no security or quality guarantees), an **internet VPN** (adds encryption), a **private WAN** link such as MPLS to the provider (adds quality of service and an SLA), or an **intercloud exchange** (one private connection to an exchange that reaches several cloud providers, which makes moving between providers easier).",
+        "pitfall": "Calling any company-owned data center a private cloud. Without self-service, pooling and elasticity it is just an on-premises virtualized data center.",
+        "check": {
+          "question": "A developer creates three virtual servers through a web portal in five minutes without contacting IT. Which cloud characteristic does this show?",
+          "choices": [
+            "Measured service",
+            "Resource pooling",
+            "On-demand self-service",
+            "Broad network access"
+          ],
+          "answer": 2,
+          "explanation": "Creating resources yourself, without a human in the provider's IT team doing it for you, is on-demand self-service. Measured service is about metering and billing what you use."
+        }
+      }
+    ],
+    "keyTerms": [
+      {
+        "term": "Layer 3 switch",
+        "definition": "A switch that also routes between VLANs in hardware using SVIs; common at the distribution and core layers."
+      },
+      {
+        "term": "Next-generation firewall (NGFW)",
+        "definition": "A stateful firewall that adds application visibility and control, URL filtering, integrated IPS and malware protection."
+      },
+      {
+        "term": "IPS",
+        "definition": "Intrusion prevention system: sits inline, matches traffic against attack signatures and drops matches. An IDS only alerts."
+      },
+      {
+        "term": "Wireless LAN controller (WLC)",
+        "definition": "Central device that configures and manages lightweight APs over CAPWAP tunnels."
+      },
+      {
+        "term": "PoE",
+        "definition": "Power over Ethernet: DC power sent over UTP from a PSE (usually a switch) to a powered device such as an AP, phone or camera."
+      },
+      {
+        "term": "Collapsed core",
+        "definition": "A two-tier campus design where the distribution switches also perform the core role."
+      },
+      {
+        "term": "Spine-leaf",
+        "definition": "Data center design where every leaf connects to every spine, spines never interconnect and endpoints attach only to leaves."
+      },
+      {
+        "term": "Hub and spoke",
+        "definition": "WAN topology where branch sites connect only to a central site, which relays branch-to-branch traffic."
+      },
+      {
+        "term": "SOHO",
+        "definition": "Small office/home office network, usually one consumer router that combines routing, switching, an AP and a firewall."
+      },
+      {
+        "term": "IaaS, PaaS, SaaS",
+        "definition": "Cloud service models: rent VMs, rent a platform for your code, or use a finished application."
+      }
+    ],
+    "summary": [
+      "Switches forward frames by MAC inside a VLAN, routers forward packets by IP between networks, and Layer 3 switches do both.",
+      "Stateful firewalls let replies back in; NGFWs add app control, URL filtering, IPS and malware checks; an IPS drops, an IDS alerts.",
+      "Lightweight APs need a WLC over CAPWAP; PoE powers APs, phones and cameras only after detecting and classifying them.",
+      "Campus: access, distribution and core, with two-tier called collapsed core. Data center: spine-leaf, leaf to every spine.",
+      "WANs join distant sites (leased line, Metro Ethernet, MPLS, internet VPN); cloud trades owned hardware for self-service and elasticity."
+    ],
+    "feynmanPrompt": "Explain to a new IT hire what happens to a web request as it leaves a laptop on Wi-Fi and reaches a cloud server, naming each device it passes and what that device decides."
+  },
+  "questions": [
+    {
+      "id": "ccna-network-components-q01",
+      "type": "match",
+      "difficulty": "easy",
+      "question": "Match each network component to its main job.",
+      "pairs": [
+        {
+          "left": "Router",
+          "right": "Forwards packets between networks by IP address"
+        },
+        {
+          "left": "Layer 2 switch",
+          "right": "Forwards frames inside a LAN by MAC address"
+        },
+        {
+          "left": "Next-generation firewall",
+          "right": "Enforces security policy with application awareness"
+        },
+        {
+          "left": "Wireless LAN controller",
+          "right": "Centrally manages lightweight access points"
+        },
+        {
+          "left": "Access point",
+          "right": "Bridges Wi-Fi clients onto the wired LAN"
+        },
+        {
+          "left": "Server",
+          "right": "Provides services such as DNS or file storage to clients"
+        }
+      ],
+      "explanation": "Each component does one main job. Matching on the verb works: routers route packets, switches switch frames, firewalls enforce policy, WLCs manage APs, APs bridge radio to wire, servers serve.",
+      "concept": "device roles",
+      "section": 0
+    },
+    {
+      "id": "ccna-network-components-q02",
+      "type": "mcq",
+      "difficulty": "medium",
+      "question": "A technician says \"this device reads the destination IP address, but it does not care about the Ethernet MAC address of the next hop until it has picked a route\". Which device is being described?",
+      "choices": [
+        "A Layer 2 access switch",
+        "A hub",
+        "A router",
+        "An access point"
+      ],
+      "answer": 2,
+      "explanation": "A router makes its decision on the destination IP address, then builds a new Ethernet frame for the chosen next hop. A Layer 2 switch and an AP decide using MAC addresses, and a hub makes no decision at all.",
+      "concept": "device layers",
+      "section": 0
+    },
+    {
+      "id": "ccna-network-components-q03",
+      "type": "mcq",
+      "difficulty": "easy",
+      "question": "Which device stops Ethernet broadcasts from spreading from one LAN into another by default?",
+      "choices": [
+        "A router",
+        "A Layer 2 switch",
+        "A hub",
+        "A PoE injector"
+      ],
+      "answer": 0,
+      "explanation": "Routers do not forward broadcasts, so each router interface is the boundary of a broadcast domain. A Layer 2 switch floods broadcasts out every port in the VLAN, and a hub repeats everything everywhere.",
+      "concept": "broadcast domains",
+      "section": 1
+    },
+    {
+      "id": "ccna-network-components-q04",
+      "type": "multi",
+      "difficulty": "medium",
+      "question": "Which two statements describe a Layer 2 switch? (Choose two.)",
+      "choices": [
+        "It learns MAC addresses from the source address of incoming frames",
+        "It forwards frames based on the destination IP address",
+        "It floods frames whose destination MAC address it has not learned",
+        "It separates each port into its own broadcast domain",
+        "It uses a routing table to pick the next hop"
+      ],
+      "answers": [
+        0,
+        2
+      ],
+      "explanation": "A Layer 2 switch learns from source MAC addresses and floods unknown unicast frames within the VLAN. It does not read IP addresses or keep a routing table, and all ports in one VLAN share one broadcast domain.",
+      "concept": "Layer 2 switch behavior",
+      "section": 1
+    },
+    {
+      "id": "ccna-network-components-q05",
+      "type": "cli",
+      "difficulty": "medium",
+      "question": "A multilayer switch has SVIs for VLAN 10 and VLAN 20 with IP addresses, but hosts in the two VLANs still cannot reach each other through it. Which global configuration command turns on IPv4 routing?",
+      "answer": "ip routing",
+      "shell": "ios",
+      "explanation": "Many Layer 3 switches ship with IPv4 routing disabled. Until you enter ip routing in global configuration mode, the switch treats its SVIs like management interfaces and does not route between them.",
+      "concept": "enable routing on L3 switch",
+      "section": 1
+    },
+    {
+      "id": "ccna-network-components-q06",
+      "type": "mcq",
+      "difficulty": "hard",
+      "question": "A company is replacing its branch WAN edge. An engineer suggests using a Layer 3 switch instead of a router. Which is the strongest reason to keep a router at the WAN edge?",
+      "choices": [
+        "Layer 3 switches cannot run routing protocols such as OSPF",
+        "Layer 3 switches cannot be given IP addresses on their interfaces",
+        "Routers switch frames inside a VLAN faster than Layer 3 switches",
+        "Routers support a wider range of WAN interfaces and edge services such as VPN termination and NAT"
+      ],
+      "answer": 3,
+      "explanation": "Layer 3 switches route very fast between VLANs and can run OSPF, but routers are built for the edge: varied WAN interfaces, VPNs, NAT and other services. Switches, not routers, are the faster choice for switching inside a VLAN.",
+      "concept": "router vs L3 switch",
+      "section": 1
+    },
+    {
+      "id": "ccna-network-components-q07",
+      "type": "mcq",
+      "difficulty": "easy",
+      "question": "In a typical enterprise campus, where are Layer 3 switches most often deployed?",
+      "choices": [
+        "At the access layer, connecting user PCs only",
+        "At the distribution and core layers",
+        "Only inside SOHO wireless routers",
+        "Between the ISP modem and the internet"
+      ],
+      "answer": 1,
+      "explanation": "Distribution and core switches carry traffic between many VLANs and buildings, so they usually route in hardware as Layer 3 switches. Access switches are often Layer 2, and the ISP connection is a router's job.",
+      "concept": "L3 switch placement",
+      "section": 1
+    },
+    {
+      "id": "ccna-network-components-q08",
+      "type": "mcq",
+      "difficulty": "easy",
+      "question": "Which device sits inline in the traffic path and can drop packets that match a known attack signature?",
+      "choices": [
+        "An IPS",
+        "An IDS",
+        "A WLC",
+        "A Layer 2 switch"
+      ],
+      "answer": 0,
+      "explanation": "An IPS is inline, so it can block matching traffic as it passes. An IDS analyzes a copy of the traffic and can only raise alerts.",
+      "concept": "IPS inline",
+      "section": 2
+    },
+    {
+      "id": "ccna-network-components-q09",
+      "type": "mcq",
+      "difficulty": "medium",
+      "question": "A user inside the network opens a website. The firewall has no rule allowing inbound web traffic, yet the web server's replies reach the user. Why?",
+      "choices": [
+        "The firewall forwards all TCP traffic in both directions by default",
+        "The web server uses UDP, which firewalls never filter",
+        "The firewall tracks the session the user started and permits its return traffic",
+        "The firewall routes replies through the DMZ, which has no rules"
+      ],
+      "answer": 2,
+      "explanation": "Stateful firewalls record sessions that start from trusted zones and automatically allow the matching return traffic. Unsolicited inbound connections are still denied.",
+      "concept": "stateful firewall",
+      "section": 2
+    },
+    {
+      "id": "ccna-network-components-q10",
+      "type": "multi",
+      "difficulty": "hard",
+      "question": "Which three features distinguish a next-generation firewall from a traditional stateful firewall? (Choose three.)",
+      "choices": [
+        "Application visibility and control",
+        "Filtering by source and destination port numbers",
+        "An integrated intrusion prevention engine",
+        "Stateful tracking of TCP sessions",
+        "URL filtering by category and reputation",
+        "Network address translation"
+      ],
+      "answers": [
+        0,
+        2,
+        4
+      ],
+      "explanation": "NGFWs add application awareness, integrated NGIPS and URL filtering (plus malware protection). Port filtering, session state and NAT are features that traditional stateful firewalls already have.",
+      "concept": "NGFW features",
+      "section": 2
+    },
+    {
+      "id": "ccna-network-components-q11",
+      "type": "mcq",
+      "difficulty": "medium",
+      "question": "A company must let internet users reach its public web server while protecting internal hosts if that server is ever compromised. Where should the web server go?",
+      "choices": [
+        "On the inside zone, next to the user PCs",
+        "In a DMZ zone on the firewall",
+        "On the outside of the firewall with no protection",
+        "On the same VLAN as the WLC"
+      ],
+      "answer": 1,
+      "explanation": "A DMZ is a separate firewall zone for public-facing servers. Outside users may reach the server, but the server cannot freely start connections into the inside zone, which limits the damage if it is hacked.",
+      "concept": "DMZ",
+      "section": 2
+    },
+    {
+      "id": "ccna-network-components-q12",
+      "type": "mcq",
+      "difficulty": "easy",
+      "question": "Which device configures lightweight access points and coordinates client roaming between them?",
+      "choices": [
+        "A next-generation firewall",
+        "A DHCP server",
+        "A Layer 2 access switch",
+        "A wireless LAN controller"
+      ],
+      "answer": 3,
+      "explanation": "Lightweight APs depend on a WLC for configuration, RF management and roaming. The switch only provides the AP's port, VLAN and PoE.",
+      "concept": "WLC role",
+      "section": 3
+    },
+    {
+      "id": "ccna-network-components-q13",
+      "type": "mcq",
+      "difficulty": "medium",
+      "question": "Which statement about lightweight access points is true?",
+      "choices": [
+        "Each one is configured separately through its own CLI or web page",
+        "They route packets between VLANs for their wireless clients",
+        "They cannot receive power through PoE",
+        "They build CAPWAP tunnels to a WLC that manages them"
+      ],
+      "answer": 3,
+      "explanation": "Lightweight APs use CAPWAP to reach a WLC, which manages them centrally. Configuring each AP separately describes autonomous APs. APs bridge clients onto VLANs rather than routing, and they are usually PoE powered.",
+      "concept": "lightweight vs autonomous",
+      "section": 3
+    },
+    {
+      "id": "ccna-network-components-q14",
+      "type": "mcq",
+      "difficulty": "medium",
+      "question": "An autonomous AP receives an 802.11 frame from a laptop addressed to a file server on the wired LAN. What does the AP do with it?",
+      "choices": [
+        "Routes it using the destination IP address",
+        "Converts it to an 802.3 Ethernet frame and bridges it onto the mapped VLAN",
+        "Drops it, because wireless clients may only reach other wireless clients",
+        "Encrypts it with CAPWAP and sends it to the internet"
+      ],
+      "answer": 1,
+      "explanation": "An AP is a translational bridge: it turns the 802.11 frame into an Ethernet frame and forwards it onto the wired VLAN mapped to that SSID. It does not route. An autonomous AP has no WLC, so there is no CAPWAP tunnel.",
+      "concept": "AP function",
+      "section": 3
+    },
+    {
+      "id": "ccna-network-components-q15",
+      "type": "mcq",
+      "difficulty": "easy",
+      "question": "Which of these is an endpoint?",
+      "choices": [
+        "A distribution switch",
+        "A wireless LAN controller",
+        "An IP security camera",
+        "A core router"
+      ],
+      "answer": 2,
+      "explanation": "Endpoints are devices at the edge that people or things use, such as PCs, phones, printers and cameras. Switches, routers and controllers are infrastructure.",
+      "concept": "endpoints",
+      "section": 4
+    },
+    {
+      "id": "ccna-network-components-q16",
+      "type": "order",
+      "difficulty": "medium",
+      "question": "Put the steps a PoE switch takes, from the moment a device is plugged in, in order.",
+      "items": [
+        "Send a low-voltage test to detect a powered device signature",
+        "Classify the device to learn how much power it needs",
+        "Apply power according to that class so the device can boot",
+        "Keep monitoring and adjust power if CDP or LLDP requests a change"
+      ],
+      "explanation": "PoE never applies full power blindly. It detects a PD first, classifies it, powers it, then keeps watching, which is why plugging a normal laptop into a PoE port is safe.",
+      "concept": "PoE negotiation",
+      "section": 4
+    },
+    {
+      "id": "ccna-network-components-q17",
+      "type": "typed",
+      "difficulty": "medium",
+      "question": "How many watts per port can an IEEE 802.3at (PoE+) switch port supply?",
+      "answer": "30",
+      "accept": [
+        "30 W",
+        "30 watts",
+        "30W"
+      ],
+      "explanation": "PoE+ (802.3at) supplies up to 30 W at the switch port over two pairs. Original PoE (802.3af) gives about 15 W, and UPoE (802.3bt) goes to 60 W and beyond over four pairs.",
+      "concept": "PoE+ wattage",
+      "section": 4
+    },
+    {
+      "id": "ccna-network-components-q18",
+      "type": "mcq",
+      "difficulty": "hard",
+      "question": "The engineer wants to add new APs that each need a full 30 W class 4 allocation, connected to SW1 shown in the exhibit. How many more of them can SW1 power?",
+      "code": "SW1# show power inline\nModule   Available     Used     Remaining\n          (Watts)     (Watts)    (Watts)\n------   ---------   --------   ---------\n1            370.0       37.0       333.0\nInterface Admin  Oper       Power   Device              Class Max\n                            (Watts)\n--------- ------ ---------- ------- ------------------- ----- ----\nGi1/0/1   auto   on         7.0     IP Phone 8845       2     30.0\nGi1/0/2   auto   on         30.0    AIR-AP2802I-B-K9    4     30.0\nGi1/0/3   auto   off        0.0     n/a                 n/a   30.0",
+      "language": "cisco",
+      "choices": [
+        "11",
+        "8",
+        "12",
+        "0, because Gi1/0/3 is off"
+      ],
+      "answer": 0,
+      "explanation": "SW1 has 333.0 W remaining. 333 / 30 = 11.1, so 11 more class 4 APs fit (330 W) and a twelfth would exceed the budget. Gi1/0/3 is off only because nothing that needs power is connected.",
+      "concept": "PoE budget",
+      "section": 4
+    },
+    {
+      "id": "ccna-network-components-q19",
+      "type": "mcq",
+      "difficulty": "easy",
+      "question": "In a campus LAN, which layer do user PCs and APs connect to?",
+      "choices": [
+        "Core",
+        "Distribution",
+        "Access",
+        "Spine"
+      ],
+      "answer": 2,
+      "explanation": "Endpoints and APs plug into access switches. Distribution switches aggregate access switches, and the core connects distribution blocks. Spine belongs to data center spine-leaf designs.",
+      "concept": "access layer",
+      "section": 5
+    },
+    {
+      "id": "ccna-network-components-q20",
+      "type": "match",
+      "difficulty": "medium",
+      "question": "Match each design term to its description.",
+      "pairs": [
+        {
+          "left": "Access layer",
+          "right": "Where endpoints and APs connect"
+        },
+        {
+          "left": "Distribution layer",
+          "right": "Aggregates access switches and routes between VLANs"
+        },
+        {
+          "left": "Core layer",
+          "right": "High-speed backbone between distribution blocks"
+        },
+        {
+          "left": "Full mesh",
+          "right": "Every node has a link to every other node"
+        },
+        {
+          "left": "Partial mesh",
+          "right": "Some pairs of nodes are linked, but not all"
+        },
+        {
+          "left": "Star",
+          "right": "One central device with links radiating out to the others"
+        }
+      ],
+      "explanation": "The tiers describe roles in a campus. Star, full mesh and partial mesh describe link patterns. A two-tier campus mixes stars (access) and a partial mesh (uplinks), so it is a hybrid.",
+      "concept": "tiers and topologies",
+      "section": 5
+    },
+    {
+      "id": "ccna-network-components-q21",
+      "type": "typed",
+      "difficulty": "medium",
+      "question": "A WAN design connects 8 routers in a full mesh, one link between each pair. How many links are needed?",
+      "answer": "28",
+      "accept": [
+        "28 links"
+      ],
+      "explanation": "A full mesh of N nodes needs N(N - 1) / 2 links: 8 x 7 / 2 = 28. This fast growth is why large designs use a partial mesh or add a core.",
+      "concept": "full mesh links",
+      "section": 5
+    },
+    {
+      "id": "ccna-network-components-q22",
+      "type": "mcq",
+      "difficulty": "medium",
+      "question": "A campus has grown to six buildings, each with its own pair of distribution switches. Why would the designer add a core layer?",
+      "choices": [
+        "To avoid a growing mesh of costly links between every pair of distribution blocks",
+        "To give users in each building a place to plug in",
+        "To replace the need for VLANs in each building",
+        "Because two-tier designs cannot route between VLANs"
+      ],
+      "answer": 0,
+      "explanation": "Connecting six distribution blocks to each other directly needs many inter-building links, usually expensive fiber. A core lets each block connect only to the core switches. Two-tier designs route between VLANs just fine.",
+      "concept": "why a core",
+      "section": 5
+    },
+    {
+      "id": "ccna-network-components-q23",
+      "type": "multi",
+      "difficulty": "medium",
+      "question": "Which two statements about a spine-leaf design are true? (Choose two.)",
+      "choices": [
+        "Every leaf switch connects to every spine switch",
+        "Spine switches connect to each other in a full mesh",
+        "Servers connect only to leaf switches",
+        "Servers connect to spine switches to reduce latency",
+        "Traffic between two leaves crosses at least two spines"
+      ],
+      "answers": [
+        0,
+        2
+      ],
+      "explanation": "Leaves connect to every spine, spines never interconnect, and all endpoints attach to leaves. Leaf-to-leaf traffic crosses exactly one spine, which is what makes latency predictable.",
+      "concept": "spine-leaf rules",
+      "section": 6
+    },
+    {
+      "id": "ccna-network-components-q24",
+      "type": "typed",
+      "difficulty": "hard",
+      "question": "A spine-leaf fabric has 4 spine switches and 20 leaf switches, with one link between each leaf and each spine. How many leaf-to-spine links are there?",
+      "answer": "80",
+      "accept": [
+        "80 links"
+      ],
+      "explanation": "Every leaf connects to every spine, so the count is leaves x spines = 20 x 4 = 80. No spine-to-spine or leaf-to-leaf links are added.",
+      "concept": "spine-leaf link count",
+      "section": 6
+    },
+    {
+      "id": "ccna-network-components-q25",
+      "type": "typed",
+      "difficulty": "easy",
+      "question": "In a spine-leaf fabric, a server on Leaf1 sends to a server on Leaf3. How many switches does the traffic pass through?",
+      "answer": "3",
+      "accept": [
+        "three"
+      ],
+      "explanation": "The path is always leaf, spine, leaf: three switches. That fixed path length gives every server pair the same latency.",
+      "concept": "spine-leaf path",
+      "section": 6
+    },
+    {
+      "id": "ccna-network-components-q26",
+      "type": "mcq",
+      "difficulty": "easy",
+      "question": "Which description fits a typical SOHO network?",
+      "choices": [
+        "A spine-leaf fabric with a dedicated WLC",
+        "A three-tier design with redundant core switches",
+        "An MPLS network operated by the customer",
+        "One consumer wireless router acting as router, switch, AP and firewall, connected to the ISP"
+      ],
+      "answer": 3,
+      "explanation": "Small office/home office networks usually rely on a single all-in-one device plus a modem or fiber connection to the ISP. The other options describe enterprise or provider designs.",
+      "concept": "SOHO",
+      "section": 6
+    },
+    {
+      "id": "ccna-network-components-q27",
+      "type": "mcq",
+      "difficulty": "medium",
+      "question": "Twelve branch offices each have one WAN link to headquarters. Branch-to-branch traffic travels through headquarters. Which WAN topology is this?",
+      "choices": [
+        "Full mesh",
+        "Hub and spoke",
+        "Spine-leaf",
+        "Collapsed core"
+      ],
+      "answer": 1,
+      "explanation": "A central hub with branches (spokes) that only connect to it is hub and spoke. A full mesh would give every branch a direct link to every other branch.",
+      "concept": "WAN topologies",
+      "section": 6
+    },
+    {
+      "id": "ccna-network-components-q28",
+      "type": "mcq",
+      "difficulty": "hard",
+      "question": "A company wants private connectivity between its sites over a provider network. The provider should route the company's traffic between sites, with each site connecting through its customer edge router and no internet exposure. Which service fits?",
+      "choices": [
+        "An MPLS VPN",
+        "An internet VPN over DSL",
+        "A single leased line between two sites",
+        "A SOHO wireless router at each site"
+      ],
+      "answer": 0,
+      "explanation": "In an MPLS VPN, customer edge routers connect to the provider's edge routers, and the provider routes the customer's traffic privately across its MPLS network between all sites. An internet VPN crosses the public internet, and one leased line only joins two sites.",
+      "concept": "WAN services",
+      "section": 6
+    },
+    {
+      "id": "ccna-network-components-q29",
+      "type": "mcq",
+      "difficulty": "easy",
+      "question": "A team rents virtual machines from a cloud provider and installs and patches the operating system themselves. Which service model is this?",
+      "choices": [
+        "SaaS",
+        "PaaS",
+        "IaaS",
+        "On-premises"
+      ],
+      "answer": 2,
+      "explanation": "Infrastructure as a Service gives you VMs; you manage the OS and everything above it. With PaaS the provider runs the OS and runtime, and with SaaS you only use the finished application.",
+      "concept": "IaaS",
+      "section": 7
+    },
+    {
+      "id": "ccna-network-components-q30",
+      "type": "match",
+      "difficulty": "medium",
+      "question": "Match each cloud term to its description.",
+      "pairs": [
+        {
+          "left": "IaaS",
+          "right": "Rent VMs and manage the OS yourself"
+        },
+        {
+          "left": "PaaS",
+          "right": "Deploy your code; the provider runs the OS and runtime"
+        },
+        {
+          "left": "SaaS",
+          "right": "Use a finished application, often through a browser"
+        },
+        {
+          "left": "Public cloud",
+          "right": "Provider data centers shared by many customers"
+        },
+        {
+          "left": "Private cloud",
+          "right": "Self-service, pooled resources inside your own data center"
+        }
+      ],
+      "explanation": "Service models describe who manages what. Deployment models describe whose data center it is and who shares it.",
+      "concept": "cloud models",
+      "section": 7
+    },
+    {
+      "id": "ccna-network-components-q31",
+      "type": "mcq",
+      "difficulty": "medium",
+      "question": "Which is a typical advantage of on-premises infrastructure compared with public cloud?",
+      "choices": [
+        "No hardware purchases are needed",
+        "Full control over the hardware and where data physically lives",
+        "Capacity can grow in minutes without buying anything",
+        "Usage is metered and billed monthly"
+      ],
+      "answer": 1,
+      "explanation": "On-premises means you own and control the equipment and the location of your data. Avoiding hardware purchases, rapid elasticity and metered billing are cloud advantages.",
+      "concept": "on-premises tradeoff",
+      "section": 7
+    },
+    {
+      "id": "ccna-network-components-q32",
+      "type": "mcq",
+      "difficulty": "hard",
+      "question": "A company needs a private, QoS-capable connection to its public cloud provider and wants to be able to move workloads to a second cloud provider later without ordering new WAN circuits. Which option fits best?",
+      "choices": [
+        "The public internet with no VPN",
+        "An internet VPN to the first provider",
+        "A private WAN link directly to the first provider",
+        "An intercloud exchange"
+      ],
+      "answer": 3,
+      "explanation": "An intercloud exchange gives one private connection to an exchange that already connects to several cloud providers, so switching providers does not need new circuits. A direct private WAN link is private and QoS-capable but tied to one provider.",
+      "concept": "cloud connectivity",
+      "section": 7
+    }
+  ]
+}

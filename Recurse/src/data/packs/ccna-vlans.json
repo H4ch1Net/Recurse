@@ -1,0 +1,608 @@
+{
+  "id": "ccna-vlans",
+  "name": "VLANs",
+  "version": "1.0.0",
+  "author": "Recurse",
+  "subject": "networking",
+  "level": "intermediate",
+  "description": "Create VLANs, assign data and voice access ports, read show vlan brief and explain why VLANs need routing.",
+  "icon": "VL",
+  "language": "cisco",
+  "prereqs": ["ccna-switching"],
+  "tags": ["ccna", "2.1", "vlans", "switching"],
+  "lesson": {
+    "estimatedMinutes": 26,
+    "intro": "A VLAN turns one physical switch into several separate LANs. It is one of the most tested ideas on the CCNA because almost everything else in Domain 2 (trunks, spanning tree, inter-VLAN routing) builds on it. In this lesson you will create VLANs, put PCs and IP phones into them, read the output that proves it worked, and fix the classic 'wrong VLAN' fault.",
+    "objectives": [
+      "Explain why a VLAN is a separate broadcast domain and a separate IP subnet",
+      "Create and name normal-range VLANs and assign access ports with switchport commands",
+      "Configure a port for a PC behind an IP phone using a data VLAN and a voice VLAN",
+      "Read show vlan brief and show interfaces switchport to find a port in the wrong VLAN",
+      "Explain why hosts in different VLANs need a router or Layer 3 switch to communicate"
+    ],
+    "sections": [
+      {
+        "title": "One switch, many LANs",
+        "body": "Picture a 48-port switch on the second floor. Sales laptops, Engineering build servers and a guest printer are all plugged into it. With factory settings every port is in the same group, so when a Sales laptop sends a broadcast (an ARP request, a DHCP Discover), every device on the floor receives it, including the printer and the build servers. That whole group is one **broadcast domain**.\n\nA **VLAN** (virtual LAN) splits that one switch into several logical switches. Ports you put in VLAN 10 exchange frames only with other VLAN 10 ports; ports in VLAN 20 live in their own world. A broadcast sent in VLAN 10 is flooded only out VLAN 10 ports, and the switch never forwards a frame from one VLAN into another.\n\nWhy bother? The official cert guide lists reasons worth knowing for the exam:\n\n- Smaller broadcast domains mean less wasted bandwidth and CPU on every host.\n- Security: sensitive hosts sit in their own VLAN, away from guests.\n- Flexibility: group users by job, not by which closet their desk is wired to.\n- Smaller failure domains: a broadcast storm or a misbehaving host stays inside one VLAN.\n- Voice traffic can be kept apart from data so it can be prioritized.\n\nThe rule to carry into every later topic: **one VLAN = one broadcast domain = one IP subnet**. If a design has three VLANs, it has three subnets, and traffic between them must be routed.",
+        "code": "            SW1 (one physical switch)\n   +-----------------------------------------+\n   |  VLAN 10 (Sales)       VLAN 20 (Eng)    |\n   |  Gi0/1   Gi0/2         Gi0/3   Gi0/4    |\n   +----|-------|-------------|-------|------+\n       PC1     PC2           PC3     PC4\n     10.1.10.0/24          10.1.20.0/24\n\nPC1 broadcast -> flooded to PC2 only (same VLAN)\nPC1 -> PC3    -> needs a router (different subnet)",
+        "language": "plaintext",
+        "tip": "When an exam question lists VLANs, mentally write a subnet next to each one. Routing and DHCP questions get much easier.",
+        "pitfall": "Giving hosts in two different VLANs addresses from the same subnet. The hosts think they are local to each other and ARP directly, but the switch keeps the VLANs apart, so the ARP never arrives. Keep one subnet per VLAN.",
+        "check": {
+          "question": "A switch has ports in VLAN 10 and VLAN 20. PC1 in VLAN 10 sends an ARP broadcast. Which devices receive it?",
+          "choices": [
+            "Every device on the switch, because ARP is a broadcast",
+            "Only devices on VLAN 10 ports (and trunks carrying VLAN 10)",
+            "Only the default gateway",
+            "Devices in VLAN 10 and VLAN 1, since VLAN 1 is the default"
+          ],
+          "answer": 1,
+          "explanation": "A VLAN is its own broadcast domain, so the switch floods the broadcast only out ports in VLAN 10, including trunks that carry VLAN 10. VLAN 20 ports never see it, and VLAN 1 is just another VLAN with no special view of other VLANs' traffic."
+        }
+      },
+      {
+        "title": "VLAN numbers and the default VLAN",
+        "body": "Every VLAN has a number, the VLAN ID. The 802.1Q tag that carries the ID between switches has a 12-bit field, so the usable range is 1 to 4094 (0 and 4095 are reserved). Cisco splits that range in two:\n\n- **Normal range: 1 to 1005.** Every Catalyst switch supports these, and they are the VLANs the CCNA blueprint asks you to configure.\n- **Extended range: 1006 to 4094.** Supported on most current switches, with some VTP restrictions.\n\nA brand-new switch already has five VLANs. **VLAN 1** is the **default VLAN**: every port starts in it, which is why a switch works out of the box. VLAN 1 can be used, but it cannot be deleted or renamed. VLANs 1002 to 1005 are leftovers for FDDI and Token Ring; they cannot be deleted or used for ports, and show vlan brief marks them act/unsup (active, unsupported).\n\nVLAN 1 also carries control traffic by default (protocols such as CDP, VTP, DTP and PAgP), and it is the default native VLAN on trunks. Because every switch everywhere uses it, best practice is to move user ports out of VLAN 1 and keep the native and management VLANs on other numbers too. Anyone who plugs into an unconfigured port lands in VLAN 1, so leaving users there makes an intruder's job easy.\n\nThe example shows a factory-default 2960 with 24 FastEthernet and 2 Gigabit ports, all in VLAN 1.",
+        "code": "SW1# show vlan brief\n\nVLAN Name                             Status    Ports\n---- -------------------------------- --------- -------------------------------\n1    default                          active    Fa0/1, Fa0/2, Fa0/3, Fa0/4\n                                                Fa0/5, Fa0/6, Fa0/7, Fa0/8\n                                                Fa0/9, Fa0/10, Fa0/11, Fa0/12\n                                                Fa0/13, Fa0/14, Fa0/15, Fa0/16\n                                                Fa0/17, Fa0/18, Fa0/19, Fa0/20\n                                                Fa0/21, Fa0/22, Fa0/23, Fa0/24\n                                                Gi0/1, Gi0/2\n1002 fddi-default                     act/unsup\n1003 token-ring-default               act/unsup\n1004 fddinet-default                  act/unsup\n1005 trnet-default                    act/unsup",
+        "tip": "Normal-range VLANs are stored in flash:vlan.dat. With the default VTP mode they do not even appear in the running config, so erase startup-config alone does not remove them; on a lab switch you also delete vlan.dat and reload.",
+        "pitfall": "Thinking VLAN 1 is protected because it is the default. It is the opposite: every unconfigured port joins it, so user and management traffic in VLAN 1 is the easiest to reach.",
+        "check": {
+          "question": "Which statement about VLAN 1 on a Cisco switch is true?",
+          "choices": [
+            "It can be deleted once all ports are moved out of it",
+            "It is an extended-range VLAN",
+            "It can be used for ports but cannot be deleted",
+            "It cannot be assigned to access ports"
+          ],
+          "answer": 2,
+          "explanation": "VLAN 1 is the default VLAN: every port starts in it, it can carry traffic, and it cannot be deleted or renamed. It is in the normal range (1 to 1005), not the extended range."
+        }
+      },
+      {
+        "title": "Creating VLANs and access ports",
+        "body": "An **access port** belongs to exactly one data VLAN and connects to an end device: a PC, printer, server or AP. The device sends ordinary untagged Ethernet frames and has no idea VLANs exist; the switch simply treats everything arriving on that port as part of the port's access VLAN.\n\nThe configuration is three ideas:\n\n- `vlan 10` in global configuration mode creates the VLAN and enters VLAN configuration mode, where `name SALES` labels it. Names are optional; the default name is VLAN0010.\n- `switchport mode access` makes the port always an access port. It also turns off DTP, so the port can never negotiate itself into a trunk.\n- `switchport access vlan 10` assigns the port to VLAN 10.\n\nUse `interface range` to configure many ports at once. If you assign a port to a VLAN that does not exist yet, IOS creates the VLAN for you and says so: `% Access VLAN does not exist. Creating vlan 30`. Then verify with show vlan brief, which lists every VLAN and its access ports. Trunk ports are not listed there, because they belong to many VLANs at once.",
+        "code": "SW1# configure terminal\nSW1(config)# vlan 10\nSW1(config-vlan)# name SALES\nSW1(config-vlan)# vlan 20\nSW1(config-vlan)# name ENG\nSW1(config-vlan)# exit\nSW1(config)# interface range gigabitethernet0/1 - 2\nSW1(config-if-range)# switchport mode access\nSW1(config-if-range)# switchport access vlan 10\nSW1(config-if-range)# interface gigabitethernet0/3\nSW1(config-if)# switchport mode access\nSW1(config-if)# switchport access vlan 20\nSW1(config-if)# end\nSW1# show vlan brief\n\nVLAN Name                             Status    Ports\n---- -------------------------------- --------- -------------------------------\n1    default                          active    Gi0/4, Gi0/5, Gi0/6, Gi0/7\n10   SALES                            active    Gi0/1, Gi0/2\n20   ENG                              active    Gi0/3\n1002 fddi-default                     act/unsup\n1003 token-ring-default               act/unsup\n1004 fddinet-default                  act/unsup\n1005 trnet-default                    act/unsup",
+        "pitfall": "Deleting a VLAN that still has ports in it. The ports keep their switchport access vlan setting but become inactive and vanish from show vlan brief, so their hosts silently lose connectivity. Move the ports first, or re-create the VLAN.",
+        "activity": {
+          "type": "ios-console",
+          "title": "Build two VLANs",
+          "prompt": "SW1 needs VLAN 10 named SALES and VLAN 20 named ENG, with G0/1 in VLAN 10 and G0/2 in VLAN 20 as access ports. Configure it, then run show vlan brief and confirm each port left VLAN 1 for the right VLAN.",
+          "props": { "lab": "cl-d2-vlans" }
+        },
+        "check": {
+          "question": "You enter switchport access vlan 30 on an access port, but VLAN 30 has not been created. What happens on a typical Catalyst switch?",
+          "choices": [
+            "The command is rejected until you create VLAN 30",
+            "The port is assigned but stays err-disabled",
+            "The port stays in VLAN 1 until VLAN 30 exists",
+            "IOS creates VLAN 30 automatically and assigns the port"
+          ],
+          "answer": 3,
+          "explanation": "IOS prints '% Access VLAN does not exist. Creating vlan 30' and creates it with the default name VLAN0030. It still pays to create and name VLANs explicitly so the names mean something."
+        }
+      },
+      {
+        "title": "Voice VLANs: a phone and a PC on one port",
+        "body": "Most offices run one cable to each desk. The cable goes to a Cisco IP phone, and the user's PC plugs into a small switch built into the phone. Now two devices share one switch port, and best practice says they belong in different VLANs: voice in one, data in another, so voice can be protected and prioritized.\n\nThe port is configured as an access port with two VLANs:\n\n- **Data VLAN**: the normal access VLAN, set with `switchport access vlan 10`. The PC's frames travel untagged.\n- **Voice VLAN**: set with `switchport voice vlan 11`. The phone tags its own frames with an 802.1Q header for VLAN 11, and the 3-bit priority field in that tag carries a class of service (CoS) value for QoS.\n\nHow does the phone know to use VLAN 11? The switch tells it through CDP (non-Cisco phones use LLDP-MED). CDP is on by default, so it just works; disable CDP on that port and a Cisco phone will not learn its voice VLAN.\n\nThe port still counts as an access port. show interfaces switchport reports Operational Mode: static access with an extra Voice VLAN line, and the port does not appear in the list of trunks from show interfaces trunk.",
+        "code": "SW1(config)# vlan 10\nSW1(config-vlan)# name DATA\nSW1(config-vlan)# vlan 11\nSW1(config-vlan)# name VOICE\nSW1(config-vlan)# interface range fastethernet0/1 - 4\nSW1(config-if-range)# switchport mode access\nSW1(config-if-range)# switchport access vlan 10\nSW1(config-if-range)# switchport voice vlan 11\nSW1(config-if-range)# end\n\nSW1# show interfaces fastethernet0/4 switchport\nName: Fa0/4\nSwitchport: Enabled\nAdministrative Mode: static access\nOperational Mode: static access\nAdministrative Trunking Encapsulation: dot1q\nOperational Trunking Encapsulation: native\nNegotiation of Trunking: Off\nAccess Mode VLAN: 10 (DATA)\nTrunking Native Mode VLAN: 1 (default)\nAdministrative Native VLAN tagging: enabled\nVoice VLAN: 11 (VOICE)\n! rest of output omitted",
+        "pitfall": "Configuring the phone port as a trunk so 'both VLANs fit'. The documented design is an access port plus switchport voice vlan; the port stays an access port and the PC stays untagged.",
+        "check": {
+          "question": "A port has switchport access vlan 10 and switchport voice vlan 11. How do frames from the phone and from the PC behind it arrive at the switch?",
+          "choices": [
+            "Phone frames tagged with VLAN 11, PC frames untagged in VLAN 10",
+            "Both untagged; the switch tells them apart by MAC address",
+            "PC frames tagged with VLAN 10, phone frames untagged in VLAN 11",
+            "Both tagged, because the port becomes a trunk"
+          ],
+          "answer": 0,
+          "explanation": "The phone learns VLAN 11 from CDP and tags its voice frames with an 802.1Q header for VLAN 11. The PC knows nothing about VLANs and sends untagged frames, which the switch places in the data (access) VLAN 10. The port remains an access port."
+        }
+      },
+      {
+        "title": "One VLAN across many switches",
+        "body": "VLANs are not limited to one box. Sales people sit on three floors, each floor has its own switch, and you want all of them in VLAN 10. That works as long as two things are true.\n\nFirst, the switches are joined by a **trunk**: a link that carries many VLANs and tags each frame with its VLAN ID so the next switch knows where it belongs. The Trunking lesson covers trunks in depth. For now, know that an access link between switches carries only one VLAN: if the link between SW1 and SW2 is an access port in VLAN 10, VLAN 20 hosts on the two switches can never reach each other over it.\n\nSecond, **every switch the traffic passes through must know the VLAN.** A switch forwards frames only for VLANs that exist and are active in its own VLAN list. This catches people out with transit switches: if SW2 sits between SW1 and SW3 and VLAN 10 was never created on SW2, VLAN 10 frames from SW1 die at SW2, even though SW2 has no VLAN 10 users at all.\n\nThe classic Domain 2 picture: SW1 and SW2 each have VLAN 10 and VLAN 20 hosts and one trunk between them. Same-VLAN hosts reach each other across the trunk; different-VLAN hosts do not, even on the same switch.",
+        "code": " PC1 (V10)  PC2 (V20)                PC3 (V10)  PC4 (V20)\n     |          |                         |          |\n   Gi0/1      Gi0/2                     Gi0/1      Gi0/2\n  +---------------+  802.1Q trunk    +---------------+\n  |      SW1      |Gi0/24 ===== Gi0/24|      SW2      |\n  +---------------+  VLANs 10, 20    +---------------+\n\nPC1 <-> PC3  works (same VLAN, crosses the trunk tagged 10)\nPC2 <-> PC4  works (same VLAN, crosses the trunk tagged 20)\nPC1 <-> PC2  fails without a router (different VLANs)",
+        "language": "plaintext",
+        "pitfall": "Forgetting to create the VLAN on a switch that only passes the traffic through. No local users does not mean no VLAN: every switch on the path needs it.",
+        "activity": {
+          "type": "vlan-trunk",
+          "title": "Same VLAN, different switches",
+          "prompt": "Put one host in VLAN 10 and one in VLAN 20 on each switch, then test reachability before and after you make the link between the switches a trunk. Notice that the trunk joins matching VLANs across switches but never joins VLAN 10 to VLAN 20."
+        },
+        "check": {
+          "question": "VLAN 30 hosts on SW1 and SW3 cannot reach each other. Their traffic passes through SW2 over trunks, SW2 has no VLAN 30 hosts, and show vlan brief on SW2 does not list VLAN 30. What is the fix?",
+          "choices": [
+            "Configure an access port in VLAN 30 on SW2",
+            "Change the native VLAN to 30 on both trunks",
+            "Nothing; transit switches forward unknown VLANs by default",
+            "Create VLAN 30 on SW2"
+          ],
+          "answer": 3,
+          "explanation": "A switch forwards only VLANs that exist and are active locally, even on trunks. Creating VLAN 30 on SW2 lets it carry the traffic between its trunks. No access port is needed, and changing the native VLAN would cause other problems."
+        }
+      },
+      {
+        "title": "VLANs need a router to talk",
+        "body": "Two PCs on the same switch, one in VLAN 10 and one in VLAN 20, cannot ping each other. That is not a fault; it is the whole point of a VLAN. They are in different broadcast domains and different subnets, and moving a packet between subnets is routing, a Layer 3 job.\n\nSo every VLAN that needs to reach anything else needs a **default gateway**: an IP address on a routing device that sits in that VLAN's subnet. When PC1 (10.1.10.11/24) pings PC3 (10.1.20.13/24), PC1 sees that the destination is in a different subnet and sends the frame to its gateway's MAC address. The router or Layer 3 switch routes the packet into VLAN 20 and delivers it in a new frame. The CCNA tests two ways to provide that gateway, covered fully in the Inter-VLAN Routing lesson:\n\n- **Router on a stick**: one router interface on a trunk, with a subinterface per VLAN (`encapsulation dot1q 10`).\n- **Layer 3 switch with SVIs**: an `interface vlan 10` per VLAN holds the gateway address, and `ip routing` turns routing on.\n\nWhen two hosts in different VLANs cannot communicate, think Layer 3 first: does a gateway exist for each VLAN, does each host point to the right gateway, and is routing enabled?",
+        "code": "! Layer 3 switch: one SVI per VLAN acts as that VLAN's gateway\nip routing\n!\ninterface Vlan10\n ip address 10.1.10.1 255.255.255.0\n!\ninterface Vlan20\n ip address 10.1.20.1 255.255.255.0\n!\n! PC1 in VLAN 10: 10.1.10.11/24, gateway 10.1.10.1\n! PC3 in VLAN 20: 10.1.20.13/24, gateway 10.1.20.1",
+        "tip": "An SVI comes up only when its VLAN exists and at least one port in that VLAN is up and forwarding (an access port or a trunk). An SVI stuck down/down usually means the VLAN is missing.",
+        "pitfall": "Trying to fix a cross-VLAN ping with Layer 2 changes. If the hosts are in different VLANs, look at the gateways and routing, not the trunk.",
+        "check": {
+          "question": "PC1 in VLAN 10 and PC2 in VLAN 20 are on the same switch, which has no routing configured. What happens when PC1 pings PC2?",
+          "choices": [
+            "The ping succeeds because both are on the same switch",
+            "The ping succeeds only if both ports use switchport mode access",
+            "The ping fails; the VLANs need a router or Layer 3 switch acting as gateways",
+            "The ping fails until both VLANs are given names"
+          ],
+          "answer": 2,
+          "explanation": "Different VLANs are different subnets, so PC1 sends the packet to its default gateway. With no routing device, nothing can move the packet into VLAN 20. Sharing a physical switch does not matter."
+        }
+      },
+      {
+        "title": "Troubleshooting VLAN problems",
+        "body": "A user says, 'My PC is connected but I cannot reach anybody.' The link light is on, the port is up/up, and yet nothing works. A very common cause is a port in the wrong VLAN. Work through it in this order:\n\n- Run `show vlan brief` and find the user's port. Is it in the VLAN you expect? Is that VLAN active?\n- Run `show interfaces g0/1 switchport` to see one port's administrative and operational mode, access VLAN and voice VLAN.\n- Check the VLAN's state. A VLAN can be shut down (`shutdown vlan 10` globally, or `shutdown` in VLAN configuration mode); it then shows act/lshut, and the switch forwards nothing in it.\n- If the port is missing from show vlan brief entirely, it is either trunking or assigned to a VLAN that no longer exists.\n- Check the host: an address in that VLAN's subnet and the right default gateway.\n- If the VLAN spans switches, confirm it exists on every switch and crosses the trunks (show interfaces trunk).\n\nThe exhibit is the kind of thing you are looking for: the user on G0/1 should be in SALES (VLAN 10), but the port sits in VLAN 99. One command fixes it.",
+        "code": "SW1# show vlan brief\n\nVLAN Name                             Status    Ports\n---- -------------------------------- --------- -------------------------------\n1    default                          active    Gi0/3, Gi0/4, Gi0/5, Gi0/6\n10   SALES                            active    Gi0/2\n99   PARKING                          active    Gi0/1\n1002 fddi-default                     act/unsup\n1003 token-ring-default               act/unsup\n1004 fddinet-default                  act/unsup\n1005 trnet-default                    act/unsup\n\nSW1# configure terminal\nSW1(config)# interface gigabitethernet0/1\nSW1(config-if)# switchport access vlan 10",
+        "pitfall": "Looking only at interface status. A port in the wrong VLAN is still up/up, so show ip interface brief looks perfect. VLAN faults hide in show vlan brief and show interfaces switchport.",
+        "activity": {
+          "type": "ios-console",
+          "title": "Fix the isolated PC",
+          "prompt": "The PC on G0/1 should be in VLAN 10 (SALES) but cannot reach its neighbors. Investigate with show vlan brief and show running-config before you change anything, then fix the port without creating any new VLANs.",
+          "props": { "lab": "cl-d2-troubleshoot-vlan" }
+        },
+        "check": {
+          "question": "A port is up/up, but its host cannot reach anything. show vlan brief lists the port under VLAN 99, while the host's subnet belongs to VLAN 10. Which interface command fixes it?",
+          "choices": [
+            "switchport mode trunk",
+            "switchport access vlan 10",
+            "no shutdown",
+            "name SALES"
+          ],
+          "answer": 1,
+          "explanation": "The port is simply in the wrong VLAN. switchport access vlan 10 moves it into the VLAN that matches the host's subnet. The port is already up, so no shutdown changes nothing, and a trunk is not used for a single PC."
+        }
+      }
+    ],
+    "keyTerms": [
+      { "term": "VLAN", "definition": "A virtual LAN: a group of switch ports that forms its own broadcast domain, normally mapped to one IP subnet." },
+      { "term": "Broadcast domain", "definition": "The set of devices that receive a broadcast frame sent by any one of them. Each VLAN is one broadcast domain." },
+      { "term": "Access port", "definition": "A switch port in exactly one data VLAN, connecting an end device that sends untagged frames." },
+      { "term": "Default VLAN", "definition": "VLAN 1, which every port belongs to out of the box. It cannot be deleted or renamed." },
+      { "term": "Normal-range VLAN", "definition": "VLAN IDs 1 to 1005, supported by every Catalyst switch and stored in vlan.dat." },
+      { "term": "Extended-range VLAN", "definition": "VLAN IDs 1006 to 4094, supported on most current switches with some VTP limits." },
+      { "term": "Data VLAN", "definition": "The access VLAN on a port that also has a voice VLAN; it carries the PC's untagged traffic." },
+      { "term": "Voice VLAN", "definition": "A second VLAN on an access port for an IP phone, which tags its frames and learns the VLAN through CDP." },
+      { "term": "Trunk", "definition": "A link that carries several VLANs, tagging frames with their VLAN ID (802.1Q)." },
+      { "term": "SVI", "definition": "Switch virtual interface (interface vlan N): a logical Layer 3 interface in a VLAN, often the VLAN's default gateway." }
+    ],
+    "summary": [
+      "One VLAN equals one broadcast domain equals one IP subnet.",
+      "Normal-range VLANs are 1 to 1005; VLAN 1 is the default and cannot be deleted; move users off it.",
+      "vlan 10 and name create a VLAN; switchport mode access and switchport access vlan 10 put a port in it.",
+      "switchport voice vlan adds a tagged phone VLAN to an access port while the PC stays untagged in the data VLAN.",
+      "A VLAN spanning switches needs trunks and must exist on every switch in the path.",
+      "Hosts in different VLANs need a router or Layer 3 switch; check show vlan brief first when a port is up but isolated."
+    ],
+    "feynmanPrompt": "Explain to a new help desk hire why two PCs plugged into the same switch might be unable to ping each other, using the words VLAN, broadcast domain, subnet and default gateway, and say how you would check which VLAN each PC is in."
+  },
+  "questions": [
+    {
+      "id": "ccna-vlans-q01",
+      "type": "mcq",
+      "difficulty": "easy",
+      "question": "Which statement best describes a VLAN?",
+      "choices": [
+        "A group of routers that share one routing table",
+        "A group of switch ports that forms its own broadcast domain",
+        "A wireless network identified by an SSID",
+        "A physical cable that carries several subnets"
+      ],
+      "answer": 1,
+      "explanation": "A VLAN is a logical group of switch ports that acts like a separate LAN, so broadcasts stay inside it. An SSID names a wireless network, and a cable carrying many VLANs is a trunk, not a VLAN.",
+      "concept": "VLAN definition",
+      "section": 0
+    },
+    {
+      "id": "ccna-vlans-q02",
+      "type": "typed",
+      "difficulty": "easy",
+      "question": "What is the highest normal-range VLAN ID on a Cisco Catalyst switch?",
+      "answer": "1005",
+      "explanation": "Normal-range VLANs are 1 to 1005. IDs 1006 to 4094 are the extended range, and 1002 to 1005 are reserved legacy VLANs that cannot be used for ports.",
+      "concept": "normal VLAN range",
+      "section": 1
+    },
+    {
+      "id": "ccna-vlans-q03",
+      "type": "multi",
+      "difficulty": "medium",
+      "question": "Which two statements about the VLANs that exist on a factory-default Catalyst switch are true? (Choose two.)",
+      "choices": [
+        "VLAN 1 cannot be deleted",
+        "VLAN 1 is an extended-range VLAN",
+        "VLANs 1002 to 1005 cannot be deleted",
+        "All ports start in VLAN 1002",
+        "VLAN 1 cannot carry user traffic"
+      ],
+      "answers": [0, 2],
+      "explanation": "VLAN 1 (the default VLAN) and VLANs 1002 to 1005 (legacy FDDI and Token Ring VLANs) are permanent. Ports start in VLAN 1, which can carry user traffic even though best practice moves users elsewhere.",
+      "concept": "default VLANs",
+      "section": 1
+    },
+    {
+      "id": "ccna-vlans-q04",
+      "type": "cli",
+      "shell": "ios",
+      "difficulty": "easy",
+      "question": "You are in interface configuration mode for a PC's switch port. Type the command that assigns the port to VLAN 30.",
+      "answer": "switchport access vlan 30",
+      "explanation": "switchport access vlan sets the access (data) VLAN of the port. If VLAN 30 does not exist yet, IOS creates it.",
+      "concept": "assign access VLAN",
+      "section": 2
+    },
+    {
+      "id": "ccna-vlans-q05",
+      "type": "cli",
+      "shell": "ios",
+      "difficulty": "easy",
+      "question": "Type the interface command that makes a port always operate as an access port and stops it negotiating a trunk.",
+      "answer": "switchport mode access",
+      "explanation": "switchport mode access fixes the administrative mode as access and disables DTP on the port, so it can never become a trunk by negotiation.",
+      "concept": "switchport mode access",
+      "section": 2
+    },
+    {
+      "id": "ccna-vlans-q06",
+      "type": "order",
+      "difficulty": "medium",
+      "question": "Starting in privileged EXEC mode, put the commands in order to create VLAN 40 named LAB and place Gi0/5 in it.",
+      "items": [
+        "configure terminal",
+        "vlan 40",
+        "name LAB",
+        "interface gigabitethernet0/5",
+        "switchport access vlan 40",
+        "end"
+      ],
+      "explanation": "Enter global configuration, create the VLAN, name it inside VLAN configuration mode, move to the interface, assign the access VLAN and leave configuration mode. The name command only works inside VLAN configuration mode, so it must follow vlan 40.",
+      "concept": "VLAN configuration steps",
+      "section": 2
+    },
+    {
+      "id": "ccna-vlans-q07",
+      "type": "mcq",
+      "difficulty": "hard",
+      "question": "Gi0/5 was configured with switchport access vlan 50. Later an engineer entered no vlan 50. Gi0/5 now appears nowhere in show vlan brief. What is the state of Gi0/5?",
+      "choices": [
+        "It moved back to VLAN 1 automatically",
+        "It is still assigned to VLAN 50 and is inactive, so it forwards no traffic",
+        "It became a trunk because it has no access VLAN",
+        "It is err-disabled and must be bounced with shutdown and no shutdown"
+      ],
+      "answer": 1,
+      "explanation": "Deleting a VLAN does not reassign its ports. They keep the switchport access vlan 50 setting but become inactive until VLAN 50 exists again or the ports are moved, which is why they disappear from show vlan brief.",
+      "concept": "deleted VLAN ports",
+      "section": 2
+    },
+    {
+      "id": "ccna-vlans-q08",
+      "type": "mcq",
+      "difficulty": "medium",
+      "question": "A switch with no routing configured has active access ports in VLANs 1, 10 and 20. How many broadcast domains does it have?",
+      "choices": ["1", "2", "3", "24"],
+      "answer": 2,
+      "explanation": "Each VLAN is a separate broadcast domain, so three VLANs give three broadcast domains. A switch without VLANs would be one broadcast domain no matter how many ports it has.",
+      "concept": "VLANs and broadcast domains",
+      "section": 0
+    },
+    {
+      "id": "ccna-vlans-q09",
+      "type": "multi",
+      "difficulty": "medium",
+      "question": "Which three are benefits of dividing a LAN into VLANs? (Choose three.)",
+      "choices": [
+        "Smaller broadcast domains",
+        "Eliminating the need for routing between departments",
+        "Grouping users by job rather than physical location",
+        "Separating voice traffic so it can be prioritized",
+        "Increasing the number of MAC addresses a switch can learn"
+      ],
+      "answers": [0, 2, 3],
+      "explanation": "VLANs shrink broadcast domains, let you group users logically and keep voice apart for QoS. They increase the need for routing (traffic between VLANs must be routed) and do nothing for MAC table size.",
+      "concept": "reasons for VLANs",
+      "section": 0
+    },
+    {
+      "id": "ccna-vlans-q10",
+      "type": "mcq",
+      "difficulty": "medium",
+      "question": "How does a Cisco IP phone learn which voice VLAN to use on its switch port?",
+      "choices": [
+        "From DHCP option 150",
+        "From a VTP advertisement",
+        "From CDP messages sent by the switch",
+        "It always uses VLAN 1 until reconfigured by hand"
+      ],
+      "answer": 2,
+      "explanation": "The switch advertises the voice VLAN to the phone in CDP. DHCP option 150 points phones to a TFTP server for their configuration files, not to a VLAN. Without CDP (or LLDP-MED), the phone does not learn the voice VLAN.",
+      "concept": "voice VLAN discovery",
+      "section": 3
+    },
+    {
+      "id": "ccna-vlans-q11",
+      "type": "cli",
+      "shell": "ios",
+      "difficulty": "medium",
+      "question": "Port Fa0/7 already has switchport mode access and switchport access vlan 10. Type the interface command that adds VLAN 11 as the voice VLAN.",
+      "answer": "switchport voice vlan 11",
+      "explanation": "switchport voice vlan defines the VLAN the attached IP phone should use. The port stays an access port with data VLAN 10.",
+      "concept": "configure voice VLAN",
+      "section": 3
+    },
+    {
+      "id": "ccna-vlans-q12",
+      "type": "mcq",
+      "difficulty": "hard",
+      "question": "An engineer says Fa0/4 must be a trunk because it carries two VLANs. Based on the output, which statement is correct?",
+      "code": "SW1# show interfaces fastethernet0/4 switchport\nName: Fa0/4\nSwitchport: Enabled\nAdministrative Mode: static access\nOperational Mode: static access\nAccess Mode VLAN: 10 (DATA)\nVoice VLAN: 11 (VOICE)\n! lines omitted\n\nSW1# show interfaces trunk\nSW1#",
+      "language": "cisco",
+      "choices": [
+        "Fa0/4 is a trunk, but show interfaces trunk hides voice ports",
+        "Fa0/4 carries only VLAN 10; the voice VLAN line is ignored on access ports",
+        "Fa0/4 is an access port with data VLAN 10 and voice VLAN 11; phone frames are tagged, PC frames are not",
+        "Fa0/4 negotiated a trunk with the phone using DTP"
+      ],
+      "answer": 2,
+      "explanation": "A voice port is an access port (Operational Mode: static access) with an added voice VLAN. The phone tags VLAN 11 frames while the PC's frames are untagged in VLAN 10. That is why show interfaces trunk lists nothing.",
+      "concept": "voice port verification",
+      "section": 3
+    },
+    {
+      "id": "ccna-vlans-q13",
+      "type": "mcq",
+      "difficulty": "easy",
+      "question": "Two hosts in different VLANs must communicate. What is required?",
+      "choices": [
+        "A trunk between the two hosts' access ports",
+        "The same native VLAN on both ports",
+        "A voice VLAN on both ports",
+        "A Layer 3 device such as a router or Layer 3 switch"
+      ],
+      "answer": 3,
+      "explanation": "Different VLANs are different subnets, and moving packets between subnets is routing. A router (router on a stick) or a Layer 3 switch with SVIs provides the gateways.",
+      "concept": "inter-VLAN connectivity",
+      "section": 5
+    },
+    {
+      "id": "ccna-vlans-q14",
+      "type": "mcq",
+      "difficulty": "medium",
+      "question": "PC1 is 10.1.10.11/24 in VLAN 10 with gateway 10.1.10.1. PC3 is 10.1.20.13/24 in VLAN 20. When PC1 pings PC3, which destination MAC address does PC1 put in the frame?",
+      "choices": [
+        "The MAC address of its default gateway",
+        "PC3's MAC address, learned with ARP across the VLANs",
+        "The broadcast address FFFF.FFFF.FFFF",
+        "The switch's own base MAC address"
+      ],
+      "answer": 0,
+      "explanation": "PC1 sees that 10.1.20.13 is not in its own subnet, so it ARPs for its gateway and sends the frame to the gateway's MAC. ARP broadcasts never cross from VLAN 10 into VLAN 20, so PC1 could not learn PC3's MAC directly.",
+      "concept": "default gateway use",
+      "section": 5
+    },
+    {
+      "id": "ccna-vlans-q15",
+      "type": "debug",
+      "difficulty": "hard",
+      "question": "On this Layer 3 switch, VLAN 10 hosts reach their gateway, but interface Vlan20 stays down/down and no VLAN 20 host exists yet. What is the most likely cause?",
+      "code": "ip routing\n!\nvlan 10\n name USERS\n!\ninterface Vlan10\n ip address 10.1.10.1 255.255.255.0\n!\ninterface Vlan20\n ip address 10.1.20.1 255.255.255.0\n!\ninterface GigabitEthernet0/2\n switchport mode access\n switchport access vlan 10",
+      "language": "cisco",
+      "choices": [
+        "ip routing must also be entered under each SVI",
+        "VLAN 20 does not exist and has no up ports, so its SVI cannot come up",
+        "The Vlan20 subnet overlaps the Vlan10 subnet",
+        "An SVI can only be created for VLAN 1"
+      ],
+      "answer": 1,
+      "explanation": "An SVI needs its VLAN to exist and at least one port in that VLAN up and forwarding. VLAN 20 was never created and no port uses it. ip routing is a global command, and 10.1.10.0/24 and 10.1.20.0/24 do not overlap.",
+      "concept": "SVI up/down rules",
+      "section": 5
+    },
+    {
+      "id": "ccna-vlans-q16",
+      "type": "mcq",
+      "difficulty": "medium",
+      "question": "Users on Gi0/7 to Gi0/9 lost all connectivity, although the ports are up. Based on the output, what is wrong?",
+      "code": "SW1# show vlan brief\n\nVLAN Name                             Status    Ports\n---- -------------------------------- --------- -------------------------------\n1    default                          active    Gi0/1, Gi0/2, Gi0/3, Gi0/4\n10   SALES                            active    Gi0/5, Gi0/6\n30   LAB                              act/lshut Gi0/7, Gi0/8, Gi0/9\n1002 fddi-default                     act/unsup\n! remaining reserved VLANs omitted",
+      "language": "cisco",
+      "choices": [
+        "VLAN 30 is an unsupported VLAN on this switch",
+        "Gi0/7 to Gi0/9 are trunks",
+        "VLAN 30 is the native VLAN, so its frames are untagged",
+        "VLAN 30 has been shut down, so the switch forwards nothing in it"
+      ],
+      "answer": 3,
+      "explanation": "act/lshut means the VLAN exists but was shut down locally (shutdown vlan 30 or shutdown in VLAN mode). Re-enable it with no shutdown vlan 30. act/unsup is the different status shown for reserved VLANs 1002 to 1005.",
+      "concept": "VLAN shutdown state",
+      "section": 6
+    },
+    {
+      "id": "ccna-vlans-q17",
+      "type": "cli",
+      "shell": "ios",
+      "difficulty": "easy",
+      "question": "Type the show command that lists every VLAN on a switch with its name, status and access ports.",
+      "answer": "show vlan brief",
+      "explanation": "show vlan brief prints one line per VLAN with its access ports. Trunk ports are not listed because they belong to many VLANs.",
+      "concept": "show vlan brief",
+      "section": 6
+    },
+    {
+      "id": "ccna-vlans-q18",
+      "type": "cli",
+      "shell": "ios",
+      "difficulty": "medium",
+      "question": "Type the command that shows Gi0/1's administrative and operational mode, access VLAN and voice VLAN.",
+      "answer": "show interfaces gigabitethernet0/1 switchport",
+      "accept": [
+        "show interfaces gigabitethernet 0/1 switchport",
+        "show interfaces gi0/1 switchport",
+        "show interfaces g0/1 switchport",
+        "show interface gigabitethernet0/1 switchport"
+      ],
+      "explanation": "show interfaces <interface> switchport details one port's Layer 2 settings, including Administrative Mode versus Operational Mode, which is how you spot a port that did not do what you configured.",
+      "concept": "show interfaces switchport",
+      "section": 6
+    },
+    {
+      "id": "ccna-vlans-q19",
+      "type": "match",
+      "difficulty": "easy",
+      "question": "Match each term to its description.",
+      "pairs": [
+        { "left": "Access port", "right": "Carries one data VLAN to an end device, untagged" },
+        { "left": "Trunk port", "right": "Carries many VLANs between switches, tagged" },
+        { "left": "Default VLAN", "right": "VLAN 1, where every port starts" },
+        { "left": "Voice VLAN", "right": "Tagged VLAN an IP phone learns through CDP" },
+        { "left": "Normal range", "right": "VLAN IDs 1 to 1005" }
+      ],
+      "explanation": "Access ports serve end devices in one VLAN; trunks carry many tagged VLANs; VLAN 1 is the default; the voice VLAN is advertised to phones by CDP; normal-range IDs are 1 to 1005.",
+      "concept": "VLAN vocabulary",
+      "section": 1
+    },
+    {
+      "id": "ccna-vlans-q20",
+      "type": "recall",
+      "difficulty": "easy",
+      "question": "Why is 'one VLAN, one subnet' the rule of thumb?",
+      "answer": "Each VLAN is its own broadcast domain, and hosts reach local neighbors with ARP broadcasts. If one subnet spanned two VLANs, ARP could not cross between them, so each VLAN gets its own subnet and a router connects the subnets.",
+      "explanation": "Linking the Layer 2 boundary (VLAN) to the Layer 3 boundary (subnet) is what makes inter-VLAN routing and DHCP designs predictable.",
+      "concept": "VLAN equals subnet",
+      "section": 0
+    },
+    {
+      "id": "ccna-vlans-q21",
+      "type": "mcq",
+      "difficulty": "hard",
+      "question": "VLAN 10 PCs on SW1 can reach VLAN 10 PCs on SW2, but VLAN 20 PCs on the two switches cannot reach each other. Both switches show this for G0/24, the only link between them. What is the most likely problem?",
+      "code": "SW1# show interfaces gigabitethernet0/24 switchport\nName: Gi0/24\nSwitchport: Enabled\nAdministrative Mode: static access\nOperational Mode: static access\nAccess Mode VLAN: 10 (SALES)\n! lines omitted",
+      "language": "cisco",
+      "choices": [
+        "VLAN 20 is shut down on both switches",
+        "The link between the switches is an access port in VLAN 10, so only VLAN 10 crosses it",
+        "G0/24 needs a voice VLAN to carry a second VLAN",
+        "VLAN 20 PCs need VLAN 1 as their default gateway"
+      ],
+      "answer": 1,
+      "explanation": "An access link carries exactly one VLAN, here VLAN 10. To carry VLANs 10 and 20 between switches, G0/24 must be an 802.1Q trunk on both ends.",
+      "concept": "VLANs across switches",
+      "section": 4
+    },
+    {
+      "id": "ccna-vlans-q22",
+      "type": "multi",
+      "difficulty": "medium",
+      "question": "A PC cannot reach other hosts in its own VLAN on the same switch. Which two commands best confirm whether its port is in the correct VLAN? (Choose two.)",
+      "choices": [
+        "show ip route",
+        "show vlan brief",
+        "show ip interface brief",
+        "show interfaces gi0/1 switchport",
+        "show cdp neighbors"
+      ],
+      "answers": [1, 3],
+      "explanation": "show vlan brief lists ports per VLAN, and show interfaces switchport shows one port's access VLAN and mode. show ip interface brief only shows up/down status, which looks fine for a port in the wrong VLAN.",
+      "concept": "VLAN troubleshooting commands",
+      "section": 6
+    },
+    {
+      "id": "ccna-vlans-q23",
+      "type": "mcq",
+      "difficulty": "medium",
+      "question": "Why do best practices recommend moving user ports out of VLAN 1?",
+      "choices": [
+        "VLAN 1 cannot carry IP traffic",
+        "VLAN 1 frames are always dropped on trunks",
+        "VLAN 1 is the default everywhere, so unconfigured ports and control traffic share it, which widens the attack surface",
+        "VLAN 1 is limited to 24 ports per switch"
+      ],
+      "answer": 2,
+      "explanation": "Every port starts in VLAN 1 and control protocols use it by default, so users left there share a VLAN with any unconfigured port an intruder plugs into. VLAN 1 itself works normally; the issue is exposure, not function.",
+      "concept": "VLAN 1 best practice",
+      "section": 1
+    },
+    {
+      "id": "ccna-vlans-q24",
+      "type": "mcq",
+      "difficulty": "hard",
+      "question": "On a lab switch you ran erase startup-config and reload, but show vlan brief still lists VLANs 10 and 20. Why?",
+      "choices": [
+        "Normal-range VLANs are stored in flash:vlan.dat, which erase startup-config does not remove",
+        "VLANs 10 and 20 were relearned from the native VLAN after the reload",
+        "The reload did not finish, so the VLANs are still in RAM",
+        "VLANs are kept in NVRAM and can never be removed"
+      ],
+      "answer": 0,
+      "explanation": "The VLAN database lives in vlan.dat in flash. To return a lab switch to defaults you erase the startup config and also delete flash:vlan.dat before reloading.",
+      "concept": "vlan.dat storage",
+      "section": 1
+    },
+    {
+      "id": "ccna-vlans-q25",
+      "type": "typed",
+      "difficulty": "medium",
+      "question": "A port has switchport access vlan 10 and switchport voice vlan 110. In which VLAN does the PC plugged into the phone's PC port send its traffic? (Number only.)",
+      "answer": "10",
+      "accept": ["vlan 10"],
+      "explanation": "The PC sends untagged frames, which the switch places in the access (data) VLAN, 10. Only the phone uses voice VLAN 110.",
+      "concept": "data versus voice VLAN",
+      "section": 3
+    },
+    {
+      "id": "ccna-vlans-q26",
+      "type": "mcq",
+      "difficulty": "hard",
+      "question": "A port has switchport access vlan 10 but no switchport mode command, and the switch defaults to dynamic auto. Someone plugs in a switch whose port is set to dynamic desirable. What can happen?",
+      "choices": [
+        "Nothing; switchport access vlan disables DTP",
+        "The port negotiates a trunk with DTP, exposing every VLAN to the new switch",
+        "The port becomes err-disabled",
+        "Both switches put the link in VLAN 10 and ignore DTP"
+      ],
+      "answer": 1,
+      "explanation": "Without switchport mode access the port stays dynamic auto, and dynamic auto plus dynamic desirable forms a trunk. Hard-coding switchport mode access disables DTP and prevents this.",
+      "concept": "why set mode access",
+      "section": 2
+    },
+    {
+      "id": "ccna-vlans-q27",
+      "type": "mcq",
+      "difficulty": "easy",
+      "question": "What kind of link lets both VLAN 10 and VLAN 20 extend from SW1 to SW2 over a single cable?",
+      "choices": [
+        "An access link in VLAN 1",
+        "A voice VLAN link",
+        "A routed port",
+        "An 802.1Q trunk"
+      ],
+      "answer": 3,
+      "explanation": "A trunk tags each frame with its VLAN ID, so one link carries many VLANs. An access link carries only one, and a routed port does not carry VLANs at all.",
+      "concept": "trunks join VLANs",
+      "section": 4
+    },
+    {
+      "id": "ccna-vlans-q28",
+      "type": "match",
+      "difficulty": "medium",
+      "question": "Match each show vlan brief observation to its meaning.",
+      "pairs": [
+        { "left": "Status active", "right": "VLAN exists and forwards traffic" },
+        { "left": "Status act/lshut", "right": "VLAN exists but is shut down on this switch" },
+        { "left": "Status act/unsup", "right": "Reserved legacy VLAN 1002 to 1005" },
+        { "left": "Port missing from the list", "right": "Port is trunking or its VLAN no longer exists" }
+      ],
+      "explanation": "Reading status values quickly is half of VLAN troubleshooting: lshut means locally shut down, unsup marks the reserved legacy VLANs, and a missing port is either a trunk or an orphan of a deleted VLAN.",
+      "concept": "reading show vlan brief",
+      "section": 6
+    }
+  ]
+}

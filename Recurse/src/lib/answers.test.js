@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { checkTyped, normalizeAnswer, parseNumber } from './answers'
+import { answerText, checkCli, checkMatch, checkMulti, checkOrder, checkTyped, normalizeAnswer, parseNumber } from './answers'
 
 describe('normalizeAnswer', () => {
   it('ignores case, outer whitespace, quotes and trailing punctuation', () => {
@@ -43,5 +43,59 @@ describe('checkTyped', () => {
     const result = checkTyped('como estas', { answer: 'cómo estás' })
     expect(result.correct).toBe(true)
     expect(result.nearMiss).toBe(true)
+  })
+})
+
+describe('checkCli', () => {
+  const ios = { answer: 'show ip interface brief', shell: 'ios' }
+  it('accepts IOS abbreviations and the do prefix', () => {
+    expect(checkCli('sh ip int br', ios).correct).toBe(true)
+    expect(checkCli('show ip interface brief', ios).correct).toBe(true)
+    expect(checkCli('do sh ip int b', ios).correct).toBe(true)
+    expect(checkCli('sh ip route', ios).correct).toBe(false)
+    expect(checkCli('s ip int br', ios).correct).toBe(false)
+  })
+  it('normalizes interface names but keeps arguments exact', () => {
+    const q = { answer: 'interface GigabitEthernet0/1', shell: 'ios' }
+    expect(checkCli('int gi0/1', q).correct).toBe(true)
+    expect(checkCli('int g0/1', q).correct).toBe(true)
+    expect(checkCli('interface gig 0/1', q).correct).toBe(true)
+    expect(checkCli('int gi0/2', q).correct).toBe(false)
+    const vlan = { answer: 'switchport access vlan 10', shell: 'ios' }
+    expect(checkCli('sw acc vl 10', vlan).correct).toBe(true)
+    expect(checkCli('switchport access vlan 20', vlan).correct).toBe(false)
+    const ip = { answer: 'ip address 192.168.1.1 255.255.255.0', shell: 'ios' }
+    expect(checkCli('ip add 192.168.1.1 255.255.255.0', ip).correct).toBe(true)
+    expect(checkCli('ip add 192.168.1.2 255.255.255.0', ip).correct).toBe(false)
+  })
+  it('matches other shells exactly, apart from spacing and quote style', () => {
+    const git = { answer: 'git commit -m "Add tests"', shell: 'git' }
+    expect(checkCli("git   commit -m 'Add tests'", git).correct).toBe(true)
+    expect(checkCli('git com -m "Add tests"', git).correct).toBe(false)
+    const ls = { answer: 'ls -R', shell: 'bash' }
+    expect(checkCli('ls -r', ls).correct).toBe(false)
+    const sql = { answer: 'SELECT name FROM users WHERE id = 1;', shell: 'sql' }
+    expect(checkCli('select name from users where id=1', sql).correct).toBe(true)
+  })
+})
+
+describe('interactive types', () => {
+  it('grades select-all by exact set', () => {
+    const q = { choices: ['a', 'b', 'c', 'd'], answers: [0, 2] }
+    expect(checkMulti([2, 0], q).correct).toBe(true)
+    expect(checkMulti([0], q)).toMatchObject({ correct: false, missed: [2] })
+    expect(checkMulti([0, 1, 2], q)).toMatchObject({ correct: false, extra: [1] })
+  })
+  it('grades order and match', () => {
+    const order = { items: ['one', 'two', 'three'] }
+    expect(checkOrder([0, 1, 2], order).correct).toBe(true)
+    expect(checkOrder([1, 0, 2], order).rightPositions).toEqual([false, false, true])
+    const match = { pairs: [{ left: 'a', right: '1' }, { left: 'b', right: '2' }, { left: 'c', right: '3' }] }
+    expect(checkMatch({ 0: 0, 1: 1, 2: 2 }, match).correct).toBe(true)
+    expect(checkMatch({ 0: 1, 1: 0, 2: 2 }, match).results).toEqual([false, false, true])
+  })
+  it('describes any answer as text', () => {
+    expect(answerText({ type: 'order', items: ['a', 'b'] })).toBe('a → b')
+    expect(answerText({ type: 'mcq', choices: ['x', 'y'], answer: 1 })).toBe('y')
   })
 })
