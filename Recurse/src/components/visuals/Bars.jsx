@@ -16,6 +16,9 @@ function barShare(value, values, scale = 'linear') {
 export default function Bars({ spec }) {
   const values = spec.items.map((item) => item.value)
   const unit = spec.unit ? (spec.unit === '%' ? '%' : ` ${spec.unit}`) : ''
+  const shown = spec.items.map((item) => `${item.display !== undefined ? String(item.display) : format(item.value)}${unit}`)
+  // Room beside the longest bar for the longest printed value (monospace, about 7.4px a character).
+  const reserve = Math.ceil(Math.max(...shown.map((t) => t.length)) * 7.4 + 12)
   return (
     <div className="v-bars-wrap">
       <ul className="v-bars">
@@ -25,8 +28,8 @@ export default function Bars({ spec }) {
             <li key={i} className={`v-bar${item.tone ? ` toned v-tone-${item.tone}` : ''}`}>
               <span className="v-bar-label"><Inline text={item.label} /></span>
               <span className="v-bar-track">
-                <span className="v-bar-fill" style={{ width: `calc((100% - 7em) * ${share.toFixed(4)})` }} />
-                <span className="v-bar-value">{item.display !== undefined ? String(item.display) : format(item.value)}{unit}</span>
+                <span className="v-bar-fill" style={{ width: `calc((100% - ${reserve}px) * ${share.toFixed(4)})` }} />
+                <span className="v-bar-value">{shown[i]}</span>
               </span>
             </li>
           )
