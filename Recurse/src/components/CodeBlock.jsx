@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react'
-import { Check, Copy } from 'lucide-react'
+import { Check, Copy, WrapText } from 'lucide-react'
 import hljs from 'highlight.js/lib/core'
 import python from 'highlight.js/lib/languages/python'
 import javascript from 'highlight.js/lib/languages/javascript'
@@ -47,7 +47,10 @@ function highlight(code, language) {
 
 export default function CodeBlock({ code, language = 'plaintext', label }) {
   const [copied, setCopied] = useState(false)
+  const [wrap, setWrap] = useState(false)
   const html = useMemo(() => highlight(code, language), [code, language])
+  // Long lines scroll sideways on a phone; offer to wrap them instead.
+  const wide = useMemo(() => code.split('\n').some((line) => line.length > 44), [code])
   const copy = async () => {
     try {
       await navigator.clipboard.writeText(code)
@@ -60,13 +63,18 @@ export default function CodeBlock({ code, language = 'plaintext', label }) {
   return (
     <div className="code">
       <div className="code-head">
-        <span>{label || (language === 'plaintext' ? 'text' : language)}</span>
+        <span className="grow">{label || (language === 'plaintext' ? 'text' : language)}</span>
+        {wide && (
+          <button type="button" className="btn btn-ghost btn-sm code-wrap-toggle" onClick={() => setWrap((w) => !w)} aria-pressed={wrap}>
+            <WrapText size={14} /> Wrap
+          </button>
+        )}
         <button type="button" className="btn btn-ghost btn-sm" onClick={copy} aria-label="Copy code">
           {copied ? <Check size={14} /> : <Copy size={14} />}
           {copied ? 'Copied' : 'Copy'}
         </button>
       </div>
-      <pre>
+      <pre className={wrap ? 'wrapped' : undefined}>
         <code dangerouslySetInnerHTML={{ __html: html }} />
       </pre>
     </div>
