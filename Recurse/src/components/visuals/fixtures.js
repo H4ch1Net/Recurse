@@ -684,6 +684,30 @@ export const VISUAL_FIXTURES = [
     }
   },
   {
+    name: 'cells: wide pointer labels',
+    spec: {
+      type: 'cells',
+      style: 'array',
+      title: 'Move zeros to the end',
+      rows: [
+        {
+          label: 'nums',
+          cells: [1, 3, 12, 0, 0, 5, 7],
+          index: true,
+          pointers: [
+            { at: 0, label: 'start' },
+            { at: 2, label: 'write = 3', tone: 'accent' },
+            { at: 3, label: 'read = 4' },
+            { at: 5, label: 'lo, mid, hi', tone: 'warn' },
+            { at: 5, label: 'target', tone: 'good' },
+            { at: 6, label: 'last index of the array' }
+          ],
+          tones: { 2: 'accent', 5: 'warn' }
+        }
+      ]
+    }
+  },
+  {
     name: 'cells: list of twelve nodes',
     spec: {
       type: 'cells',

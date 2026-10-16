@@ -12,6 +12,7 @@ import {
   overlaps,
   parseInline,
   plainText,
+  pointerLevels,
   segmentHitsRect,
   textWidth,
   tidyTree,
@@ -189,6 +190,18 @@ describe('field widths', () => {
   })
   it('gives up when the minimums alone do not fit', () => {
     expect(fitWidths([1, 1], [200, 200], 300)).toBeNull()
+  })
+})
+
+describe('pointerLevels', () => {
+  it('keeps labels that clear each other on the first line', () => {
+    expect(pointerLevels([{ center: 20, width: 20, lines: 1 }, { center: 60, width: 20, lines: 1 }])).toEqual([0, 0])
+  })
+  it('drops a label that would touch its neighbor to the next line', () => {
+    expect(pointerLevels([{ center: 20, width: 60, lines: 1 }, { center: 58, width: 60, lines: 1 }, { center: 96, width: 60, lines: 1 }])).toEqual([0, 1, 0])
+  })
+  it('gives a group of stacked labels as many lines as it has labels', () => {
+    expect(pointerLevels([{ center: 20, width: 40, lines: 2 }, { center: 50, width: 40, lines: 1 }])).toEqual([0, 2])
   })
 })
 

@@ -106,7 +106,7 @@ const roomFor = (plan) => ({ paddingLeft: plan.left || undefined, paddingRight: 
 /** Boxes of one width side by side, with optional indexes above and pointers below. */
 function ArrayRow({ row }) {
   const w = Math.max(CELL_MIN, ...row.cells.map(cellWidth))
-  const plan = pointerPlan(row, row.cells.map((_, i) => i * (w - 1.5) + w / 2), row.cells.map(() => w), row.cells.length * (w - 1.5))
+  const plan = pointerPlan(row, row.cells.map((_, i) => i * w + w / 2), row.cells.map(() => w), row.cells.length * w)
   return (
     <div className="vc-row" style={row.index ? { '--vc-label-pad': '23px' } : undefined}>
       <Label row={row} />
@@ -194,7 +194,7 @@ function QueueRow({ row }) {
   const last = row.cells.length - 1
   const w = Math.max(CELL_MIN, ...row.cells.map(cellWidth))
   // The "out" arrow before the front gives a spilling label room on the left.
-  const plan = pointerPlan(row, row.cells.map((_, i) => 52 + i * (w - 1.5) + w / 2), row.cells.map(() => w), 52 + row.cells.length * (w - 1.5) + 40)
+  const plan = pointerPlan(row, row.cells.map((_, i) => 52 + i * w + w / 2), row.cells.map(() => w), 52 + row.cells.length * w + 40)
   return (
     <div className="vc-row">
       <Label row={row} />
