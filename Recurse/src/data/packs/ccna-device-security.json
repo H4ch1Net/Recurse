@@ -11,60 +11,139 @@
   "prereqs": ["ccna-security-concepts", "ccna-ssh-tftp-ftp"],
   "tags": ["ccna", "5.3", "5.4", "5.8", "passwords", "aaa", "radius", "tacacs"],
   "lesson": {
-    "estimatedMinutes": 38,
-    "intro": "A router or switch that anyone can log in to is a gift to an attacker: one login can reroute, sniff or shut down a whole network. This lesson builds device access control from the ground up: line passwords, enable secret, how IOS stores passwords (types 0, 5, 7, 8 and 9), local usernames, privilege levels, timeouts, login protection and banners. Then it zooms out to password policy, multifactor authentication, certificates and biometrics, and centralized AAA with RADIUS and TACACS+.",
+    "estimatedMinutes": 25,
+    "intro": "One login to a router or switch can reroute, sniff or shut down a network. This lesson builds device access control: line passwords, enable secret, password types, local users, privilege levels, login hardening, password policy, MFA and centralized AAA.",
     "objectives": [
-      "Configure console, vty and enable-mode protection and predict which password IOS will ask for",
-      "Identify password types 0, 5, 7, 8 and 9 in a configuration and explain why type 7 is weak",
-      "Build a hardened login baseline with local users, privilege levels, login local, exec-timeout, SSH-only access and banners",
-      "Describe the password policy elements: management, complexity, MFA, certificates and biometrics",
-      "Compare authentication, authorization and accounting, contrast RADIUS with TACACS+, and read an IOS method list"
+      "Protect console, vty and enable mode, and predict which password IOS asks for",
+      "Read password types 0, 5, 7, 8 and 9 and explain why type 7 is weak",
+      "Build a login baseline with local users, privilege levels, timeouts, SSH and banners",
+      "Describe password policy, MFA, certificates and biometrics",
+      "Compare the AAA functions and RADIUS with TACACS+, and read a method list"
     ],
     "sections": [
       {
         "title": "Lines, modes and line passwords",
-        "body": "Unbox a new switch, plug in a console cable, and you are at a prompt with no password. Type `enable` and you have full control. Device access control is about closing those doors.\n\nIOS has two main access levels. **User EXEC** mode (prompt `R1>`) allows basic show commands. **Privileged EXEC** mode (prompt `R1#`), reached with the `enable` command, allows everything: configuration, reloads, erasing. You protect the way *into* the device and, separately, the step *up* to privileged mode.\n\nThe ways in are called **lines**:\n\n- `line console 0`: the physical console port.\n- `line vty 0 4` (or `0 15` on most switches and newer routers): virtual terminals used by Telnet and SSH sessions.\n- `line aux 0`: an auxiliary port on some routers.\n\nThe simplest protection is a shared **line password**. Under the line, `password` sets the value and `login` tells IOS to actually ask for it. Both are needed: a password without `login` is never requested, and `login` without a password refuses the connection.\n\nDefaults matter here. The console starts with no `login`, so it lets anyone in. The vty lines start with `login` but no password, so Telnet users are turned away with \"Password required, but none set.\" That safe default disappears the moment someone adds a weak password.\n\nDo not forget the third door. If a router has an aux port, an unprotected `line aux 0` is a back door for anyone who connects a modem or a cable to it; give it `login local` like the console, or turn off logins on it entirely with `no exec`.",
-        "code": "! Shared line passwords: simple, but everyone knows the same password\nline console 0\n password C0nsole!Pass\n login\n!\nline vty 0 15\n password Vty!Pass2024\n login",
+        "key": "Each way into a device is a line (console, vty, aux), and a line password works only when the line has both `password` and `login`.",
+        "body": "Unbox a new switch, plug in a console cable, and you are at a prompt with no password. Type `enable` and you control everything. Device access control closes those doors.\n\n**User EXEC** (`R1>`) allows basic show commands. **Privileged EXEC** (`R1#`), reached with `enable`, allows everything. You protect the way into the device and, separately, the step up.\n\n[[visual]]\n\nThe simplest protection is a shared **line password**: `password` sets it and `login` makes IOS ask for it. A password without `login` is never requested; `login` without a password refuses the connection.\n\n[[code]]",
+        "visual": [
+          {
+            "type": "table",
+            "title": "The ways in, and their defaults",
+            "columns": ["Line", "Configured under", "Used by", "Out of the box"],
+            "rows": [
+              ["Console", "`line console 0`", "The physical console port", "No `login`: anyone gets in"],
+              ["vty", "`line vty 0 4` (`0 15` on most switches)", "Telnet and SSH sessions", "`login` but no password: refused with \"Password required, but none set\""],
+              ["Aux", "`line aux 0`", "An auxiliary port on some routers", "A back door: give it `login local`, or `no exec`"]
+            ]
+          }
+        ],
+        "code": "! Shared line passwords: simple, but everyone knows the same one\nline console 0\n password C0nsole!Pass\n login\n!\nline vty 0 15\n password Vty!Pass2024\n login",
+        "language": "cisco",
         "tip": "Line passwords prove that someone knows the password, not who they are. The local usernames later in this lesson fix that.",
         "pitfall": "Setting a console password and forgetting the login command. IOS stores the password but never prompts for it, so the console stays wide open.",
         "check": {
           "question": "A new router's vty lines show login but no password. What happens when someone tries to Telnet in?",
-          "choices": ["They reach user EXEC mode without a prompt", "They reach privileged EXEC mode directly", "The connection is refused with \"Password required, but none set\"", "They are prompted for the enable secret instead"],
+          "choices": [
+            "They reach user EXEC mode without a prompt",
+            "They reach privileged EXEC mode directly",
+            "The connection is refused with \"Password required, but none set\"",
+            "They are prompted for the enable secret instead"
+          ],
           "answer": 2,
           "explanation": "vty lines default to login with no password, so IOS has nothing to check and refuses the session. The console, by contrast, defaults to no login and lets users straight in."
         }
       },
       {
         "title": "enable password versus enable secret",
-        "body": "Two global commands protect the step from user EXEC to privileged EXEC, and they exist side by side for historical reasons.\n\n- `enable password` stores the password in clear text in the configuration.\n- `enable secret` stores a one-way **hash** of the password. When a user types a password after `enable`, IOS hashes what they typed and compares the result with the stored hash. The clear text is never kept, so it cannot be displayed or copied out of the config.\n\nWhich one does IOS ask for? Memorize these rules, because the exam tests them:\n\n- **Both configured**: only the enable secret works. The enable password is ignored.\n- **Only one configured**: that one is used.\n- **Neither configured**: console users go straight into privileged mode. Telnet and SSH users are refused with \"% No password set.\"\n\nYou cannot view an enable secret, but from privileged mode you can overwrite it by entering `enable secret` again or remove it with `no enable secret`. Plan for remote administrators too: with neither enable command configured, an SSH user can never reach privileged mode unless their username was created with `privilege 15`. In real life, configure only `enable secret` and never reuse the same value as an enable password (IOS even warns you if you try).",
-        "code": "R1# show running-config | include enable\nenable secret 9 $9$nhEmQVczB7dqsO$X.HsgL6x1il0RxkOSSvyQYwucySCt7qFm4v7pqCxkKM\nenable password Cisco123\n!\n! A user who types \"enable\" must enter the secret.\n! \"Cisco123\" is ignored because an enable secret exists.",
+        "key": "`enable secret` stores a hash and `enable password` stores clear text; when both are configured, only the enable secret is accepted.",
+        "body": "Two global commands protect the step from user EXEC to privileged EXEC. `enable password` stores the password in clear text. `enable secret` stores a one-way **hash**: IOS hashes what the user types and compares, so the clear text is never kept.\n\n[[visual]]\n\n[[code]]\n\nYou cannot view a secret, but you can overwrite it with `enable secret` again or remove it with `no enable secret`. In practice, configure only `enable secret` (IOS warns if you reuse its value for `enable password`). With neither command, SSH users reach privileged mode only through a `privilege 15` username.",
+        "visual": [
+          {
+            "type": "table",
+            "title": "Which password does `enable` want?",
+            "columns": ["Configured", "What happens after `enable`"],
+            "rows": [
+              ["Both", "Only the enable secret works; the enable password is ignored"],
+              ["Only one", "That one is used"],
+              ["Neither, on the console", "Straight into privileged mode, no password"],
+              ["Neither, over Telnet or SSH", "Refused with `% No password set`"]
+            ],
+            "highlight": [0]
+          }
+        ],
+        "code": "R1# show running-config | include enable\nenable secret 9 $9$nhEmQVczB7dqsO$X.HsgL6x1il0RxkOSSvyQYwucySCt7qFm4v7pqCxkKM\nenable password Cisco123\n! Typing enable now requires the secret; Cisco123 is ignored.",
+        "language": "cisco",
         "pitfall": "Treating enable password as a backup that works if the secret is forgotten. When both exist, only the secret is accepted, so the old password is dead weight that still leaks in clear text.",
         "check": {
           "question": "A router has both enable password Cisco123 and an enable secret configured. A user types enable and enters Cisco123. What happens?",
-          "choices": ["Access is granted, because either password works", "Access is granted, because enable password is checked first", "IOS asks for a username instead", "Access is denied, because only the enable secret is accepted"],
+          "choices": [
+            "Access is granted, because either password works",
+            "Access is granted, because enable password is checked first",
+            "IOS asks for a username instead",
+            "Access is denied, because only the enable secret is accepted"
+          ],
           "answer": 3,
           "explanation": "When both commands exist, IOS checks only the enable secret. The enable password is ignored entirely."
         }
       },
       {
         "title": "Password types: 0, 7, 5, 8 and 9",
-        "body": "Look at any running configuration and you will see a number in front of stored passwords. That number tells you how the password is stored, and the CCNA expects you to read it.\n\n**Type 0** is clear text. **Type 7** is what the global command `service password-encryption` produces. It encrypts the passwords that would otherwise be clear text: line passwords, `enable password` and `username ... password`. Type 7 uses a weak, reversible Cisco algorithm, and free tools decode it instantly. It stops someone glancing over your shoulder or reading a printout, nothing more. Also note that `no service password-encryption` does not decrypt anything; existing passwords stay type 7 until you change them.\n\n**Type 5** is a salted MD5-based hash, the classic result of `enable secret` and `username ... secret`. It is one-way, but MD5 is old and fast to attack with modern hardware.\n\n**Type 8** (PBKDF2 with SHA-256) and **type 9** (scrypt) are the modern hashes, deliberately slow to compute so offline cracking is expensive. You ask for them with `algorithm-type`: `enable algorithm-type scrypt secret ...` gives type 9 and `enable algorithm-type sha256 secret ...` gives type 8. Some newer IOS releases use type 9 by default. A **type 4** hash exists in old releases but was flawed and should not be used.\n\nWhy are hashes better than type 7? A hash cannot be reversed. The only attack is to guess passwords, hash each guess and compare, which is exactly the work types 8 and 9 make deliberately slow. Only one enable secret can exist: configuring it again with a different algorithm replaces the old one.",
-        "code": "Type  Stored as                      Produced by                                Strength\n0     Clear text                     password X, enable password X              None\n7     Reversible Cisco encryption    service password-encryption                Weak, decodes instantly\n5     Salted MD5 hash                enable secret X, username U secret X       Acceptable, aging\n8     PBKDF2 with SHA-256 hash       ... algorithm-type sha256 secret X         Strong\n9     scrypt hash                    ... algorithm-type scrypt secret X         Strongest",
-        "language": "plaintext",
+        "key": "The number before a stored password shows how IOS keeps it: 0 is clear text, 7 is reversible, and 5, 8 and 9 are one-way hashes.",
+        "body": "Look at any running configuration and you will see a number in front of stored passwords. The CCNA expects you to read it.\n\n[[visual]]\n\n`service password-encryption` turns every would-be clear-text password (line passwords, `enable password`, `username ... password`) into type 7. That only stops someone glancing at a printout: free tools reverse it instantly. `no service password-encryption` decrypts nothing; existing passwords stay type 7 until changed.\n\nA hash cannot be reversed. The only attack is guessing, hashing each guess and comparing, which types 8 and 9 make deliberately slow. Configuring the enable secret again with another algorithm replaces it.\n\n[[code]]",
+        "visual": [
+          {
+            "type": "table",
+            "title": "IOS password types",
+            "columns": ["Type", "Stored as", "Produced by", "Strength"],
+            "rows": [
+              ["Type 0", "Clear text", "`password X`, `enable password X`", "None"],
+              ["Type 7", "Reversible Cisco encryption", "`service password-encryption`", "Weak: decodes instantly"],
+              ["Type 5", "Salted MD5 hash", "`enable secret X`, `username U secret X`", "Acceptable, aging"],
+              ["Type 8", "PBKDF2 with SHA-256 hash", "`algorithm-type sha256 secret X`", "Strong"],
+              ["Type 9", "scrypt hash", "`algorithm-type scrypt secret X`", "Strongest; the default on some newer releases"]
+            ]
+          }
+        ],
+        "code": "R1(config)# enable algorithm-type scrypt secret Str0ng!Pass\nR1(config)# service password-encryption\nR1(config)# do show running-config | include secret|password\nservice password-encryption\nenable secret 9 $9$nhEmQVczB7dqsO$X.HsgL6x1il0RxkOSSvyQYwucySCt7qFm4v7pqCxkKM\n password 7 070C285F4D06",
+        "language": "cisco",
+        "deeper": "**Type 4** appeared briefly in some IOS releases as a SHA-256 hash, but a coding flaw made it weaker than type 5 (no salt, a single fast iteration). Cisco replaced it with types 8 and 9; never use it.\n\n**Which algorithm for usernames?** The same keywords work there: `username admin algorithm-type scrypt secret ...` stores a type 9 hash. `enable algorithm-type sha256 secret ...` gives type 8.",
         "pitfall": "Believing service password-encryption makes passwords safe. Type 7 is obfuscation: anyone with a copy of the config can reverse it in seconds. Use secrets (types 5, 8, 9) wherever IOS offers them.",
         "check": {
           "question": "A configuration contains: password 7 070C285F4D06. What is true about this line password?",
-          "choices": ["It is an scrypt hash that cannot be reversed", "It was hidden by service password-encryption and can be decoded easily", "It is clear text that IOS displays with a 7 prefix", "It can only be produced by the enable secret command"],
+          "choices": [
+            "It is an scrypt hash that cannot be reversed",
+            "It was hidden by service password-encryption and can be decoded easily",
+            "It is clear text that IOS displays with a 7 prefix",
+            "It can only be produced by the enable secret command"
+          ],
           "answer": 1,
           "explanation": "Type 7 is the weak reversible encryption applied by service password-encryption. Free tools turn 070C285F4D06 back into the original password, which is why secrets are preferred."
         }
       },
       {
         "title": "Local usernames and login local",
-        "body": "With shared line passwords, the logs can only say \"someone logged in.\" When a change breaks the network at 2 a.m., you want a name. A **local username database** gives every administrator their own credentials.\n\n- `username admin secret ...` creates a user with a hashed password. Add `algorithm-type scrypt` for a type 9 hash, and `privilege 15` to drop the user straight into privileged EXEC after login.\n- `username admin password ...` is the legacy form with a clear-text (or type 7) password. A given username can have a password or a secret, not both; prefer secret.\n- `login local`, under a line, tells IOS to prompt for a username and password and check them against the local database. Plain `login` uses the line password instead and ignores your usernames.\n\nA few older features, such as CHAP on serial links, need to know the clear-text password and therefore still use `username ... password`; avoid it everywhere else. One username has either a password or a secret, but different usernames in the same configuration can mix the two.\n\nSSH requires a username to authenticate, so vty lines that accept SSH need `login local` (or AAA, later in this lesson). That is why the SSH setup in the earlier pack always pairs `username` with `login local`.\n\nLocal usernames also serve as the fallback when a central AAA server is unreachable, so even networks that use RADIUS or TACACS+ keep one or two strong local accounts.",
+        "key": "Local usernames give each administrator their own login; `login local` on a line checks them, while plain `login` uses the shared line password.",
+        "body": "With shared line passwords, the logs can only say \"someone logged in.\" When a change breaks the network at 2 a.m., you want a name. A **local username database** gives every administrator their own credentials.\n\n[[visual]]\n\n[[code]]\n\nSSH needs a username to authenticate, so vty lines that accept SSH need `login local` (or AAA). Even networks with a central AAA server keep one or two strong local accounts as the fallback for when the server is unreachable.",
+        "visual": [
+          {
+            "type": "table",
+            "title": "Usernames and login local",
+            "columns": ["Command", "Effect"],
+            "rows": [
+              ["`username admin secret X`", "A user with a hashed password (type 5, 8 or 9)"],
+              ["`username admin algorithm-type scrypt secret X`", "The same, with a type 9 hash"],
+              ["`username admin privilege 15 ...`", "The user lands in privileged EXEC, no `enable` needed"],
+              ["`username admin password X`", "Legacy: clear text, or type 7. A username has a password or a secret, not both"],
+              ["`login local` (under a line)", "Prompts for a username and password and checks the local database"],
+              ["`login` (under a line)", "Uses the line password and ignores your usernames"]
+            ]
+          }
+        ],
         "code": "username admin privilege 15 algorithm-type scrypt secret Adm1n!Str0ng\nusername helpdesk secret H3lp!Desk2024\n!\nline console 0\n login local\n!\nline vty 0 15\n login local\n transport input ssh",
-        "tip": "Use `show running-config | section username` to review accounts. A secret shows as type 5, 8 or 9; a password shows as 0 or 7.",
-        "pitfall": "Typing login when you meant login local. The line then asks for the line password only, so SSH logins fail and your user accounts are silently ignored.",
+        "language": "cisco",
+        "deeper": "**When `password` is still needed.** A few older features, such as CHAP on serial links, must know the clear-text password, so they use `username ... password`. Avoid it everywhere else. One username has either a password or a secret, but different usernames in the same configuration can mix the two.",
+        "tip": "Review accounts with `show running-config | section username`. A secret shows as type 5, 8 or 9; a password shows as 0 or 7.",
+        "pitfall": "Typing `login` when you meant `login local`. The line then asks for the line password only, so SSH logins fail and your user accounts are silently ignored.",
         "check": {
           "question": "Which line subcommand makes IOS prompt for a username and password and check them against the usernames configured on the device?",
           "choices": ["login", "password local", "login local", "transport input ssh"],
@@ -74,28 +153,67 @@
       },
       {
         "title": "Privilege levels",
-        "body": "Not every administrator should be able to do everything. IOS has 16 **privilege levels**, numbered 0 to 15, and every command belongs to one of them. A session can run the commands at its own level and at every level below it.\n\n- **Level 1** is user EXEC (`R1>`): basic show commands, ping and traceroute. A plain login lands here.\n- **Level 15** is privileged EXEC (`R1#`), the level the `enable` command reaches. Every command is available, configuration included.\n- **Level 0** holds only a handful of commands, such as `enable`, `disable`, `exit` and `logout`.\n- **Levels 2 to 14** are empty until you move commands into them, which is how you build a role such as \"operations staff may clear counters but not configure anything.\"\n\nThree commands do most of the work. `username NAME privilege N secret ...` places a local user at level N as soon as they log in with `login local`; with `privilege 15` the user skips the separate `enable` step. `privilege exec level N COMMAND` assigns a command to level N. And `enable secret level N ...` sets a password for `enable N`, which raises a session to level N. `show privilege` displays the level of the current session. Watch the prompt: every level from 2 to 15 shows `#`, so the prompt alone does not prove full control.\n\nCustom levels are fiddly to maintain on hundreds of devices, so larger networks usually do this job with AAA command authorization on a TACACS+ server, covered at the end of this lesson. For the exam, know levels 0, 1 and 15, that a user can run commands at or below their own level, and that `username ... privilege 15` drops an administrator straight into privileged EXEC.",
-        "code": "! Operations staff land at level 5 and may also clear interface counters\nprivilege exec level 5 clear counters\nusername ops privilege 5 algorithm-type scrypt secret 0ps!Team2024\nusername admin privilege 15 algorithm-type scrypt secret Adm1n!Str0ng\n!\nR1> show privilege\nCurrent privilege level is 1\nR1> enable\nPassword:\nR1# show privilege\nCurrent privilege level is 15",
+        "key": "IOS privilege levels run from 0 to 15: level 1 is user EXEC, level 15 is privileged EXEC, and a session runs commands at its level and below.",
+        "body": "Not every administrator should do everything. Every IOS command belongs to one of 16 **privilege levels**, and a session can run commands at its own level and every level below it.\n\n[[visual]]\n\nThree commands do the work. `username NAME privilege N secret ...` places a user at level N when they log in with `login local`. `privilege exec level N COMMAND` moves a command to level N. `enable secret level N ...` sets a password for `enable N`.\n\n[[code]]\n\nEvery level from 2 to 15 shows `#`, so check with `show privilege`. Large networks usually do this job with TACACS+ command authorization instead.",
+        "visual": [
+          {
+            "type": "table",
+            "title": "Privilege levels",
+            "columns": ["Level", "Prompt", "What it can run"],
+            "rows": [
+              ["0", "`R1>`", "Only `enable`, `disable`, `exit` and `logout`"],
+              ["1", "`R1>`", "User EXEC: basic show commands, ping, traceroute. A plain login lands here"],
+              ["2 to 14", "`R1#`", "Empty until you move commands in: custom roles"],
+              ["15", "`R1#`", "Privileged EXEC, reached with `enable`: everything, including configuration"]
+            ]
+          }
+        ],
+        "code": "! Operations staff land at level 5 and may also clear counters\nprivilege exec level 5 clear counters\nusername ops privilege 5 algorithm-type scrypt secret 0ps!Team2024\n!\nR1> show privilege\nCurrent privilege level is 1\nR1> enable\nPassword:\nR1# show privilege\nCurrent privilege level is 15",
+        "language": "cisco",
         "pitfall": "Assuming the # prompt means full control. Every level from 2 to 15 shows #; run show privilege to see the real level.",
         "check": {
           "question": "A user logs in through login local with the account created by username ops privilege 5 secret 0ps!Team. Which commands can ops run?",
-          "choices": ["Only commands assigned to level 5", "Commands at level 5 and at every level below it", "Every command, because the prompt shows #", "Only level 1 commands until ops types enable"],
+          "choices": [
+            "Only commands assigned to level 5",
+            "Commands at level 5 and at every level below it",
+            "Every command, because the prompt shows #",
+            "Only level 1 commands until ops types enable"
+          ],
           "answer": 1,
           "explanation": "A session can use the commands at its own level and all lower levels. Level 5 shows the # prompt like level 15, but configuration commands stay at level 15 and are not available."
         }
       },
       {
         "title": "A hardened login baseline",
-        "body": "Passwords are only part of the job. A few more commands close common gaps.\n\n- **exec-timeout** `minutes seconds`, under a line, disconnects idle sessions so an unattended, logged-in console cannot be abused. `exec-timeout 5 0` means five minutes. `exec-timeout 0 0` means never time out: fine in a lab, a bad idea in production.\n- **transport input ssh** on the vty lines allows SSH only. Telnet sends everything, passwords included, in clear text.\n- **access-class** `acl in` on the vty lines lets only management subnets reach the login prompt (the ACL pack covers this in detail).\n- **Banners** warn users before they log in. `banner motd` (message of the day) is shown first to every connecting user, `banner login` comes next, just before the login prompt, and `banner exec` appears after a successful login. Each banner starts and ends with a delimiter character of your choice, such as `#`. That order (MOTD, login banner, credentials, exec banner) is what console and Telnet users see. Over SSH version 2 it changes: the login banner appears before authentication, and the MOTD banner only after it, followed by the exec banner.\n\nBanner wording matters. A login banner should state that access is for authorized users only and that activity is monitored. Never write \"Welcome\", and do not reveal the device model, software or location to someone who has not logged in yet.\n\nThe configuration below pulls everything in this lesson so far into one baseline. To verify it, `show running-config | section line` lists the line settings, `show running-config | include secret|username` shows how each credential is stored (look for types 5, 8 or 9), and `show users` lists who is logged in on which line and how long they have been idle. Then try it yourself in the console lab.",
+        "key": "Harden logins with idle timeouts, SSH-only vty lines, an access-class ACL and a warning banner, and know the order in which banners appear.",
+        "body": "Passwords are only part of the job. A few more commands close common gaps:\n\n- `exec-timeout 5 0` logs out idle sessions after 5 minutes and 0 seconds. `exec-timeout 0 0` means never: fine in a lab, risky in production.\n- `transport input ssh` on the vty lines blocks Telnet, which sends passwords in clear text.\n- `access-class 10 in` on the vty lines lets only management subnets reach the login prompt.\n- **Banners** warn users. Each starts and ends with a delimiter character, such as `#`.\n\n[[visual]]\n\nA login banner should say access is for authorized users only and is monitored. Never write \"Welcome\", and never reveal the model, software or location.\n\n[[code]]\n\nVerify with `show running-config | section line`, `show running-config | include secret|username` and `show users` (who is logged in, and idle time).",
+        "visual": [
+          {
+            "type": "compare",
+            "title": "The order users see banners",
+            "items": [
+              {
+                "title": "Console and Telnet",
+                "points": ["1. `banner motd`", "2. `banner login`", "3. Username and password", "4. `banner exec`, after a successful login"]
+              },
+              {
+                "title": "SSH version 2",
+                "tone": "accent",
+                "points": ["1. `banner login`", "2. Username and password", "3. `banner motd`", "4. `banner exec`"]
+              }
+            ]
+          }
+        ],
         "code": "hostname R1\nenable algorithm-type scrypt secret En@ble!Secret9\nservice password-encryption\nusername admin privilege 15 algorithm-type scrypt secret Adm1n!Str0ng\n!\nbanner motd #\nAuthorized access only. All activity is logged and monitored.\n#\n!\nline console 0\n login local\n exec-timeout 5 0\n!\nline vty 0 15\n login local\n transport input ssh\n exec-timeout 10 0\n access-class 10 in\n!\naccess-list 10 permit 10.10.99.0 0.0.0.255",
-        "tip": "SSH on the vty lines also needs a hostname, ip domain-name and an RSA key, as covered in the SSH pack.",
+        "language": "cisco",
+        "tip": "SSH on the vty lines also needs a hostname, `ip domain-name` and an RSA key, as covered in the SSH pack.",
+        "pitfall": "Leaving `exec-timeout 0 0` from lab work on a production device. Any session left open, on a console or a forgotten SSH window, stays logged in forever.",
         "activity": {
           "type": "ios-console",
           "title": "Harden a router's logins",
           "prompt": "Work through each lab check: protect enable mode with a secret, create a local user, make the console and vty lines use login local, add a timeout and a banner. After each step run show running-config and look at how IOS stored each password (the type number). Ask yourself which of them an attacker holding a copy of this config could read.",
           "props": { "lab": "cl-d5-device-hardening" }
         },
-        "pitfall": "Leaving exec-timeout 0 0 from lab work on a production device. Any session left open, on a console or a forgotten SSH window, stays logged in forever.",
         "check": {
           "question": "A user connects to the console of a router that has banner motd, banner login and banner exec configured, and logs in successfully. Which banner appears last?",
           "choices": ["The exec banner", "The MOTD banner", "The login banner", "None; only one banner can be shown per session"],
@@ -105,34 +223,112 @@
       },
       {
         "title": "Password policy: complexity and management",
-        "body": "The CCNA blueprint lists password **complexity** and **management** as policy elements. A policy is the written rule set that every account must follow.\n\n**Complexity** is about making guessing expensive. Length matters most, because every extra character multiplies the brute-force search. A long passphrase such as four random words beats a short string of symbols. Policies also ban dictionary words, names, the company name and previously breached passwords, and usually require a mix of character types.\n\n**Management** is about the life of a password:\n\n- Change every default password before a device goes live.\n- Give each administrator a unique account; never share one admin password across a team.\n- Never reuse the same password on many devices, so one leak does not open everything.\n- Change passwords periodically, and immediately on any sign of compromise or when staff leave.\n- Store passwords only as strong hashes on devices, and keep human copies in a password manager or vault, not in a spreadsheet.\n- Lock out or slow down repeated failed logins.\n\nIOS can enforce some of this itself, as shown below. `security passwords min-length` rejects new passwords shorter than the minimum. `login block-for` stops all logins for a quiet period after too many failures, which cripples online guessing.\n\nTwo companions make `login block-for` practical. `login quiet-mode access-class` names an ACL of hosts (your management subnet) that may still log in during the quiet period, so an attacker's guessing cannot lock the administrators out. `login on-failure log` and `login on-success log` write a syslog message for every attempt, which turns a guessing attack into evidence you can act on.",
-        "code": "! Reject any new password shorter than 10 characters\nsecurity passwords min-length 10\n!\n! After 5 failed logins within 60 seconds,\n! refuse all login attempts for 120 seconds...\nlogin block-for 120 attempts 5 within 60\n! ...except from the management subnet\nip access-list standard MGMT-HOSTS\n permit 10.10.99.0 0.0.0.255\nlogin quiet-mode access-class MGMT-HOSTS\n! Log every failed login\nlogin on-failure log",
-        "tip": "Current NIST guidance favors long passwords and changing them on evidence of compromise rather than on a fixed schedule; Cisco's material still lists periodic changes as part of password management.",
+        "key": "Password policy covers complexity (length matters most) and management (unique, changed, stored as hashes); IOS can enforce a minimum length and block repeated failures.",
+        "body": "The blueprint lists password **complexity** and **management** as policy elements: the written rules every account follows.\n\n**Complexity** makes guessing expensive. Length matters most, so a passphrase of four random words beats a short string of symbols. Policies also ban dictionary words, names, the company name and breached passwords, and usually require mixed character types.\n\n**Management** covers a password's life:\n\n- Change every default before a device goes live.\n- One unique account per administrator, never a shared admin password.\n- Never reuse a password across devices.\n- Change it on any sign of compromise, when staff leave, and periodically.\n- Keep only hashes on devices, and human copies in a password vault, not a spreadsheet.\n\nIOS enforces some of this itself:\n\n[[visual]]",
+        "visual": [
+          {
+            "type": "table",
+            "title": "Policy in IOS",
+            "columns": ["Command", "Effect"],
+            "rows": [
+              ["`security passwords min-length 10`", "Rejects new passwords shorter than 10 characters"],
+              ["`login block-for 120 attempts 5 within 60`", "After 5 failed logins within 60 seconds, refuses all logins for 120 seconds"],
+              ["`login quiet-mode access-class MGMT-HOSTS`", "Hosts permitted by this ACL can still log in during that quiet period, so attackers cannot lock admins out"],
+              ["`login on-failure log`", "A syslog message for every failed login (`login on-success log` for successes)"]
+            ]
+          }
+        ],
+        "tip": "Current NIST guidance favors long passwords changed on evidence of compromise rather than on a fixed schedule; Cisco material still lists periodic changes.",
         "pitfall": "Writing a policy so painful (short expiry, strange symbol rules) that people write passwords on sticky notes. A policy users cannot live with creates a new vulnerability.",
         "check": {
           "question": "Which single change to a password policy adds the most resistance to brute-force attacks?",
-          "choices": ["Requiring one symbol in every password", "Raising the minimum length from 8 to 14 characters", "Changing passwords every 30 days", "Displaying a warning banner before login"],
+          "choices": [
+            "Requiring one symbol in every password",
+            "Raising the minimum length from 8 to 14 characters",
+            "Changing passwords every 30 days",
+            "Displaying a warning banner before login"
+          ],
           "answer": 1,
           "explanation": "Each added character multiplies the number of possible passwords, so length grows the search space far faster than adding one required symbol. Banners and expiry do not slow an attacker who already holds a hash."
         }
       },
       {
         "title": "Beyond passwords: MFA, certificates and biometrics",
-        "body": "A password is **something you know**, and anything you know can be phished, guessed or reused. The alternatives in the blueprint add other kinds of proof.\n\n**Multifactor authentication (MFA)** requires factors from at least two different categories: something you know (a password or PIN), something you have (a phone app code, a hardware token, a smart card) and something you are (a fingerprint or face). A stolen password alone no longer gets the attacker in. The categories must differ: a password plus a security question is still two things you know, so it is not MFA.\n\n**Digital certificates** prove identity with cryptography. A trusted **certificate authority (CA)** issues and digitally signs each certificate. Certificates are valid only for a set time and can be **revoked** early, for example when an employee leaves, after which authentication with them fails. Proof of possession comes from the private key that matches the certificate, which never leaves the owner's device, so copying the certificate file alone is not enough.\n\n**Biometrics** use something you are: fingerprints, face, iris, retina, palm or voice. They are convenient and hard to share, but they cannot be changed if compromised, some systems can be fooled by photos or molds, and injuries or aging can change the reading. That is why biometrics are usually one factor among several, not the only one.\n\nRouters and switches rarely do MFA by themselves. Instead, the device hands the login to a central AAA server, which can demand the second factor before it answers, as the next section shows.",
-        "code": "Method                Category                 Example\nPassword or PIN       Something you know       Typing a passphrase\nOne-time code, token  Something you have       Authenticator app, hardware key\nDigital certificate   Something you have       Private key on a laptop or smart card\nBiometric             Something you are        Fingerprint, face, iris scan\nMFA                   Two or more categories   Password plus a push approval on a phone",
-        "language": "plaintext",
+        "key": "Multifactor authentication combines different categories (something you know, have or are); a password plus a security question is still only one category.",
+        "body": "A password is **something you know**, and anything you know can be phished, guessed or reused. The alternatives add other kinds of proof.\n\n[[visual]]\n\n**Multifactor authentication (MFA)** needs factors from at least two different categories, so a stolen password alone fails.\n\n**Digital certificates** are issued and signed by a trusted **certificate authority (CA)**. They expire, and can be **revoked** early (when an employee leaves, say), after which they fail. The matching private key never leaves the owner's device, so copying the certificate file is not enough.\n\n**Biometrics** are convenient and hard to share, but cannot be changed if stolen, some readers are fooled by photos or molds, and injury or aging changes readings. So they are usually one factor among several.",
+        "visual": [
+          {
+            "type": "table",
+            "title": "Authentication factors",
+            "columns": ["Method", "Category", "Example"],
+            "rows": [
+              ["Password or PIN", "Something you know", "A passphrase"],
+              ["One-time code or token", "Something you have", "Authenticator app, hardware key"],
+              ["Digital certificate", "Something you have", "Private key on a laptop or smart card"],
+              ["Biometric", "Something you are", "Fingerprint, face, iris, retina, palm, voice"],
+              ["MFA", "Two or more categories", "Password plus a push approval on a phone"]
+            ],
+            "highlight": [4]
+          }
+        ],
+        "deeper": "Routers and switches rarely do MFA themselves. The device hands the login to a central AAA server, which can demand the second factor (a challenge) before it accepts, as the next section shows.",
         "pitfall": "Counting two passwords, or a password plus a security question, as two-factor authentication. Both are something you know; MFA needs different categories.",
         "check": {
           "question": "Which login method is true multifactor authentication?",
-          "choices": ["A password followed by a second password", "A password followed by a security question", "A password followed by a code from an authenticator app", "A long passphrase with symbols"],
+          "choices": [
+            "A password followed by a second password",
+            "A password followed by a security question",
+            "A password followed by a code from an authenticator app",
+            "A long passphrase with symbols"
+          ],
           "answer": 2,
           "explanation": "The app code proves something you have, and the password proves something you know: two different categories. The other options use only something you know."
         }
       },
       {
         "title": "AAA: authentication, authorization and accounting",
-        "body": "Local usernames work for ten devices. With two hundred routers and switches, adding or removing an administrator means touching every box, and the logs are scattered everywhere. **AAA** (\"triple A\") centralizes the job in three separate functions:\n\n- **Authentication**: who are you? The user proves an identity with a password, a certificate or several factors.\n- **Authorization**: what are you allowed to do? After login, the server decides the privilege level and which commands may run, or for a network user, which VLAN and ACL apply.\n- **Accounting**: what did you do? The device sends records of logins, logouts, commands and session times, which feed audits, troubleshooting and billing.\n\nThe device the user connects to is the AAA client, called the **network access device (NAD)** or network access server (NAS). It prompts for credentials, then asks a central **AAA server**, such as Cisco **Identity Services Engine (ISE)**, which answers with one of three messages: **accept** (let the user in), **reject** (deny access) or **challenge** (more information needed, for example the code from an MFA app).\n\nA short story ties them together. An engineer connects to a switch with SSH and ISE confirms her credentials (authentication). She is placed at privilege level 15 but may not run `reload` during business hours (authorization). Every command she types is logged with her name and a timestamp (accounting). The same three functions apply to network access: a laptop authenticates with 802.1X, is authorized onto the staff VLAN, and accounting records how long it stayed.",
-        "code": "Admin                     Switch (NAD, AAA client)            AAA server (Cisco ISE)\n  1. SSH to the switch  -->\n  2. Username: jsmith, password  -->\n                           3. Is jsmith valid? (TACACS+)  -->\n                                                          4. <-- ACCEPT, privilege 15\n  5. <-- Logged in at SW1#                                  (REJECT = denied,\n                                                            CHALLENGE = send MFA code)\n                           6. Accounting: jsmith ran 'configure terminal' at 10:42  -->",
+        "key": "AAA centralizes authentication (who are you), authorization (what may you do) and accounting (what did you do) on a server such as Cisco ISE.",
+        "body": "Local usernames work for ten devices. With two hundred, removing one administrator means touching every box, and the logs are scattered. **AAA** (\"triple A\") centralizes the job.\n\n[[visual]]\n\nThe device the user connects to is the AAA client, called the **network access device (NAD)** or network access server (NAS). It collects the credentials and asks a central **AAA server**, such as Cisco **Identity Services Engine (ISE)**, which replies **accept**, **reject** or **challenge**.\n\n[[visual 2]]\n\nThe same functions cover network access: a laptop authenticates with 802.1X, is authorized onto the staff VLAN, and accounting records how long it stayed.",
+        "visual": [
+          {
+            "type": "table",
+            "title": "Three functions",
+            "columns": ["Function", "Question", "Example"],
+            "rows": [
+              ["Authentication", "Who are you?", "An engineer proves her identity with a password, certificate or MFA"],
+              ["Authorization", "What may you do?", "She gets privilege 15, but may not run `reload` during business hours"],
+              ["Accounting", "What did you do, and when?", "Every command she types is logged with her name and a timestamp"]
+            ]
+          },
+          {
+            "type": "sequence",
+            "title": "An admin login through AAA",
+            "actors": [
+              { "id": "adm", "label": "Admin", "kind": "laptop" },
+              { "id": "sw", "label": "SW1 (NAD)", "kind": "switch" },
+              { "id": "ise", "label": "ISE", "kind": "server" }
+            ],
+            "messages": [
+              { "from": "adm", "to": "sw", "label": "SSH: jsmith, password" },
+              { "from": "sw", "to": "ise", "label": "Is jsmith valid?", "detail": "TACACS+ request" },
+              {
+                "from": "ise",
+                "to": "sw",
+                "label": "Accept, privilege 15",
+                "detail": "or Reject (deny), or Challenge (MFA code)",
+                "tone": "good"
+              },
+              { "from": "sw", "to": "adm", "label": "Logged in at SW1#" },
+              {
+                "from": "sw",
+                "to": "ise",
+                "label": "Accounting record",
+                "detail": "jsmith ran configure terminal",
+                "dashed": true
+              }
+            ]
+          }
+        ],
         "pitfall": "Mixing up authentication and authorization. Proving who you are is authentication; being allowed to run a command or join a VLAN after that is authorization.",
         "check": {
           "question": "An AAA server receives a correct password but still needs a one-time code from the user's phone before deciding. Which reply does it send to the network device?",
@@ -143,10 +339,26 @@
       },
       {
         "title": "RADIUS, TACACS+ and IOS method lists",
-        "body": "Two protocols carry AAA conversations between the network device and the server, and the exam expects you to compare them (table below).\n\n**TACACS+** suits **device administration**. It runs over **TCP port 49**, encrypts the **entire packet body**, and keeps authentication, authorization and accounting separate, so the server can authorize each command an administrator types and log each one. Cisco developed it.\n\n**RADIUS** suits **network access** for users. It is an open standard, runs over **UDP 1812** (authentication) and **UDP 1813** (accounting), encrypts **only the password**, and combines authentication and authorization in one exchange. It is the protocol behind 802.1X on wired ports, WPA2 and WPA3 Enterprise Wi-Fi and most VPN logins. Older servers use UDP 1645 and 1646.\n\nOn IOS, `aaa new-model` turns AAA on. From that moment logins follow AAA method lists instead of line passwords, and if no default list exists, vty logins check the local username database, so create a local user before you enter `aaa new-model` or you can lock yourself out of remote sessions. A **method list** names sources in order: `aaa authentication login default group tacacs+ local` means ask the TACACS+ servers first and, only if none of them answers, check the local usernames. The fallback happens only on an error such as a timeout; if a server answers with a reject, the login fails. That is why every AAA design keeps one strong local account for emergencies.\n\nAuthorization and accounting use the same style of list, as in the configuration under the table: `aaa authorization exec` lets the server set the user's privilege level, and `aaa accounting commands 15` reports every level 15 command the user runs.",
-        "code": "Feature            RADIUS                                TACACS+\nStandard           Open standard (IETF RFCs)             Developed by Cisco\nTransport, ports   UDP 1812 and 1813 (old: 1645, 1646)   TCP 49\nEncryption         Only the password in the request      The entire packet body\nAAA functions      Authentication and authorization      All three kept separate\n                   combined; accounting separate\nPer-command authz  No                                    Yes\nTypical use        Network access: 802.1X, Wi-Fi, VPN    Admin logins to network devices\n\nusername admin privilege 15 algorithm-type scrypt secret Adm1n!Str0ng\naaa new-model\ntacacs server TAC1\n address ipv4 10.10.99.20\n key T@cKey!2024\naaa authentication login default group tacacs+ local\naaa authorization exec default group tacacs+ local\naaa accounting commands 15 default start-stop group tacacs+",
-        "language": "plaintext",
-        "tip": "Memory hook: TACACS+ has a T for TCP and for total encryption; RADIUS is the UDP one that only hides the password.",
+        "key": "TACACS+ (TCP 49, full encryption, per-command authorization) suits admin logins; RADIUS (UDP 1812 and 1813, only the password encrypted) suits network access.",
+        "body": "Two protocols carry AAA between the device and the server:\n\n[[visual]]\n\nOn IOS, `aaa new-model` turns AAA on. Logins then follow **method lists**, and with no default list, vty logins check local usernames, so create a local user first or you can lock yourself out.\n\n`aaa authentication login default group tacacs+ local` asks the TACACS+ servers first, and checks local usernames only if no server answers. A **reject** from a server is final.\n\n[[code]]\n\n`aaa authorization exec` lets the server set the privilege level; `aaa accounting commands 15` reports every level 15 command.",
+        "visual": [
+          {
+            "type": "table",
+            "title": "RADIUS and TACACS+",
+            "columns": ["Feature", "RADIUS", "TACACS+"],
+            "rows": [
+              ["Standard", "Open (IETF RFCs)", "Developed by Cisco"],
+              ["Transport", "UDP 1812 and 1813 (old servers: 1645, 1646)", "TCP 49"],
+              ["Encryption", "Only the password", "The entire packet body"],
+              ["AAA functions", "Authentication and authorization combined; accounting separate", "All three separate"],
+              ["Per-command authorization", "No", "Yes"],
+              ["Typical use", "Network access: 802.1X, Wi-Fi, VPN", "Admin logins to network devices"]
+            ]
+          }
+        ],
+        "code": "username admin privilege 15 algorithm-type scrypt secret Adm1n!Str0ng\naaa new-model\ntacacs server TAC1\n address ipv4 10.10.99.20\n key T@cKey!2024\naaa authentication login default group tacacs+ local\naaa authorization exec default group tacacs+ local\naaa accounting commands 15 default start-stop group tacacs+",
+        "language": "cisco",
+        "tip": "Memory hook: TACACS+ has a T for TCP and for total encryption; RADIUS is the UDP one that hides only the password.",
         "pitfall": "Expecting the local fallback to kick in when the AAA server rejects a password. The next method in the list is tried only when the server does not answer; a reject from the server is final.",
         "check": {
           "question": "Which protocol uses TCP port 49, encrypts the entire packet body and can authorize each command separately?",
@@ -157,31 +369,82 @@
       }
     ],
     "keyTerms": [
-      { "term": "Privileged EXEC mode", "definition": "The R1# mode reached with the enable command (privilege level 15), where every command, including configuration, is available." },
-      { "term": "enable secret", "definition": "Global command that protects privileged mode with a one-way hash; it overrides enable password when both exist." },
-      { "term": "service password-encryption", "definition": "Global command that converts clear-text passwords to type 7, a weak reversible encryption." },
-      { "term": "Type 7 password", "definition": "A password hidden with Cisco's reversible algorithm; free tools decode it instantly." },
-      { "term": "Type 9 password", "definition": "A password stored as an scrypt hash, set with algorithm-type scrypt; the strongest option in IOS." },
-      { "term": "login local", "definition": "Line subcommand that authenticates users against the device's local username database instead of a line password." },
-      { "term": "Privilege level", "definition": "One of 16 levels (0 to 15) that decide which commands a session may run; 1 is user EXEC and 15 is privileged EXEC." },
-      { "term": "exec-timeout", "definition": "Line subcommand that disconnects a session after a period of inactivity; 0 0 disables the timeout." },
-      { "term": "MOTD banner", "definition": "Message of the day banner shown to users when they connect; used for legal warnings." },
-      { "term": "login block-for", "definition": "Global command that refuses all logins for a quiet period after too many failures within a time window." },
-      { "term": "Multifactor authentication (MFA)", "definition": "Authentication that requires factors from two or more categories: something you know, have or are." },
-      { "term": "Digital certificate", "definition": "A CA-signed, time-limited, revocable credential tied to a private key that proves identity." },
-      { "term": "AAA", "definition": "Authentication (who you are), authorization (what you may do) and accounting (what you did)." },
-      { "term": "NAD", "definition": "Network access device: the router, switch, WLC or firewall acting as the AAA client between the user and the AAA server." },
-      { "term": "RADIUS", "definition": "Open-standard AAA protocol on UDP 1812 and 1813 that encrypts only the password; used for network access such as 802.1X." },
-      { "term": "TACACS+", "definition": "Cisco-developed AAA protocol on TCP 49 that encrypts the whole body and separates all three AAA functions; used for device administration." },
-      { "term": "Method list", "definition": "An ordered list of AAA sources, such as group tacacs+ then local; the next source is tried only if the previous one does not answer." }
+      {
+        "term": "Privileged EXEC mode",
+        "definition": "The R1# mode reached with the enable command (privilege level 15), where every command, including configuration, is available."
+      },
+      {
+        "term": "enable secret",
+        "definition": "Global command that protects privileged mode with a one-way hash; it overrides enable password when both exist."
+      },
+      {
+        "term": "service password-encryption",
+        "definition": "Global command that converts clear-text passwords to type 7, a weak reversible encryption."
+      },
+      {
+        "term": "Type 7 password",
+        "definition": "A password hidden with Cisco's reversible algorithm; free tools decode it instantly."
+      },
+      {
+        "term": "Type 9 password",
+        "definition": "A password stored as an scrypt hash, set with algorithm-type scrypt; the strongest option in IOS."
+      },
+      {
+        "term": "login local",
+        "definition": "Line subcommand that authenticates users against the device's local username database instead of a line password."
+      },
+      {
+        "term": "Privilege level",
+        "definition": "One of 16 levels (0 to 15) that decide which commands a session may run; 1 is user EXEC and 15 is privileged EXEC."
+      },
+      {
+        "term": "exec-timeout",
+        "definition": "Line subcommand that disconnects a session after a period of inactivity; 0 0 disables the timeout."
+      },
+      {
+        "term": "MOTD banner",
+        "definition": "Message of the day banner shown to users when they connect; used for legal warnings."
+      },
+      {
+        "term": "login block-for",
+        "definition": "Global command that refuses all logins for a quiet period after too many failures within a time window."
+      },
+      {
+        "term": "Multifactor authentication (MFA)",
+        "definition": "Authentication that requires factors from two or more categories: something you know, have or are."
+      },
+      {
+        "term": "Digital certificate",
+        "definition": "A CA-signed, time-limited, revocable credential tied to a private key that proves identity."
+      },
+      {
+        "term": "AAA",
+        "definition": "Authentication (who you are), authorization (what you may do) and accounting (what you did)."
+      },
+      {
+        "term": "NAD",
+        "definition": "Network access device: the router, switch, WLC or firewall acting as the AAA client between the user and the AAA server."
+      },
+      {
+        "term": "RADIUS",
+        "definition": "Open-standard AAA protocol on UDP 1812 and 1813 that encrypts only the password; used for network access such as 802.1X."
+      },
+      {
+        "term": "TACACS+",
+        "definition": "Cisco-developed AAA protocol on TCP 49 that encrypts the whole body and separates all three AAA functions; used for device administration."
+      },
+      {
+        "term": "Method list",
+        "definition": "An ordered list of AAA sources, such as group tacacs+ then local; the next source is tried only if the previous one does not answer."
+      }
     ],
     "summary": [
-      "Line passwords need both password and login; vty lines refuse connections until a password or login local is set, and only enable secret works when both enable commands exist.",
-      "Type 0 is clear text and type 7 is reversible; types 5, 8 and 9 are hashes, with 8 and 9 the strong modern choices.",
-      "Local usernames with login local give per-person accountability and are required for SSH; privilege levels run from 0 to 15, with 1 for user EXEC and 15 for enable mode.",
-      "Harden logins with exec-timeout, SSH-only transport, an access-class ACL, legal banners, login block-for and login logging.",
-      "Strong policy favors length, unique accounts and MFA; certificates and biometrics are alternatives to passwords, each with its own weaknesses.",
-      "AAA centralizes who, what and what they did: TACACS+ (TCP 49, full encryption) for admins, RADIUS (UDP 1812/1813) for network access; a method list falls back only when a server does not answer."
+      "A line password needs both password and login; when both enable commands exist, only the secret works.",
+      "Type 0 is clear text and type 7 is reversible; 5, 8 and 9 are hashes, with 8 and 9 the strong choices.",
+      "login local checks per-person usernames and SSH needs it; level 1 is user EXEC and level 15 is enable mode.",
+      "Harden with exec-timeout, SSH only, an access-class ACL, legal banners and login block-for.",
+      "MFA mixes categories; certificates can be revoked; biometrics cannot be changed.",
+      "TACACS+ (TCP 49) for admins, RADIUS (UDP 1812, 1813) for network access; fallback only when no server answers."
     ],
     "feynmanPrompt": "Explain to a new network technician how a Cisco router decides which password to ask for when someone connects to the console, connects over SSH and types enable, why type 7 passwords are not really secret, and how privilege levels and a TACACS+ server let you give the help desk read-only access. Finish by explaining when you would pick RADIUS instead."
   },
@@ -203,7 +466,12 @@
       "difficulty": "medium",
       "question": "A technician plugs into the console of a switch with the configuration below. What happens?",
       "code": "SW1# show running-config | section line con 0\nline con 0\n password C0nsole!Pass\n logging synchronous",
-      "choices": ["The switch prompts for C0nsole!Pass before allowing access", "The technician reaches user EXEC mode without any password prompt", "The console is disabled until login is added", "The switch prompts for a username and password"],
+      "choices": [
+        "The switch prompts for C0nsole!Pass before allowing access",
+        "The technician reaches user EXEC mode without any password prompt",
+        "The console is disabled until login is added",
+        "The switch prompts for a username and password"
+      ],
       "answer": 1,
       "explanation": "Without the login subcommand, IOS never asks for the line password, so the console is open. Adding login makes IOS prompt for C0nsole!Pass.",
       "concept": "login command",
@@ -216,7 +484,12 @@
       "question": "An engineer telnets to a new router and sees the output below. What is the cause?",
       "code": "C:\\> telnet 10.1.1.1\nPassword required, but none set\n\nConnection to host lost.",
       "language": "plaintext",
-      "choices": ["The router has no enable secret configured", "transport input ssh is blocking Telnet", "The vty lines have login configured but no password", "An access-class on the vty lines denied the engineer's address"],
+      "choices": [
+        "The router has no enable secret configured",
+        "transport input ssh is blocking Telnet",
+        "The vty lines have login configured but no password",
+        "An access-class on the vty lines denied the engineer's address"
+      ],
       "answer": 2,
       "explanation": "vty lines default to login with no password, and IOS refuses the session with exactly this message. A missing enable secret only matters later, when the user types enable.",
       "concept": "vty defaults",
@@ -239,7 +512,12 @@
       "difficulty": "medium",
       "question": "A router has neither enable password nor enable secret configured. An administrator logs in over SSH and types enable. What happens?",
       "code": "R1> enable\n% No password set\nR1>",
-      "choices": ["The administrator enters privileged mode with no prompt", "IOS prompts for the vty password instead", "IOS asks the administrator to create an enable secret", "Access to privileged mode is refused"],
+      "choices": [
+        "The administrator enters privileged mode with no prompt",
+        "IOS prompts for the vty password instead",
+        "IOS asks the administrator to create an enable secret",
+        "Access to privileged mode is refused"
+      ],
       "answer": 3,
       "explanation": "With no enable password or secret, remote users cannot reach privileged mode at all and see \"% No password set\". Only console users are let in without a password in that case.",
       "concept": "enable defaults",
@@ -278,7 +556,12 @@
       "difficulty": "medium",
       "question": "A switch's configuration contains the lines below. An attacker obtains a copy of it. What can the attacker most easily learn?",
       "code": "service password-encryption\nenable secret 9 $9$nhEmQVczB7dqsO$X.HsgL6x1il0RxkOSSvyQYwucySCt7qFm4v7pqCxkKM\n!\nline vty 0 15\n password 7 070C285F4D06\n login",
-      "choices": ["The enable secret, because type 9 is reversible", "Nothing, because both passwords are hashed", "The vty password, because type 7 can be decoded instantly", "Both passwords, because service password-encryption covers the secret too"],
+      "choices": [
+        "The enable secret, because type 9 is reversible",
+        "Nothing, because both passwords are hashed",
+        "The vty password, because type 7 can be decoded instantly",
+        "Both passwords, because service password-encryption covers the secret too"
+      ],
       "answer": 2,
       "explanation": "The type 7 vty password decodes with free tools. The type 9 enable secret is an scrypt hash that would have to be cracked by guessing, which is slow.",
       "concept": "type 7 weakness",
@@ -289,7 +572,12 @@
       "type": "mcq",
       "difficulty": "hard",
       "question": "An engineer enables service password-encryption, then later enters no service password-encryption. What happens to the line passwords that were encrypted?",
-      "choices": ["They are decrypted back to clear text immediately", "They stay type 7 until each password is changed", "They are deleted from the configuration", "They are converted to type 5 hashes"],
+      "choices": [
+        "They are decrypted back to clear text immediately",
+        "They stay type 7 until each password is changed",
+        "They are deleted from the configuration",
+        "They are converted to type 5 hashes"
+      ],
       "answer": 1,
       "explanation": "Turning the service off only stops future encryption. Existing type 7 passwords remain encrypted until someone sets them again, at which point the new value is stored in clear text.",
       "concept": "service password-encryption",
@@ -311,7 +599,13 @@
       "type": "multi",
       "difficulty": "medium",
       "question": "Which three are changed by service password-encryption? (Choose three.)",
-      "choices": ["The console line password", "The enable password", "A username configured with the password keyword", "The enable secret", "A username configured with the secret keyword"],
+      "choices": [
+        "The console line password",
+        "The enable password",
+        "A username configured with the password keyword",
+        "The enable secret",
+        "A username configured with the secret keyword"
+      ],
       "answers": [0, 1, 2],
       "explanation": "service password-encryption only touches passwords that would otherwise be clear text. Secrets are already stored as hashes, so they are left alone.",
       "concept": "service password-encryption",
@@ -322,7 +616,12 @@
       "type": "mcq",
       "difficulty": "hard",
       "question": "Which command stores the enable password as a type 9 hash?",
-      "choices": ["enable algorithm-type sha256 secret Str0ng!Pass", "enable password 9 Str0ng!Pass", "enable algorithm-type scrypt secret Str0ng!Pass", "service password-encryption 9"],
+      "choices": [
+        "enable algorithm-type sha256 secret Str0ng!Pass",
+        "enable password 9 Str0ng!Pass",
+        "enable algorithm-type scrypt secret Str0ng!Pass",
+        "service password-encryption 9"
+      ],
       "answer": 2,
       "explanation": "algorithm-type scrypt produces type 9. algorithm-type sha256 produces type 8, and enable password never creates a hash.",
       "concept": "type 9 secret",
@@ -356,7 +655,12 @@
       "type": "mcq",
       "difficulty": "medium",
       "question": "Why is username admin secret X preferred over username admin password X?",
-      "choices": ["secret allows the user to skip the enable password", "secret stores a one-way hash instead of clear text or reversible type 7", "secret is the only form that works with the console line", "secret automatically gives the user privilege level 15"],
+      "choices": [
+        "secret allows the user to skip the enable password",
+        "secret stores a one-way hash instead of clear text or reversible type 7",
+        "secret is the only form that works with the console line",
+        "secret automatically gives the user privilege level 15"
+      ],
       "answer": 1,
       "explanation": "The secret keyword hashes the password (type 5, 8 or 9). The password keyword stores clear text, or type 7 with service password-encryption. Privilege level is a separate option.",
       "concept": "username secret",
@@ -367,12 +671,7 @@
       "type": "order",
       "difficulty": "easy",
       "question": "A user connects to a router's console that has all three banners configured. Put what the user sees in order.",
-      "items": [
-        "The MOTD banner",
-        "The login banner",
-        "The username and password prompts",
-        "The exec banner"
-      ],
+      "items": ["The MOTD banner", "The login banner", "The username and password prompts", "The exec banner"],
       "explanation": "MOTD comes first, then the login banner, then the credential prompts. The exec banner appears only after a successful login.",
       "concept": "banner order",
       "section": 5
@@ -394,7 +693,12 @@
       "type": "mcq",
       "difficulty": "easy",
       "question": "What does exec-timeout 0 0 do on a line?",
-      "choices": ["Disconnects the session immediately", "Disables the line", "Uses the timeout set on the vty lines instead", "Disables the inactivity timeout, so sessions never time out"],
+      "choices": [
+        "Disconnects the session immediately",
+        "Disables the line",
+        "Uses the timeout set on the vty lines instead",
+        "Disables the inactivity timeout, so sessions never time out"
+      ],
       "answer": 3,
       "explanation": "Zero minutes and zero seconds means no timeout at all. That is handy in a lab and risky in production.",
       "concept": "exec-timeout",
@@ -405,7 +709,12 @@
       "type": "mcq",
       "difficulty": "medium",
       "question": "Which MOTD banner text follows best practice?",
-      "choices": ["Welcome to the HQ core router! Please log in.", "Authorized access only. All activity is logged and monitored.", "Cisco 4331, IOS XE 17.3, Building 2 basement.", "Default login is admin, ask IT for the password."],
+      "choices": [
+        "Welcome to the HQ core router! Please log in.",
+        "Authorized access only. All activity is logged and monitored.",
+        "Cisco 4331, IOS XE 17.3, Building 2 basement.",
+        "Default login is admin, ask IT for the password."
+      ],
       "answer": 1,
       "explanation": "A banner should warn that access is restricted and monitored. \"Welcome\" sounds like an invitation, and model, software or location details help attackers.",
       "concept": "banner content",
@@ -417,7 +726,12 @@
       "difficulty": "medium",
       "question": "Security policy says credentials must never cross the network in clear text. Which line of this configuration breaks the policy?",
       "code": "enable algorithm-type scrypt secret En@ble!9\nusername admin algorithm-type scrypt secret Adm1n!9\n!\nline vty 0 15\n login local\n transport input telnet\n exec-timeout 10 0",
-      "choices": ["login local, because it sends the username unencrypted", "exec-timeout 10 0, because it reveals session length", "transport input telnet, because Telnet sends passwords in clear text", "algorithm-type scrypt, because scrypt is reversible"],
+      "choices": [
+        "login local, because it sends the username unencrypted",
+        "exec-timeout 10 0, because it reveals session length",
+        "transport input telnet, because Telnet sends passwords in clear text",
+        "algorithm-type scrypt, because scrypt is reversible"
+      ],
       "answer": 2,
       "explanation": "Telnet carries everything, including the typed password, unencrypted. transport input ssh is the fix. The scrypt secrets and login local are good choices.",
       "concept": "SSH only",
@@ -429,7 +743,12 @@
       "difficulty": "medium",
       "question": "What does the command below do?",
       "code": "login block-for 120 attempts 5 within 60",
-      "choices": ["After 5 failed logins within 60 seconds, the device refuses all logins for 120 seconds", "Users may log in at most 5 times per 120 seconds", "Sessions time out after 120 seconds of inactivity", "The account that failed 5 times is deleted after 60 seconds"],
+      "choices": [
+        "After 5 failed logins within 60 seconds, the device refuses all logins for 120 seconds",
+        "Users may log in at most 5 times per 120 seconds",
+        "Sessions time out after 120 seconds of inactivity",
+        "The account that failed 5 times is deleted after 60 seconds"
+      ],
       "answer": 0,
       "explanation": "login block-for enters a quiet period after too many failures in a window. It cripples online password guessing, though it cannot stop offline cracking of a stolen config.",
       "concept": "login block-for",
@@ -451,7 +770,13 @@
       "type": "multi",
       "difficulty": "medium",
       "question": "Which two are good password management practices for network devices? (Choose two.)",
-      "choices": ["Give every administrator a unique account instead of one shared admin password", "Change every default password before a device goes into production", "Use the same strong password on every device so it is easy to remember", "Keep a spreadsheet of device passwords on a shared drive", "Never change a password once it is strong enough"],
+      "choices": [
+        "Give every administrator a unique account instead of one shared admin password",
+        "Change every default password before a device goes into production",
+        "Use the same strong password on every device so it is easy to remember",
+        "Keep a spreadsheet of device passwords on a shared drive",
+        "Never change a password once it is strong enough"
+      ],
       "answers": [0, 1],
       "explanation": "Unique accounts give accountability and contain damage, and defaults are the first thing attackers try. Reusing one password, storing passwords in a shared file, or never rotating them all widen the blast radius of one leak.",
       "concept": "password management",
@@ -473,7 +798,12 @@
       "type": "mcq",
       "difficulty": "medium",
       "question": "An employee leaves the company, and the CA revokes the certificate on her laptop. What happens if she tries to authenticate with it the next day?",
-      "choices": ["Authentication succeeds until the certificate's expiry date", "Authentication succeeds because she still has the private key", "Authentication is rejected because the certificate is revoked", "The certificate is automatically renewed for 30 days"],
+      "choices": [
+        "Authentication succeeds until the certificate's expiry date",
+        "Authentication succeeds because she still has the private key",
+        "Authentication is rejected because the certificate is revoked",
+        "The certificate is automatically renewed for 30 days"
+      ],
       "answer": 2,
       "explanation": "Revocation ends a certificate's validity before its expiry date. Services that trust the CA check revocation and refuse the certificate even though she still holds the file and key.",
       "concept": "certificate revocation",
@@ -524,7 +854,14 @@
       "type": "multi",
       "difficulty": "hard",
       "question": "Which three statements describe TACACS+? (Choose three.)",
-      "choices": ["It uses TCP port 49", "It encrypts the entire body of each packet", "It separates authentication, authorization and accounting, allowing per-command authorization", "It uses UDP ports 1812 and 1813", "It combines authentication and authorization in one response", "It is the protocol 802.1X uses to reach the authentication server"],
+      "choices": [
+        "It uses TCP port 49",
+        "It encrypts the entire body of each packet",
+        "It separates authentication, authorization and accounting, allowing per-command authorization",
+        "It uses UDP ports 1812 and 1813",
+        "It combines authentication and authorization in one response",
+        "It is the protocol 802.1X uses to reach the authentication server"
+      ],
       "answers": [0, 1, 2],
       "explanation": "TACACS+ runs over TCP 49, encrypts the full body and keeps the AAA functions separate. UDP 1812/1813, combined authentication and authorization, and 802.1X all describe RADIUS.",
       "concept": "TACACS+ vs RADIUS",
@@ -536,7 +873,12 @@
       "difficulty": "hard",
       "question": "R1 has the configuration below. The TACACS+ server at 10.10.99.20 is powered off. What happens when admin tries to log in over SSH with a valid local username and secret?",
       "code": "aaa new-model\n!\ntacacs server TAC1\n address ipv4 10.10.99.20\n key T@cKey!2024\n!\naaa authentication login default group tacacs+ local\n!\nusername admin privilege 15 algorithm-type scrypt secret Adm1n!9",
-      "choices": ["The login fails, because TACACS+ is listed first", "R1 tries the TACACS+ server, gets no answer, then authenticates admin against the local database", "R1 skips authentication entirely until the server returns", "R1 uses the enable secret instead of the username"],
+      "choices": [
+        "The login fails, because TACACS+ is listed first",
+        "R1 tries the TACACS+ server, gets no answer, then authenticates admin against the local database",
+        "R1 skips authentication entirely until the server returns",
+        "R1 uses the enable secret instead of the username"
+      ],
       "answer": 1,
       "explanation": "The method list tries group tacacs+ first; when no server responds, IOS moves to the next method, local. If the server had answered with a reject, the login would fail without trying local.",
       "concept": "AAA method list",
@@ -592,7 +934,12 @@
       "question": "R1 has the configuration below. User noc logs in over SSH. Which statement is true?",
       "code": "privilege exec level 5 clear counters\nusername noc privilege 5 algorithm-type scrypt secret N0c!View\n!\nline vty 0 15\n login local\n transport input ssh",
       "language": "cisco",
-      "choices": ["noc starts at level 1 and must type enable 5 first", "noc starts at level 5 and can run clear counters plus all level 0 and 1 commands, but cannot enter configuration mode", "noc has full access because the prompt shows #", "noc can run clear counters and nothing else"],
+      "choices": [
+        "noc starts at level 1 and must type enable 5 first",
+        "noc starts at level 5 and can run clear counters plus all level 0 and 1 commands, but cannot enter configuration mode",
+        "noc has full access because the prompt shows #",
+        "noc can run clear counters and nothing else"
+      ],
       "answer": 1,
       "explanation": "The username's privilege 5 places noc at level 5 after login local. A session can use commands at its level and below, so clear counters (moved to level 5) and the normal level 1 commands work, while configure terminal stays at level 15.",
       "concept": "custom privilege level",
@@ -614,12 +961,7 @@
       "type": "order",
       "difficulty": "hard",
       "question": "An administrator connects with SSH version 2 to a router that has banner login, banner motd and banner exec configured. Put what she sees in order.",
-      "items": [
-        "The login banner",
-        "Username and password authentication",
-        "The MOTD banner",
-        "The exec banner"
-      ],
+      "items": ["The login banner", "Username and password authentication", "The MOTD banner", "The exec banner"],
       "explanation": "Over SSH the login banner is shown before authentication, and the MOTD banner only after a successful login, followed by the exec banner. On the console and Telnet, MOTD comes first.",
       "concept": "banner order over SSH",
       "section": 5
@@ -631,7 +973,13 @@
       "question": "Policy requires per-user accountability and encrypted remote sessions. Based on the output, which two changes are needed on these lines? (Choose two.)",
       "code": "R1# show running-config | section line vty\nline vty 0 4\n password 7 0822455D0A16\n login\n transport input all",
       "language": "cisco",
-      "choices": ["Replace login with login local and create local usernames", "Change transport input all to transport input ssh", "Add service password-encryption", "Add exec-timeout 0 0", "Add a banner motd"],
+      "choices": [
+        "Replace login with login local and create local usernames",
+        "Change transport input all to transport input ssh",
+        "Add service password-encryption",
+        "Add exec-timeout 0 0",
+        "Add a banner motd"
+      ],
       "answers": [0, 1],
       "explanation": "login checks one shared line password, so nobody can tell who logged in; login local with personal usernames fixes that. transport input all allows Telnet, which sends credentials in clear text. The password is already type 7, and the other options do not meet either requirement.",
       "concept": "vty hardening",
@@ -642,7 +990,12 @@
       "type": "mcq",
       "difficulty": "hard",
       "question": "Repeated guessing triggers login block-for and R1 enters its quiet period. How can administrators on 10.10.99.0/24 still log in during that time?",
-      "choices": ["Configure login quiet-mode access-class with an ACL that permits 10.10.99.0/24", "Configure exec-timeout 0 0 on the vty lines", "Replace enable secret with enable password", "Nothing; quiet mode blocks every source"],
+      "choices": [
+        "Configure login quiet-mode access-class with an ACL that permits 10.10.99.0/24",
+        "Configure exec-timeout 0 0 on the vty lines",
+        "Replace enable secret with enable password",
+        "Nothing; quiet mode blocks every source"
+      ],
       "answer": 0,
       "explanation": "login quiet-mode access-class names the hosts that remain allowed while the router refuses everyone else, so an attacker cannot lock the administrators out. Timeouts and enable passwords have nothing to do with quiet mode.",
       "concept": "login quiet-mode",
@@ -664,7 +1017,12 @@
       "type": "mcq",
       "difficulty": "medium",
       "question": "Which weakness is specific to biometric credentials such as fingerprints?",
-      "choices": ["They are as easy to share with coworkers as passwords", "They cannot be changed if the biometric data is stolen, and some readers can be fooled by photos or molds", "They expire on a fixed date like certificates", "They only work with RADIUS servers"],
+      "choices": [
+        "They are as easy to share with coworkers as passwords",
+        "They cannot be changed if the biometric data is stolen, and some readers can be fooled by photos or molds",
+        "They expire on a fixed date like certificates",
+        "They only work with RADIUS servers"
+      ],
       "answer": 1,
       "explanation": "You can change a password or revoke a certificate, but not your fingerprint. Spoofing with photos or molds and changes from injury or aging are why biometrics are usually one factor among several.",
       "concept": "biometric weaknesses",
@@ -702,7 +1060,12 @@
       "question": "R1 has the configuration below and the TACACS+ server at 10.10.99.20 is up. Admin logs in over SSH using the local account's password, which differs from admin's password on the TACACS+ server. What happens?",
       "code": "aaa new-model\n!\ntacacs server TAC1\n address ipv4 10.10.99.20\n key T@cKey!2024\n!\naaa authentication login default group tacacs+ local\n!\nusername admin privilege 15 algorithm-type scrypt secret Adm1n!9",
       "language": "cisco",
-      "choices": ["R1 tries TACACS+, then local, and admin logs in", "The server rejects the password and the login fails; the local database is not tried", "R1 uses the local account first because local is the most secure method", "The login succeeds at privilege level 1"],
+      "choices": [
+        "R1 tries TACACS+, then local, and admin logs in",
+        "The server rejects the password and the login fails; the local database is not tried",
+        "R1 uses the local account first because local is the most secure method",
+        "The login succeeds at privilege level 1"
+      ],
       "answer": 1,
       "explanation": "IOS moves to the next method only when a method fails to answer. The server answered with a reject, so the login fails even though the local password would have matched.",
       "concept": "method list fallback",
@@ -721,11 +1084,41 @@
     }
   ],
   "resources": [
-    { "title": "Cisco: Harden IOS devices", "url": "https://www.cisco.com/c/en/us/support/docs/ip/access-lists/13608-21.html", "kind": "docs", "note": "Cisco's own checklist for passwords, login protection, AAA and management access." },
-    { "title": "Cisco: Compare TACACS+ and RADIUS", "url": "https://www.cisco.com/c/en/us/support/docs/security-vpn/remote-authentication-dial-user-service-radius/13838-10.html", "kind": "docs", "note": "The classic side-by-side of transport, encryption and AAA separation." },
-    { "title": "NIST SP 800-63B: authentication guidelines", "url": "https://pages.nist.gov/800-63-4/sp800-63b.html", "kind": "docs", "note": "Current US guidance on password length, rotation and MFA authenticators." },
-    { "title": "Cisco: What is multi-factor authentication?", "url": "https://www.cisco.com/c/en/us/products/security/what-is-multi-factor-authentication.html", "kind": "article", "note": "Factor categories and how MFA stops stolen-password logins." },
-    { "title": "Jeremy's IT Lab: free CCNA 200-301 course", "url": "https://www.youtube.com/playlist?list=PLxbwE86jKRgMpuZuLBivzlM8s2Dk5lXBQ", "kind": "video", "note": "Free full video course with labs; watch the matching security days after this lesson." },
-    { "title": "Odom, CCNA 200-301 Official Cert Guide, Volume 2", "url": "https://www.ciscopress.com/store/ccna-200-301-official-cert-guide-volume-2-9780135262719", "kind": "book", "note": "The Cisco Press guide this lesson follows; Part II covers Domain 5 security." }
+    {
+      "title": "Cisco: Harden IOS devices",
+      "url": "https://www.cisco.com/c/en/us/support/docs/ip/access-lists/13608-21.html",
+      "kind": "docs",
+      "note": "Cisco's own checklist for passwords, login protection, AAA and management access."
+    },
+    {
+      "title": "Cisco: Compare TACACS+ and RADIUS",
+      "url": "https://www.cisco.com/c/en/us/support/docs/security-vpn/remote-authentication-dial-user-service-radius/13838-10.html",
+      "kind": "docs",
+      "note": "The classic side-by-side of transport, encryption and AAA separation."
+    },
+    {
+      "title": "NIST SP 800-63B: authentication guidelines",
+      "url": "https://pages.nist.gov/800-63-4/sp800-63b.html",
+      "kind": "docs",
+      "note": "Current US guidance on password length, rotation and MFA authenticators."
+    },
+    {
+      "title": "Cisco: What is multi-factor authentication?",
+      "url": "https://www.cisco.com/c/en/us/products/security/what-is-multi-factor-authentication.html",
+      "kind": "article",
+      "note": "Factor categories and how MFA stops stolen-password logins."
+    },
+    {
+      "title": "Jeremy's IT Lab: free CCNA 200-301 course",
+      "url": "https://www.youtube.com/playlist?list=PLxbwE86jKRgMpuZuLBivzlM8s2Dk5lXBQ",
+      "kind": "video",
+      "note": "Free full video course with labs; watch the matching security days after this lesson."
+    },
+    {
+      "title": "Odom, CCNA 200-301 Official Cert Guide, Volume 2",
+      "url": "https://www.ciscopress.com/store/ccna-200-301-official-cert-guide-volume-2-9780135262719",
+      "kind": "book",
+      "note": "The Cisco Press guide this lesson follows; Part II covers Domain 5 security."
+    }
   ]
 }

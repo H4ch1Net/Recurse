@@ -8,17 +8,8 @@
   "description": "Configure 802.1Q trunks, set native VLANs and allowed lists, predict DTP results and troubleshoot trunks from both ends.",
   "icon": "TR",
   "language": "cisco",
-  "prereqs": [
-    "ccna-vlans"
-  ],
-  "tags": [
-    "ccna",
-    "2.2",
-    "trunking",
-    "802.1q",
-    "vlans",
-    "dtp"
-  ],
+  "prereqs": ["ccna-vlans"],
+  "tags": ["ccna", "2.2", "trunking", "802.1q", "vlans", "dtp"],
   "resources": [
     {
       "title": "Free CCNA course (Jeremy's IT Lab)",
@@ -58,39 +49,89 @@
     }
   ],
   "lesson": {
-    "estimatedMinutes": 36,
-    "intro": "A trunk lets one link carry many VLANs by tagging each frame with its VLAN ID. Trunks connect switches to each other, to routers doing router on a stick, and to WLCs and virtualization hosts. Most real VLAN outages are trunk problems: a mode mismatch, a VLAN missing from the allowed list, or a native VLAN that differs on each end. This lesson teaches you to configure trunks on purpose and read show interfaces trunk like a pro.",
+    "estimatedMinutes": 28,
+    "intro": "A trunk carries many VLANs over one link by tagging each frame with its VLAN ID. Most real VLAN outages are trunk problems: a mode mismatch, a VLAN missing from the allowed list, or a native VLAN that differs on each end.",
     "objectives": [
-      "Describe what an 802.1Q tag adds to a frame and how native VLAN frames are handled",
-      "Configure a static trunk with a chosen native VLAN and allowed VLAN list, including trunks to routers and servers",
-      "Predict whether two ports form a trunk from their switchport mode settings (DTP) and read show interfaces switchport",
-      "Interpret the three VLAN lists in show interfaces trunk and troubleshoot a trunk by comparing both ends",
-      "Describe VTP's purpose, modes and main risk at a high level"
+      "Describe the 802.1Q tag and how native VLAN frames are handled",
+      "Configure a static trunk with a native VLAN and allowed list",
+      "Predict whether two ports form a trunk from their DTP modes",
+      "Read the three VLAN lists in show interfaces trunk and fix a trunk by comparing both ends",
+      "Describe VTP's purpose, modes and main risk"
     ],
     "sections": [
       {
         "title": "Tagging: how one link carries many VLANs",
-        "body": "SW1 and SW2 both have VLAN 10 and VLAN 20 users. You could run one cable per VLAN between them, but with 20 VLANs that wastes 20 ports on each switch. Instead you run one link and make it a **trunk**. When SW1 sends a VLAN 10 frame over the trunk, it adds a small label that says 'VLAN 10'. SW2 reads the label, removes it, and forwards the frame only out its VLAN 10 ports. The end hosts never see the label.\n\nThe label is the **IEEE 802.1Q** tag: 4 bytes inserted into the Ethernet header right after the source MAC address.\n\n- **TPID** (16 bits): the value 0x8100, which tells the receiver that a tag follows.\n- **PCP** (3 bits): priority, also called CoS, used by QoS (voice frames get a high value).\n- **DEI** (1 bit): drop eligible indicator (formerly CFI).\n- **VLAN ID** (12 bits): 0 to 4095, with 1 to 4094 usable.\n\nBecause the frame changed, the switch recalculates the FCS, and the frame is 4 bytes longer than before. Cisco's older **ISL** (Inter-Switch Link) protocol wrapped the whole frame in a new 26-byte header and 4-byte trailer instead, and had no native VLAN; it is Cisco proprietary, legacy, and most current switches support only 802.1Q.\n\nTrunks are not only for switch-to-switch links. Anything that must send or receive several VLANs on one cable uses an 802.1Q trunk: a router doing router on a stick, a virtualization host whose VMs sit in different VLANs, an autonomous AP that maps SSIDs to VLANs, and a wireless LAN controller's distribution ports.\n\nThe split to remember: access ports carry one VLAN untagged; trunk ports carry many VLANs tagged, with one exception, the native VLAN, coming up shortly.",
-        "code": "Original frame:\n| Dest MAC | Src MAC | Type | Data ...            | FCS  |\n\n802.1Q tagged frame (tag inserted, FCS recalculated):\n| Dest MAC | Src MAC | 802.1Q tag | Type | Data ... | FCS' |\n                     |\n                     +-- TPID 0x8100   16 bits\n                         PCP (CoS)      3 bits\n                         DEI            1 bit\n                         VLAN ID       12 bits",
-        "language": "plaintext",
-        "pitfall": "Thinking the PC adds the tag. Hosts on access ports send untagged frames; the switch adds the tag as the frame leaves a trunk and the next switch removes it. (An IP phone in a voice VLAN is the common exception.)",
+        "key": "An 802.1Q trunk inserts a 4-byte tag after the source MAC address, with a 12-bit VLAN ID, so one link can carry many VLANs.",
+        "body": "SW1 and SW2 both have VLAN 10 and VLAN 20 users. One cable per VLAN would burn 20 ports on each switch for 20 VLANs, so you run one link as a **trunk**.\n\n[[visual]]\n\nThe label is the **IEEE 802.1Q** tag: 4 bytes inserted right after the source MAC. The frame grows by 4 bytes, so the switch recalculates the FCS.\n\n[[visual 2]]\n\n[[visual 3]]\n\nCisco's legacy **ISL** wrapped the whole frame in a 26-byte header and 4-byte trailer and had no native VLAN; most current switches support only 802.1Q. Trunks also connect routers doing router on a stick, virtualization hosts, autonomous APs and WLCs.",
+        "visual": [
+          {
+            "type": "sequence",
+            "title": "A VLAN 10 frame crosses the trunk",
+            "actors": [
+              { "id": "a", "label": "PC A", "kind": "pc" },
+              { "id": "sw1", "label": "SW1", "kind": "switch" },
+              { "id": "sw2", "label": "SW2", "kind": "switch" },
+              { "id": "b", "label": "PC B", "kind": "pc" }
+            ],
+            "messages": [
+              { "from": "a", "to": "sw1", "label": "Untagged frame", "detail": "into a VLAN 10 access port" },
+              { "from": "sw1", "to": "sw1", "label": "Insert tag: VLAN 10" },
+              {
+                "from": "sw1",
+                "to": "sw2",
+                "label": "Tagged frame",
+                "detail": "VLAN ID 10, over the trunk",
+                "tone": "accent"
+              },
+              { "from": "sw2", "to": "sw2", "label": "Read VLAN 10, remove tag" },
+              { "from": "sw2", "to": "b", "label": "Untagged frame", "detail": "out a VLAN 10 access port" }
+            ]
+          },
+          {
+            "type": "fields",
+            "title": "Tagged Ethernet frame (bytes)",
+            "unit": "bytes",
+            "rows": [
+              [
+                { "label": "Destination MAC", "size": 6 },
+                { "label": "Source MAC", "size": 6 },
+                { "label": "802.1Q tag", "size": 4, "tone": "accent" },
+                { "label": "Type", "size": 2 },
+                { "label": "Data", "size": "46-1500", "weight": 3 },
+                { "label": "FCS", "size": 4, "note": "recalculated" }
+              ]
+            ]
+          },
+          {
+            "type": "fields",
+            "title": "Inside the 802.1Q tag (bits)",
+            "unit": "bits",
+            "width": 32,
+            "rows": [
+              [
+                { "label": "TPID", "size": 16, "note": "0x8100: a tag follows" },
+                { "label": "PCP", "size": 3, "note": "priority (CoS) for QoS" },
+                { "label": "DEI", "size": 1, "note": "drop eligible" },
+                { "label": "VLAN ID", "size": 12, "tone": "accent", "note": "1 to 4094 usable" }
+              ]
+            ]
+          }
+        ],
+        "pitfall": "Thinking the PC adds the tag. Hosts on access ports send untagged frames; the switch tags frames leaving a trunk and the next switch removes the tag. An IP phone in a voice VLAN is the exception.",
         "check": {
           "question": "How large is the 802.1Q tag, and how many bits identify the VLAN?",
-          "choices": [
-            "2 bytes, with a 10-bit VLAN ID",
-            "4 bytes, with a 12-bit VLAN ID",
-            "26 bytes, with a 15-bit VLAN ID",
-            "4 bytes, with a 16-bit VLAN ID"
-          ],
+          "choices": ["2 bytes, with a 10-bit VLAN ID", "4 bytes, with a 12-bit VLAN ID", "26 bytes, with a 15-bit VLAN ID", "4 bytes, with a 16-bit VLAN ID"],
           "answer": 1,
           "explanation": "802.1Q inserts a 4-byte tag whose last 12 bits are the VLAN ID, which is why VLAN IDs stop at 4094 (0 and 4095 are reserved). The 26-byte header belongs to the legacy ISL protocol."
         }
       },
       {
         "title": "Configuring a static trunk",
-        "body": "The safest trunk is one you configure on purpose at both ends. The core command is `switchport mode trunk`, which makes the port trunk unconditionally.\n\nOn switches that support both ISL and 802.1Q (for example a Catalyst 3560), the encapsulation defaults to negotiate, so you must first pick 802.1Q with `switchport trunk encapsulation dot1q`. Skip it and IOS rejects switchport mode trunk, as the example shows. Switches that support only 802.1Q, such as the 2960, do not have or need that command.\n\nThen verify. `show interfaces trunk` lists only ports that are operationally trunking right now, so empty output means no trunk formed, whatever the configuration says. Its Mode column tells you how the trunk came up: **on** means switchport mode trunk was configured, while **desirable** or **auto** means DTP negotiated it. For a single port, `show interfaces g0/24 switchport` compares the **Administrative Mode** (what you configured) with the **Operational Mode** (what the port is actually doing). The most useful habit in Layer 2 troubleshooting is checking the operational state, not the config.\n\nDevices that are not Cisco switches (routers, servers, hypervisors, WLCs) do not speak DTP, the negotiation protocol covered later. Give their switch ports `switchport mode trunk` and, optionally, `switchport nonegotiate`, so the switch trunks unconditionally and does not send DTP frames they would ignore.",
-        "code": "SW1(config)# interface gigabitethernet0/24\nSW1(config-if)# switchport mode trunk\nCommand rejected: An interface whose trunk encapsulation is \"Auto\" can not be configured to \"trunk\" mode.\nSW1(config-if)# switchport trunk encapsulation dot1q\nSW1(config-if)# switchport mode trunk\nSW1(config-if)# end\n\nSW1# show interfaces trunk\n\nPort        Mode             Encapsulation  Status        Native vlan\nGi0/24      on               802.1q         trunking      1\n\nPort        Vlans allowed on trunk\nGi0/24      1-4094\n\nPort        Vlans allowed and active in management domain\nGi0/24      1,10,20\n\nPort        Vlans in spanning tree forwarding state and not pruned\nGi0/24      1,10,20",
-        "pitfall": "Reading the running config instead of the operational state. A port can be configured for trunking and still not trunk; confirm with show interfaces trunk or the Operational Mode line.",
+        "key": "switchport mode trunk makes a port trunk unconditionally; on switches that also support ISL, first choose switchport trunk encapsulation dot1q.",
+        "body": "The safest trunk is one you configure on purpose at both ends with `switchport mode trunk`.\n\nOn switches that support both ISL and 802.1Q, such as a Catalyst 3560, the encapsulation defaults to negotiate, and IOS rejects `switchport mode trunk` until you enter `switchport trunk encapsulation dot1q`. 802.1Q-only switches such as the 2960 do not have that command.\n\n[[code]]\n\nThen check the operational state, not the config. `show interfaces trunk` lists only ports trunking right now, so empty output means no trunk formed. Its **Mode** column says how it came up: **on** means `switchport mode trunk`; **desirable** or **auto** means DTP negotiated it.\n\nRouters, servers, hypervisors and WLCs do not speak DTP. Give their switch ports `switchport mode trunk`, optionally with `switchport nonegotiate` so no DTP frames are sent.",
+        "code": "SW1(config)# interface gigabitethernet0/24\nSW1(config-if)# switchport mode trunk\nCommand rejected: An interface whose trunk encapsulation is \"Auto\" can not be configured to \"trunk\" mode.\nSW1(config-if)# switchport trunk encapsulation dot1q\nSW1(config-if)# switchport mode trunk\nSW1(config-if)# end\nSW1# show interfaces trunk\n\nPort        Mode             Encapsulation  Status        Native vlan\nGi0/24      on               802.1q         trunking      1\n\nPort        Vlans allowed on trunk\nGi0/24      1-4094\n\nPort        Vlans allowed and active in management domain\nGi0/24      1,10,20\n! last list omitted",
+        "language": "cisco",
+        "pitfall": "Reading the running config instead of the operational state. A port can be configured to trunk and still not trunk; confirm with show interfaces trunk or the Operational Mode line.",
         "check": {
           "question": "show interfaces trunk returns no output at all on a switch. What does that tell you?",
           "choices": [
@@ -105,8 +146,44 @@
       },
       {
         "title": "The native VLAN",
-        "body": "802.1Q has one exception to 'tag everything'. On each trunk, one VLAN is the **native VLAN**: its frames are sent **untagged**, and any untagged frame that arrives on the trunk is assigned to the native VLAN. By default the native VLAN is VLAN 1.\n\nBoth ends must agree. If SW1's native VLAN is 1 and SW2's is 99, an untagged frame that SW1 sends in VLAN 1 arrives at SW2 and is placed in VLAN 99. Traffic leaks from one VLAN into another, which the official guide calls VLAN hopping. Cisco switches notice in two ways. CDP logs a native VLAN mismatch message every minute. And because PVST+ and Rapid PVST+ BPDUs carry the sender's VLAN, spanning tree spots BPDUs arriving in the wrong VLAN and blocks the port in the affected VLANs (port VLAN ID inconsistent) to avoid a loop. Users see odd, partial connectivity across that link.\n\nThe native VLAN also enables a **double-tagging** attack. An attacker on an access port whose VLAN equals the trunk's native VLAN sends a frame with two tags. The first switch strips the outer tag (it matches the native VLAN, which travels untagged) and forwards the frame over the trunk with the inner tag still on it, so the next switch delivers it into the victim VLAN. The attack works only one way, but it works. Defenses:\n\n- Make the native VLAN an unused VLAN that no access port uses, and set it the same on both ends.\n- Never put users in VLAN 1 (the default native VLAN).\n- Optionally tag native VLAN frames as well, with the global command `vlan dot1q tag native`.\n- Hard-code user ports with `switchport mode access`.\n\nIn practice: create an unused VLAN, for example 999, on every switch, allow it on every trunk, put no access ports in it, and set it as the native VLAN on both ends of each trunk. Keep management traffic in its own tagged VLAN, so no untagged frame on a trunk ever carries anything that matters.",
+        "key": "The native VLAN crosses a trunk untagged, and any untagged frame arriving on a trunk joins it, so both ends must use the same native VLAN.",
+        "body": "802.1Q has one exception to tagging. Each trunk's **native VLAN** (VLAN 1 by default) is sent **untagged**, and untagged frames that arrive are placed in it.\n\nIf SW1's native VLAN is 1 and SW2's is 99, SW1's untagged VLAN 1 frames land in VLAN 99 on SW2: traffic leaks between VLANs. Cisco switches notice:\n\n[[visual]]\n\nThe native VLAN also enables a **double-tagging** attack, which works one way only:\n\n[[visual 2]]\n\nDefenses:\n\n- Make the native VLAN an unused VLAN, the same on both ends.\n- Never put users in VLAN 1.\n- Optionally tag native frames too: `vlan dot1q tag native` (global).\n- Hard-code user ports with `switchport mode access`.\n\n[[code]]",
+        "visual": [
+          {
+            "type": "table",
+            "title": "How a native VLAN mismatch shows up",
+            "columns": ["Detector", "Reaction"],
+            "rows": [
+              ["CDP", "Logs `%CDP-4-NATIVE_VLAN_MISMATCH` every minute"],
+              ["PVST+ and Rapid PVST+", "BPDUs carry their VLAN, so the port is blocked in the affected VLANs as inconsistent until the mismatch is fixed"]
+            ]
+          },
+          {
+            "type": "sequence",
+            "title": "Double tagging",
+            "actors": [
+              { "id": "att", "label": "Attacker, VLAN 1", "kind": "laptop" },
+              { "id": "sw1", "label": "SW1", "kind": "switch" },
+              { "id": "sw2", "label": "SW2", "kind": "switch" },
+              { "id": "vic", "label": "Victim, VLAN 20", "kind": "server" }
+            ],
+            "messages": [
+              {
+                "from": "att",
+                "to": "sw1",
+                "label": "Frame with two tags",
+                "detail": "outer 1 (native), inner 20",
+                "tone": "warn"
+              },
+              { "from": "sw1", "to": "sw1", "label": "Strip outer tag", "detail": "native VLAN goes untagged" },
+              { "from": "sw1", "to": "sw2", "label": "Frame still tagged 20", "detail": "over the trunk" },
+              { "from": "sw2", "to": "vic", "label": "Delivered into VLAN 20", "tone": "bad" }
+            ]
+          }
+        ],
         "code": "SW1(config)# vlan 99\nSW1(config-vlan)# name NATIVE-UNUSED\nSW1(config-vlan)# interface gigabitethernet0/24\nSW1(config-if)# switchport trunk native vlan 99\n! Set the same native VLAN on SW2's end of the link.\n\n! If SW2 still uses VLAN 1, CDP reports the mismatch:\n%CDP-4-NATIVE_VLAN_MISMATCH: Native VLAN mismatch discovered on GigabitEthernet0/24 (99), with SW2 GigabitEthernet0/24 (1).",
+        "language": "cisco",
+        "deeper": "In practice: create an unused VLAN such as 999 on every switch, allow it on every trunk, put no access ports in it, and make it the native VLAN on both ends of each trunk. Keep management traffic in its own tagged VLAN, so no untagged frame on a trunk ever carries anything that matters.",
         "pitfall": "Changing the native VLAN on one end only. Change both ends in the same maintenance window, then check the Native vlan column of show interfaces trunk on both switches.",
         "check": {
           "question": "SW1 uses native VLAN 1 on a trunk and SW2 uses native VLAN 99 on the other end. SW1 sends a VLAN 1 frame across the link. Where does SW2 put it?",
@@ -122,69 +199,143 @@
       },
       {
         "title": "Allowed VLAN lists",
-        "body": "By default a trunk carries every VLAN, 1 to 4094. Good practice is to carry only the VLANs a link needs. That limits how far broadcasts and unknown unicasts flood, and it shrinks the reach of a problem in any one VLAN. The interface command `switchport trunk allowed vlan` sets the list, and it has several forms:\n\n- `switchport trunk allowed vlan 10,20,99` **replaces** the list with exactly these VLANs.\n- `switchport trunk allowed vlan add 30` adds VLAN 30 to the current list.\n- `switchport trunk allowed vlan remove 20` removes one VLAN.\n- `switchport trunk allowed vlan except 30` allows everything except 30.\n- `switchport trunk allowed vlan all` and `switchport trunk allowed vlan none` do what they say.\n\nThe classic outage: a trunk carries VLANs 10 and 20, and someone types `switchport trunk allowed vlan 30` to add a new VLAN. That replaces the list, VLANs 10 and 20 vanish from the trunk, and two departments go dark. Use the add keyword.\n\nThe lists on the two ends should match. If SW1 allows 10,20 and SW2 allows only 10, VLAN 20 frames from SW1 are dropped when they reach SW2. And if you change the native VLAN, remember to allow it: a native VLAN missing from the allowed list is not carried either.\n\nTrimming the list also trims spanning tree work. Rapid PVST+ runs one tree per VLAN, so every VLAN allowed on a trunk means another set of BPDUs and another instance to calculate on that link. VTP pruning, mentioned at the end of this lesson, can automate some of this trimming, but a manual allowed list is explicit and easy to read.\n\nOne subtlety: removing VLAN 1 from the allowed list stops user traffic in VLAN 1, but the switch still sends and receives control protocols such as CDP, DTP, VTP, PAgP and LACP in VLAN 1 on that trunk.",
+        "key": "switchport trunk allowed vlan followed by a plain list replaces the whole list; use add, remove or except to change it safely.",
+        "body": "A trunk carries VLANs 1 to 4094 by default. Carrying only what a link needs limits flooding, shrinks the reach of a problem and saves spanning tree work (Rapid PVST+ runs one instance per VLAN).\n\n[[visual]]\n\nThe classic outage: a trunk carries VLANs 10 and 20, and someone types `switchport trunk allowed vlan 30`. The list is replaced, VLANs 10 and 20 vanish, and two departments go dark.\n\nThe lists should match on both ends: if SW2 does not allow VLAN 20, VLAN 20 frames from SW1 are dropped there. Allow the native VLAN too, or it is not carried either.\n\n[[code]]\n\nRemoving VLAN 1 stops user traffic in it, but control protocols (CDP, DTP, VTP, PAgP, LACP) still use VLAN 1 on the trunk.",
+        "visual": {
+          "type": "table",
+          "title": "Forms of switchport trunk allowed vlan",
+          "columns": ["After `switchport trunk allowed vlan`", "Result"],
+          "rows": [
+            ["`10,20,99`", "**Replaces** the list with exactly these VLANs"],
+            ["`add 30`", "Adds VLAN 30 to the current list"],
+            ["`remove 20`", "Removes VLAN 20"],
+            ["`except 30`", "Allows every VLAN except 30"],
+            ["`all` or `none`", "Everything, or nothing"]
+          ],
+          "highlight": [0]
+        },
         "code": "SW1(config)# interface gigabitethernet0/24\nSW1(config-if)# switchport trunk allowed vlan 10,20,99\nSW1(config-if)# switchport trunk allowed vlan add 30\nSW1(config-if)# end\n\n! Resulting interface configuration\ninterface GigabitEthernet0/24\n switchport trunk native vlan 99\n switchport trunk allowed vlan 10,20,30,99\n switchport mode trunk",
+        "language": "cisco",
         "pitfall": "Typing switchport trunk allowed vlan 30 to add a VLAN. Without the add keyword, the command replaces the whole list.",
         "activity": {
           "type": "ios-console",
           "title": "Build the SW1 to SW2 trunk",
           "prompt": "Make sure VLANs 10, 20 and 99 exist, turn G0/24 into a trunk, set native VLAN 99 and allow only VLANs 10, 20 and 99. Then run show interfaces trunk and find each setting in the output: the Native vlan column and the first allowed list.",
-          "props": {
-            "lab": "cl-d2-trunk"
-          }
+          "props": { "lab": "cl-d2-trunk" }
         },
         "check": {
           "question": "A trunk currently allows VLANs 10 and 20. An engineer enters switchport trunk allowed vlan 30. Which VLANs does the trunk allow now?",
-          "choices": [
-            "VLANs 10, 20 and 30",
-            "VLANs 1 to 30",
-            "VLANs 10 and 20; the command is rejected",
-            "Only VLAN 30"
-          ],
+          "choices": ["VLANs 10, 20 and 30", "VLANs 1 to 30", "VLANs 10 and 20; the command is rejected", "Only VLAN 30"],
           "answer": 3,
           "explanation": "Without add, the command replaces the list. The trunk now carries only VLAN 30, and VLANs 10 and 20 stop crossing it. switchport trunk allowed vlan add 30 would have kept them."
         }
       },
       {
         "title": "DTP: trunks that negotiate",
-        "body": "Cisco switches can negotiate trunking with the **Dynamic Trunking Protocol (DTP)**, which is Cisco proprietary. Each port has an administrative mode set with switchport mode:\n\n- `access`: never trunk.\n- `trunk`: always trunk (it still sends DTP, so a dynamic neighbor can agree).\n- `dynamic desirable`: actively asks the neighbor to trunk.\n- `dynamic auto`: trunks only if the neighbor asks.\n\nMany Catalyst switches, the 2960 among them, default to dynamic auto. Two dynamic auto ports both wait for the other to start, so no trunk forms and the link quietly runs as an access link in VLAN 1. 'Auto' sounds automatic, but it is passive: this is the most common answer to 'why didn't my trunk come up?'\n\n`switchport nonegotiate` stops DTP on a port that is set to access or trunk (IOS rejects it on a dynamic port). Cisco's security advice is to hard-code every port. User ports get switchport mode access; switch-to-switch links get switchport mode trunk, optionally with nonegotiate. Otherwise an attacker who connects a device that speaks DTP to a dynamic port could negotiate a trunk and reach every VLAN, an attack called switch spoofing.\n\nA nasty mismatch: SW1 has switchport mode trunk plus switchport nonegotiate, and SW2 has dynamic desirable. SW1 trunks but sends no DTP, so SW2 never gets an answer and stays an access port. Both ends show up/up and native VLAN traffic crosses (it is untagged), but SW2 discards every tagged frame, so all the other VLANs fail.\n\nTwo more DTP facts explain odd exhibits. DTP messages carry the switch's VTP domain name, and two dynamic ports will not negotiate a trunk if their VTP domain names differ (IOS logs a DTP domain mismatch); static switchport mode trunk is not affected. And DTP is purely Cisco: a router, a server or another vendor's switch never answers it, so toward them a dynamic port can only ever end up as an access port. That is one more reason to configure every trunk statically.",
-        "code": "Operational result (one end down the side, the other across the top)\n\n                    access       dynamic auto   trunk        dynamic desirable\naccess              Access       Access         Mismatch *   Access\ndynamic auto        Access       Access         Trunk        Trunk\ntrunk               Mismatch *   Trunk          Trunk        Trunk\ndynamic desirable   Access       Trunk          Trunk        Trunk\n\n* One side trunks and the other does not. Never configure this.",
-        "language": "plaintext",
-        "pitfall": "Assuming 'auto' trunks automatically. Two dynamic auto ends never trunk, because neither side starts the negotiation.",
+        "key": "DTP lets Cisco ports negotiate trunking: dynamic desirable asks, dynamic auto only answers, so two dynamic auto ports never form a trunk.",
+        "body": "Cisco switches can negotiate trunking with the proprietary **Dynamic Trunking Protocol (DTP)**. Each port's `switchport mode` decides its part:\n\n[[visual]]\n\n[[visual 2]]\n\nMany Catalyst switches, the 2960 among them, default to dynamic auto. Two auto ports both wait for the other, so the link quietly runs as an access link in VLAN 1. \"Auto\" sounds automatic, but it is passive.\n\nCisco's advice is to hard-code every port: `switchport mode access` for users, `switchport mode trunk` between switches. Otherwise a device that speaks DTP on a dynamic port can negotiate a trunk and reach every VLAN (**switch spoofing**).",
+        "visual": [
+          {
+            "type": "table",
+            "title": "Port settings",
+            "columns": ["Setting", "Behavior"],
+            "rows": [
+              ["`switchport mode access`", "Never trunks"],
+              ["`switchport mode trunk`", "Always trunks, and still sends DTP so a dynamic neighbor can agree"],
+              ["`switchport mode dynamic desirable`", "Actively asks the neighbor to trunk"],
+              ["`switchport mode dynamic auto`", "Trunks only if the neighbor asks"],
+              ["`switchport nonegotiate`", "Stops sending DTP; allowed only on access or trunk ports"]
+            ]
+          },
+          {
+            "type": "table",
+            "title": "Operational result",
+            "columns": ["This end", "Trunks if the other is", "Otherwise"],
+            "rows": [
+              ["access", "Never", "Access"],
+              ["dynamic auto", "trunk, desirable", "Access"],
+              ["trunk", "trunk, desirable, auto", "Mismatch"],
+              ["dynamic desirable", "trunk, desirable, auto", "Access"]
+            ],
+            "caption": "Mismatch: trunk facing access, so one end trunks and the other does not. Never configure it. Auto facing auto stays access."
+          }
+        ],
+        "deeper": "**Two more DTP facts that explain odd exhibits.** DTP messages carry the switch's VTP domain name, and two dynamic ports will not negotiate a trunk if their VTP domain names differ (IOS logs a DTP domain mismatch); static `switchport mode trunk` is not affected. And DTP is purely Cisco: a router, a server or another vendor's switch never answers it, so toward them a dynamic port can only end up as an access port. One more reason to configure every trunk statically.",
+        "pitfall": "Assuming \"auto\" trunks automatically. Two dynamic auto ends never trunk, because neither side starts the negotiation.",
         "check": {
           "question": "SW1 G0/1 is dynamic auto and SW2 G0/1 is dynamic desirable. What is the operational result?",
-          "choices": [
-            "Both ports stay access ports",
-            "SW1 trunks and SW2 stays an access port",
-            "The link err-disables",
-            "Both ports trunk"
-          ],
+          "choices": ["Both ports stay access ports", "SW1 trunks and SW2 stays an access port", "The link err-disables", "Both ports trunk"],
           "answer": 3,
           "explanation": "dynamic desirable sends DTP requests and dynamic auto agrees when asked, so both ends trunk. Only auto with auto (or anything with access) stays access."
         }
       },
       {
         "title": "One port's view: show interfaces switchport",
-        "body": "show interfaces trunk lists only ports that are trunking right now. When a link that should trunk does not, you need one port's full story, and `show interfaces g0/1 switchport` gives it by pairing every **administrative** value (what you configured) with the **operational** value (what the port is actually doing). The lines to read:\n\n- **Administrative Mode**: the switchport mode setting: static access, trunk, dynamic auto or dynamic desirable.\n- **Operational Mode**: the result: static access or trunk (down if the link itself is down).\n- **Administrative / Operational Trunking Encapsulation**: dot1q (or negotiate on switches that also support ISL). An operational value of native means the port is not trunking and sends untagged frames.\n- **Negotiation of Trunking**: On when DTP is running; Off after switchport mode access or switchport nonegotiate.\n- **Access Mode VLAN** and **Trunking Native Mode VLAN**: the VLAN used when the port acts as an access port, and the native VLAN used when it trunks.\n- **Trunking VLANs Enabled**: the allowed list (ALL by default). **Pruning VLANs Enabled**: VLANs eligible for VTP pruning (2-1001 by default).\n\nThe first exhibit is the official guide's two 2960s at default settings. SW1's Gi0/1 is dynamic auto, Negotiation of Trunking is On, yet the Operational Mode is static access, because the far end is dynamic auto as well and neither side starts DTP. After switchport mode dynamic desirable on SW1, the second exhibit shows Operational Mode: trunk with dot1q encapsulation, and show interfaces trunk now lists Gi0/1 with Mode desirable.\n\nWhen an exhibit gives you only this output, predict the far end: an operational trunk with an administrative mode of dynamic auto proves the neighbor is trunk or desirable, while desirable stuck at static access suggests the neighbor is access, or is trunk with nonegotiate.",
-        "code": "! Both ends at default (dynamic auto)\nSW1# show interfaces gigabitethernet0/1 switchport\nName: Gi0/1\nSwitchport: Enabled\nAdministrative Mode: dynamic auto\nOperational Mode: static access\nAdministrative Trunking Encapsulation: dot1q\nOperational Trunking Encapsulation: native\nNegotiation of Trunking: On\nAccess Mode VLAN: 1 (default)\nTrunking Native Mode VLAN: 1 (default)\n! lines omitted\nTrunking VLANs Enabled: ALL\nPruning VLANs Enabled: 2-1001\n\n! After: interface g0/1, switchport mode dynamic desirable\nSW1# show interfaces gigabitethernet0/1 switchport\nName: Gi0/1\nSwitchport: Enabled\nAdministrative Mode: dynamic desirable\nOperational Mode: trunk\nAdministrative Trunking Encapsulation: dot1q\nOperational Trunking Encapsulation: dot1q\nNegotiation of Trunking: On\nAccess Mode VLAN: 1 (default)\nTrunking Native Mode VLAN: 1 (default)\n! lines omitted",
+        "key": "show interfaces switchport pairs each administrative setting with its operational result, and the gap between the two explains most trunks that fail to form.",
+        "body": "When a link should trunk but does not, `show interfaces g0/1 switchport` tells one port's full story.\n\n[[visual]]\n\n[[code]]\n\nWith only this output, you can predict the far end:\n\n[[visual 2]]\n\nA nasty mismatch: SW1 has `switchport mode trunk` plus `switchport nonegotiate`, and SW2 is dynamic desirable. SW1 trunks but sends no DTP, so SW2 stays an access port. Both are up/up and native VLAN traffic crosses untagged, but SW2 drops every tagged frame, so all other VLANs fail.",
+        "visual": [
+          {
+            "type": "table",
+            "title": "The lines to read",
+            "columns": ["Line", "Meaning"],
+            "rows": [
+              ["Administrative Mode", "What you configured: static access, trunk, dynamic auto or dynamic desirable"],
+              ["Operational Mode", "What the port is doing: static access or trunk (down if the link is down)"],
+              ["Operational Trunking Encapsulation", "dot1q when trunking; native means untagged, not trunking"],
+              ["Negotiation of Trunking", "On while DTP runs; Off after mode access or nonegotiate"],
+              ["Access Mode VLAN", "The VLAN used only if the port acts as an access port"],
+              ["Trunking Native Mode VLAN", "The native VLAN used when it trunks"],
+              ["Trunking VLANs Enabled", "The allowed list (ALL by default)"]
+            ]
+          },
+          {
+            "type": "table",
+            "title": "Reading the far end",
+            "columns": ["This port shows", "So the neighbor is"],
+            "rows": [
+              ["dynamic auto, operational trunk", "trunk or dynamic desirable"],
+              ["dynamic auto, stuck at static access", "dynamic auto or access (rarely, trunk with nonegotiate)"],
+              ["dynamic desirable, operational trunk", "trunk, dynamic desirable or dynamic auto"],
+              ["dynamic desirable, stuck at static access", "access, or trunk with nonegotiate"]
+            ]
+          }
+        ],
+        "code": "! Both ends at default (dynamic auto)\nSW1# show interfaces gigabitethernet0/1 switchport\nName: Gi0/1\nSwitchport: Enabled\nAdministrative Mode: dynamic auto\nOperational Mode: static access\nAdministrative Trunking Encapsulation: dot1q\nOperational Trunking Encapsulation: native\nNegotiation of Trunking: On\nAccess Mode VLAN: 1 (default)\nTrunking Native Mode VLAN: 1 (default)\n! lines omitted\n\n! After switchport mode dynamic desirable on SW1\nSW1# show interfaces gigabitethernet0/1 switchport\nName: Gi0/1\nSwitchport: Enabled\nAdministrative Mode: dynamic desirable\nOperational Mode: trunk\n! lines omitted",
+        "language": "cisco",
         "tip": "Administrative is the plan; operational is reality. Exam exhibits often hide the answer in the gap between the two lines.",
-        "pitfall": "Reading Access Mode VLAN on a trunk and concluding the trunk carries only that VLAN. That line is used only if the port falls back to access mode; for a trunk, read the native VLAN and Trunking VLANs Enabled lines.",
+        "pitfall": "Reading Access Mode VLAN on a trunk as the only VLAN it carries. That line applies only if the port falls back to access; for a trunk, read the native VLAN and Trunking VLANs Enabled.",
         "check": {
           "question": "show interfaces g0/1 switchport shows Administrative Mode: dynamic auto and Operational Mode: static access. What is the most likely neighbor setting?",
-          "choices": [
-            "switchport mode trunk",
-            "dynamic auto or access",
-            "dynamic desirable",
-            "Any setting, because dynamic auto never trunks"
-          ],
+          "choices": ["switchport mode trunk", "dynamic auto or access", "dynamic desirable", "Any setting, because dynamic auto never trunks"],
           "answer": 1,
           "explanation": "dynamic auto trunks only if the neighbor actively asks. Staying at static access means the neighbor did not ask: it is dynamic auto (waiting too) or access (or, rarely, a trunk with nonegotiate, which sends no DTP). A trunk or desirable neighbor that sends DTP would have triggered trunking."
         }
       },
       {
         "title": "Reading show interfaces trunk",
-        "body": "show interfaces trunk prints three lists of VLANs for each trunk, and each list filters the one before it. Knowing why a VLAN disappears between lists is a favorite exam skill.\n\n- **Vlans allowed on trunk**: 1-4094, minus anything removed with switchport trunk allowed vlan.\n- **Vlans allowed and active in management domain**: the first list minus VLANs that do not exist on this switch or are shut down.\n- **Vlans in spanning tree forwarding state and not pruned**: the second list minus VLANs in which STP is blocking this port and VLANs VTP has pruned. These are the VLANs really forwarding over the link.\n\nIn the exhibit (adapted from the official guide), the allowed list was limited to 1-60. VLAN 60 is allowed but missing from the second list because it is shut down on this switch, and VLAN 59 is active but STP is blocking this port in VLAN 59.\n\nThe header line matters too. **Mode** shows how the trunk came up (on for switchport mode trunk, desirable or auto when DTP negotiated it), **Encapsulation** is 802.1q, **Status** is trunking, and **Native vlan** is the one to compare with the other end. Remember that the output describes only this end: the far switch's allowed list and native VLAN never appear here, so collect the same command from both switches.",
+        "key": "show interfaces trunk prints three VLAN lists, each filtering the one before; only the third, forwarding and not pruned, really crosses the link.",
+        "body": "Knowing why a VLAN disappears between the three lists is a favorite exam skill.\n\n[[visual]]\n\n[[code]]\n\nIn the exhibit, the allowed list is 1-60. VLAN 60 is allowed but shut down on this switch, so it drops out of the second list. STP blocks this port in VLAN 59, so it drops out of the third.\n\nThe header line shows **Mode** (on, desirable or auto), **Encapsulation**, **Status** and **Native vlan**. It describes only this end: run the same command on the other switch to compare.",
+        "visual": {
+          "type": "flow",
+          "title": "Three lists, each filtering the last",
+          "steps": [
+            {
+              "label": "Vlans allowed on trunk",
+              "detail": "1-4094, minus VLANs removed with switchport trunk allowed vlan"
+            },
+            {
+              "label": "Vlans allowed and active in management domain",
+              "detail": "Minus VLANs not created, or shut down, on this switch"
+            },
+            {
+              "label": "Vlans in spanning tree forwarding state and not pruned",
+              "detail": "Minus VLANs where STP blocks this port or VTP pruned them: what really crosses",
+              "tone": "good"
+            }
+          ]
+        },
         "code": "SW1# show interfaces trunk\n\nPort        Mode             Encapsulation  Status        Native vlan\nGi0/1       desirable        802.1q         trunking      1\n\nPort        Vlans allowed on trunk\nGi0/1       1-60\n\nPort        Vlans allowed and active in management domain\nGi0/1       1-59\n\nPort        Vlans in spanning tree forwarding state and not pruned\nGi0/1       1-58",
+        "language": "cisco",
         "pitfall": "Reading the first list as the VLANs that actually cross. Only the third list, forwarding and not pruned, is what this port really forwards right now.",
         "check": {
           "question": "In show interfaces trunk, VLAN 30 appears under 'Vlans allowed on trunk' but not under 'Vlans allowed and active in management domain'. What is the most likely reason?",
@@ -200,16 +351,50 @@
       },
       {
         "title": "Troubleshooting a trunk end to end",
-        "body": "Most trunk faults are disagreements between the two ends, so the official guide's checklist always compares both switches. Work it in order:\n\n- **VLANs defined and active** on both switches: show vlan brief (a missing or act/lshut VLAN is not forwarded).\n- **Allowed lists** on both ends include every VLAN that must cross, including the native VLAN.\n- **Both ends operationally trunking**: show interfaces trunk on each switch, or Operational Mode in show interfaces switchport. One trunking end facing one access end is the nastiest case.\n- **Native VLANs match**: the Native vlan column on both ends, and the CDP mismatch message.\n\nSymptoms point to the likely step:\n\n- Only one VLAN fails while others cross: that VLAN is missing on one switch, shut down, or not allowed on one end.\n- Only the native VLAN (often VLAN 1) works and every other VLAN fails: one end is not trunking, so tagged frames are dropped while untagged frames still cross. Two dynamic auto ends give the same picture, since the link quietly runs as an access link in VLAN 1.\n- Odd cross-VLAN reachability, CDP NATIVE_VLAN_MISMATCH logs and ports blocked by spanning tree: the native VLANs differ.\n\nRead the exhibit. SW1 allows 10, 20 and 99 with native 99; SW2 allows 20 and 99 with native 1. Two faults: VLAN 10 is not allowed on SW2, so VLAN 10 frames from SW1 are dropped there, and the native VLANs differ. VLAN 20 is the only VLAN that works cleanly. The fix is on SW2: switchport trunk allowed vlan add 10 and switchport trunk native vlan 99.",
-        "code": "SW1# show interfaces trunk\n\nPort        Mode             Encapsulation  Status        Native vlan\nGi0/24      on               802.1q         trunking      99\n\nPort        Vlans allowed on trunk\nGi0/24      10,20,99\n! remaining lists omitted\n\nSW2# show interfaces trunk\n\nPort        Mode             Encapsulation  Status        Native vlan\nGi0/24      on               802.1q         trunking      1\n\nPort        Vlans allowed on trunk\nGi0/24      20,99\n! remaining lists omitted",
+        "key": "Most trunk faults are disagreements between the two ends, so compare VLANs, allowed lists, trunking state and native VLANs on both switches.",
+        "body": "Gather `show vlan brief` and `show interfaces trunk` from **both** switches, then work the official checklist in order:\n\n[[visual]]\n\nThe symptom often points straight at the step:\n\n[[visual 2]]\n\n[[code]]\n\nIn the exhibit, SW2 does not allow VLAN 10, and the native VLANs differ (99 and 1). Only VLAN 20 works cleanly. Fix SW2: `switchport trunk allowed vlan add 10` and `switchport trunk native vlan 99`.",
+        "visual": [
+          {
+            "type": "flow",
+            "title": "Trunk checklist",
+            "steps": [
+              {
+                "label": "VLANs defined and active on both switches",
+                "detail": "show vlan brief: a missing or act/lshut VLAN is not forwarded"
+              },
+              {
+                "label": "Allowed lists on both ends",
+                "detail": "Every VLAN that must cross, including the native VLAN"
+              },
+              {
+                "label": "Both ends operationally trunking",
+                "detail": "show interfaces trunk, or Operational Mode in show interfaces switchport"
+              },
+              {
+                "label": "Native VLANs match",
+                "detail": "The Native vlan column on both ends, and the CDP mismatch log"
+              }
+            ]
+          },
+          {
+            "type": "table",
+            "title": "Symptom to cause",
+            "columns": ["Symptom", "Likely cause"],
+            "rows": [
+              ["One VLAN fails, the others work", "That VLAN is missing, shut down or not allowed on one end"],
+              ["Only the native VLAN (often 1) works", "One end is not trunking, so tagged frames are dropped. Two dynamic auto ends look the same"],
+              ["Odd cross-VLAN reachability, CDP mismatch logs, STP-blocked ports", "The native VLANs differ"]
+            ]
+          }
+        ],
+        "code": "SW1# show interfaces trunk\nPort        Mode             Encapsulation  Status        Native vlan\nGi0/24      on               802.1q         trunking      99\n\nPort        Vlans allowed on trunk\nGi0/24      10,20,99\n! remaining lists omitted\n\nSW2# show interfaces trunk\nPort        Mode             Encapsulation  Status        Native vlan\nGi0/24      on               802.1q         trunking      1\n\nPort        Vlans allowed on trunk\nGi0/24      20,99\n! remaining lists omitted",
+        "language": "cisco",
         "pitfall": "Changing something on the first switch you log in to. Gather show interfaces trunk and show vlan brief from both ends first; the fix is often on the other switch.",
         "activity": {
           "type": "ios-console",
           "title": "Troubleshoot a broken trunk",
           "prompt": "This switch starts with a trunk that is not passing the traffic it should. Before changing anything, run show interfaces trunk and show interfaces switchport and compare what you see with the checklist: mode, native VLAN, allowed list and VLAN existence. Fix only what is wrong.",
-          "props": {
-            "lab": "cl-ts-trunk"
-          }
+          "props": { "lab": "cl-ts-trunk" }
         },
         "check": {
           "question": "VLAN 1 traffic crosses a link between two switches, but VLANs 10 and 20 do not. Both switches report the port up/up. Which cause best fits?",
@@ -225,17 +410,26 @@
       },
       {
         "title": "VTP at a glance",
-        "body": "The **VLAN Trunking Protocol (VTP)** is a Cisco-proprietary protocol that copies the VLAN list from one switch to others over trunks, so you create a VLAN once and it appears on every switch in the VTP domain. The current CCNA blueprint does not ask you to configure VTP, but you should recognize it, because it shapes default behavior and causes famous outages.\n\n- **Server**: creates, changes and deletes VLANs and advertises them. The default mode.\n- **Client**: learns VLANs from servers and cannot change them locally.\n- **Transparent**: keeps its own local VLAN list and does not apply advertisements, but passes them along on its trunks.\n- **Off** (newer versions): VTP disabled, and advertisements are not passed along.\n\nSwitches share VLANs only when they use the same VTP domain name (and password, if one is set) and are connected by trunks. Every change raises a configuration revision number, and switches accept the database with the highest revision. That is the danger: plug an old lab switch with the same domain name and a higher revision into production, and it can overwrite, and effectively delete, the VLANs on every switch in the domain. Many networks therefore run transparent or off and create VLANs on each switch by hand. VTP versions 1 and 2 handle only normal-range VLANs; version 3 adds extended-range support and protection against that accident. **VTP pruning** can also stop flooding a VLAN over trunks toward switches that have no ports in it.\n\nVTP advertisements travel only over trunks, so a switch connected by an access link never joins the domain. The domain name is case sensitive, and a switch whose domain name is still empty adopts the first domain name it hears in an advertisement. Check a switch with show vtp status before connecting it to anything important.",
+        "key": "VTP copies VLAN definitions over trunks to switches in the same domain, and a switch with a higher revision number can overwrite every VLAN.",
+        "body": "The **VLAN Trunking Protocol (VTP)** is Cisco proprietary: create a VLAN once on a server and it appears on every switch in the VTP domain. The CCNA does not ask you to configure it, but you should recognize it.\n\n[[visual]]\n\nSwitches share VLANs only with the same domain name (and password) over trunks. Every change raises the **configuration revision**, and switches accept the highest. So a lab switch with the same domain and a higher revision can overwrite, effectively delete, VLANs network-wide. Many networks run transparent or off.\n\n[[code]]\n\nVTP versions 1 and 2 handle only normal-range VLANs; version 3 adds extended range and protection against that accident. **VTP pruning** stops flooding a VLAN toward switches with no ports in it.",
+        "visual": {
+          "type": "table",
+          "title": "VTP modes",
+          "columns": ["Mode", "Changes VLANs", "Applies updates", "Forwards updates"],
+          "rows": [
+            ["Server (default)", "Yes, and advertises them", "Yes", "Yes"],
+            ["Client", "No", "Yes", "Yes"],
+            ["Transparent", "Local list only", "No", "Yes"],
+            ["Off", "Local list only", "No", "No"]
+          ]
+        },
         "code": "SW1# show vtp status\nVTP Version capable             : 1 to 3\nVTP version running             : 1\nVTP Domain Name                 : CAMPUS\nVTP Pruning Mode                : Disabled\n! lines omitted\nVTP Operating Mode                : Transparent\nMaximum VLANs supported locally   : 255\nNumber of existing VLANs          : 7\nConfiguration Revision            : 0",
-        "pitfall": "Adding a used switch to a production network without checking show vtp status. A higher revision number in the same domain can wipe VLANs network-wide. Set the new switch to transparent (which resets its revision to 0) before connecting it.",
+        "language": "cisco",
+        "deeper": "VTP advertisements travel only over trunks, so a switch connected by an access link never joins the domain. The domain name is case sensitive, and a switch whose domain name is still empty adopts the first domain name it hears in an advertisement. Check a switch with `show vtp status` before connecting it to anything important.",
+        "pitfall": "Adding a used switch to production without checking show vtp status. A higher revision in the same domain can wipe VLANs network-wide. Set it to transparent first, which resets its revision to 0.",
         "check": {
           "question": "Which VTP mode keeps its own VLAN configuration and ignores VLAN changes from other switches, yet forwards VTP advertisements to its neighbors?",
-          "choices": [
-            "Client",
-            "Server",
-            "Transparent",
-            "Off"
-          ],
+          "choices": ["Client", "Server", "Transparent", "Off"],
           "answer": 2,
           "explanation": "Transparent mode maintains a local VLAN list and passes advertisements through without applying them. Off mode also ignores them but does not forward them; clients apply them; servers create and advertise them."
         }
@@ -304,12 +498,12 @@
       }
     ],
     "summary": [
-      "802.1Q inserts a 4-byte tag with a 12-bit VLAN ID; trunks tag every VLAN except the native VLAN.",
-      "Configure trunks with switchport mode trunk (plus encapsulation dot1q where required); use nonegotiate toward routers, servers and other devices that do not speak DTP.",
-      "Native VLANs must match on both ends; use an unused native VLAN to blunt double-tagging attacks.",
-      "switchport trunk allowed vlan replaces the list; use add and remove to change it safely.",
-      "dynamic auto plus dynamic auto never trunks; compare Administrative Mode with Operational Mode in show interfaces switchport.",
-      "show interfaces trunk's three lists reveal VLANs removed by the allowed list, missing or shut down locally, or blocked by STP; always compare both ends."
+      "802.1Q inserts a 4-byte tag with a 12-bit VLAN ID; every VLAN is tagged except the native VLAN.",
+      "Configure trunks with switchport mode trunk; add nonegotiate toward devices that do not speak DTP.",
+      "Native VLANs must match on both ends; an unused native VLAN blunts double tagging.",
+      "switchport trunk allowed vlan replaces the list; use add and remove to change it.",
+      "Two dynamic auto ends never trunk; compare Administrative and Operational Mode.",
+      "The three lists in show interfaces trunk show what is allowed, active and really forwarding; always compare both ends."
     ],
     "feynmanPrompt": "Explain to a colleague what happens to a VLAN 20 frame as it crosses an 802.1Q trunk between two switches, then explain what changes for a frame in the native VLAN and why a native VLAN mismatch causes traffic to leak between VLANs."
   },
@@ -336,10 +530,7 @@
       "difficulty": "medium",
       "question": "Which hexadecimal TPID value marks an Ethernet frame as carrying an 802.1Q tag?",
       "answer": "0x8100",
-      "accept": [
-        "8100",
-        "0x 8100"
-      ],
+      "accept": ["8100", "0x 8100"],
       "explanation": "The TPID field sits where the EtherType normally is and holds 0x8100, so a receiver knows a 802.1Q tag follows rather than a normal type field.",
       "concept": "802.1Q TPID",
       "section": 0
@@ -350,22 +541,10 @@
       "difficulty": "medium",
       "question": "Match each 802.1Q tag field to its purpose.",
       "pairs": [
-        {
-          "left": "TPID",
-          "right": "0x8100, marks the frame as tagged"
-        },
-        {
-          "left": "PCP",
-          "right": "3-bit priority (CoS) used by QoS"
-        },
-        {
-          "left": "DEI",
-          "right": "1 bit marking frames that may be dropped first"
-        },
-        {
-          "left": "VLAN ID",
-          "right": "12 bits naming the frame's VLAN"
-        }
+        { "left": "TPID", "right": "0x8100, marks the frame as tagged" },
+        { "left": "PCP", "right": "3-bit priority (CoS) used by QoS" },
+        { "left": "DEI", "right": "1 bit marking frames that may be dropped first" },
+        { "left": "VLAN ID", "right": "12 bits naming the frame's VLAN" }
       ],
       "explanation": "The 4-byte tag is 16 bits of TPID followed by 16 bits of tag control information: 3 bits of priority, 1 drop-eligible bit and the 12-bit VLAN ID.",
       "concept": "802.1Q tag fields",
@@ -450,10 +629,7 @@
         "Tag native VLAN frames with vlan dot1q tag native",
         "Allow all VLANs on every trunk"
       ],
-      "answers": [
-        1,
-        3
-      ],
+      "answers": [1, 3],
       "explanation": "Double tagging needs the attacker's access VLAN to equal the trunk's native VLAN, and relies on the native VLAN traveling untagged. An unused native VLAN or tagging the native VLAN breaks the attack. VLAN 1 for users and dynamic ports make things worse.",
       "concept": "VLAN hopping defenses",
       "section": 2
@@ -522,12 +698,7 @@
       "type": "mcq",
       "difficulty": "medium",
       "question": "Two new 2960 switches are cabled together with all default interface settings (dynamic auto on both ports). What happens on the link?",
-      "choices": [
-        "It becomes an 802.1Q trunk automatically",
-        "It becomes an ISL trunk",
-        "It err-disables because of a DTP conflict",
-        "It operates as an access link in VLAN 1"
-      ],
+      "choices": ["It becomes an 802.1Q trunk automatically", "It becomes an ISL trunk", "It err-disables because of a DTP conflict", "It operates as an access link in VLAN 1"],
       "answer": 3,
       "explanation": "dynamic auto only responds to DTP requests and never starts them. With both ends waiting, no trunk forms and the link runs as an access link in VLAN 1.",
       "concept": "auto plus auto",
@@ -539,26 +710,11 @@
       "difficulty": "medium",
       "question": "Match each switchport setting to its behavior.",
       "pairs": [
-        {
-          "left": "switchport mode access",
-          "right": "Never trunks"
-        },
-        {
-          "left": "switchport mode trunk",
-          "right": "Always trunks"
-        },
-        {
-          "left": "dynamic desirable",
-          "right": "Actively asks the neighbor to trunk"
-        },
-        {
-          "left": "dynamic auto",
-          "right": "Trunks only if the neighbor asks"
-        },
-        {
-          "left": "switchport nonegotiate",
-          "right": "Stops sending DTP messages"
-        }
+        { "left": "switchport mode access", "right": "Never trunks" },
+        { "left": "switchport mode trunk", "right": "Always trunks" },
+        { "left": "dynamic desirable", "right": "Actively asks the neighbor to trunk" },
+        { "left": "dynamic auto", "right": "Trunks only if the neighbor asks" },
+        { "left": "switchport nonegotiate", "right": "Stops sending DTP messages" }
       ],
       "explanation": "access and trunk are static choices, desirable initiates DTP, auto only answers, and nonegotiate silences DTP on static ports.",
       "concept": "DTP modes",
@@ -594,10 +750,7 @@
         "access on one end, dynamic desirable on the other",
         "access on both ends"
       ],
-      "answers": [
-        0,
-        2
-      ],
+      "answers": [0, 2],
       "explanation": "A trunk forms when at least one side actively trunks or asks to (trunk or dynamic desirable) and the other side is willing (auto, desirable or trunk). auto with auto never starts, and access never trunks.",
       "concept": "DTP combinations",
       "section": 4
@@ -729,22 +882,10 @@
       "difficulty": "medium",
       "question": "Match each VTP mode to its behavior.",
       "pairs": [
-        {
-          "left": "Server",
-          "right": "Creates VLANs and advertises them"
-        },
-        {
-          "left": "Client",
-          "right": "Learns VLANs but cannot change them locally"
-        },
-        {
-          "left": "Transparent",
-          "right": "Keeps a local VLAN list and forwards advertisements"
-        },
-        {
-          "left": "Off",
-          "right": "Ignores VTP and does not forward advertisements"
-        }
+        { "left": "Server", "right": "Creates VLANs and advertises them" },
+        { "left": "Client", "right": "Learns VLANs but cannot change them locally" },
+        { "left": "Transparent", "right": "Keeps a local VLAN list and forwards advertisements" },
+        { "left": "Off", "right": "Ignores VTP and does not forward advertisements" }
       ],
       "explanation": "Server is the default and the only mode that creates VLANs for the domain. Transparent and off both keep VLANs local; only transparent relays advertisements.",
       "concept": "VTP modes",
@@ -824,10 +965,7 @@
         "VLAN 30 was removed with switchport trunk allowed vlan remove 30",
         "VLAN 30 is shut down on this switch"
       ],
-      "answers": [
-        0,
-        2
-      ],
+      "answers": [0, 2],
       "explanation": "The third list removes VLANs where spanning tree blocks this port and VLANs pruned by VTP. A VLAN that did not exist or was shut down would already be missing from the second list, and a VLAN removed from the allowed list would be missing from the first.",
       "concept": "third trunk VLAN list",
       "section": 6
@@ -886,10 +1024,7 @@
       "difficulty": "easy",
       "question": "How many bytes does an 802.1Q tag add to an Ethernet frame? (Number only.)",
       "answer": "4",
-      "accept": [
-        "4 bytes",
-        "four"
-      ],
+      "accept": ["4 bytes", "four"],
       "explanation": "The tag is 4 bytes: a 16-bit TPID (0x8100) and 16 bits of tag control information (3-bit priority, 1-bit DEI, 12-bit VLAN ID).",
       "concept": "802.1Q tag size",
       "section": 0
@@ -940,12 +1075,7 @@
       "question": "Hosts in VLANs 10, 20 and 99 exist on both switches. Based on the output, which VLAN works across the link without any problem?",
       "code": "SW1# show interfaces trunk | begin Native\nPort        Mode             Encapsulation  Status        Native vlan\nGi0/24      on               802.1q         trunking      99\n\nPort        Vlans allowed on trunk\nGi0/24      10,20,99\n\nSW2# show interfaces trunk | begin Native\nPort        Mode             Encapsulation  Status        Native vlan\nGi0/24      on               802.1q         trunking      1\n\nPort        Vlans allowed on trunk\nGi0/24      20,99",
       "language": "cisco",
-      "choices": [
-        "VLAN 10",
-        "VLAN 20",
-        "VLAN 99",
-        "All three"
-      ],
+      "choices": ["VLAN 10", "VLAN 20", "VLAN 99", "All three"],
       "answer": 1,
       "explanation": "VLAN 10 is not allowed on SW2, so it fails. VLAN 99 is native on SW1 but tagged by SW2 (whose native is 1), and SW1 sends its VLAN 99 frames untagged, which SW2 puts in VLAN 1, so VLAN 99 is broken by the native mismatch. VLAN 20 is allowed and tagged on both ends.",
       "concept": "comparing both ends",

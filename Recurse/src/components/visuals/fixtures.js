@@ -353,5 +353,311 @@ export const VISUAL_FIXTURES = [
       ],
       caption: 'Bucket 2 holds a collision: two keys chained together.'
     }
+  },
+
+  // ---- Edge cases for the drawn types: the largest sizes and the longest text allowed. ----
+  {
+    name: 'sequence: five actors, long labels, notes across actors',
+    spec: {
+      type: 'sequence',
+      title: '802.1X on a wireless LAN',
+      actors: [
+        { id: 'c', label: 'Wireless client', kind: 'laptop' },
+        { id: 'ap', label: 'Lightweight AP', kind: 'ap' },
+        { id: 'wlc', label: 'Controller', kind: 'wlc' },
+        { id: 'aaa', label: 'RADIUS server', kind: 'server' },
+        { id: 'dhcp', label: 'DHCP server', kind: 'server' }
+      ],
+      messages: [
+        { from: 'c', to: 'ap', label: 'Associate to SSID **CORP**', tone: 'accent' },
+        { from: 'ap', to: 'wlc', label: 'Forward in a CAPWAP tunnel', detail: 'UDP 5246 control, 5247 data', dashed: true },
+        { note: 'The AP and controller act together as the 802.1X authenticator', over: ['ap', 'wlc'] },
+        { from: 'wlc', to: 'c', label: 'EAP Request: identity please' },
+        { from: 'c', to: 'wlc', label: 'EAP Response: `alice@corp`' },
+        { from: 'wlc', to: 'aaa', label: 'RADIUS Access-Request with the EAP data', detail: 'shared secret protects the exchange', tone: 'accent' },
+        { from: 'aaa', to: 'aaa', label: 'Check the credentials', detail: 'against Active Directory' },
+        { from: 'aaa', to: 'wlc', label: 'RADIUS Access-Accept', tone: 'good', dashed: true },
+        { from: 'wlc', to: 'c', label: 'EAP Success, then WPA3 4-way handshake', tone: 'good' },
+        { from: 'c', to: 'dhcp', label: 'DHCP Discover', detail: 'broadcast, relayed by the controller' },
+        { from: 'dhcp', to: 'c', label: 'DHCP Offer', dashed: true, tone: 'muted' },
+        { from: 'c', to: 'c', label: 'Wrong password next time?', tone: 'bad' },
+        { from: 'aaa', to: 'wlc', label: 'RADIUS Access-Reject', tone: 'bad', dashed: true },
+        { note: 'Every device in the path sees the result, but only the client and the RADIUS server see the password', over: ['c', 'ap', 'wlc', 'aaa', 'dhcp'] }
+      ]
+    }
+  },
+  {
+    name: 'sequence: fourteen messages, boxed actors',
+    spec: {
+      type: 'sequence',
+      title: 'A TCP connection from start to finish',
+      actors: [
+        { id: 'c', label: 'Client' },
+        { id: 's', label: 'Server' }
+      ],
+      messages: [
+        { from: 'c', to: 's', label: '`SYN`', detail: 'seq = 100', tone: 'accent' },
+        { from: 's', to: 'c', label: '`SYN-ACK`', detail: 'seq = 300, ack = 101', tone: 'accent', dashed: true },
+        { from: 'c', to: 's', label: '`ACK`', detail: 'ack = 301', tone: 'accent' },
+        { from: 'c', to: 's', label: 'Data, 100 bytes', detail: 'seq = 101' },
+        { from: 's', to: 'c', label: '`ACK`', detail: 'ack = 201', dashed: true },
+        { from: 'c', to: 's', label: 'Data, 100 bytes', detail: 'seq = 201, lost on the way', tone: 'bad' },
+        { from: 'c', to: 'c', label: 'Retransmission timer expires', tone: 'warn' },
+        { from: 'c', to: 's', label: 'Data again', detail: 'seq = 201', tone: 'warn' },
+        { from: 's', to: 'c', label: '`ACK`', detail: 'ack = 301', dashed: true },
+        { from: 'c', to: 's', label: '`FIN`', tone: 'muted' },
+        { from: 's', to: 'c', label: '`ACK`', dashed: true, tone: 'muted' },
+        { from: 's', to: 'c', label: '`FIN`', tone: 'muted' },
+        { from: 'c', to: 's', label: '`ACK`', tone: 'muted' },
+        { from: 'c', to: 'c', label: 'Wait twice the maximum segment lifetime, then close', detail: 'TIME_WAIT' }
+      ]
+    }
+  },
+  {
+    name: 'topology: twelve nodes in four columns',
+    spec: {
+      type: 'topology',
+      title: 'Campus with a wireless LAN',
+      nodes: [
+        { id: 'isp', kind: 'internet', label: 'Internet', x: 1, y: 0 },
+        { id: 'saas', kind: 'cloud', label: 'SaaS cloud', sub: 'office apps', x: 3, y: 0 },
+        { id: 'fw', kind: 'firewall', label: 'Edge FW', sub: '203.0.113.2/30', x: 1, y: 1, tone: 'warn' },
+        { id: 'core', kind: 'l3switch', label: 'Core', sub: 'SVIs, OSPF area 0', x: 1, y: 2, tone: 'accent' },
+        { id: 'wlc', kind: 'wlc', label: 'WLC1', sub: '10.0.99.5', x: 3, y: 2 },
+        { id: 'dist', kind: 'switch', label: 'Access SW', x: 1, y: 3 },
+        { id: 'srv', kind: 'server', label: 'Files', sub: '10.0.50.10', x: 0, y: 2 },
+        { id: 'db', kind: 'db', label: 'Database', sub: '10.0.50.20', x: 0, y: 3 },
+        { id: 'ap', kind: 'ap', label: 'AP-Lobby', x: 2, y: 4 },
+        { id: 'phone', kind: 'phone', label: 'Phone', sub: 'voice VLAN 30', x: 0, y: 4 },
+        { id: 'laptop', kind: 'laptop', label: 'Laptop', sub: '10.0.10.57', x: 3, y: 4, tone: 'good' },
+        { id: 'prn', kind: 'printer', label: 'Printer', x: 1, y: 4, tone: 'muted' }
+      ],
+      links: [
+        { from: 'isp', to: 'fw', label: 'ISP circuit', style: 'serial' },
+        { from: 'fw', to: 'core', fromLabel: 'G0/1', toLabel: 'G1/0/1' },
+        { from: 'core', to: 'srv', fromLabel: 'G1/0/2' },
+        { from: 'core', to: 'wlc', fromLabel: 'G1/0/24', label: 'trunk', tone: 'accent' },
+        { from: 'core', to: 'dist', label: '802.1Q trunk', tone: 'accent' },
+        { from: 'srv', to: 'db', style: 'dashed', label: 'replication' },
+        { from: 'dist', to: 'ap', toLabel: 'G0' },
+        { from: 'dist', to: 'phone', fromLabel: 'Fa0/5' },
+        { from: 'dist', to: 'prn' },
+        { from: 'ap', to: 'laptop', style: 'wireless', tone: 'good' },
+        { from: 'saas', to: 'isp', style: 'dashed' },
+        { from: 'wlc', to: 'ap', style: 'dashed', label: 'CAPWAP', tone: 'muted' }
+      ],
+      zones: [
+        { label: 'Server VLAN 50', nodes: ['srv', 'db'], tone: 'muted' },
+        { label: 'Wireless', nodes: ['ap', 'laptop'], tone: 'good' },
+        { label: 'Edge', nodes: ['fw'], tone: 'warn' }
+      ],
+      marks: [
+        { at: 'core', text: 'Default gateway for every VLAN', tone: 'accent' },
+        { at: 'link:9', text: 'WPA3 Enterprise', tone: 'good' },
+        { at: 'fw', text: 'PAT to 203.0.113.2', tone: 'warn' }
+      ]
+    }
+  },
+  {
+    name: 'topology: STP triangle with a blocked link',
+    spec: {
+      type: 'topology',
+      nodes: [
+        { id: 'sw1', kind: 'switch', label: 'SW1', sub: 'root bridge', x: 1, y: 0, tone: 'good' },
+        { id: 'sw2', kind: 'switch', label: 'SW2', x: 0, y: 1 },
+        { id: 'sw3', kind: 'switch', label: 'SW3', x: 2, y: 1 }
+      ],
+      links: [
+        { from: 'sw1', to: 'sw2', fromLabel: 'G0/1', toLabel: 'G0/1', label: 'cost 4', tone: 'good' },
+        { from: 'sw1', to: 'sw3', fromLabel: 'G0/2', toLabel: 'G0/1', label: 'cost 4', tone: 'good' },
+        { from: 'sw2', to: 'sw3', fromLabel: 'G0/2', toLabel: 'G0/2', label: 'cost 19', tone: 'bad', style: 'dashed' }
+      ],
+      marks: [{ at: 'link:2', text: 'SW3 G0/2 blocks', tone: 'bad' }]
+    }
+  },
+  {
+    name: 'topology: one column',
+    spec: {
+      type: 'topology',
+      nodes: [
+        { id: 'net', kind: 'cloud', label: 'WAN', x: 0, y: 0 },
+        { id: 'r', kind: 'router', label: 'Branch R1', sub: '198.51.100.9', x: 0, y: 1 },
+        { id: 'pc', kind: 'host', label: 'Host', sub: 'DHCP client', x: 0, y: 2 }
+      ],
+      links: [
+        { from: 'net', to: 'r', style: 'serial', toLabel: 'S0/0/0' },
+        { from: 'r', to: 'pc', fromLabel: 'G0/0', toLabel: 'eth0' }
+      ],
+      marks: [{ at: 'r', text: 'NAT inside and outside', tone: 'accent' }]
+    }
+  },
+  {
+    name: 'tree: 24 nodes over five levels',
+    spec: {
+      type: 'tree',
+      title: 'The DNS hierarchy',
+      root: {
+        label: '.',
+        sub: 'root',
+        children: [
+          {
+            label: 'com',
+            children: [
+              { label: 'example.com', children: [{ label: 'www', tone: 'accent' }, { label: 'mail' }, { label: 'dev', children: [{ label: 'api' }, { label: 'ci' }] }] },
+              { label: 'cisco.com', children: [{ label: 'www' }, { label: 'learn' }, { label: 'developer' }] }
+            ]
+          },
+          { label: 'org', children: [{ label: 'ietf.org', children: [{ label: 'datatracker' }, { label: 'www' }] }, { label: 'wikipedia.org', children: [{ label: 'en' }] }] },
+          { label: 'net', children: [{ label: 'akamai.net', tone: 'muted', children: [{ label: 'e1' }] }] },
+          { label: 'uk', sub: 'country code', children: [{ label: 'co.uk', children: [{ label: 'bbc.co.uk' }] }] }
+        ]
+      }
+    }
+  },
+  {
+    name: 'tree: forced outline with markup',
+    spec: {
+      type: 'tree',
+      layout: 'outline',
+      root: {
+        label: '`/`',
+        children: [
+          { label: '`etc/`', sub: 'configuration', children: [{ label: '`hosts`' }, { label: '`resolv.conf`', sub: '**DNS servers**', tone: 'accent' }] },
+          { label: '`home/`', children: [{ label: '`sam/`', children: [{ label: '`notes.md`' }] }] },
+          { label: '`var/log/`', sub: 'system logs', tone: 'warn' }
+        ]
+      }
+    }
+  },
+  {
+    name: 'fields: TCP header with options',
+    spec: {
+      type: 'fields',
+      title: 'TCP header',
+      unit: 'bits',
+      width: 32,
+      rows: [
+        [{ label: 'Source port', size: 16 }, { label: 'Destination port', size: 16, tone: 'accent' }],
+        [{ label: 'Sequence number', size: 32 }],
+        [{ label: 'Acknowledgment number', size: 32 }],
+        [{ label: 'Data offset', size: 4 }, { label: 'Reserved', size: 3, tone: 'muted' }, { label: 'Flags', size: 9, note: 'SYN, ACK, FIN, RST' }, { label: 'Window size', size: 16, tone: 'good' }],
+        [{ label: 'Checksum', size: 16 }, { label: 'Urgent pointer', size: 16 }],
+        [{ label: 'Options', size: '0-320', note: 'MSS, window scale, SACK', tone: 'muted' }]
+      ]
+    }
+  },
+  {
+    name: 'fields: 802.1Q tag with a one-bit field',
+    spec: {
+      type: 'fields',
+      title: '802.1Q tag',
+      unit: 'bits',
+      width: 32,
+      rows: [[{ label: 'TPID', size: 16, note: '0x8100' }, { label: 'PCP', size: 3, note: 'priority' }, { label: 'DEI', size: 1 }, { label: 'VLAN ID', size: 12, tone: 'accent' }]]
+    }
+  },
+  {
+    name: 'fields: eight one-bit flags',
+    spec: {
+      type: 'fields',
+      unit: 'bits',
+      width: 8,
+      rows: [[
+        { label: 'CWR', size: 1 }, { label: 'ECE', size: 1 }, { label: 'URG', size: 1 }, { label: 'ACK', size: 1, tone: 'accent' },
+        { label: 'PSH', size: 1 }, { label: 'RST', size: 1, tone: 'bad' }, { label: 'SYN', size: 1, tone: 'accent' }, { label: 'FIN', size: 1 }
+      ]]
+    }
+  },
+  {
+    name: 'bits: eight full rows, /27',
+    spec: {
+      type: 'bits',
+      title: '10.20.30.77/27',
+      prefix: 27,
+      rows: [
+        { label: 'Address', value: '10.20.30.77' },
+        { label: 'Mask', value: '255.255.255.224' },
+        { label: 'Wildcard', value: '0.0.0.31', tone: 'muted' },
+        { label: 'Network', value: '10.20.30.64', tone: 'good' },
+        { label: 'First host', value: '10.20.30.65' },
+        { label: 'Last host', value: '10.20.30.94' },
+        { label: 'Broadcast address', value: '10.20.30.95', tone: 'warn' },
+        { label: 'Same, raw', bits: '00001010000101000001111001011111', tone: 'bad' }
+      ]
+    }
+  },
+  {
+    name: 'bits: raw bytes without a prefix',
+    spec: {
+      type: 'bits',
+      rows: [
+        { label: '192', bits: '11000000', value: '128 + 64' },
+        { label: '168', bits: '1010 1000', value: '128 + 32 + 8', tone: 'accent' },
+        { label: 'Nibbles', bits: '1111 0000 1010 0101 0011 1100' }
+      ]
+    }
+  },
+  {
+    name: 'cells: twelve cells, shared pointers',
+    spec: {
+      type: 'cells',
+      style: 'array',
+      title: 'Binary search for 47',
+      rows: [
+        {
+          label: 'sorted',
+          cells: [2, 5, 8, 12, 16, 23, 38, 47, 56, 72, 91, 104],
+          index: true,
+          pointers: [{ at: 0, label: 'lo' }, { at: 5, label: 'mid', tone: 'accent' }, { at: 11, label: 'hi' }, { at: 7, label: 'target', tone: 'good' }, { at: 7, label: 'next mid', tone: 'warn' }],
+          tones: { 5: 'accent', 7: 'good', 0: 'muted', 1: 'muted', 2: 'muted', 3: 'muted', 4: 'muted' }
+        },
+        { label: 'words', cells: ['"apple"', '"banana"', '"cherry"', '"dragonfruit"', '"elderberry"', '"fig"'], index: true }
+      ]
+    }
+  },
+  {
+    name: 'cells: list of twelve nodes',
+    spec: {
+      type: 'cells',
+      style: 'list',
+      rows: [
+        { label: 'head', cells: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12], pointers: [{ at: 5, label: 'slow' }, { at: 11, label: 'fast', tone: 'accent' }], tones: { 5: 'accent' } },
+        { cells: ['A'] }
+      ]
+    }
+  },
+  {
+    name: 'cells: queue of twelve',
+    spec: { type: 'cells', style: 'queue', rows: [{ label: 'print jobs', cells: ['job1', 'job2', 'job3', 'job4', 'job5', 'job6', 'job7', 'job8', 'job9', 'job10', 'job11', 'job12'], tones: { 0: 'accent' } }] }
+  },
+  {
+    name: 'cells: two stacks side by side',
+    spec: {
+      type: 'cells',
+      style: 'stack',
+      title: 'A queue from two stacks',
+      rows: [
+        { label: 'inbox', cells: ['4', '5', '6'], tones: { 2: 'accent' } },
+        { label: 'outbox', cells: ['3', '2', '1'], tones: { 2: 'good' } },
+        { label: 'spare', cells: [] }
+      ]
+    }
+  },
+  {
+    name: 'cells: eight hash buckets with a long chain',
+    spec: {
+      type: 'cells',
+      style: 'hash',
+      rows: [
+        { label: '0', cells: [] },
+        { label: '1', cells: ['10.1.1.1 -> 0011.2233.4455'] },
+        { label: '2', cells: [] },
+        { label: '3', cells: ['k3', 'k11', 'k19', 'k27', 'k35', 'k43'], tones: { 5: 'bad' } },
+        { label: '4', cells: ['k4'] },
+        { label: '5', cells: [] },
+        { label: '6', cells: ['k6', 'k14'] },
+        { label: '7', cells: ['k7'], pointers: [{ at: 0, label: 'newest' }] }
+      ]
+    }
   }
 ]

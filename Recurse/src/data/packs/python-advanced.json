@@ -8,36 +8,53 @@
   "description": "Decorators, context managers, itertools, functools, typing in depth, error patterns, profiling and asyncio.",
   "icon": "Py3",
   "language": "python",
-  "prereqs": [
-    "python-intermediate",
-    "oop",
-    "cs-how-code-runs"
-  ],
-  "tags": [
-    "python",
-    "decorators",
-    "generators",
-    "typing",
-    "asyncio",
-    "performance"
-  ],
+  "prereqs": ["python-intermediate", "oop", "cs-how-code-runs"],
+  "tags": ["python", "decorators", "generators", "typing", "asyncio", "performance"],
   "lesson": {
-    "estimatedMinutes": 45,
-    "intro": "You can write working Python; this pack is about writing it the way experienced Python developers do. It covers the features that show up in frameworks, libraries and interviews for Python roles: decorators and closures, your own context managers, generator pipelines, itertools and functools, typing beyond the basics, dataclasses with enums and pattern matching, error-handling patterns, profiling, and asyncio for real services.",
+    "estimatedMinutes": 50,
+    "intro": "This pack covers the Python that shows up in frameworks, libraries and interviews: decorators and closures, context managers, generator pipelines, itertools and functools, advanced typing, enums and pattern matching, error-handling patterns, profiling, and asyncio for real services.",
     "objectives": [
       "Write decorators, including ones that take arguments, and your own context managers",
-      "Build lazy generator pipelines and replace hand-written loops with itertools and functools",
-      "Read and write advanced type hints: narrowing, generics, Protocols, TypedDict and Literal",
-      "Apply error-handling patterns: exception hierarchies, chaining with from, and handling at the right layer",
-      "Profile before optimizing, and run concurrent async work safely with TaskGroup, timeouts and queues"
+      "Build lazy generator pipelines and use itertools and functools instead of hand-written loops",
+      "Read advanced type hints: narrowing, generics, Protocols, TypedDict and Literal",
+      "Translate errors at boundaries with from, and handle them at the right layer",
+      "Profile before optimizing, and run async work safely with TaskGroup, timeouts and limits"
     ],
     "sections": [
       {
         "title": "Closures and decorators",
-        "body": "Flask declares routes with `@app.route(\"/users\")`, FastAPI with `@app.get(\"/users\")`, pytest parametrizes tests with `@pytest.mark.parametrize`, and caching is one line: `@functools.cache`. All of these are **decorators**, and \"write a decorator\" is a standard question in Python interviews.\n\nDecorators rest on **closures**. A function defined inside another function can use the outer function's variables, and it keeps them alive after the outer function returns (How Code Runs covers the mechanics). `make_multiplier(2)` can return an inner `times(x)` that still remembers n = 2. To rebind an outer variable rather than just read it, declare it `nonlocal`.\n\nA **decorator** is a function that takes a function and returns a replacement, usually a closure that wraps the original. The `@` line is shorthand: `@timed` above `def report()` means exactly `report = timed(report)`. It runs once, when the def statement executes (usually at import time), not on every call.\n\nThe shape of nearly every decorator:\n- an outer function that receives `func`,\n- an inner `wrapper(*args, **kwargs)` that does something before or after calling `func(*args, **kwargs)`, and **returns its result**,\n- `@functools.wraps(func)` on the wrapper, which copies `__name__`, `__doc__` and other metadata, so tracebacks, logs and frameworks see the original name instead of \"wrapper\".\n\nA decorator that takes arguments, such as `@retry(times=3)`, needs one more layer. `retry(times=3)` is called first and must return the real decorator, so you write three nested functions. This is a **decorator factory**.\n\nStacked decorators apply from the bottom up: `@a` above `@b` above `def f` gives `f = a(b(f))`, so a's wrapper runs first on each call.\n\nReal uses: logging and timing, retries, caching, access checks such as `@login_required`, and registration, where the decorator records the function in a table and returns it unchanged. That last one is how web frameworks map URLs to your functions.",
-        "code": "import functools\n\ndef count_calls(func):\n    @functools.wraps(func)               # keep func's name and docstring\n    def wrapper(*args, **kwargs):\n        wrapper.calls += 1\n        return func(*args, **kwargs)     # pass everything through, return the result\n    wrapper.calls = 0\n    return wrapper\n\n@count_calls                             # same as: greet = count_calls(greet)\ndef greet(name):\n    \"\"\"Say hello.\"\"\"\n    return f\"Hello, {name}\"\n\ngreet(\"Ada\")\ngreet(\"Linus\")\nprint(greet.calls, greet.__name__, greet.__doc__)   # 2 greet Say hello.\n\ndef retry(times):                        # a decorator factory: returns a decorator\n    def decorator(func):\n        @functools.wraps(func)\n        def wrapper(*args, **kwargs):\n            for attempt in range(1, times + 1):\n                try:\n                    return func(*args, **kwargs)\n                except ConnectionError as err:\n                    print(f\"attempt {attempt} failed: {err}\")\n            raise ConnectionError(f\"gave up after {times} attempts\")\n        return wrapper\n    return decorator\n\nreplies = iter([ConnectionError(\"timeout\"), ConnectionError(\"reset\"), \"200 OK\"])\n\n@retry(times=3)\ndef fetch():\n    reply = next(replies)\n    if isinstance(reply, Exception):\n        raise reply\n    return reply\n\nprint(fetch())\n# attempt 1 failed: timeout\n# attempt 2 failed: reset\n# 200 OK",
-        "tip": "Always put @functools.wraps(func) on the wrapper. Without it every decorated function reports its name as wrapper, which confuses logs, tracebacks and tools that look functions up by name.",
+        "key": "A decorator takes a function and returns a wrapper: `@timed` above `def report()` means `report = timed(report)`, which runs once, when the def runs.",
+        "body": "Flask routes (`@app.route(\"/users\")`), pytest's `@pytest.mark.parametrize` and `@functools.cache` are all **decorators**, and \"write a decorator\" is a standard Python interview question.\n\nThey rest on **closures**: an inner function keeps the outer function's variables alive after the outer one returns. Each outer call makes a fresh closure with its own state; declare a variable `nonlocal` to rebind it.\n\nClosures capture variables, not values, so every function in `[lambda: i for i in range(3)]` returns 2, the final i.\n\n[[visual]]\n\n[[visual 2]]\n\nStacked decorators apply bottom up: `@a` above `@b` above `def f` gives `f = a(b(f))`, so a's wrapper runs first on each call.",
+        "visual": [
+          {
+            "type": "flow",
+            "title": "What @timed above def report() does",
+            "steps": [
+              { "label": "The def statement creates the original report function" },
+              { "label": "`timed(report)` runs once and returns a wrapper", "detail": "Usually at import time" },
+              { "label": "The name `report` is bound to the wrapper" },
+              { "label": "Each call to `report()` runs the wrapper" },
+              { "label": "The wrapper calls the original and returns its result", "tone": "good" }
+            ]
+          },
+          {
+            "type": "table",
+            "title": "The shape of a decorator",
+            "columns": ["Part", "Why"],
+            "rows": [
+              ["An outer function that receives `func`", "Runs once, at decoration time"],
+              ["An inner `wrapper(*args, **kwargs)`", "Accepts any arguments and passes them on"],
+              ["`return func(*args, **kwargs)`", "Without `return`, every result becomes None"],
+              ["`@functools.wraps(func)` on the wrapper", "Copies `__name__` and `__doc__`, so logs and tracebacks show the real name"],
+              ["One more outer layer: `retry(times=3)`", "A **decorator factory**: called first, it returns the real decorator"]
+            ]
+          }
+        ],
+        "code": "import functools\n\ndef count_calls(func):\n    @functools.wraps(func)  # keep name and docstring\n    def wrapper(*args, **kwargs):\n        wrapper.calls += 1\n        return func(*args, **kwargs)  # return the result\n    wrapper.calls = 0\n    return wrapper\n\n@count_calls  # greet = count_calls(greet)\ndef greet(name):\n    return f\"Hello, {name}\"\n\ngreet(\"Ada\")\nprint(greet.calls, greet.__name__)  # 1 greet\n\ndef retry(times):  # a factory: returns a decorator\n    def decorator(func):\n        @functools.wraps(func)\n        def wrapper(*args, **kwargs):\n            for attempt in range(times - 1):\n                try:\n                    return func(*args, **kwargs)\n                except ConnectionError:\n                    pass\n            return func(*args, **kwargs)  # last try\n        return wrapper\n    return decorator",
+        "deeper": "Where decorators show up in real code: logging and timing, retries, caching (`@functools.cache`), access checks such as `@login_required`, and registration. A registering decorator records the function in a table and returns it unchanged, which is how web frameworks map URLs to your functions: `@app.route(\"/users\")` is a factory call that returns a decorator, and that decorator stores your function under the path.",
+        "tip": "Always put `@functools.wraps(func)` on the wrapper. Without it every decorated function reports its name as wrapper, which confuses logs, tracebacks and tools.",
         "pitfall": "Forgetting `return` in the wrapper. Calling `func(*args, **kwargs)` without returning its value silently turns every decorated function's result into None.",
+        "language": "python",
         "activity": {
           "type": "code-runner",
           "title": "Write a logging decorator",
@@ -51,21 +68,70 @@
         },
         "check": {
           "question": "With @a written above @b above def f, what is the name f bound to?",
-          "choices": [
-            "a(f) and b(f), stored in a tuple",
-            "b(a(f))",
-            "a(b(f))",
-            "f, until it is first called"
-          ],
+          "choices": ["a(f) and b(f), stored in a tuple", "b(a(f))", "a(b(f))", "f, until it is first called"],
           "answer": 2,
           "explanation": "Decorators apply from the bottom up: b wraps f first, then a wraps the result. On each call a's wrapper runs first, then b's, then the original f."
         }
       },
       {
         "title": "Writing your own context managers",
-        "body": "`with open(...)` closes a file, `with lock:` releases a lock, and `with conn:` commits a database transaction or rolls it back. You can write your own for anything with a setup and a cleanup that must happen: timing a block, changing a setting temporarily, creating a temp directory, holding a resource.\n\nThe protocol has two methods. `with expr as name:` calls `expr.__enter__()` and binds its return value to name. When the block ends, normally or by an exception, Python calls `__exit__(exc_type, exc, tb)`. If the block raised, the three arguments describe the exception; otherwise all three are None. If `__exit__` returns a true value, the exception is **suppressed** and execution continues after the block. Return None or False to let it propagate, which is almost always what you want.\n\nThe class form suits objects that have state and other methods anyway. For most cases, `contextlib.contextmanager` is shorter: write a generator that does the setup, `yield`s exactly once (the yielded value is what `as` binds), and does the cleanup after the yield. If the with block raises, the exception is re-raised inside the generator at the yield, so the cleanup must sit in a `finally` (or an `except` that re-raises) to run in every case.\n\nOther contextlib helpers worth knowing:\n- `suppress(FileNotFoundError)` ignores one specific exception type, visibly.\n- `redirect_stdout(buffer)` captures prints, handy in tests.\n- `ExitStack` enters a variable number of context managers, such as every file in a list, and exits them all in reverse order.\n- `nullcontext()` is a do-nothing stand-in when a with is optional.\n\nOne with statement can hold several managers, `with open(a) as src, open(b, \"w\") as dst:`, and they exit in reverse order. Async code has the same idea with `async with` and `__aenter__`/`__aexit__`, used by HTTP clients and database pools.",
-        "code": "from contextlib import contextmanager, suppress\nimport os\n\nclass Indented:\n    \"\"\"Class form: print with extra indentation inside the block.\"\"\"\n    level = 0\n\n    def __enter__(self):\n        Indented.level += 1\n        return self                      # this is what \"as out\" binds\n\n    def __exit__(self, exc_type, exc, tb):\n        Indented.level -= 1\n        return False                     # don't swallow exceptions\n\n    def print(self, text):\n        print(\"  \" * Indented.level + text)\n\nwith Indented() as out:\n    out.print(\"one level in\")\n    with Indented() as inner:\n        inner.print(\"two levels in\")\n    out.print(\"back to one\")\n\n@contextmanager\ndef temp_env(name, value):\n    \"\"\"Generator form: set an environment variable, restore it afterwards.\"\"\"\n    old = os.environ.get(name)\n    os.environ[name] = value\n    try:\n        yield value                      # the with block runs here\n    finally:                             # runs even if the block raises\n        if old is None:\n            del os.environ[name]\n        else:\n            os.environ[name] = old\n\nwith temp_env(\"APP_MODE\", \"test\") as mode:\n    print(\"inside:\", os.environ[\"APP_MODE\"], mode)\nprint(\"after:\", os.environ.get(\"APP_MODE\"))\n\nwith suppress(FileNotFoundError):        # ignore exactly one error type\n    os.remove(\"does-not-exist.tmp\")\nprint(\"no crash\")",
+        "key": "`with` calls `__enter__` (its return value is what `as` binds) and always calls `__exit__`; with `@contextmanager`, put the cleanup in a `finally` around the `yield`.",
+        "body": "`with open(...)` closes a file, `with lock:` releases a lock, and `with conn:` commits a transaction or rolls it back. Write your own for any setup whose cleanup must happen: timing a block, a temporary setting, a temp directory.\n\n[[visual]]\n\nFor most cases `contextlib.contextmanager` is shorter: a generator that does the setup, `yield`s once (the yielded value is what `as` binds), then cleans up. If the block raises, the exception reappears at the `yield`, so the cleanup must sit in a `finally`.\n\n[[visual 2]]\n\nOne `with` can hold several managers, which exit in reverse order. Async code has `async with`, using `__aenter__` and `__aexit__`.",
+        "visual": [
+          {
+            "type": "sequence",
+            "title": "What with does",
+            "actors": [
+              { "id": "w", "label": "with statement" },
+              { "id": "m", "label": "Manager" }
+            ],
+            "messages": [
+              { "from": "w", "to": "m", "label": "__enter__()" },
+              {
+                "from": "m",
+                "to": "w",
+                "label": "returns a value",
+                "detail": "bound to the as name",
+                "dashed": true
+              },
+              {
+                "note": "The block runs, maybe raising",
+                "over": ["w"]
+              },
+              {
+                "from": "w",
+                "to": "m",
+                "label": "__exit__(exc_type, exc, tb)",
+                "detail": "always; all None if no error"
+              },
+              {
+                "from": "m",
+                "to": "w",
+                "label": "returns None or False",
+                "detail": "the exception propagates (usual)",
+                "dashed": true
+              },
+              {
+                "note": "Returning True suppresses the exception: code after the block runs",
+                "over": ["w", "m"]
+              }
+            ]
+          },
+          {
+            "type": "table",
+            "title": "contextlib helpers",
+            "columns": ["Helper", "Use"],
+            "rows": [
+              ["`suppress(FileNotFoundError)`", "Ignore one specific exception type, visibly"],
+              ["`redirect_stdout(buffer)`", "Capture prints, handy in tests"],
+              ["`ExitStack()`", "Enter a variable number of managers; exits them all in reverse"],
+              ["`nullcontext()`", "A do-nothing stand-in when a `with` is optional"]
+            ]
+          }
+        ],
+        "code": "import os, time\nfrom contextlib import contextmanager\n\nclass Timer:  # class form\n    def __enter__(self):\n        self.start = time.perf_counter()\n        return self  # what \"as t\" binds\n    def __exit__(self, exc_type, exc, tb):\n        self.elapsed = time.perf_counter() - self.start\n        return False  # let exceptions propagate\n\n@contextmanager\ndef temp_env(name, value):  # generator form\n    old = os.environ.get(name)\n    os.environ[name] = value\n    try:\n        yield value  # the with block runs here\n    finally:  # runs even if the block raises\n        if old is None:\n            del os.environ[name]\n        else:\n            os.environ[name] = old",
         "pitfall": "Writing a @contextmanager generator without try/finally around the yield. If the with block raises, the exception appears at the yield and the cleanup after it never runs.",
+        "language": "python",
         "activity": {
           "type": "code-runner",
           "title": "A rollback transaction",
@@ -91,9 +157,35 @@
       },
       {
         "title": "Generators in depth: yield from, pipelines, re-iteration",
-        "body": "Intermediate Python showed the basics: `yield` pauses a function, and generators are lazy and one-shot. Three more ideas turn generators into an everyday tool.\n\n`yield from` delegates to another iterable: `yield from sub` yields every item of sub, as if you had written a for loop around a yield. It shines in recursive generators, such as walking nested data or a directory tree, where each level yields from the level below.\n\n**Pipelines.** Small generator functions chain into a pipeline: read lines, parse them, filter, transform, aggregate. Each stage pulls one item at a time from the stage before, so a 20 GB log streams through in constant memory, and each stage can be tested on its own with a plain list. Nothing runs when you build the pipeline. The consumer at the end, a for loop, `next()` or `sum()`, drives the whole chain.\n\n**Re-iterable objects.** A generator object can be consumed once. That bites when a function loops over its input twice, say once to find the maximum and once to normalize: the second loop silently sees nothing. If you write a class that represents a collection, make `__iter__` a generator method. Every for loop calls `__iter__` again and gets a fresh generator, so the object can be looped over any number of times, like a list.\n\nTwo less common pieces you will meet in libraries:\n- `gen.close()` stops a generator early. Python raises GeneratorExit at the paused yield, so a `finally` inside the generator still runs its cleanup. The same happens when a half-consumed generator is garbage-collected.\n- `gen.send(value)` resumes a generator and makes the paused `yield` expression evaluate to value. It powered coroutines before async/await existed; you will rarely write it today.\n\nLaziness has one timing trap. A generator expression evaluates its first `for` source immediately, but its conditions, and the variables they read, only when items are pulled. Change a variable in between and the generator sees the new value.",
-        "code": "def flatten(items):\n    \"\"\"Yield every non-list value from arbitrarily nested lists.\"\"\"\n    for item in items:\n        if isinstance(item, list):\n            yield from flatten(item)     # delegate to the recursive generator\n        else:\n            yield item\n\nprint(list(flatten([1, [2, [3, 4]], [], 5])))   # [1, 2, 3, 4, 5]\n\n# A lazy pipeline: each stage pulls one item at a time from the stage before\ndef read_lines(lines):\n    for line in lines:\n        yield line.rstrip(\"\\n\")\n\ndef parse(lines):\n    for line in lines:\n        level, _, message = line.partition(\" \")\n        yield level, message\n\ndef only(level, records):\n    return (msg for lvl, msg in records if lvl == level)\n\nlog = [\"INFO boot\\n\", \"ERROR disk full\\n\", \"INFO ok\\n\", \"ERROR timeout\\n\"]\nerrors = only(\"ERROR\", parse(read_lines(log)))   # nothing has run yet\nprint(next(errors))     # disk full  (only two lines have been read)\nprint(list(errors))     # ['timeout']\n\nclass Countdown:\n    \"\"\"Re-iterable: __iter__ returns a fresh generator each time.\"\"\"\n    def __init__(self, start):\n        self.start = start\n\n    def __iter__(self):\n        n = self.start\n        while n > 0:\n            yield n\n            n -= 1\n\nc = Countdown(3)\nprint(list(c), list(c))  # [3, 2, 1] [3, 2, 1]",
+        "key": "`yield from` delegates to another iterable, chained generators form lazy pipelines that read nothing until pulled, and a generator can be consumed only once.",
+        "body": "Intermediate Python showed that `yield` pauses a function and that generators are lazy and one-shot. Three more ideas make them an everyday tool.\n\n`yield from sub` yields every item of sub, like a for loop around a yield. It shines in recursive generators that walk nested data or a folder tree.\n\n**Pipelines** chain small generators: read, parse, filter, aggregate. Building one runs nothing; the consumer at the end (a for loop, `next()`, `sum()`) pulls one item at a time, so a 20 GB log streams in constant memory.\n\n[[visual]]\n\n**Re-iteration.** A function that loops over its input twice (once for `max`, once to normalize) gets nothing the second time from a generator. A collection class whose `__iter__` is a generator method hands each loop a fresh generator.\n\n[[visual 2]]",
+        "visual": [
+          {
+            "type": "flow",
+            "title": "A lazy pipeline",
+            "direction": "across",
+            "steps": [
+              { "label": "`read_lines(log)`" },
+              { "label": "`parse(...)`" },
+              { "label": "`only(\"ERROR\", ...)`" },
+              { "label": "`next(errors)`", "tone": "accent" }
+            ],
+            "caption": "Building the chain reads nothing. Each `next()` makes every stage pull one item from the stage before it."
+          },
+          {
+            "type": "table",
+            "title": "Worth recognizing",
+            "columns": ["Code", "Behavior"],
+            "rows": [
+              ["`gen.close()`", "Raises GeneratorExit at the paused yield, so a `finally` inside still runs (also when a half-used generator is garbage-collected)"],
+              ["`gen.send(value)`", "Resumes and makes the paused `yield` evaluate to value; it powered coroutines before async"],
+              ["`(x for x in range(5) if x < limit)`", "The first `for` source is evaluated now, but the condition and `limit` only when items are pulled"]
+            ]
+          }
+        ],
+        "code": "def flatten(items):\n    for item in items:\n        if isinstance(item, list):\n            yield from flatten(item)  # delegate\n        else:\n            yield item\n\nprint(list(flatten([1, [2, [3, 4]], [], 5])))\n# [1, 2, 3, 4, 5]\n\nclass Countdown:\n    def __init__(self, start):\n        self.start = start\n    def __iter__(self):  # a fresh generator per loop\n        n = self.start\n        while n > 0:\n            yield n\n            n -= 1\n\nc = Countdown(3)\nprint(list(c), list(c))  # [3, 2, 1] [3, 2, 1]",
         "pitfall": "Passing a generator to code that iterates twice. The second pass silently sees nothing; pass a list, or an object whose __iter__ returns a fresh generator.",
+        "language": "python",
         "activity": {
           "type": "code-runner",
           "title": "Walk a folder tree",
@@ -119,9 +211,43 @@
       },
       {
         "title": "itertools: the iterator toolbox",
-        "body": "Data scripts and interview solutions keep needing the same loops: walk two lists in step, take the first n items, chunk a list into pages, compare each item with the next, group records, try every combination. The `itertools` module has each one as a fast, lazy building block written in C, and knowing them turns ten-line loops into one readable line.\n\nInfinite streams and slicing:\n- `count(start, step)`, `cycle(items)` and `repeat(x, n)` produce endless or repeated streams; stop them with `islice` or `zip`.\n- `islice(it, start, stop)` slices any iterator, including files and generators, which do not support `[ ]`.\n\nCombining and splitting:\n- `chain(a, b)` walks several iterables as one; `chain.from_iterable(lists)` flattens one level.\n- `zip_longest` is zip that pads the shorter input instead of stopping early.\n- `pairwise(xs)` (3.10+) yields overlapping neighbors, perfect for differences between consecutive readings.\n- `batched(xs, n)` (3.12+) yields tuples of n items, the last possibly shorter: pages, bulk inserts, API calls with a batch limit.\n\nAggregating:\n- `accumulate(xs)` gives running totals, or a running anything when you pass a function such as `max`.\n- `groupby(xs, key)` groups **consecutive** items with equal keys. It does not sort, so unsorted input produces the same key several times. Sort by the same key first, or use a dict of lists when you do not need streaming.\n\nCombinatorics, for brute force and test data:\n- `product(a, b)` is nested loops, and `product(\"01\", repeat=n)` is every n-bit string (2^n of them).\n- `permutations(xs, r)` counts orderings: n!/(n-r)! results. `combinations(xs, r)` ignores order: n!/(r!(n-r)!).\n\nThey all return iterators: wrap one in `list()` to look at it, and do not expect to loop twice. Counts explode quickly. All permutations of 10 items is 3,628,800 tuples, fine to stream lazily and slow to build as a list.",
-        "code": "from itertools import (accumulate, batched, chain, combinations, count, groupby,\n                       islice, pairwise, permutations, product, zip_longest)\n\nprint(list(chain([1, 2], (3,), \"ab\")))           # [1, 2, 3, 'a', 'b']\nprint(list(islice(count(10, 5), 3)))             # [10, 15, 20]\nprint(list(accumulate([3, 1, 4, 1])))            # [3, 4, 8, 9]  running totals\nprint(list(accumulate([3, 1, 4, 1], max)))       # [3, 3, 4, 4]  running max\nprint(list(pairwise([1, 4, 9, 16])))             # [(1, 4), (4, 9), (9, 16)]\nprint(list(batched(range(7), 3)))                # [(0, 1, 2), (3, 4, 5), (6,)]\nprint(list(zip_longest(\"ab\", [1, 2, 3], fillvalue=\"-\")))\n# [('a', 1), ('b', 2), ('-', 3)]\n\nsales = [(\"north\", 10), (\"south\", 4), (\"north\", 7), (\"south\", 1)]\nsales.sort(key=lambda s: s[0])                   # groupby needs sorted input\nfor region, rows in groupby(sales, key=lambda s: s[0]):\n    print(region, sum(amount for _, amount in rows))\n# north 17\n# south 5\n\nprint(len(list(product(\"ab\", repeat=3))))        # 8: every 3-letter string of a and b\nprint(list(combinations(\"abc\", 2)))              # [('a', 'b'), ('a', 'c'), ('b', 'c')]\nprint(len(list(permutations(\"abc\", 2))))         # 6: order matters",
+        "key": "`itertools` turns common loops into lazy one-liners; `groupby` groups only consecutive equal keys, so sort by the same key first.",
+        "body": "Data scripts and interview solutions keep needing the same loops: take the first n items, chunk a list, compare neighbors, group records, try every combination. `itertools` has each one as a fast, lazy building block.\n\n[[visual]]\n\n[[visual 2]]\n\nThey all return iterators: wrap one in `list()` to look at it, and do not loop twice. Counts explode quickly: all permutations of 10 items is 3,628,800 tuples, fine to stream lazily and slow to build as a list.",
+        "visual": [
+          {
+            "type": "table",
+            "title": "Streams, combining, aggregating",
+            "columns": ["Function", "Does"],
+            "rows": [
+              ["`count(start, step)`, `cycle(xs)`, `repeat(x, n)`", "Endless or repeated streams; stop them with `islice` or `zip`"],
+              ["`islice(it, start, stop)`", "Slices any iterator, even a file or an infinite generator"],
+              ["`chain(a, b)`", "Walks several iterables as one; `chain.from_iterable(lists)` flattens one level"],
+              ["`zip_longest(a, b)`", "Like zip, but pads the shorter input instead of stopping"],
+              ["`pairwise(xs)`", "Overlapping neighbors: `(a, b), (b, c)` (3.10+)"],
+              ["`batched(xs, n)`", "Chunks of n items; the last may be shorter (3.12+)"],
+              ["`accumulate(xs)`", "Running totals; `accumulate(xs, max)` gives a running max"],
+              ["`groupby(xs, key)`", "Groups **consecutive** items with equal keys; it does not sort"]
+            ]
+          },
+          {
+            "type": "table",
+            "title": "Combinatorics",
+            "columns": ["Function", "Gives", "How many", "Example"],
+            "rows": [
+              [
+                "`product(a, b)`",
+                "Every pairing, like nested loops",
+                "`len(a) * len(b)`; `product(\"01\", repeat=n)` gives 2^n",
+                "`product(\"ab\", repeat=2)`: aa, ab, ba, bb"
+              ],
+              ["`permutations(xs, r)`", "Orderings: order matters", "n!/(n-r)!", "`permutations(\"abc\", 2)`: 6 tuples"],
+              ["`combinations(xs, r)`", "Choices: order ignored", "n!/(r!(n-r)!)", "`combinations(\"abc\", 2)`: ab, ac, bc"]
+            ]
+          }
+        ],
+        "code": "from itertools import accumulate, batched, groupby, pairwise\n\nprint(list(accumulate([3, 1, 4, 1])))  # [3, 4, 8, 9]\nprint(list(pairwise([1, 4, 9])))  # [(1, 4), (4, 9)]\nprint(list(batched(range(7), 3)))\n# [(0, 1, 2), (3, 4, 5), (6,)]\n\nsales = [(\"north\", 10), (\"south\", 4), (\"north\", 7)]\nsales.sort(key=lambda s: s[0])  # groupby needs this\nfor region, rows in groupby(sales, key=lambda s: s[0]):\n    print(region, sum(amount for _, amount in rows))\n# north 17 / south 4",
         "pitfall": "Calling groupby on unsorted data. It only groups neighbors, so north, south, north produces three groups; sort by the same key first.",
+        "language": "python",
         "activity": {
           "type": "code-runner",
           "title": "Step counter statistics",
@@ -135,21 +261,46 @@
         },
         "check": {
           "question": "How many groups does groupby(\"aabaa\") produce?",
-          "choices": [
-            "2",
-            "3",
-            "5",
-            "1"
-          ],
+          "choices": ["2", "3", "5", "1"],
           "answer": 1,
           "explanation": "groupby only merges consecutive equal items, so you get aa, b and aa: three groups. Sorting first would give two."
         }
       },
       {
         "title": "functools: caching, partial and friends",
-        "body": "A few lines of functools can replace a page of code. The module holds higher-order tools: functions that take or return functions.\n\n**Caching.** `@cache` (3.9+) and `@lru_cache(maxsize=n)` **memoize** a function: the first call with given arguments runs the body, and later calls with equal arguments return the stored result. That is how a naive recursive solution becomes dynamic programming in one line, and how an expensive lookup stops recomputing for the same key. `lru_cache` evicts the least recently used entry when it is full, so memory stays bounded; `cache` never evicts. The rules:\n- arguments must be hashable, so pass a tuple, not a list;\n- the function should be pure: same input, same output, no side effects you rely on;\n- on methods, the cache keeps every `self` alive, which can leak memory.\n\n`fn.cache_info()` reports hits and misses, and `fn.cache_clear()` empties the cache.\n\n`partial(func, *args, **kwargs)` returns a new callable with some arguments pre-filled, such as `partial(int, base=2)` or a callback with its configuration baked in. It is often clearer than a lambda.\n\n`reduce(fn, items, initial)` folds a sequence into one value. Reach for `sum`, `max`, `any`, `math.prod` or a loop first; reduce is for the cases they do not cover. Pass the initial value, or an empty input raises TypeError.\n\n`cached_property` turns a method into an attribute that is computed on first access and then stored on the instance, ideal for an expensive derived value on an object that does not change.\n\n`singledispatch` chooses an implementation by the type of the first argument, a tidy alternative to a chain of isinstance checks.\n\nAlso in the module: `wraps` for decorators, and `total_ordering`, which fills in `<=`, `>` and `>=` from `__eq__` and `__lt__`.",
-        "code": "from functools import cache, cached_property, lru_cache, partial, reduce, singledispatch\nimport operator\n\n@cache                                   # unbounded memo, like lru_cache(maxsize=None)\ndef ways(n):\n    \"\"\"Ways to climb n stairs taking 1 or 2 steps at a time.\"\"\"\n    return 1 if n <= 1 else ways(n - 1) + ways(n - 2)\n\nprint(ways(80))                          # 37889062373143906, instantly\nprint(ways.cache_info().hits)            # 78\n\n@lru_cache(maxsize=2)                    # bounded: keeps the 2 most recent\ndef lookup(code):\n    print(\"  computing\", code)\n    return code.upper()\n\nfor c in [\"us\", \"fr\", \"us\", \"de\", \"fr\"]:\n    lookup(c)                            # fr is computed twice: it was evicted\n\nfrom_binary = partial(int, base=2)       # pre-fill an argument\nprint(from_binary(\"1011\"))               # 11\n\nprint(reduce(operator.mul, [1, 2, 3, 4], 1))   # 24\n\nclass Report:\n    def __init__(self, rows):\n        self.rows = rows\n\n    @cached_property                     # computed on first access, then stored\n    def total(self):\n        print(\"  summing...\")\n        return sum(self.rows)\n\nr = Report([5, 10])\nprint(r.total, r.total)                  # \"summing...\" once, then 15 15\n\n@singledispatch\ndef describe(value):\n    return f\"something: {value!r}\"\n\n@describe.register\ndef _(value: list):\n    return f\"a list of {len(value)}\"\n\nprint(describe(3), \"|\", describe([1, 2]))     # something: 3 | a list of 2",
-        "pitfall": "Putting @cache on a function whose result depends on the time, a database or a mutable argument. It returns stale answers forever. Cache only pure functions, and bound the size with lru_cache when keys are unbounded.",
+        "key": "`@cache` and `@lru_cache` memoize pure functions with hashable arguments; `partial` pre-fills arguments, and `reduce` folds a sequence into one value.",
+        "body": "A few lines of functools can replace a page of code. Its tools take or return functions.\n\n**Caching.** `@cache` and `@lru_cache(maxsize=n)` **memoize** a function: the first call with given arguments runs the body, and later equal calls return the stored result. That turns naive recursion into dynamic programming in one line. `lru_cache` evicts the least recently used entry when full; `cache` never evicts.\n\n[[visual]]\n\n[[visual 2]]",
+        "visual": [
+          {
+            "type": "table",
+            "title": "Cache rules",
+            "columns": ["Rule", "Because"],
+            "rows": [
+              ["Arguments must be hashable: pass a tuple, not a list", "They become dict keys, so a list raises TypeError: unhashable type"],
+              ["Cache only pure functions", "A result that depends on the time, a database or a live API goes stale forever"],
+              ["Take care on methods", "The cache keeps every `self` alive, which can leak memory"],
+              ["`fn.cache_info()`, `fn.cache_clear()`", "Report hits and misses; empty the cache"]
+            ]
+          },
+          {
+            "type": "table",
+            "title": "More of functools",
+            "columns": ["Tool", "Does"],
+            "rows": [
+              ["`partial(power, exp=2)`", "A new callable with arguments pre-filled, often clearer than a lambda"],
+              [
+                "`reduce(fn, items, initial)`",
+                "Folds items into one value by calling `fn(acc, item)`. Without initial, an empty input raises TypeError. Try `sum`, `max` or `math.prod` first"
+              ],
+              ["`@cached_property`", "Computed on first access, then stored on the instance"],
+              ["`@singledispatch`", "Picks an implementation by the first argument's type"],
+              ["`wraps`, `total_ordering`", "Decorator metadata; fills in `<=`, `>`, `>=` from `__eq__` and `__lt__`"]
+            ]
+          }
+        ],
+        "code": "from functools import cache, lru_cache, partial, reduce\nimport operator\n\n@cache\ndef ways(n):  # stairs climbed 1 or 2 at a time\n    return 1 if n <= 1 else ways(n - 1) + ways(n - 2)\n\nprint(ways(80))  # 37889062373143906, instantly\n\n@lru_cache(maxsize=2)  # keeps the 2 most recent\ndef lookup(code):\n    return code.upper()\n\nfrom_binary = partial(int, base=2)\nprint(from_binary(\"1011\"))  # 11\nprint(reduce(operator.mul, [1, 2, 3, 4], 1))  # 24",
+        "pitfall": "Putting @cache on a function whose result depends on the time, a database or a mutable argument. It returns stale answers forever. Cache only pure functions, and bound the size with lru_cache.",
+        "language": "python",
         "activity": {
           "type": "code-runner",
           "title": "Memoize a slow recursion",
@@ -175,26 +326,72 @@
       },
       {
         "title": "Typing in depth: narrowing, generics, Protocols",
-        "body": "Basic hints such as `int`, `list[str]` and `str | None` cover most signatures. Real codebases use a few more tools, and you need to read them comfortably.\n\n**Narrowing.** A value typed `X | None` must be checked before you use it as an X. After `if user is None: return`, or inside `if n is not None:`, the checker **narrows** the type to X; `isinstance` checks narrow the same way. Most mypy errors in new code are a missing None check, which is exactly the bug the checker exists to catch.\n\n**Generics.** A function that returns the same type it receives needs a **type variable**. In Python 3.12 you write `def first[T](items: list[T]) -> T | None`; older code declares `T = TypeVar(\"T\")` and leaves out the brackets after the name. Now `first([3, 1])` is known to return an int and `first([\"a\"])` a str. Classes can be generic too: `class Stack[T]:`.\n\n**Protocols** describe what an object can do instead of what it inherits from. Any class with a matching `close()` method satisfies `SupportsClose`, without subclassing it. This is duck typing that a checker can verify, and it keeps modules decoupled: your function accepts \"anything with read()\", not one concrete class.\n\n**TypedDict** types the shape of a dict, such as parsed JSON or a database row: which keys exist and what type each value has. **Literal** restricts a value to specific constants, such as `Literal[\"GET\", \"POST\"]`.\n\nAlso worth recognizing:\n- `Callable[[int, str], bool]` is a function that takes an int and a str and returns a bool.\n- `Any` switches checking off for a value. `object` accepts any value but lets you do almost nothing with it until you narrow it, so prefer `object` when you mean \"anything\".\n- `Final` marks a constant that must not be reassigned, and `ClassVar` a class-level attribute.\n- `typing.cast(T, value)` tells the checker to trust you. It does nothing at runtime, so use it rarely.\n\nNone of this changes what happens at runtime. The payoff comes from running a checker, mypy or Pyright, in your editor and in CI, which Python Tooling covers.",
-        "code": "from typing import Literal, Protocol, TypedDict\n\nclass SupportsClose(Protocol):          # structural: any class with close() fits\n    def close(self) -> None: ...\n\ndef shutdown(resources: list[SupportsClose]) -> None:\n    for r in resources:\n        r.close()\n\ndef first[T](items: list[T]) -> T | None:   # a generic function (3.12 syntax)\n    return items[0] if items else None\n\nn = first([3, 1, 2])                  # a checker infers int | None\nif n is not None:                     # narrowing: in here, n is an int\n    print(n + 1)                      # 4\n\nclass UserRow(TypedDict):             # the shape of a dict, such as parsed JSON\n    id: int\n    email: str\n    role: Literal[\"admin\", \"member\"]  # only these two strings are allowed\n\ndef promote(user: UserRow) -> UserRow:\n    return {**user, \"role\": \"admin\"}\n\nrow: UserRow = {\"id\": 7, \"email\": \"ada@example.com\", \"role\": \"member\"}\nprint(promote(row)[\"role\"])           # admin\n\n# mypy reports this before anything runs:\n# promote({\"id\": 7, \"email\": \"ada@example.com\", \"role\": \"owner\"})\n# error: Incompatible types (expression has type \"Literal['owner']\",\n#        TypedDict item \"role\" has type \"Literal['admin', 'member']\")",
+        "key": "Check `X | None` before use so the checker narrows it, link input and output types with a type variable, and use Protocols to accept anything with the right methods.",
+        "body": "Basic hints such as `int`, `list[str]` and `str | None` cover most signatures. Real codebases use a few more, and you need to read them comfortably.\n\n**Narrowing.** A value typed `X | None` must be checked before you use it as an X. After `if user is None: return`, or inside `if n is not None:`, the checker narrows the type to X; `isinstance` checks narrow too. Most mypy errors in new code are a missing None check.\n\n[[visual]]\n\nNone of this changes what happens at runtime. The payoff comes from running mypy or Pyright in your editor and in CI.",
+        "visual": {
+          "type": "table",
+          "title": "Reading advanced hints",
+          "columns": ["Hint", "Means"],
+          "rows": [
+            [
+              "`def first[T](items: list[T]) -> T | None`",
+              "A **generic** function: T links input and output, so `first([3, 1])` returns `int | None`. Older code declares `T = TypeVar(\"T\")`"
+            ],
+            ["`class Stack[T]:`", "A generic class"],
+            ["`class SupportsClose(Protocol)`", "A **Protocol**: any object with a matching `close()` fits, with no inheritance needed"],
+            ["`class UserRow(TypedDict)`", "A **TypedDict**: a dict with specific keys and value types"],
+            ["`Literal[\"GET\", \"POST\"]`", "Only these exact values"],
+            ["`Callable[[int, str], bool]`", "A function that takes an int and a str and returns a bool"],
+            ["`Any`", "Switches checking off: a function returning Any disables checks on how every caller uses the result"],
+            ["`object`", "Accepts anything but allows almost nothing until you narrow it: prefer it to Any"],
+            ["`Final`, `ClassVar`", "A constant that must not be reassigned; a class-level attribute"],
+            ["`typing.cast(T, value)`", "Tells the checker to trust you; does nothing at runtime"]
+          ]
+        },
+        "code": "from typing import Literal, Protocol, TypedDict\n\nclass SupportsClose(Protocol):\n    def close(self) -> None: ...\n\ndef first[T](items: list[T]) -> T | None:\n    return items[0] if items else None\n\nn = first([3, 1, 2])  # int | None\nif n is not None:  # narrowed: n is an int here\n    print(n + 1)  # 4\n\nclass UserRow(TypedDict):\n    id: int\n    role: Literal[\"admin\", \"member\"]\n\nrow: UserRow = {\"id\": 7, \"role\": \"owner\"}\n# mypy: incompatible type \"Literal['owner']\"",
         "pitfall": "Silencing errors with Any. A function that returns Any quietly turns off checking for every caller; type it properly, use object, or narrow with isinstance.",
+        "language": "python",
         "check": {
           "question": "def first[T](items: list[T]) -> T | None. What type does a checker infer for first([\"a\", \"b\"])?",
-          "choices": [
-            "list[str]",
-            "Any",
-            "str | None",
-            "T"
-          ],
+          "choices": ["list[str]", "Any", "str | None", "T"],
           "answer": 2,
           "explanation": "T is bound to str by the argument list[str], so the return type T | None becomes str | None. The None part stays because an empty list returns None."
         }
       },
       {
         "title": "Dataclasses, enums and pattern matching",
-        "body": "Intermediate Python introduced `@dataclass`. A few more options make dataclasses the default way to model records in modern Python, and two related features, enums and `match`, keep the code that uses those records clean.\n\nDataclass extras:\n- `__post_init__` runs right after the generated `__init__`. Validate fields there and raise ValueError, and an invalid object can never exist.\n- `kw_only=True` makes every field keyword-only, so `Task(title=\"x\", points=3)` cannot be mixed up when two fields share a type.\n- `slots=True` (3.10+) stores fields in fixed slots instead of a per-instance dict. Instances use less memory, and a typo such as `t.titel = \"x\"` raises AttributeError instead of silently adding a new attribute.\n- `replace(obj, field=new)` returns a modified copy, the natural partner of `frozen=True`.\n- `asdict(obj)` converts recursively to dicts and lists, handy before `json.dumps`, although enums and dates still need converting.\n\nAn **Enum** is a fixed set of named constants: `Status.DONE` instead of the string \"done\" scattered through the code, where a typo like \"dnoe\" is a silent bug. Members have `.name` and `.value`, `Status(\"done\")` looks a member up by value (and raises ValueError for anything else, which is free input validation), and you can loop over the class. `StrEnum` (3.11+) members are also real strings, which suits JSON and database columns.\n\n**Structural pattern matching** (`match`, 3.10+) compares a value against shapes, not just equal values:\n- `case [\"add\", title]:` matches a two-item sequence starting with \"add\" and binds title.\n- `case {\"type\": \"click\", \"x\": x}:` matches dicts with those keys; extra keys are allowed.\n- `case Point(x=0, y=y):` matches objects by class and attributes.\n- `|` combines alternatives, `as` binds a sub-pattern, `if` adds a guard, and `case _:` catches everything else.\n\nUse match for parsing commands, messages and tree-shaped data. For a plain lookup of one value, a dict or if/elif is still simpler.",
-        "code": "from dataclasses import asdict, dataclass, field, replace\nfrom enum import Enum\n\nclass Status(Enum):\n    TODO = \"todo\"\n    DOING = \"doing\"\n    DONE = \"done\"\n\n@dataclass(slots=True, kw_only=True)\nclass Task:\n    title: str\n    points: int = 1\n    status: Status = Status.TODO\n    tags: list[str] = field(default_factory=list)\n\n    def __post_init__(self):              # runs after the generated __init__\n        if self.points not in (1, 2, 3, 5, 8):\n            raise ValueError(f\"points must be 1, 2, 3, 5 or 8, got {self.points}\")\n\nt = Task(title=\"Write tests\", points=3)\ndone = replace(t, status=Status.DONE)   # a modified copy; t is unchanged\nprint(t.status.name, done.status.value)  # TODO done\nprint(asdict(done))\n# {'title': 'Write tests', 'points': 3, 'status': <Status.DONE: 'done'>, 'tags': []}\nprint(Status(\"doing\") is Status.DOING)   # True: look a member up by its value\n\ndef handle(command: str) -> str:\n    match command.split():\n        case [\"add\", title]:\n            return f\"adding {title}\"\n        case [\"move\", title, (\"todo\" | \"doing\" | \"done\") as status]:\n            return f\"moving {title} to {status}\"\n        case [\"list\"]:\n            return \"listing all\"\n        case _:\n            return \"unknown command\"\n\nfor cmd in [\"add docs\", \"move docs done\", \"move docs later\", \"list\"]:\n    print(handle(cmd))\n# adding docs / moving docs to done / unknown command / listing all",
+        "key": "Dataclass options validate and lock down records, Enums replace magic strings, and `match` compares a value against shapes, binding the parts it captures.",
+        "body": "Dataclasses are the default way to model records in modern Python. Enums and `match` keep the code that uses those records clean.\n\n[[visual]]\n\nAn **Enum** is a fixed set of named constants: `Status.DONE` instead of the string \"done\", where a typo like \"dnoe\" is a silent bug. Members have `.name` and `.value`, `Status(\"done\")` looks one up by value (ValueError for anything else), and you can loop over the class. `StrEnum` members are also real strings.\n\n**Structural pattern matching** (`match`, 3.10+) compares a value against shapes:\n\n[[visual 2]]\n\nFor a plain lookup of one value, a dict or if/elif is still simpler.",
+        "visual": [
+          {
+            "type": "table",
+            "title": "Dataclass extras",
+            "columns": ["Option", "Effect"],
+            "rows": [
+              ["`__post_init__`", "Runs after the generated `__init__`: validate there and raise ValueError"],
+              ["`kw_only=True`", "Every field is keyword-only, so two fields of the same type cannot be swapped"],
+              ["`slots=True`", "Less memory, and a typo such as `t.titel = \"x\"` raises AttributeError"],
+              ["`replace(obj, field=new)`", "Returns a modified copy; the original is unchanged"],
+              ["`asdict(obj)`", "Converts recursively to dicts and lists (enums and dates still need converting for JSON)"]
+            ]
+          },
+          {
+            "type": "table",
+            "title": "Case patterns",
+            "columns": ["Pattern", "Matches"],
+            "rows": [
+              ["`case [\"add\", title]:`", "A two-item sequence starting with \"add\"; binds title"],
+              ["`case {\"type\": \"click\", \"x\": x}:`", "Dicts with those keys; extra keys are allowed, and `**rest` captures them"],
+              ["`case Point(x=0, y=y):`", "Objects by class and attributes"],
+              ["`|`, `as`, `if`", "Alternatives, binding a sub-pattern, and a guard"],
+              ["`case Status.DONE:`", "A constant needs a dotted name or a literal"],
+              ["`case DONE:`, `case _:`", "A bare name captures anything; `_` is the catch-all"]
+            ]
+          }
+        ],
+        "code": "from enum import Enum\n\nclass Status(Enum):\n    TODO = \"todo\"\n    DONE = \"done\"\n\nprint(Status(\"done\") is Status.DONE)  # True\n\ndef handle(command: str) -> str:\n    match command.split():\n        case [\"add\", title]:\n            return f\"adding {title}\"\n        case [\"move\", title, (\"todo\" | \"done\") as s]:\n            return f\"moving {title} to {s}\"\n        case _:\n            return \"unknown command\"\n\nprint(handle(\"move docs done\"))  # moving docs to done",
         "pitfall": "Writing `case DONE:` with a plain name to compare against a constant. A bare name is a capture pattern that matches anything; use a dotted name such as `case Status.DONE:` or a literal.",
+        "language": "python",
         "activity": {
           "type": "code-runner",
           "title": "Route events with match",
@@ -220,9 +417,38 @@
       },
       {
         "title": "Error-handling patterns for real code",
-        "body": "Intermediate Python covered try, except, else, finally and custom exceptions. Production code adds a few patterns on top.\n\n**A small hierarchy.** A library or service defines one base exception, such as `AppError`, and specific subclasses: `ConfigError`, `NotFound`, `PaymentDeclined`. Callers can catch one specific failure, or everything from your code with `except AppError`, without also catching unrelated bugs such as a TypeError.\n\n**Translate at boundaries, and keep the cause.** Low-level errors (KeyError, JSONDecodeError, a database driver's OperationalError) mean little to whoever called `load_config()`. Catch them at the edge of your module and raise a meaningful error **from** the original: `raise ConfigError(\"...\") from err`. The traceback then shows both, joined by \"The above exception was the direct cause of the following exception\", and `err.__cause__` holds the original. Use `from None` when the original is pure noise. Raising inside an except block without `from` still chains, as \"During handling of the above exception, another exception occurred\", which normally signals a bug inside the handler itself.\n\n**Add context instead of replacing.** `err.add_note(f\"while processing row {n}\")` (3.11+) attaches an extra line to the traceback, and a bare `raise` re-raises the same exception with the note.\n\n**Many errors at once.** Validation and concurrent tasks can fail in several independent ways. An **ExceptionGroup** (3.11+) carries a list of exceptions, and `except*` handles every exception of a matching type inside the group. asyncio's TaskGroup raises them, as the last section shows.\n\n**Where to handle.** Let exceptions travel up to the layer that can do something about them: retry the call, show the user a message, return a 400 response. Handle them there, typically at the top of a request handler or a CLI's `main()`, and log with `logger.exception(...)`, which includes the traceback. Catching and logging at every level writes the same error to the log five times.\n\n**Retries** belong only around operations that fail transiently (timeouts, 503 responses, dropped connections) and are safe to repeat. Cap the attempts and wait longer each time (exponential backoff with jitter). Never retry a ValueError: it will fail the same way every time.",
-        "code": "import json\n\nclass AppError(Exception):\n    \"\"\"Base class: callers can catch everything this package raises.\"\"\"\n\nclass ConfigError(AppError):\n    pass\n\ndef load_port(text):\n    try:\n        return json.loads(text)[\"port\"]\n    except json.JSONDecodeError as err:\n        raise ConfigError(\"config is not valid JSON\") from err\n    except KeyError:\n        raise ConfigError(\"config is missing 'port'\") from None\n\nfor text in ['{\"port\": 8080}', '{\"port\": ', '{\"host\": \"x\"}']:\n    try:\n        print(\"port\", load_port(text))\n    except AppError as err:\n        cause = type(err.__cause__).__name__ if err.__cause__ else None\n        print(f\"{type(err).__name__}: {err} (cause: {cause})\")\n\n# Several independent failures at once (3.11+)\ndef validate(user):\n    problems = []\n    if \"@\" not in user[\"email\"]:\n        problems.append(ValueError(\"email has no @\"))\n    if user[\"age\"] < 0:\n        problems.append(ValueError(\"age is negative\"))\n    if problems:\n        raise ExceptionGroup(\"invalid user\", problems)\n\ntry:\n    validate({\"email\": \"nobody\", \"age\": -1})\nexcept* ValueError as group:\n    for e in group.exceptions:\n        print(\"-\", e)",
+        "key": "Define a small exception hierarchy, translate low-level errors at module boundaries with `raise ... from err`, and handle each error once, at the layer that can act on it.",
+        "body": "**A small hierarchy.** One base class (`AppError`) with specific subclasses (`ConfigError`, `NotFound`) lets callers catch one failure, or everything from your code, without catching unrelated bugs.\n\n**Translate at boundaries.** A KeyError means little to whoever called `load_config()`. Catch it at the edge and raise a meaningful error from the original:\n\n[[visual]]\n\n`err.add_note(\"while processing row 3\")` (3.11+) adds context before a bare `raise`. An **ExceptionGroup** carries several independent errors, handled with `except*`.\n\n**Where to handle.** At the layer that can act (retry, show a message, return a 400), usually a request handler or `main()`, logging with `logger.exception(...)`. Logging at every level writes one error five times.\n\n**Retry** only transient failures that are safe to repeat, with capped attempts and exponential backoff:\n\n[[visual 2]]",
+        "visual": [
+          {
+            "type": "table",
+            "title": "Raising inside an except block",
+            "columns": ["Code", "The traceback"],
+            "rows": [
+              ["`raise ConfigError(...) from err`", "Shows both, joined by \"The above exception was the direct cause...\". `err` is kept as `__cause__`"],
+              ["`raise ConfigError(...) from None`", "Hides the original: use it when the original is pure noise"],
+              ["`raise ConfigError(...)` with no `from`", "\"During handling of the above exception, another exception occurred\": usually a bug in the handler"]
+            ]
+          },
+          {
+            "type": "compare",
+            "items": [
+              {
+                "title": "Retry",
+                "tone": "good",
+                "points": ["Timeouts and dropped connections", "HTTP 503 Service Unavailable", "HTTP 429, after the Retry-After delay", "Payments only with an idempotency key"]
+              },
+              {
+                "title": "Do not retry",
+                "tone": "bad",
+                "points": ["ValueError and other bad input: it fails the same way every time", "HTTP 400 and 404", "A charge with no idempotency key: it could happen twice"]
+              }
+            ]
+          }
+        ],
+        "code": "import json\n\nclass AppError(Exception):\n    \"\"\"Base: callers can catch everything we raise.\"\"\"\n\nclass ConfigError(AppError):\n    pass\n\ndef load_port(text):\n    try:\n        return json.loads(text)[\"port\"]\n    except json.JSONDecodeError as err:\n        raise ConfigError(\"config is not valid JSON\") from err\n    except KeyError:\n        raise ConfigError(\"config is missing 'port'\") from None",
         "pitfall": "Writing `raise NewError(...)` inside an except block without `from err`. The traceback then reads like a crash in your handler instead of a deliberate translation.",
+        "language": "python",
         "activity": {
           "type": "code-runner",
           "title": "Translate errors at a boundary",
@@ -248,9 +474,56 @@
       },
       {
         "title": "Performance: measure, profile, then optimize",
-        "body": "Your script takes 40 seconds and you are sure the regex is to blame. You rewrite it, and it still takes 40 seconds: the time was going into a list searched inside a loop. Programmers are famously bad at guessing where time goes, so the rule is: make it work, make it right, then **measure**, and only then make it fast.\n\nMeasuring tools in the standard library:\n- `time.perf_counter()` around a block gives a quick number.\n- `timeit` runs a small snippet many times and reports the total, which averages out noise. From a shell: `python -m timeit \"sorted(range(1000))\"`.\n- `cProfile` profiles a whole program: `python -m cProfile -s cumulative app.py` lists every function with its call count, its own time (**tottime**) and its time including everything it called (**cumtime**). Sort by cumtime to find the expensive branch of the program, then by tottime to find the hot function itself. Tools such as snakeviz draw the same data, and py-spy can sample a running production process without restarting it.\n- `tracemalloc` shows which lines allocate the most memory.\n\nWhat a profile usually reveals is an algorithm problem, and Big-O wins dwarf micro-tweaks:\n- `x in some_list` inside a loop is O(n) each time. Build a set or dict once.\n- `list.pop(0)` and `list.insert(0, x)` are O(n) because every item shifts. Use `collections.deque`.\n- `s += piece` in a loop can copy the whole string each time. Collect the pieces in a list and call `\"\".join(pieces)` once.\n- The same computation or query repeated inside a loop: hoist it out, or cache it.\n- One database query per item (the N+1 problem from Databases in Practice) instead of one query for all of them.\n\nOnce the algorithm is right, smaller wins follow. Built-ins and comprehensions run in C and beat hand-written loops. `__slots__` or `slots=True` dataclasses cut memory for millions of small objects. Generators avoid building huge lists. Heavy numeric work belongs in NumPy, which moves the loop into C, and CPU-bound work can spread across cores with multiprocessing.\n\nRe-measure after every change with realistic input sizes. An optimization that does not show up in the numbers is not one: revert it and keep the simpler code.",
-        "code": "import cProfile\nimport pstats\nimport timeit\n\nitems = list(range(10_000))\nas_set = set(items)\nt_list = timeit.timeit(lambda: 9_999 in items, number=1_000)\nt_set = timeit.timeit(lambda: 9_999 in as_set, number=1_000)\nprint(f\"list: {t_list:.4f} s  set: {t_set:.4f} s\")   # e.g. list: 0.0409 s  set: 0.0000 s\n\ndef slow_queue(n):\n    q = list(range(n))\n    while q:\n        q.pop(0)                 # O(n): shifts every remaining item\n\ndef fast_queue(n):\n    from collections import deque\n    q = deque(range(n))\n    while q:\n        q.popleft()              # O(1)\n\ndef main():\n    slow_queue(50_000)\n    fast_queue(50_000)\n\ncProfile.run(\"main()\", \"profile.out\")\npstats.Stats(\"profile.out\").sort_stats(\"tottime\").print_stats(3)\n# Sample output (times vary by machine):\n#   ncalls  tottime  percall  cumtime  percall filename:lineno(function)\n#    50000    2.679    0.000    2.679    0.000 {method 'pop' of 'list' objects}\n#        1    0.012    0.012    2.691    2.691 app.py:11(slow_queue)\n#        1    0.005    0.005    0.008    0.008 app.py:16(fast_queue)",
+        "key": "Measure and profile before optimizing: the fix is usually an algorithm or data structure change, and it only counts if the numbers show it.",
+        "body": "Your script takes 40 seconds, so you rewrite the regex you suspect. It still takes 40 seconds: the time went into a list searched inside a loop. Programmers guess badly where time goes, so measure first.\n\n[[visual]]\n\n[[visual 2]]\n\nA profile usually reveals an algorithm problem, and Big-O wins dwarf micro-tweaks:\n\n[[visual 3]]\n\nThen come smaller wins: built-ins and comprehensions run in C, `slots=True` cuts memory for millions of objects, NumPy moves numeric loops into C, and multiprocessing spreads CPU-bound work across cores.",
+        "visual": [
+          {
+            "type": "flow",
+            "title": "Speeding up slow code",
+            "steps": [
+              { "label": "Make it correct, with tests" },
+              { "label": "Measure the slow case with realistic input" },
+              { "label": "Profile to find the biggest cumulative cost" },
+              { "label": "Fix the algorithm or data structure there" },
+              {
+                "label": "Re-measure",
+                "detail": "Keep the change only if the numbers improve; otherwise revert to the simpler code",
+                "tone": "good"
+              }
+            ]
+          },
+          {
+            "type": "table",
+            "title": "Measuring tools",
+            "columns": ["Tool", "Use"],
+            "rows": [
+              ["`time.perf_counter()`", "A quick number around a block"],
+              ["`timeit`", "Runs a snippet many times: `python -m timeit \"sorted(range(1000))\"`"],
+              [
+                "`cProfile`",
+                "`python -m cProfile -s cumulative app.py` lists every function with its call count, **tottime** (its own time) and **cumtime** (including everything it called)"
+              ],
+              ["snakeviz, py-spy", "Draw a profile; sample a running process without restarting it"],
+              ["`tracemalloc`", "Which lines allocate the most memory"]
+            ],
+            "caption": "Sort by cumtime to find the expensive branch, then by tottime to find the hot function itself."
+          },
+          {
+            "type": "table",
+            "title": "Common fixes",
+            "columns": ["Slow", "Fast"],
+            "rows": [
+              ["`x in some_list` inside a loop: O(n) each time", "Build a set or dict once: O(1)"],
+              ["`list.pop(0)`, `list.insert(0, x)`: O(n), every item shifts", "`collections.deque`: O(1) at both ends"],
+              ["`s += piece` in a loop: may copy the string each time", "Collect pieces in a list, then `\"\".join(pieces)`"],
+              ["The same work repeated inside a loop", "Hoist it out, or cache it"],
+              ["One database query per item (N+1)", "One query for all of them"]
+            ]
+          }
+        ],
+        "code": "import timeit\n\nitems = list(range(10_000))\nas_set = set(items)\nt_list = timeit.timeit(lambda: 9_999 in items, number=1_000)\nt_set = timeit.timeit(lambda: 9_999 in as_set, number=1_000)\nprint(f\"list: {t_list:.4f} s  set: {t_set:.4f} s\")\n# e.g. list: 0.0409 s  set: 0.0000 s",
         "pitfall": "Optimizing before profiling. Rewriting the part you suspect wastes time and adds complexity; profile with realistic data and fix the biggest cumulative cost first.",
+        "language": "python",
         "activity": {
           "type": "code-runner",
           "title": "Watch O(n) per operation add up",
@@ -263,22 +536,60 @@
         },
         "check": {
           "question": "In cProfile output, what does cumtime include that tottime does not?",
-          "choices": [
-            "Time spent compiling the module",
-            "Time spent waiting for input",
-            "Time spent inside the functions it called",
-            "Time spent by other processes"
-          ],
+          "choices": ["Time spent compiling the module", "Time spent waiting for input", "Time spent inside the functions it called", "Time spent by other processes"],
           "answer": 2,
           "explanation": "tottime is time spent in the function's own code; cumtime adds everything it called. A main() with a huge cumtime and tiny tottime is just the caller of the slow part."
         }
       },
       {
         "title": "asyncio in depth: TaskGroup, timeouts, queues",
-        "body": "Concurrency and Async introduced asyncio: `async def`, `await`, `asyncio.run`, `gather`, and the rule never to block the event loop. Real async services, such as FastAPI apps, scrapers and bots, also need to run groups of tasks safely, time out slow calls, cancel work and limit how much runs at once.\n\n**TaskGroup** (3.11+) is the modern way to run tasks together. Tasks created with `tg.create_task()` run concurrently, and the `async with` block waits for all of them. If any task raises, the group cancels the others and raises an ExceptionGroup, which you handle with `except*`. This is **structured concurrency**: no task outlives the block that started it. Prefer it to bare `asyncio.create_task`, whose failures go unnoticed if nobody awaits the task, and which can even be garbage-collected mid-flight unless you keep a reference.\n\n**gather** is still fine for \"run these and give me the results in order\". Pass `return_exceptions=True` to receive failures as values instead of losing the other results.\n\n**Timeouts.** Any network call can hang. `async with asyncio.timeout(5):` (3.11+) or `await asyncio.wait_for(coro, 5)` cancels the inner work and raises TimeoutError when time runs out.\n\n**Cancellation** arrives as `asyncio.CancelledError` at the task's current await. Clean up in `finally`, and never swallow CancelledError, or the task cannot be stopped.\n\n**Limiting concurrency.** An `asyncio.Semaphore(n)` lets at most n coroutines into a section at once. An `asyncio.Queue` with a fixed pool of worker tasks does the same for a stream of jobs, and its `maxsize` makes producers wait when workers fall behind. That pushback is called **backpressure**, and it keeps memory bounded.\n\n**Async iteration and context managers.** `async for` loops over an async iterator, such as rows streamed from a database or messages from a websocket, and `async with` enters async context managers, such as an HTTP client session or a pooled connection. An async generator is an `async def` that contains `yield`.\n\nasyncio is single-threaded. All of this helps while you are waiting on the network or a disk, not while you are computing.",
-        "code": "import asyncio\nimport time\n\nasync def fetch(name, delay, fail=False):\n    await asyncio.sleep(delay)             # stands in for a network call\n    if fail:\n        raise ConnectionError(f\"{name} failed\")\n    return f\"{name}: ok\"\n\nasync def main():\n    start = time.perf_counter()\n    async with asyncio.TaskGroup() as tg:  # 3.11+: waits for every task\n        a = tg.create_task(fetch(\"users\", 0.2))\n        b = tg.create_task(fetch(\"orders\", 0.3))\n    print(a.result(), b.result(), f\"{time.perf_counter() - start:.1f}s\")\n\n    try:                                   # one failure cancels the rest\n        async with asyncio.TaskGroup() as tg:\n            tg.create_task(fetch(\"slow\", 1.0))\n            tg.create_task(fetch(\"bad\", 0.05, fail=True))\n    except* ConnectionError as group:\n        print(\"failed:\", [str(e) for e in group.exceptions])\n\n    try:                                   # give up on a slow call\n        async with asyncio.timeout(0.1):\n            await fetch(\"slow\", 1.0)\n    except TimeoutError:\n        print(\"slow: timed out\")\n\n    queue = asyncio.Queue(maxsize=10)      # bounded: producers wait when full\n    results = []\n\n    async def worker():\n        while True:\n            n = await queue.get()\n            await asyncio.sleep(0.01)\n            results.append(n * n)\n            queue.task_done()\n\n    workers = [asyncio.create_task(worker()) for _ in range(3)]\n    for n in range(6):\n        await queue.put(n)\n    await queue.join()                     # wait until every item is processed\n    for w in workers:\n        w.cancel()\n    print(sorted(results))\n\nasyncio.run(main())\n# users: ok orders: ok 0.3s\n# failed: ['bad failed']\n# slow: timed out\n# [0, 1, 4, 9, 16, 25]",
+        "key": "Run related tasks in a `TaskGroup` so one failure cancels the rest, time out network calls, bound concurrency with a Semaphore or Queue, and never swallow CancelledError.",
+        "body": "Real async services (FastAPI apps, scrapers, bots) need more than `await` and `gather`: groups of tasks, timeouts, cancellation and limits on how much runs at once.\n\n[[visual]]\n\n[[visual 2]]\n\n**Cancellation** arrives as `asyncio.CancelledError` at the task's current await. Clean up in `finally`, and never swallow it (for example with `except BaseException`), or the task cannot be stopped.\n\n`async for` loops over async iterators (streamed rows, websocket messages), and `async with` enters async context managers (HTTP sessions, pooled connections). asyncio is single-threaded: it helps while waiting on the network or a disk, not while computing.",
+        "visual": [
+          {
+            "type": "sequence",
+            "title": "One task fails inside a TaskGroup",
+            "actors": [
+              { "id": "tg", "label": "TaskGroup" },
+              { "id": "slow", "label": "slow task" },
+              { "id": "bad", "label": "bad task" }
+            ],
+            "messages": [
+              { "from": "tg", "to": "slow", "label": "create_task()" },
+              { "from": "tg", "to": "bad", "label": "create_task()" },
+              { "from": "bad", "to": "tg", "label": "raises ConnectionError", "tone": "bad", "dashed": true },
+              {
+                "from": "tg",
+                "to": "slow",
+                "label": "cancel()",
+                "detail": "CancelledError at its await",
+                "tone": "warn"
+              },
+              {
+                "note": "The block raises an ExceptionGroup: handle it with except*",
+                "over": ["tg"]
+              }
+            ]
+          },
+          {
+            "type": "table",
+            "title": "Async toolbox",
+            "columns": ["Tool", "Use"],
+            "rows": [
+              ["`TaskGroup()` (3.11+)", "**Structured concurrency**: the block waits for every task, and one failure cancels the rest"],
+              ["`gather(..., return_exceptions=True)`", "Results in order, with failures returned as values"],
+              ["`create_task()` on its own", "Failures go unnoticed unless awaited, and an unreferenced task can be garbage-collected"],
+              ["`timeout(5)`, `wait_for(coro, 5)`", "Cancel slow work and raise TimeoutError"],
+              ["`Semaphore(20)`", "At most 20 coroutines inside a section at once"],
+              ["`Queue(maxsize=10)` and workers", "A bounded job stream: producers wait when it is full (**backpressure**)"]
+            ],
+            "caption": "All live in `asyncio`: write `asyncio.TaskGroup()`, `async with asyncio.timeout(5):` and so on."
+          }
+        ],
+        "code": "import asyncio\n\nasync def fetch(name, delay, fail=False):\n    await asyncio.sleep(delay)  # stands in for I/O\n    if fail:\n        raise ConnectionError(f\"{name} failed\")\n    return f\"{name}: ok\"\n\nasync def main():\n    try:\n        async with asyncio.TaskGroup() as tg:\n            tg.create_task(fetch(\"slow\", 1.0))\n            tg.create_task(fetch(\"bad\", 0.1, fail=True))\n    except* ConnectionError as group:\n        print(\"failed:\", [str(e) for e in group.exceptions])\n\n    try:\n        async with asyncio.timeout(0.1):\n            await fetch(\"slow\", 1.0)\n    except TimeoutError:\n        print(\"slow: timed out\")\n\nasyncio.run(main())",
         "tip": "The in-browser playground runs ordinary scripts, not an event loop, so try this code in a local Python 3.11 or newer.",
-        "pitfall": "Calling a coroutine function without awaiting it. fetch(\"users\") alone only creates a coroutine object; nothing runs, and Python warns that the coroutine was never awaited.",
+        "pitfall": "Calling a coroutine function without awaiting it. `fetch(\"users\")` alone only creates a coroutine object; nothing runs, and Python warns that it was never awaited.",
+        "language": "python",
         "check": {
           "question": "Inside async with asyncio.TaskGroup() as tg, one of three tasks raises ConnectionError. What happens?",
           "choices": [
@@ -359,13 +670,12 @@
       }
     ],
     "summary": [
-      "A decorator replaces a function with a wrapper; use functools.wraps, return the result, and add a factory layer for arguments.",
-      "Context managers pair setup with guaranteed cleanup; with @contextmanager, put the yield inside try/finally.",
-      "Generators chain into lazy pipelines; itertools and functools replace many hand-written loops and caches.",
-      "Advanced hints (narrowing, generics, Protocols, TypedDict, Literal) pay off only when a checker runs.",
-      "Translate low-level errors at module boundaries with raise ... from err, and handle them once, at the layer that can act.",
-      "Measure and profile before optimizing; algorithm and data structure fixes beat micro-tweaks.",
-      "Use TaskGroup, timeouts, semaphores and queues to keep async code bounded and cancellable."
+      "A decorator replaces a function with a wrapper: use functools.wraps, return the result, add a factory layer for arguments.",
+      "Context managers guarantee cleanup; with @contextmanager, put the yield inside try/finally.",
+      "Generators chain into lazy pipelines; itertools and functools replace many loops and caches.",
+      "Advanced hints pay off only when a checker such as mypy runs.",
+      "Translate low-level errors with raise ... from err and handle them once, where you can act.",
+      "Profile before optimizing, and keep async work bounded and cancellable."
     ],
     "feynmanPrompt": "Explain to a teammate who knows basic Python what really happens when Python sees @retry(times=3) above a function, and why the wrapper needs functools.wraps and a return statement."
   },
@@ -404,12 +714,7 @@
       "difficulty": "medium",
       "question": "Complete the decorator factory so @repeat(times=3) works.",
       "code": "import functools\n\ndef repeat(times):\n    def decorator(func):\n        @functools.wraps(func)\n        def wrapper(*args, **kwargs):\n            for _ in range(times):\n                result = func(*args, **kwargs)\n            return result\n        return wrapper\n    return _____",
-      "choices": [
-        "func",
-        "decorator",
-        "repeat",
-        "wrapper"
-      ],
+      "choices": ["func", "decorator", "repeat", "wrapper"],
       "answer": 1,
       "explanation": "repeat(times=3) is called first and must return the real decorator, which Python then applies to the function. Returning wrapper would skip a layer: Python would call wrapper(func) as if it were the decorator.",
       "concept": "decorator factory",
@@ -421,12 +726,7 @@
       "difficulty": "hard",
       "question": "What does this print?",
       "code": "funcs = [lambda: i for i in range(3)]\nprint([f() for f in funcs])",
-      "choices": [
-        "NameError: i is not defined",
-        "[0, 1, 2]",
-        "[0, 0, 0]",
-        "[2, 2, 2]"
-      ],
+      "choices": ["NameError: i is not defined", "[0, 1, 2]", "[0, 0, 0]", "[2, 2, 2]"],
       "answer": 3,
       "explanation": "Closures capture variables, not values. All three lambdas share the comprehension's i, which is 2 when they are finally called. Bind the current value with a default argument, lambda i=i: i, to get [0, 1, 2].",
       "concept": "late binding in closures",
@@ -487,12 +787,7 @@
       "difficulty": "hard",
       "question": "What does this print?",
       "code": "class Quiet:\n    def __enter__(self):\n        return self\n    def __exit__(self, exc_type, exc, tb):\n        return exc_type is ZeroDivisionError\n\nwith Quiet():\n    1 / 0\nprint(\"A\")\ntry:\n    with Quiet():\n        int(\"x\")\nexcept ValueError:\n    print(\"B\")",
-      "choices": [
-        "A, then B",
-        "Only A",
-        "A ZeroDivisionError traceback",
-        "Only B"
-      ],
+      "choices": ["A, then B", "Only A", "A ZeroDivisionError traceback", "Only B"],
       "answer": 0,
       "explanation": "__exit__ returns True only for ZeroDivisionError, so 1 / 0 is swallowed and A prints. For the ValueError it returns False, so the error propagates and the outer except prints B.",
       "concept": "selective suppression",
@@ -511,12 +806,7 @@
         "Converting a list to a set",
         "Sorting a list in place"
       ],
-      "answers": [
-        0,
-        1,
-        2,
-        3
-      ],
+      "answers": [0, 1, 2, 3],
       "explanation": "Context managers pair a setup with a cleanup that must run even when the block fails. Converting or sorting has nothing to undo afterwards.",
       "concept": "setup and cleanup",
       "section": 1
@@ -538,12 +828,7 @@
       "difficulty": "hard",
       "question": "What does this print?",
       "code": "limit = 2\ngen = (x for x in range(5) if x < limit)\nlimit = 4\nprint(list(gen))",
-      "choices": [
-        "[0, 1]",
-        "[]",
-        "[0, 1, 2, 3]",
-        "[0, 1, 2, 3, 4]"
-      ],
+      "choices": ["[0, 1]", "[]", "[0, 1, 2, 3]", "[0, 1, 2, 3, 4]"],
       "answer": 2,
       "explanation": "The condition runs only when list() pulls items, and by then limit is 4. Only the first iterable, range(5), is evaluated when the generator expression is created.",
       "concept": "lazy evaluation timing",
@@ -572,12 +857,7 @@
       "difficulty": "medium",
       "question": "Complete flatten so it handles lists nested to any depth.",
       "code": "def flatten(items):\n    for item in items:\n        if isinstance(item, list):\n            _____\n        else:\n            yield item",
-      "choices": [
-        "yield flatten(item)",
-        "return flatten(item)",
-        "flatten(item)",
-        "yield from flatten(item)"
-      ],
+      "choices": ["yield flatten(item)", "return flatten(item)", "flatten(item)", "yield from flatten(item)"],
       "answer": 3,
       "explanation": "yield from passes along every value the recursive call produces. yield flatten(item) would yield a generator object, return would stop the whole generator, and a bare call creates a generator that never runs.",
       "concept": "recursive generators",
@@ -600,12 +880,7 @@
       "difficulty": "medium",
       "question": "What does this print?",
       "code": "from itertools import groupby\nwords = [\"apple\", \"bob\", \"avocado\", \"banana\"]\nprint([k for k, _ in groupby(words, key=lambda w: w[0])])",
-      "choices": [
-        "['apple', 'bob', 'avocado', 'banana']",
-        "['a', 'b', 'a', 'b']",
-        "['a', 'b']",
-        "['a', 'a', 'b', 'b']"
-      ],
+      "choices": ["['apple', 'bob', 'avocado', 'banana']", "['a', 'b', 'a', 'b']", "['a', 'b']", "['a', 'a', 'b', 'b']"],
       "answer": 1,
       "explanation": "The first letters are a, b, a, b, and groupby starts a new group every time the key changes. Sort the words by their first letter first to get ['a', 'b'].",
       "concept": "groupby needs sorted input",
@@ -617,30 +892,12 @@
       "difficulty": "medium",
       "question": "Match each itertools function with what it does.",
       "pairs": [
-        {
-          "left": "chain",
-          "right": "Walks several iterables as if they were one"
-        },
-        {
-          "left": "islice",
-          "right": "Takes a slice of any iterator, even an infinite one"
-        },
-        {
-          "left": "pairwise",
-          "right": "Yields overlapping neighbors: (a, b), (b, c)"
-        },
-        {
-          "left": "batched",
-          "right": "Yields fixed-size chunks; the last may be shorter"
-        },
-        {
-          "left": "product",
-          "right": "Every combination across inputs, like nested loops"
-        },
-        {
-          "left": "accumulate",
-          "right": "Running totals or another running result"
-        }
+        { "left": "chain", "right": "Walks several iterables as if they were one" },
+        { "left": "islice", "right": "Takes a slice of any iterator, even an infinite one" },
+        { "left": "pairwise", "right": "Yields overlapping neighbors: (a, b), (b, c)" },
+        { "left": "batched", "right": "Yields fixed-size chunks; the last may be shorter" },
+        { "left": "product", "right": "Every combination across inputs, like nested loops" },
+        { "left": "accumulate", "right": "Running totals or another running result" }
       ],
       "explanation": "These six cover most of the loops people write by hand. All of them are lazy and return iterators.",
       "concept": "itertools vocabulary",
@@ -733,26 +990,11 @@
       "difficulty": "medium",
       "question": "Match each typing tool with what it expresses.",
       "pairs": [
-        {
-          "left": "Protocol",
-          "right": "Any object with the required methods, no inheritance needed"
-        },
-        {
-          "left": "TypedDict",
-          "right": "A dict with specific keys and value types"
-        },
-        {
-          "left": "Literal[\"GET\", \"POST\"]",
-          "right": "Only these exact values"
-        },
-        {
-          "left": "Callable[[int], str]",
-          "right": "A function that takes an int and returns a str"
-        },
-        {
-          "left": "A type variable T",
-          "right": "Links input and output types in a generic function"
-        }
+        { "left": "Protocol", "right": "Any object with the required methods, no inheritance needed" },
+        { "left": "TypedDict", "right": "A dict with specific keys and value types" },
+        { "left": "Literal[\"GET\", \"POST\"]", "right": "Only these exact values" },
+        { "left": "Callable[[int], str]", "right": "A function that takes an int and returns a str" },
+        { "left": "A type variable T", "right": "Links input and output types in a generic function" }
       ],
       "explanation": "These are the tools you will meet most often beyond basic hints, in library code and in FastAPI or Pydantic models.",
       "concept": "typing vocabulary",
@@ -770,11 +1012,7 @@
         "A Protocol lets a class satisfy an interface without inheriting from it",
         "Adding hints makes CPython run the code faster"
       ],
-      "answers": [
-        0,
-        2,
-        3
-      ],
+      "answers": [0, 2, 3],
       "explanation": "Hints are for tools. cast only informs the checker and returns the value unchanged, and CPython ignores hints when executing, so they do not speed anything up.",
       "concept": "what hints do",
       "section": 5
@@ -785,12 +1023,7 @@
       "difficulty": "medium",
       "question": "Complete the signature so a checker knows last([1, 2]) returns an int.",
       "code": "def last[T](items: list[T]) -> _____:\n    return items[-1]",
-      "choices": [
-        "T",
-        "Any",
-        "object",
-        "list[T]"
-      ],
+      "choices": ["T", "Any", "object", "list[T]"],
       "answer": 0,
       "explanation": "Returning T ties the result to the element type of the argument. Any would turn checking off, and object would force callers to narrow before using the int.",
       "concept": "generic return type",
@@ -829,12 +1062,7 @@
       "type": "mcq",
       "difficulty": "medium",
       "question": "Task is declared with @dataclass(slots=True) and has a field named title. What does t.titel = \"x\" do?",
-      "choices": [
-        "Raises AttributeError",
-        "Creates a new attribute titel",
-        "Silently changes title",
-        "Raises TypeError because dataclasses are frozen"
-      ],
+      "choices": ["Raises AttributeError", "Creates a new attribute titel", "Silently changes title", "Raises TypeError because dataclasses are frozen"],
       "answer": 0,
       "explanation": "With slots there is no per-instance __dict__, so only the declared fields can be set. Without slots, the typo would quietly create a second attribute and title would keep its old value.",
       "concept": "slots catch typos",
@@ -852,11 +1080,7 @@
         "`case {\"type\": \"click\", **rest}:`",
         "`case {\"shift\": True, **rest}:`"
       ],
-      "answers": [
-        0,
-        1,
-        4
-      ],
+      "answers": [0, 1, 4],
       "explanation": "Mapping patterns match when the listed keys exist with matching values; extra keys are ignored. The ctrl pattern needs a key the dict does not have, and the click pattern needs a different type.",
       "concept": "mapping patterns",
       "section": 6
@@ -883,12 +1107,7 @@
       "difficulty": "easy",
       "question": "Complete the line so the KeyError is kept as the explicit cause of UserNotFound.",
       "code": "try:\n    row = rows[user_id]\nexcept KeyError as err:\n    raise UserNotFound(user_id) _____",
-      "choices": [
-        "except err",
-        "from err",
-        "with err",
-        "as err"
-      ],
+      "choices": ["except err", "from err", "with err", "as err"],
       "answer": 1,
       "explanation": "raise NewError(...) from err sets __cause__ to err. from None would hide the KeyError instead.",
       "concept": "raise from",
@@ -916,11 +1135,7 @@
         "HTTP 429 Too Many Requests, after the Retry-After delay",
         "KeyError from a misspelled dict key"
       ],
-      "answers": [
-        0,
-        1,
-        3
-      ],
+      "answers": [0, 1, 3],
       "explanation": "Retry transient failures on operations that are safe to repeat. A parse error or a typo fails identically every time, so retrying only delays the real error.",
       "concept": "what to retry",
       "section": 7
@@ -930,12 +1145,7 @@
       "type": "mcq",
       "difficulty": "easy",
       "question": "A loop checks `if order_id in seen:` 100,000 times, where seen is a list of 100,000 ids. What is the best fix?",
-      "choices": [
-        "Run the loop in a thread pool",
-        "Sort the list first",
-        "Use a while loop instead of for",
-        "Build seen as a set, so each check is O(1) on average"
-      ],
+      "choices": ["Run the loop in a thread pool", "Sort the list first", "Use a while loop instead of for", "Build seen as a set, so each check is O(1) on average"],
       "answer": 3,
       "explanation": "in on a list scans it, so the loop costs billions of comparisons. A set answers each check by hashing. Sorting alone does not help, because in does not use binary search.",
       "concept": "membership cost",
@@ -947,11 +1157,7 @@
       "difficulty": "easy",
       "question": "Which standard-library profiler do you run with python -m to list every function's call count and cumulative time?",
       "answer": "cProfile",
-      "accept": [
-        "python -m cProfile",
-        "profile",
-        "cprofile"
-      ],
+      "accept": ["python -m cProfile", "profile", "cprofile"],
       "explanation": "python -m cProfile -s cumulative app.py runs the script under the profiler and sorts the report by cumulative time. The pure-Python profile module gives the same report with more overhead, and timeit is for timing small snippets, not whole programs.",
       "concept": "cProfile",
       "section": 8
@@ -994,12 +1200,7 @@
       "difficulty": "medium",
       "question": "Complete the line so fetching the price gives up after 2 seconds with TimeoutError.",
       "code": "async def get_price(client):\n    async with asyncio._____(2):\n        return await client.fetch_price()",
-      "choices": [
-        "sleep",
-        "timeout",
-        "gather",
-        "Semaphore"
-      ],
+      "choices": ["sleep", "timeout", "gather", "Semaphore"],
       "answer": 1,
       "explanation": "asyncio.timeout(2) cancels the block's work after 2 seconds and raises TimeoutError. sleep would just wait, and Semaphore limits concurrency rather than time.",
       "concept": "asyncio timeouts",

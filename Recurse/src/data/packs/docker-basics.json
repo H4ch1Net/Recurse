@@ -1,40 +1,56 @@
 {
   "id": "docker-basics",
   "name": "Docker Basics",
-  "version": "3.0.0",
+  "version": "3.1.0",
   "author": "Recurse",
   "subject": "tools",
   "level": "intermediate",
   "description": "Containers vs VMs, images and layers, Dockerfiles, ports, volumes and Compose for a web app with its database.",
   "icon": "Dk",
   "language": "dockerfile",
-  "prereqs": [
-    "linux-cli"
-  ],
-  "tags": [
-    "docker",
-    "containers",
-    "dockerfile",
-    "compose",
-    "devops"
-  ],
+  "prereqs": ["linux-cli"],
+  "tags": ["docker", "containers", "dockerfile", "compose", "devops"],
   "lesson": {
-    "estimatedMinutes": 25,
-    "intro": "Docker packages an application with everything it needs into an image that runs the same way on your laptop, a teammate's machine and a production server. Containers are now the standard way to ship backend services, run databases for development and build CI pipelines. This lesson explains what a container really is, how images and Dockerfiles work, and how to run a web app with its database using Docker Compose.",
+    "estimatedMinutes": 21,
+    "intro": "Docker packages an application with everything it needs into an image that runs the same on your laptop, a teammate's machine and a production server. Learn what a container really is, how images and Dockerfiles work, and how to run an app with its database in Compose.",
     "objectives": [
-      "Explain how containers differ from virtual machines, and how images, layers and containers relate",
-      "Run, inspect, debug and remove containers with the everyday docker commands",
-      "Write a cache-friendly Dockerfile and shrink images with slim bases, .dockerignore and multi-stage builds",
-      "Publish ports, keep data in volumes and configure containers with environment variables",
-      "Describe a web app and its database in compose.yaml and manage them with docker compose"
+      "Explain containers versus virtual machines, and images, layers and containers",
+      "Run, inspect, debug and remove containers with everyday commands",
+      "Write a cache-friendly Dockerfile and shrink images",
+      "Publish ports, keep data in volumes and configure with environment variables",
+      "Describe a web app and its database in compose.yaml"
     ],
     "sections": [
       {
         "title": "Containers vs virtual machines",
-        "body": "\"It works on my machine.\" Your app runs fine on your laptop with Python 3.12 and one version of a system library, then crashes on the server, which has Python 3.9 and a different library. Containers fix this by packaging the app together with everything it needs (runtime, libraries, config) into one unit that runs the same way everywhere.\n\nA **container** is an ordinary process on a Linux host that the kernel isolates. **Namespaces** give it its own view of the system: its own file system, process list, network interfaces and hostname, so it behaves as if it were alone on the machine. **Control groups** (cgroups) cap how much CPU and memory it may use. There is no second operating system inside: every container on a host shares the host's kernel.\n\nA **virtual machine** works differently. A hypervisor emulates a whole computer, and each VM boots its own complete guest operating system, kernel included. That gives stronger isolation and lets Windows run next to Linux, but every VM carries gigabytes of OS and takes a while to boot.\n\nSo containers are lighter and faster: they start in about a second, an image is usually megabytes rather than gigabytes, and one server can run dozens of them. The trade-offs: isolation is weaker than a VM's, because a kernel bug can affect every container on the host, and a container needs a compatible kernel. Linux containers need a Linux kernel, which is why Docker Desktop on macOS and Windows quietly runs a small Linux VM to host them. In practice the two are combined, and cloud providers run your containers inside VMs.\n\n**Docker** is the most popular toolset for building, sharing and running containers. The `docker` command you type talks to a background service, the Docker engine, which does the actual work.",
-        "code": "                 Virtual machine                      Container\nWhat runs        A full guest OS, with its kernel     Your app's processes on the host kernel\nIsolation        Hardware level, via a hypervisor     Kernel features: namespaces and cgroups\nTypical size     Gigabytes                            Megabytes to a few hundred MB\nStart time       Tens of seconds or more              Usually about a second\nGood for         Other OSes, strong isolation         Packaging and shipping applications",
-        "language": "plaintext",
-        "pitfall": "Thinking of a container as a lightweight VM with its own OS. It is a process on the host kernel; that explains both why it is fast and why a Linux image cannot run on a Windows kernel without a VM underneath.",
+        "key": "A container is an isolated process sharing the host's kernel; a virtual machine boots a whole guest operating system, so containers are smaller and start in about a second.",
+        "body": "\"It works on my machine\": Python 3.12 on your laptop, 3.9 on the server, and the app crashes. Containers package the app with its runtime, libraries and config into one unit that runs the same everywhere.\n\nA **container** is an ordinary Linux process that the kernel isolates. **Namespaces** give it its own file system, process list, network and hostname. **Control groups** (cgroups) cap its CPU and memory. Every container on a host shares the host's **kernel**.\n\n[[visual]]\n\nLinux containers need a Linux kernel, so Docker Desktop on macOS and Windows quietly runs a small Linux VM to host them. The `docker` command talks to the Docker engine, which does the work.",
+        "visual": {
+          "type": "compare",
+          "items": [
+            {
+              "title": "Virtual machine",
+              "points": [
+                "A hypervisor emulates a whole computer",
+                "Each VM boots a full guest OS, kernel included",
+                "Gigabytes; tens of seconds to start",
+                "Stronger isolation; Windows can run beside Linux"
+              ]
+            },
+            {
+              "title": "Container",
+              "tone": "accent",
+              "points": [
+                "Your app's processes on the host kernel",
+                "Isolated by namespaces and cgroups, no second OS",
+                "Megabytes; starts in about a second",
+                "Weaker isolation: a kernel bug can affect every container"
+              ]
+            }
+          ],
+          "caption": "In practice they combine: cloud providers run your containers inside VMs."
+        },
+        "pitfall": "Thinking of a container as a lightweight VM with its own OS. It is a process on the host kernel, which is why it is fast and why a Linux image needs a Linux kernel.",
         "check": {
           "question": "Why can a container start in about a second while a VM takes much longer?",
           "choices": [
@@ -49,10 +65,27 @@
       },
       {
         "title": "Images, layers and registries",
-        "body": "An **image** is the template a container starts from: a read-only file system holding an OS userland (often slim Debian or Alpine), a runtime such as Python or Node, your code and its libraries, plus metadata such as which command to run. A **container** is a running instance of an image. One image can start many containers, the way one class creates many objects.\n\nImages are built from stacked **layers**. Each layer records the file changes made by one build step: installing dependencies adds a layer, copying your code adds another. Layers are identified by a hash of their content, so they are shared. Ten images built on `python:3.12-slim` store that base only once on disk, and pulling an image skips the layers you already have.\n\nWhen a container starts, Docker adds a thin **writable layer** on top of the image's read-only layers. Everything the container changes (installed packages, log files, uploads) goes into that writable layer. The image never changes, and when the container is removed, its writable layer is deleted with it. That is the most important fact about containers: **they are disposable**. Anything worth keeping must live in a volume or be baked into a new image.\n\nImages are named `repository:tag`, as in `postgres:16` or `ghcr.io/acme/shop-web:1.4.2`. The **tag** usually names a version. Leave it out and Docker assumes `latest`, which is only a default tag name, not a promise of the newest release, and it moves over time; pin real versions for anything you deploy. Images live in a **registry**: Docker Hub is the default, and GitHub, GitLab and every cloud provider run their own. `docker pull` downloads an image, `docker push` uploads one and `docker images` lists those on your machine.",
-        "code": " container web-1                     container web-2\n+------------------------------+    +------------------------------+\n| writable layer: logs, temp   |    | writable layer               |\n+------------------------------+    +------------------------------+\n               \\                          /\n        +--------------------------------------+\n        | COPY . .            your code         |  image shop-web:1.4\n        | RUN npm ci          dependencies      |  read-only layers,\n        | FROM node:20-slim   base image        |  shared by both\n        +--------------------------------------+",
-        "language": "plaintext",
-        "pitfall": "Fixing something inside a running container with docker exec and expecting it to stick. It lives only in that container's writable layer; put the change in the Dockerfile and rebuild.",
+        "key": "An image is a read-only stack of layers; each container adds its own thin writable layer, deleted along with the container, so containers are disposable.",
+        "body": "An **image** is the template a container starts from: a read-only file system with an OS userland, a runtime, your code and libraries, plus the command to run. A **container** is a running instance; one image can start many, like one class creating many objects.\n\n[[visual]]\n\nEach **layer** records the file changes of one build step and is identified by a hash of its content, so layers are shared: ten images built on `python:3.12-slim` store that base once.\n\nImages are named `repository:tag`, as in `postgres:16`. With no tag Docker assumes `latest`, a default name that moves over time, so pin versions you deploy. A **registry** such as Docker Hub stores images: `docker pull`, `docker push`.",
+        "visual": {
+          "type": "stack",
+          "title": "Two containers from one image",
+          "layers": [
+            {
+              "label": "Writable layer, one per container",
+              "detail": "web-1 and web-2 each get their own: logs, temp files, changes. Deleted with the container",
+              "tone": "accent"
+            },
+            { "label": "COPY . .", "detail": "your code" },
+            { "label": "RUN npm ci", "detail": "dependencies" },
+            { "label": "FROM node:20-slim", "detail": "base image" }
+          ],
+          "groups": [
+            { "label": "Image shop-web:1.4: read-only, shared", "from": 1, "to": 3 }
+          ]
+        },
+        "deeper": "`docker images` lists the images on your machine, and pulling an image skips any layers you already have.\n\nGitHub, GitLab and every cloud provider run their own registries; a full image name then includes the registry host, as in `ghcr.io/acme/shop-web:1.4.2`.\n\nBecause the writable layer dies with the container, anything worth keeping must live in a volume or be baked into a new image through the Dockerfile.",
+        "pitfall": "Fixing something inside a running container with `docker exec` and expecting it to stick. It lives only in that container's writable layer; change the Dockerfile and rebuild.",
         "check": {
           "question": "Two containers run from the same image, and one of them deletes a file. What happens in the other container?",
           "choices": [
@@ -67,10 +100,39 @@
       },
       {
         "title": "Running and inspecting containers",
-        "body": "Most days you use about a dozen commands. `docker run` creates a container from an image and starts it. The options you will see everywhere:\n\n- `-d` runs it detached (in the background) and prints the container ID.\n- `--name web` gives it a name to use instead of the ID in later commands.\n- `-p 8080:80` publishes a port, `-e KEY=value` sets an environment variable and `-v` mounts a volume (all covered below).\n- `-it` attaches an interactive terminal, as in `docker run -it python:3.12 python`.\n- `--rm` deletes the container automatically when it stops, which suits one-off commands.\n\nThen you look after it:\n\n- `docker ps` lists running containers; `docker ps -a` adds stopped ones with their exit status.\n- `docker logs web` shows what the main process wrote to stdout and stderr, and `-f` follows new output like `tail -f`. This is why containerized apps log to stdout instead of to files.\n- `docker exec -it web sh` starts a shell inside a running container so you can look around.\n- `docker stop web` sends SIGTERM and, after a 10 second grace period, SIGKILL. `docker start web` starts it again and `docker rm web` deletes it (`-f` stops it first).\n- `docker images` lists images, `docker rmi` removes one, and `docker system prune` clears stopped containers and other unused data.\n\nA container lives exactly as long as its **main process**, the one started by the image's command. When that process exits, the container stops, `-d` or not. So a container that \"vanishes\" right after starting has almost always crashed: `docker ps -a` shows its exit code, and `docker logs` still works on a stopped container and usually shows the error.",
-        "code": "$ docker run -d --name web -p 8080:80 nginx:1.27\n3f9a1c0d8e7b2a4c...\n$ docker ps\nCONTAINER ID   IMAGE        STATUS         PORTS                  NAMES\n3f9a1c0d8e7b   nginx:1.27   Up 4 seconds   0.0.0.0:8080->80/tcp   web\n$ docker logs -f web          # Ctrl+C stops following\n$ docker exec -it web sh      # a shell inside the container\n# exit\n$ docker stop web && docker rm web",
+        "key": "`docker run` starts a container that lives exactly as long as its main process; `docker ps -a` and `docker logs` explain one that stopped.",
+        "body": "Most days you need about a dozen commands.\n\n[[visual]]\n\n[[visual 2]]\n\n[[code]]\n\nA container lives exactly as long as its **main process**, the one the image's command starts. When that process exits, the container stops, `-d` or not. A container that \"vanishes\" right after starting has almost always crashed: `docker ps -a` shows its exit code, and `docker logs` still works on a stopped container.",
+        "visual": [
+          {
+            "type": "table",
+            "title": "docker run options",
+            "columns": ["Option", "Does"],
+            "rows": [
+              ["`-d`", "Runs detached, in the background, and prints the ID"],
+              ["`--name web`", "Names it for later commands"],
+              ["`-p`, `-e`, `-v`", "Publishes a port, sets a variable, mounts a volume"],
+              ["`-it`", "Interactive terminal: `docker run -it python:3.12 python`"],
+              ["`--rm`", "Deletes the container when it stops"]
+            ]
+          },
+          {
+            "type": "table",
+            "title": "Looking after containers",
+            "columns": ["Command", "Does"],
+            "rows": [
+              ["`docker ps`", "Running containers; `-a` adds stopped ones with their exit status"],
+              ["`docker logs web`", "What the main process wrote to stdout and stderr; `-f` follows"],
+              ["`docker exec -it web sh`", "A shell inside a running container"],
+              ["`docker stop web`", "SIGTERM, then SIGKILL after a 10 second grace period"],
+              ["`docker start`, `docker rm`", "Start it again; delete it (`-f` stops it first)"],
+              ["`docker images`, `docker rmi`", "List images; remove one. `docker system prune` clears unused data"]
+            ]
+          }
+        ],
+        "code": "$ docker run -d --name web -p 8080:80 nginx:1.27\n3f9a1c0d8e7b2a4c...\n$ docker ps\nCONTAINER ID   IMAGE        STATUS         PORTS                  NAMES\n3f9a1c0d8e7b   nginx:1.27   Up 4 seconds   0.0.0.0:8080->80/tcp   web\n$ docker logs -f web  # Ctrl+C to stop\n$ docker exec -it web sh  # a shell inside\n# exit\n$ docker stop web && docker rm web",
         "language": "bash",
-        "pitfall": "Starting a container with -d, seeing nothing in docker ps, and starting it again and again. The main process crashed; run docker logs on the stopped container to see why.",
+        "tip": "Containerized apps log to stdout and stderr, not to files, because that is what `docker logs` and every container platform collect.",
+        "pitfall": "Starting a container with `-d`, seeing nothing in `docker ps`, and starting it again and again. The main process crashed; run `docker logs` on the stopped container.",
         "check": {
           "question": "You run `docker run -d --name job myjob`. The script inside finishes after 5 seconds and exits with code 0. What is the container's state a minute later?",
           "choices": [
@@ -85,62 +147,150 @@
       },
       {
         "title": "Writing a Dockerfile",
-        "body": "A **Dockerfile** is the recipe for an image: a text file of instructions that `docker build` runs from top to bottom. The example below is a complete one for a small Node web server. The instructions you will use most:\n\n- `FROM` picks the base image. Every Dockerfile starts with it.\n- `WORKDIR /app` sets the working directory for every later instruction and for the running container, creating it if needed.\n- `COPY src dest` copies files from the **build context** (the folder you pass to `docker build`) into the image. `ADD` is similar but can also unpack archives and fetch URLs; prefer `COPY` unless you need that.\n- `RUN` executes a command **at build time** and saves the result as a layer: installing packages, compiling code.\n- `ENV KEY=value` sets an environment variable for later steps and for the container.\n- `EXPOSE 3000` documents which port the app listens on. It does not publish anything.\n- `USER node` switches to a non-root user, so a compromised app does not run as root inside the container.\n- `CMD` sets the default command that runs **each time a container starts**. `docker run image other-command` replaces it.\n- `ENTRYPOINT` sets a fixed executable. When both are present, CMD supplies its default arguments.\n\nWrite `CMD` and `ENTRYPOINT` in **exec form**, a JSON array like `[\"node\", \"server.js\"]`. The shell form, `CMD node server.js`, runs your app through `/bin/sh -c`, so the shell becomes the main process and the SIGTERM sent by `docker stop` may never reach your app, which then gets killed after the timeout instead of shutting down cleanly.\n\nBuild and run it with `docker build -t shop-web:1.0 .` (the final `.` is the build context) and `docker run -d -p 8080:3000 shop-web:1.0`.",
+        "key": "A Dockerfile is the image's recipe, run top to bottom: RUN executes at build time and saves a layer, while CMD runs each time a container starts.",
+        "body": "A **Dockerfile** is a text file of instructions that `docker build` runs from top to bottom. A complete one for a small Node server:\n\n[[code]]\n\n[[visual]]\n\nWrite `CMD` and `ENTRYPOINT` in **exec form**, a JSON array. In shell form (`CMD node server.js`), `/bin/sh` becomes the main process and may never pass on the SIGTERM from `docker stop`, so your app is killed after the timeout instead of shutting down cleanly.\n\nBuild and run: `docker build -t shop-web:1.0 .` (the final `.` is the **build context**), then `docker run -d -p 8080:3000 shop-web:1.0`.",
+        "visual": {
+          "type": "table",
+          "title": "Dockerfile instructions",
+          "columns": ["Instruction", "Does"],
+          "rows": [
+            ["`FROM`", "Picks the base image. Always first"],
+            ["`WORKDIR /app`", "Working directory for later steps and the container, created if needed"],
+            ["`COPY src dest`", "Copies from the build context. Prefer it to `ADD`, which also unpacks archives and fetches URLs"],
+            ["`RUN`", "Executes a command at **build time** and saves the result as a layer"],
+            ["`ENV KEY=value`", "Sets a variable for later steps and the container"],
+            ["`EXPOSE 3000`", "Documents the port. Publishes nothing"],
+            ["`USER node`", "Switches to a non-root user"],
+            ["`CMD`", "Default command at **each container start**; `docker run image other` replaces it"],
+            ["`ENTRYPOINT`", "A fixed executable; CMD then supplies its default arguments"]
+          ],
+          "mono": [0]
+        },
         "code": "FROM node:20-slim\nWORKDIR /app\nCOPY package*.json ./\nRUN npm ci --omit=dev\nCOPY . .\nENV NODE_ENV=production\nEXPOSE 3000\nUSER node\nCMD [\"node\", \"server.js\"]",
-        "pitfall": "Using RUN cd /app to change directory. Each RUN line starts again from the WORKDIR, so the cd is forgotten when that line ends; use WORKDIR instead.",
+        "language": "dockerfile",
+        "deeper": "With `ENTRYPOINT [\"python\", \"manage.py\"]` and `CMD [\"runserver\"]`, a plain `docker run myapp` runs `python manage.py runserver`, while `docker run myapp migrate` replaces only the CMD part and runs `python manage.py migrate`.\n\nRunning as a non-root `USER` means a compromised app does not have root inside the container, which limits the damage it can do.",
+        "pitfall": "Using `RUN cd /app` to change directory. Each RUN line starts again from the WORKDIR, so the cd is forgotten when that line ends; use WORKDIR instead.",
         "check": {
           "question": "Which instruction runs every time a container starts, rather than once during the build?",
-          "choices": [
-            "RUN",
-            "CMD",
-            "COPY",
-            "FROM"
-          ],
+          "choices": ["RUN", "CMD", "COPY", "FROM"],
           "answer": 1,
           "explanation": "RUN, COPY and FROM all happen while the image is built, and their results are stored in layers. CMD is saved as metadata and executed when each container starts."
         }
       },
       {
         "title": "Layer caching and small images",
-        "body": "You change one line of code, rebuild, and watch Docker reinstall every dependency for three minutes. The build cache could have made that take two seconds if the Dockerfile were ordered differently.\n\nDocker caches each layer. On a rebuild it reuses a cached layer as long as the instruction and its inputs are unchanged; for `COPY`, the input is the content of the copied files. The first step whose input changed is rebuilt, **and so is every step after it**. So order a Dockerfile from what changes least to what changes most: base image, system packages, the dependency manifest (`package.json`, `requirements.txt`), the dependency install, then your source code last. A code edit then invalidates only the final `COPY`.\n\nSmaller images download faster, start faster and contain fewer things to patch. The main levers:\n\n- **Slim bases**: `python:3.12-slim` or `node:20-slim` instead of the full images, which carry compilers and tools you do not need at runtime. Alpine images are smaller still but use a different C library (musl), which occasionally breaks prebuilt packages.\n- **Clean up in the same step**: `RUN apt-get update && apt-get install -y curl && rm -rf /var/lib/apt/lists/*`. Layers only ever add files. Deleting something in a later `RUN` hides it, but the earlier layer still ships it.\n- **.dockerignore**: the .gitignore of the build context. Exclude `node_modules`, `.git`, build output and `.env`, so the context stays small, irrelevant files do not bust the cache and secrets never reach the image.\n- **Multi-stage builds**: compile in one stage with the full toolchain, then `COPY --from=build` only the output into a fresh slim stage. Only the last stage becomes the image you ship.",
-        "code": "# Stage 1: build with dev dependencies and the TypeScript compiler\nFROM node:20 AS build\nWORKDIR /app\nCOPY package*.json ./\nRUN npm ci\nCOPY . .\nRUN npm run build                # compiles src/ into dist/\n\n# Stage 2: the image you ship\nFROM node:20-slim\nWORKDIR /app\nCOPY package*.json ./\nRUN npm ci --omit=dev\nCOPY --from=build /app/dist ./dist\nUSER node\nCMD [\"node\", \"dist/server.js\"]\n\n# .dockerignore (a separate file next to the Dockerfile)\nnode_modules\n.git\n.env\ndist",
-        "pitfall": "Putting COPY . . before the dependency install. Every code change then invalidates the install layer, and every build reinstalls everything.",
+        "key": "Docker reuses cached layers until one step's input changes, then rebuilds every later step, so install dependencies before copying your code.",
+        "body": "You change one line of code, rebuild, and Docker reinstalls every dependency for three minutes. The order of the Dockerfile caused that.\n\nDocker caches each layer and reuses it while the instruction and its inputs are unchanged (for `COPY`, the copied files' content). The first changed step is rebuilt, **and so is every step after it**.\n\n[[visual]]\n\nSmaller images download faster, start faster and have less to patch:\n\n[[visual 2]]\n\n[[code]]",
+        "visual": [
+          {
+            "type": "flow",
+            "title": "Cache-friendly order: least changed first",
+            "steps": [
+              { "label": "`FROM node:20-slim`", "detail": "Changes rarely" },
+              { "label": "`WORKDIR /app`" },
+              { "label": "`COPY package*.json ./`", "detail": "Only the dependency manifest" },
+              { "label": "`RUN npm ci`", "detail": "Stays cached until the manifest changes" },
+              { "label": "`COPY . .`", "detail": "Your code changes most, so it goes last", "tone": "accent" },
+              { "label": "`CMD [\"node\", \"server.js\"]`" }
+            ]
+          },
+          {
+            "type": "table",
+            "title": "Making images smaller",
+            "columns": ["Lever", "How"],
+            "rows": [
+              ["Slim base", "`python:3.12-slim` or `node:20-slim`, not full images with compilers. Alpine is smaller but uses musl, which can break prebuilt packages"],
+              [
+                "Clean up in the same RUN",
+                "`apt-get install -y curl && rm -rf /var/lib/apt/lists/*`. Layers only add files: a later `rm` hides them, but the earlier layer still ships them"
+              ],
+              ["`.dockerignore`", "Excludes `node_modules`, `.git`, build output and `.env`: a small context, no needless cache busting, no secrets in the image"],
+              ["Multi-stage build", "Build with the full toolchain, then `COPY --from=build` only the output into a fresh slim stage"]
+            ]
+          }
+        ],
+        "code": "# Stage 1: dev dependencies and the compiler\nFROM node:20 AS build\nWORKDIR /app\nCOPY package*.json ./\nRUN npm ci\nCOPY . .\n# compiles src/ into dist/\nRUN npm run build\n\n# Stage 2: the image you ship\nFROM node:20-slim\nWORKDIR /app\nCOPY package*.json ./\nRUN npm ci --omit=dev\nCOPY --from=build /app/dist ./dist\nUSER node\nCMD [\"node\", \"dist/server.js\"]",
+        "language": "dockerfile",
+        "deeper": "Only the last stage of a multi-stage build becomes the image you ship. Compilers, dev dependencies and source files stay behind in the earlier stage, which is why the result is usually much smaller.\n\nThe `.dockerignore` file sits next to the Dockerfile and works like a `.gitignore` for the build context: everything not ignored is sent to the builder before the first step runs.",
+        "pitfall": "Putting `COPY . .` before the dependency install. Every code change then invalidates the install layer, and every build reinstalls everything.",
         "check": {
           "question": "Step 3 of a 7-step Dockerfile is `COPY package.json ./`, and you edit package.json. Which steps are rebuilt?",
-          "choices": [
-            "Steps 3 through 7",
-            "Only step 3",
-            "All 7 steps, starting again from FROM",
-            "Only the RUN steps that come after step 3"
-          ],
+          "choices": ["Steps 3 through 7", "Only step 3", "All 7 steps, starting again from FROM", "Only the RUN steps that come after step 3"],
           "answer": 0,
           "explanation": "Steps 1 and 2 are unchanged, so they come from the cache. Step 3's input changed, and once one layer is rebuilt, every layer after it must be rebuilt too, because each sits on top of the one before."
         }
       },
       {
         "title": "Ports and container networking",
-        "body": "You start a web server in a container, open `localhost:3000` in your browser and get nothing. The server is running, but each container has its own network namespace: its own interfaces, its own IP address and its own `localhost`. Nothing outside can reach it until you **publish** a port.\n\n`-p 8080:3000` means \"host port 8080 forwards to container port 3000\": **host first, container second**. The browser then uses `http://localhost:8080`. Since every container has its own set of ports, two containers can both listen on port 80 inside, as long as you publish them on different host ports (`-p 8080:80` and `-p 8081:80`). `EXPOSE` in a Dockerfile only documents a port; `-P` publishes all exposed ports to random host ports.\n\nThe app inside must listen on `0.0.0.0` (all interfaces), not `127.0.0.1`. Published traffic arrives on the container's network interface, so a server bound to the container's loopback never sees it. Many frameworks default to localhost in development, which makes this the classic \"it runs, but I cannot reach it\" bug.\n\nContainers can also talk to each other directly. Create a network with `docker network create shopnet` and start containers with `--network shopnet`. Docker's built-in DNS then resolves each container's **name** to its IP address, so the API connects to `db:5432`. Container-to-container traffic needs no `-p` at all: publish only what the outside world must reach. The default bridge network has no name resolution, one reason Compose creates its own network for every project.\n\nRemember: inside a container, `localhost` means that container itself, never your laptop and never another container.",
-        "code": "$ docker network create shopnet\n$ docker run -d --name db --network shopnet -e POSTGRES_PASSWORD=dev postgres:16\n$ docker run -d --name api --network shopnet -p 8080:3000 \\\n    -e DATABASE_URL=postgres://postgres:dev@db:5432/postgres shop-api:1.0\n$ curl http://localhost:8080/health\n{\"status\":\"ok\"}\n\n# laptop  localhost:8080 --(published)--> api 0.0.0.0:3000\n# api     db:5432 --(shopnet DNS)--> db   (not published: unreachable from the laptop)",
+        "key": "`-p 8080:3000` forwards host port 8080 to container port 3000; the app must listen on 0.0.0.0, and inside a container localhost means that container.",
+        "body": "You start a web server in a container, open `localhost:3000` and get nothing. Each container has its own network namespace: its own interfaces, IP address and `localhost`. Nothing outside reaches it until you **publish** a port.\n\n`-p 8080:3000` is **host first, container second**; the browser uses `http://localhost:8080`. Two containers can both listen on port 80 inside, published as `8080:80` and `8081:80`. `EXPOSE` only documents a port.\n\nThe app must listen on `0.0.0.0`, not `127.0.0.1`: published traffic arrives on the container's network interface, never its loopback.\n\n[[visual]]\n\nOn a user-defined network, Docker's DNS resolves container **names**, so the API reaches `db:5432` without any `-p`.\n\n[[code]]",
+        "visual": {
+          "type": "topology",
+          "title": "Published and private traffic",
+          "nodes": [
+            { "id": "pc", "kind": "laptop", "label": "Laptop", "sub": "localhost:8080", "x": 1, "y": 0 },
+            { "id": "api", "kind": "server", "label": "api", "sub": "0.0.0.0:3000", "x": 1, "y": 1 },
+            { "id": "db", "kind": "db", "label": "db", "sub": "port 5432", "x": 1, "y": 2 }
+          ],
+          "links": [
+            { "from": "pc", "to": "api", "label": "-p 8080:3000", "tone": "good" },
+            { "from": "api", "to": "db", "label": "db:5432" }
+          ],
+          "zones": [
+            {
+              "label": "network shopnet",
+              "nodes": ["api", "db"],
+              "tone": "accent"
+            }
+          ],
+          "marks": [
+            { "at": "db", "text": "Not published: unreachable from the laptop", "tone": "warn" }
+          ]
+        },
+        "code": "$ docker network create shopnet\n$ docker run -d --name db \\\n    --network shopnet \\\n    -e POSTGRES_PASSWORD=dev postgres:16\n$ URL=postgres://postgres:dev@db:5432/postgres\n$ docker run -d --name api \\\n    --network shopnet -p 8080:3000 \\\n    -e DATABASE_URL=$URL \\\n    shop-api:1.0\n$ curl http://localhost:8080/health\n{\"status\":\"ok\"}",
         "language": "bash",
-        "pitfall": "Writing -p 3000:8080 when the app listens on 3000 inside. The order is host:container; reversed, the host forwards to a container port that nothing listens on.",
+        "deeper": "Many frameworks bind to localhost by default in development, which makes the 127.0.0.1 binding the classic \"it runs, but I cannot reach it\" bug in containers.\n\n`-P` publishes every exposed port to a random host port. The default bridge network has no name resolution, which is one reason Compose creates its own network for every project.\n\nPublish only what the outside world must reach: container-to-container traffic on a shared network needs no published ports at all.",
+        "pitfall": "Writing `-p 3000:8080` when the app listens on 3000 inside. The order is host:container; reversed, the host forwards to a container port nothing listens on.",
         "check": {
           "question": "An app in a container listens on port 5000. Which option lets you reach it at http://localhost:9000 on your laptop?",
-          "choices": [
-            "-p 5000:9000",
-            "--expose 9000",
-            "-p 9000",
-            "-p 9000:5000"
-          ],
+          "choices": ["-p 5000:9000", "--expose 9000", "-p 9000", "-p 9000:5000"],
           "answer": 3,
           "explanation": "The format is host:container, so 9000 on the host forwards to 5000 in the container. -p 5000:9000 is reversed, --expose publishes nothing, and -p 9000 alone publishes container port 9000 on a random host port."
         }
       },
       {
         "title": "Volumes and configuration",
-        "body": "Your Postgres container holds a week of test data. You upgrade the image, recreate the container, and the data is gone, because it lived in the old container's writable layer. Data that must outlive a container belongs in a **volume**.\n\n- A **named volume** is storage managed by Docker. `-v pgdata:/var/lib/postgresql/data` mounts the volume pgdata at Postgres's data directory, creating the volume if needed. Delete and recreate the container, mount the same volume, and the data is still there. Use named volumes for databases and uploaded files. `docker volume ls` lists them, and `docker volume rm` deletes one, data included.\n- A **bind mount** maps a folder from your machine into the container: `-v \"$(pwd)/src:/app/src\"`. Edits on your laptop appear inside the container instantly, which is ideal for development with a live-reloading server. In production, ship images that contain the code instead.\n\nConfiguration goes in **environment variables**, so the same image runs in development, testing and production. `-e NODE_ENV=production` sets one, `--env-file .env` loads a whole file of `KEY=value` lines, and `ENV` in a Dockerfile sets defaults that `-e` overrides.\n\nNever bake secrets into an image, whether through `ENV`, a copied `.env` file or a `RUN` step that writes a password. Anyone who can pull the image can read them with `docker inspect` or `docker history`. Pass secrets at run time instead, and use your platform's secret store in production.\n\nTo see what a container actually received, `docker inspect web` prints its full configuration as JSON: environment, mounts, port bindings and IP address.",
-        "code": "$ docker volume create pgdata\n$ docker run -d --name db \\\n    -e POSTGRES_PASSWORD=dev \\\n    -v pgdata:/var/lib/postgresql/data \\\n    postgres:16\n\n# development: live code from your laptop, settings from a file\n$ docker run -d --name web -p 8080:3000 \\\n    -v \"$(pwd)/src:/app/src\" \\\n    --env-file .env \\\n    shop-web:dev",
+        "key": "Keep data that must outlive a container in a named volume, use bind mounts for live code in development, and pass configuration and secrets at run time.",
+        "body": "Your Postgres container holds a week of test data. You upgrade the image, recreate the container, and the data is gone: it lived in the old container's writable layer.\n\n[[visual]]\n\n[[code]]\n\nConfiguration goes in **environment variables**, so one image runs everywhere: `-e NODE_ENV=production`, `--env-file .env`, or `ENV` defaults in the Dockerfile that `-e` overrides.\n\nNever bake secrets into an image with `ENV`, a copied `.env` or a `RUN` step: anyone who pulls it can read them with `docker inspect` or `docker history`. `docker inspect web` shows what a container received: environment, mounts, ports and IP.",
+        "visual": {
+          "type": "compare",
+          "items": [
+            {
+              "title": "Named volume",
+              "tone": "accent",
+              "points": [
+                "Storage managed by Docker",
+                "`-v pgdata:/var/lib/postgresql/data`",
+                "Survives deleting and recreating the container",
+                "For databases and uploads",
+                "`docker volume ls`; `docker volume rm` deletes the data"
+              ]
+            },
+            {
+              "title": "Bind mount",
+              "points": [
+                "A folder from your machine",
+                "`-v \"$(pwd)/src:/app/src\"`",
+                "Edits on your laptop appear instantly",
+                "For development with live reload",
+                "In production, ship the code inside the image"
+              ]
+            }
+          ]
+        },
+        "code": "$ docker volume create pgdata\n$ docker run -d --name db \\\n    -e POSTGRES_PASSWORD=dev \\\n    -v pgdata:/var/lib/postgresql/data \\\n    postgres:16\n\n# development: live code, settings file\n$ docker run -d --name web -p 8080:3000 \\\n    -v \"$(pwd)/src:/app/src\" \\\n    --env-file .env \\\n    shop-web:dev",
         "language": "bash",
-        "pitfall": "Assuming data written inside a container survives docker rm or an image upgrade. Without a volume, it is deleted together with the container.",
+        "pitfall": "Assuming data written inside a container survives `docker rm` or an image upgrade. Without a volume, it is deleted together with the container.",
         "activity": {
           "type": "json-explorer",
           "title": "Read docker inspect",
@@ -163,10 +313,25 @@
       },
       {
         "title": "Docker Compose: a web app plus a database",
-        "body": "Running a web app and its database by hand means two long `docker run` commands, a network, a volume and the right start order, every time. **Docker Compose** describes the whole application in one `compose.yaml` file and manages it with a few commands.\n\nEach entry under `services` becomes a container. `build: .` builds the image from the Dockerfile in this folder, `image:` uses an existing one, and `ports`, `environment` and `volumes` mean the same as the matching `docker run` options. Named volumes are declared at the bottom of the file.\n\nCompose creates a private network for the project and registers every service name in its DNS, so the web service reaches the database at `db:5432`. Only `web` publishes a port; the database is reachable from web but not from outside, which is exactly what you want.\n\n`depends_on` controls start order, but on its own it waits only for the db **container** to start, not for Postgres to accept connections, which takes a few seconds. A `healthcheck` on db plus `condition: service_healthy` on web makes Compose wait until the check passes. The app should still retry its database connection, because databases restart in production too.\n\nThe commands:\n\n- `docker compose up -d` builds or pulls images, creates the network and volumes, and starts everything in the background. Add `--build` to force a rebuild after code changes.\n- `docker compose ps` lists the services and `docker compose logs -f web` follows one service's output.\n- `docker compose exec db psql -U shop` runs a command inside a running service.\n- `docker compose down` stops and removes the containers and the network but keeps volumes. `docker compose down -v` deletes the volumes too, and the database with them.\n\nCommit `compose.yaml` to the repository, and a new teammate goes from `git clone` to a running app with one command.",
+        "key": "Compose describes services, networks and volumes in one `compose.yaml`; services reach each other by name, and `depends_on` alone does not wait for readiness.",
+        "body": "Running an app and its database by hand means long `docker run` commands, a network, a volume and the right start order, every time. **Docker Compose** describes it all in one `compose.yaml`:\n\n[[code]]\n\nEach entry under `services` becomes a container; `build: .` uses the local Dockerfile. Compose gives the project a private network with DNS, so web reaches `db:5432`, and only web publishes a port.\n\n`depends_on` alone waits only for the db **container** to start, not for Postgres to accept connections. A `healthcheck` plus `condition: service_healthy` makes Compose wait; the app should still retry.\n\n[[visual]]\n\nCommit `compose.yaml`: a new teammate goes from `git clone` to a running app with one command.",
+        "visual": {
+          "type": "table",
+          "title": "Compose commands",
+          "columns": ["Command", "Does"],
+          "rows": [
+            ["`docker compose up -d`", "Builds or pulls images, creates the network and volumes, starts everything in the background (`--build` forces a rebuild)"],
+            ["`docker compose ps`", "Lists the services"],
+            ["`docker compose logs -f web`", "Follows one service's output"],
+            ["`docker compose exec db psql -U shop`", "Runs a command inside a running service"],
+            ["`docker compose down`", "Removes containers and the network, keeps volumes"],
+            ["`docker compose down -v`", "Also deletes the volumes, and the database with them"]
+          ],
+          "highlight": [5]
+        },
         "code": "services:\n  web:\n    build: .\n    ports:\n      - \"8080:3000\"\n    environment:\n      DATABASE_URL: postgres://shop:secret@db:5432/shop\n    depends_on:\n      db:\n        condition: service_healthy\n\n  db:\n    image: postgres:16\n    environment:\n      POSTGRES_USER: shop\n      POSTGRES_PASSWORD: secret\n      POSTGRES_DB: shop\n    volumes:\n      - pgdata:/var/lib/postgresql/data\n    healthcheck:\n      test: [\"CMD-SHELL\", \"pg_isready -U shop -d shop\"]\n      interval: 5s\n      retries: 5\n\nvolumes:\n  pgdata:",
         "language": "yaml",
-        "pitfall": "Pointing the web service at localhost:5432. Inside the web container, localhost is web itself; use the service name, db.",
+        "pitfall": "Pointing the web service at `localhost:5432`. Inside the web container, localhost is web itself; use the service name, `db`.",
         "check": {
           "question": "Why can the web service connect to the database using the host name db?",
           "choices": [
@@ -231,12 +396,12 @@
       }
     ],
     "summary": [
-      "A container is an isolated process sharing the host kernel; a VM boots its own operating system.",
-      "Images are read-only stacks of layers, and each container adds a disposable writable layer.",
-      "RUN happens at build time and CMD at container start; write CMD in exec form.",
-      "Order Dockerfiles from least to most frequently changed, and shrink images with .dockerignore, slim bases and multi-stage builds.",
-      "Ports are published host:container, apps must listen on 0.0.0.0, and localhost inside a container is the container.",
-      "Volumes keep data beyond a container's life, and Compose runs multi-container apps whose services find each other by name."
+      "A container is an isolated process on the host kernel; a VM boots its own OS.",
+      "Images are read-only layers; each container adds a disposable writable layer.",
+      "RUN happens at build time, CMD at container start; write CMD in exec form.",
+      "Order Dockerfiles least changed first; shrink with .dockerignore, slim bases and multi-stage builds.",
+      "Ports are host:container, apps listen on 0.0.0.0, and localhost is the container itself.",
+      "Volumes outlive containers, and Compose services find each other by name."
     ],
     "feynmanPrompt": "Explain to a teammate who has never used Docker why their app \"works on my machine\" but fails on the server, and how an image, a container, a volume and a compose.yaml file solve that. Use a web app with a Postgres database as your example."
   },
@@ -263,12 +428,7 @@
       "difficulty": "easy",
       "question": "Type the command that lists all containers, including stopped ones.",
       "answer": "docker ps -a",
-      "accept": [
-        "docker ps --all",
-        "docker container ls -a",
-        "docker container ls --all",
-        "docker container list -a"
-      ],
+      "accept": ["docker ps --all", "docker container ls -a", "docker container ls --all", "docker container list -a"],
       "shell": "docker",
       "explanation": "docker ps shows only running containers. -a adds stopped ones along with their exit status.",
       "concept": "docker ps -a",
@@ -298,12 +458,7 @@
       "difficulty": "medium",
       "question": "Type the command that shows the output of a container named `api` and keeps following new lines as they arrive.",
       "answer": "docker logs -f api",
-      "accept": [
-        "docker logs --follow api",
-        "docker logs api -f",
-        "docker logs api --follow",
-        "docker container logs -f api"
-      ],
+      "accept": ["docker logs --follow api", "docker logs api -f", "docker logs api --follow", "docker container logs -f api"],
       "shell": "docker",
       "explanation": "docker logs prints what the container's main process wrote to stdout and stderr. -f (follow) keeps the stream open, like tail -f.",
       "concept": "docker logs -f",
@@ -348,12 +503,7 @@
       "difficulty": "medium",
       "question": "Complete the instruction so the later COPY, RUN and CMD steps all work inside /app.",
       "code": "FROM node:20-slim\n_____ /app\nCOPY package*.json ./\nRUN npm ci",
-      "choices": [
-        "CD",
-        "WORKDIR",
-        "RUN cd",
-        "ENV"
-      ],
+      "choices": ["CD", "WORKDIR", "RUN cd", "ENV"],
       "answer": 1,
       "explanation": "WORKDIR sets the working directory for every following instruction and for the container. RUN cd /app would only last for that single RUN step, and CD is not an instruction.",
       "concept": "WORKDIR",
@@ -380,12 +530,7 @@
       "type": "mcq",
       "difficulty": "easy",
       "question": "You ran `docker run -d -p 8080:80 nginx`. Which address on your machine reaches nginx?",
-      "choices": [
-        "http://localhost:8080",
-        "http://localhost:80",
-        "http://nginx:8080",
-        "http://localhost:8080:80"
-      ],
+      "choices": ["http://localhost:8080", "http://localhost:80", "http://nginx:8080", "http://localhost:8080:80"],
       "answer": 0,
       "explanation": "In -p 8080:80 the host port comes first and the container port second, so the host listens on 8080 and forwards to nginx on port 80 inside the container.",
       "concept": "port mapping order",
@@ -416,12 +561,7 @@
       "question": "Complete the command so the database files survive deleting and recreating the container.",
       "code": "docker run -d --name db -e POSTGRES_PASSWORD=dev _____ postgres:16",
       "language": "bash",
-      "choices": [
-        "-p 5432:5432",
-        "-v pgdata:/var/lib/postgresql/data",
-        "--restart always",
-        "-e PGDATA=/var/lib/postgresql/data"
-      ],
+      "choices": ["-p 5432:5432", "-v pgdata:/var/lib/postgresql/data", "--restart always", "-e PGDATA=/var/lib/postgresql/data"],
       "answer": 1,
       "explanation": "A named volume mounted at Postgres's data directory stores the files outside the container's writable layer, so a new container can mount the same data. --restart always restarts the same container but does nothing once it is deleted, and PGDATA only changes where Postgres writes inside the container.",
       "concept": "named volumes",
@@ -449,11 +589,7 @@
       "difficulty": "easy",
       "question": "Type the command that starts every service in compose.yaml in the background.",
       "answer": "docker compose up -d",
-      "accept": [
-        "docker compose up --detach",
-        "docker-compose up -d",
-        "docker-compose up --detach"
-      ],
+      "accept": ["docker compose up --detach", "docker-compose up -d", "docker-compose up --detach"],
       "shell": "docker",
       "explanation": "up creates the network, volumes and containers (building or pulling images if needed) and starts them; -d detaches so you get your terminal back.",
       "concept": "compose up",
@@ -481,12 +617,7 @@
       "difficulty": "hard",
       "question": "Complete the final stage so it copies only the compiled binary out of the build stage.",
       "code": "FROM golang:1.23 AS build\nWORKDIR /src\nCOPY . .\nRUN CGO_ENABLED=0 go build -o /out/server .\n\nFROM alpine:3.20\n_____ /out/server /usr/local/bin/server\nCMD [\"server\"]",
-      "choices": [
-        "COPY --from=build",
-        "COPY build:",
-        "FROM build COPY",
-        "ADD --stage=build"
-      ],
+      "choices": ["COPY --from=build", "COPY build:", "FROM build COPY", "ADD --stage=build"],
       "answer": 0,
       "explanation": "COPY --from=<stage> copies files from an earlier stage instead of the build context. The Go toolchain and source stay behind in the build stage, so the final image is a small Alpine base plus one binary.",
       "concept": "COPY --from",
@@ -548,11 +679,7 @@
         "VMs isolate more strongly, since each has its own kernel",
         "A Linux container image runs directly on the Windows kernel"
       ],
-      "answers": [
-        0,
-        1,
-        3
-      ],
+      "answers": [0, 1, 3],
       "explanation": "Containers start fast and stay small because they reuse the host kernel, and that same sharing is why a VM's isolation is stronger. Linux images need a Linux kernel, so Docker Desktop on Windows runs them inside a Linux VM.",
       "concept": "containers vs VMs",
       "section": 0
@@ -595,26 +722,11 @@
       "difficulty": "easy",
       "question": "Match each Docker term to its meaning.",
       "pairs": [
-        {
-          "left": "Image",
-          "right": "Read-only template made of layers"
-        },
-        {
-          "left": "Container",
-          "right": "Running instance with its own writable layer"
-        },
-        {
-          "left": "Registry",
-          "right": "Server that stores and serves images, like Docker Hub"
-        },
-        {
-          "left": "Tag",
-          "right": "Name for one version of an image, like 1.4.2"
-        },
-        {
-          "left": "Layer",
-          "right": "File changes from one build step, shared between images"
-        }
+        { "left": "Image", "right": "Read-only template made of layers" },
+        { "left": "Container", "right": "Running instance with its own writable layer" },
+        { "left": "Registry", "right": "Server that stores and serves images, like Docker Hub" },
+        { "left": "Tag", "right": "Name for one version of an image, like 1.4.2" },
+        { "left": "Layer", "right": "File changes from one build step, shared between images" }
       ],
       "explanation": "An image is built from layers and named with a tag, stored in a registry, and run as containers, each of which adds its own writable layer.",
       "concept": "image vocabulary",
@@ -626,13 +738,7 @@
       "difficulty": "medium",
       "question": "Type the command that opens an interactive sh shell inside the running container named web.",
       "answer": "docker exec -it web sh",
-      "accept": [
-        "docker exec -ti web sh",
-        "docker exec -it web /bin/sh",
-        "docker exec -ti web /bin/sh",
-        "docker exec -i -t web sh",
-        "docker container exec -it web sh"
-      ],
+      "accept": ["docker exec -ti web sh", "docker exec -it web /bin/sh", "docker exec -ti web /bin/sh", "docker exec -i -t web sh", "docker container exec -it web sh"],
       "shell": "docker",
       "explanation": "exec runs an extra process in a container that is already running. -i keeps input open and -t allocates a terminal, which together give you a usable shell. Many slim images have sh but not bash.",
       "concept": "docker exec",
@@ -659,14 +765,7 @@
       "type": "order",
       "difficulty": "medium",
       "question": "Put these Dockerfile instructions in the order that gives the best build caching for a Node app.",
-      "items": [
-        "FROM node:20-slim",
-        "WORKDIR /app",
-        "COPY package*.json ./",
-        "RUN npm ci",
-        "COPY . .",
-        "CMD [\"node\", \"server.js\"]"
-      ],
+      "items": ["FROM node:20-slim", "WORKDIR /app", "COPY package*.json ./", "RUN npm ci", "COPY . .", "CMD [\"node\", \"server.js\"]"],
       "explanation": "Base image first, then the working directory, then the dependency manifest and install, which change rarely, and the frequently edited source code last. CMD goes at the end by convention. A code edit then rebuilds only the last COPY.",
       "concept": "cache-friendly Dockerfile",
       "section": 4
@@ -694,12 +793,7 @@
       "difficulty": "easy",
       "question": "Type the command that builds an image from the Dockerfile in the current directory and tags it shop-web:1.0.",
       "answer": "docker build -t shop-web:1.0 .",
-      "accept": [
-        "docker build --tag shop-web:1.0 .",
-        "docker image build -t shop-web:1.0 .",
-        "docker buildx build -t shop-web:1.0 .",
-        "docker build . -t shop-web:1.0"
-      ],
+      "accept": ["docker build --tag shop-web:1.0 .", "docker image build -t shop-web:1.0 .", "docker buildx build -t shop-web:1.0 .", "docker build . -t shop-web:1.0"],
       "shell": "docker",
       "explanation": "-t names and tags the image, and the final . is the build context: the folder whose files COPY can see and where Docker looks for the Dockerfile.",
       "concept": "docker build -t",
@@ -710,7 +804,7 @@
       "type": "mcq",
       "difficulty": "hard",
       "question": "The archive is deleted in the last step, yet the image is still about 800 MB larger than expected. Why?",
-      "code": "FROM ubuntu:24.04\nCOPY data.tar.gz /tmp/              # an 800 MB archive\nRUN tar -xzf /tmp/data.tar.gz -C /opt\nRUN rm /tmp/data.tar.gz",
+      "code": "FROM ubuntu:24.04\n# data.tar.gz is an 800 MB archive\nCOPY data.tar.gz /tmp/\nRUN tar -xzf /tmp/data.tar.gz -C /opt\nRUN rm /tmp/data.tar.gz",
       "choices": [
         "rm cannot delete files that were added with COPY",
         "Docker compresses layers only in multi-stage builds",

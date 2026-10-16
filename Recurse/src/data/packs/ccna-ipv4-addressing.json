@@ -8,19 +8,8 @@
   "description": "Read IPv4 addresses in binary, find network and broadcast addresses, spot private and special ranges, and configure interfaces.",
   "icon": "v4",
   "language": "plaintext",
-  "prereqs": [
-    "networking-basics",
-    "ccna-osi-tcp-udp"
-  ],
-  "tags": [
-    "ccna",
-    "1.6",
-    "1.7",
-    "ipv4",
-    "addressing",
-    "binary",
-    "private addressing"
-  ],
+  "prereqs": ["networking-basics", "ccna-osi-tcp-udp"],
+  "tags": ["ccna", "1.6", "1.7", "ipv4", "addressing", "binary", "private addressing"],
   "resources": [
     {
       "title": "Jeremy's IT Lab: IPv4 Addressing Part 1 (Day 7)",
@@ -60,157 +49,340 @@
     }
   ],
   "lesson": {
-    "estimatedMinutes": 34,
-    "intro": "Every packet a router forwards carries two IPv4 addresses, and nearly every CCNA topic after this one assumes you can read them without hesitating. This lesson takes the address apart: the 32 bits under the dotted decimal, how the mask splits network from host, which ranges are private or special, and how to put an address on a Cisco interface and prove it works.",
+    "estimatedMinutes": 30,
+    "intro": "Every packet carries two IPv4 addresses, and nearly every later CCNA topic assumes you read them without hesitating. This lesson takes the address apart: its 32 bits, the mask, private and special ranges, and how to configure and verify it on Cisco devices.",
     "objectives": [
-      "Convert any octet between binary and decimal using place values",
-      "Translate between dotted-decimal masks and prefix lengths, and find the network and broadcast address of a subnet",
-      "Identify an address's class, default mask, and whether it is private, public, or special",
-      "Configure IPv4 on router interfaces and on a Layer 2 switch SVI with a default gateway, and verify with show commands",
-      "Spot mask and gateway mismatches between hosts and routers, and tell unicast, broadcast and multicast apart"
+      "Convert any octet between binary and decimal",
+      "Translate masks and prefix lengths and find network and broadcast addresses",
+      "Identify an address's class, default mask, and whether it is private or special",
+      "Configure IPv4 on router interfaces and a switch SVI, and verify it",
+      "Spot mask and gateway mismatches, and tell unicast, broadcast and multicast apart"
     ],
     "sections": [
       {
         "title": "An address is 32 bits",
-        "body": "Open a command prompt on a laptop in a coffee shop and run `ipconfig`. You might see `IPv4 Address: 192.168.1.37`. That looks like four numbers, but the laptop never stores it that way. Inside the packet header it is one 32-bit binary number, and the dots exist only so humans can read it.\n\nThe 32 bits are split into four groups of 8 bits called **octets**. Each octet is written as a decimal number and the four are joined with dots. That format is **dotted decimal** (Cisco books call it dotted-decimal notation, or DDN).\n\nAn octet has 8 bits, so its smallest value is 00000000 (0) and its largest is 11111111 (255). That is the whole reason no octet is ever above 255. An address like 192.168.1.300 is not a typo you can work around; it cannot exist.\n\nThirty-two bits give 2^32 possible addresses, about 4.29 billion. That sounded endless in 1981 and turned out to be far too few, which is why private addressing, NAT, and eventually IPv6 exist. You will meet all three.\n\nEvery IPv4 header carries a **source address** (who sent it) and a **destination address** (who it is for). Routers forward based on the destination, and replies go back to the source. Addresses belong to interfaces, not to boxes: a PC's network card, each router interface, and a switch's management interface each get their own. A router connected to three subnets has three addresses, one in each subnet.",
-        "code": "Dotted decimal:      192   .   168   .     1   .    37\nBinary:          11000000  10101000  00000001  00100101\n                 |------|  |------|  |------|  |------|\n                 octet 1   octet 2   octet 3   octet 4\n                 |<------------- 32 bits ------------>|",
-        "language": "plaintext",
+        "key": "An IPv4 address is one 32-bit number written as four 8-bit octets in dotted decimal, so every octet runs from 0 to 255.",
+        "body": "Run `ipconfig` on a laptop and you might see `192.168.1.37`. The packet header holds it as one 32-bit binary number; the dots exist only for humans.\n\nThe 32 bits form four 8-bit **octets**, each written in decimal and joined with dots: **dotted decimal** (DDN in Cisco books).\n\n[[visual]]\n\nAn octet runs from 00000000 (0) to 11111111 (255), so 192.168.1.300 cannot exist. Thirty-two bits give 2^32 = **4,294,967,296** addresses, far too few for today's internet, which is why private addressing, NAT and IPv6 exist.\n\nEvery IPv4 header carries a **source** and a **destination** address. Addresses belong to interfaces, not boxes: a router on three subnets has three addresses.",
+        "visual": {
+          "type": "bits",
+          "title": "192.168.1.37",
+          "rows": [
+            { "label": "Address", "value": "192.168.1.37" }
+          ],
+          "caption": "Four octets of 8 bits: 32 bits in all."
+        },
         "tip": "When an exam answer contains an octet above 255, cross it off at once. It is not a valid address.",
         "pitfall": "Thinking an address belongs to a device. It belongs to an interface: a router with three active interfaces has three IPv4 addresses, each in a different subnet.",
         "check": {
           "question": "Which value can never appear as one octet of an IPv4 address?",
-          "choices": [
-            "0",
-            "255",
-            "256",
-            "127"
-          ],
+          "choices": ["0", "255", "256", "127"],
           "answer": 2,
           "explanation": "An octet is 8 bits, so it holds 0 through 255. 256 would need a ninth bit. 0, 127, and 255 are all legal octet values, even if some full addresses that use them are reserved."
         }
       },
       {
         "title": "Binary and decimal, fast",
-        "body": "Subnetting, wildcard masks, and ACLs all get easier once binary stops being scary. You only ever convert one octet at a time, and an octet has just eight place values: 128, 64, 32, 16, 8, 4, 2, 1. Each is double the one to its right.\n\n**Binary to decimal:** write the bits under the place values and add the place values that hold a 1. For 10101100 that is 128 + 32 + 8 + 4 = 172.\n\n**Decimal to binary (the subtraction method):** walk the place values from left to right. If the place value fits into what is left, write 1 and subtract it. If it does not fit, write 0. Converting 201:\n\n- 128 fits (201 - 128 = 73): 1\n- 64 fits (73 - 64 = 9): 1\n- 32 does not fit into 9: 0\n- 16 does not fit: 0\n- 8 fits (9 - 8 = 1): 1\n- 4 does not fit: 0\n- 2 does not fit: 0\n- 1 fits (1 - 1 = 0): 1\n\nSo 201 is 11001001. Check it the other way: 128 + 64 + 8 + 1 = 201.\n\nTwo patterns pay off on the exam. First, the running totals from the left (128, 192, 224, 240, 248, 252, 254, 255) are exactly the values a subnet mask octet can take, so learn that list cold. Second, an octet splits into two 4-bit halves, and each half maps to one hex digit. You will lean on that for MAC addresses and IPv6.",
-        "code": "Place value:   128   64   32   16    8    4    2    1\n172:             1    0    1    0    1    1    0    0   = 128+32+8+4 = 172\n201:             1    1    0    0    1    0    0    1   = 128+64+8+1 = 201\n\nOnes filled in from the left (the only mask octet values):\n10000000 = 128   11100000 = 224   11111000 = 248   11111110 = 254\n11000000 = 192   11110000 = 240   11111100 = 252   11111111 = 255",
-        "language": "plaintext",
+        "key": "Convert one octet at a time with the place values 128, 64, 32, 16, 8, 4, 2, 1: add them for binary to decimal, subtract them for decimal to binary.",
+        "body": "Subnetting, wildcards and ACLs get easier once binary stops being scary. You only ever convert one octet, and an octet has eight place values, each double the one to its right.\n\n**Binary to decimal:** add the place values that hold a 1.\n\n[[visual]]\n\n**Decimal to binary (subtraction method):** walk the place values left to right. If one fits into what is left, write 1 and subtract it; otherwise write 0.\n\n[[visual 2]]\n\nThe running totals of 1s from the left are exactly the values a mask octet can take. Learn them cold:\n\n[[visual 3]]\n\nEach 4-bit half of an octet is one hex digit, which you will use for MAC and IPv6 addresses.",
+        "visual": [
+          {
+            "type": "table",
+            "title": "Place values at work",
+            "columns": ["Binary", "Place values with a 1", "Decimal"],
+            "rows": [
+              ["`10101100`", "128 + 32 + 8 + 4", "172"],
+              ["`11001001`", "128 + 64 + 8 + 1", "201"],
+              ["`01111011`", "64 + 32 + 16 + 8 + 2 + 1", "123"]
+            ]
+          },
+          {
+            "type": "steps",
+            "title": "201 to binary",
+            "steps": [
+              { "label": "128 fits", "work": "201 - 128 = 73, write 1" },
+              { "label": "64 fits", "work": "73 - 64 = 9, write 1" },
+              { "label": "32 and 16 do not fit into 9", "work": "write 0 0" },
+              { "label": "8 fits", "work": "9 - 8 = 1, write 1" },
+              { "label": "4 and 2 do not fit", "work": "write 0 0" },
+              { "label": "1 fits", "work": "1 - 1 = 0, write 1" }
+            ],
+            "result": "`11001001`, and 128 + 64 + 8 + 1 = 201 checks it"
+          },
+          {
+            "type": "bits",
+            "title": "Ones filled in from the left",
+            "rows": [
+              { "label": "128", "bits": "1000 0000" },
+              { "label": "192", "bits": "1100 0000" },
+              { "label": "224", "bits": "1110 0000" },
+              { "label": "240", "bits": "1111 0000" },
+              { "label": "248", "bits": "1111 1000" },
+              { "label": "252", "bits": "1111 1100" },
+              { "label": "254", "bits": "1111 1110" },
+              { "label": "255", "bits": "1111 1111" }
+            ]
+          }
+        ],
         "tip": "Count down from all ones when it is quicker: 11111111 is 255, so 11111110 is 254 and 01111111 is 127.",
-        "pitfall": "Writing fewer than 8 bits. Inside an address, 5 is 00000101, not 101. Dropping the leading zeros shifts every bit into the wrong place value when you line an address up against a mask.",
+        "pitfall": "Writing fewer than 8 bits. Inside an address, 5 is 00000101, not 101. Dropping leading zeros shifts every bit into the wrong place value when you line an address up against a mask.",
         "activity": {
           "type": "binary-bits",
           "title": "Build octets bit by bit",
           "prompt": "Before you flip anything, say which place values you need (for 172 that is 128 + 32 + 8 + 4), then flip only those bits. Notice that the subtraction method is just taking the biggest place value that still fits, every time.",
-          "props": {
-            "bits": 8,
-            "rounds": 5
-          }
+          "props": { "bits": 8, "rounds": 5 }
         },
         "check": {
           "question": "What is 11100110 in decimal?",
-          "choices": [
-            "226",
-            "214",
-            "230",
-            "236"
-          ],
+          "choices": ["226", "214", "230", "236"],
           "answer": 2,
           "explanation": "The 1 bits sit under 128, 64, 32, 4, and 2: 128 + 64 + 32 + 4 + 2 = 230. 226 forgets the 4, and 214 drops the 32 and adds a 16."
         }
       },
       {
         "title": "Masks and prefix length",
-        "body": "Give two engineers the address 172.16.45.9 and ask which network it is on, and neither can answer yet. The address alone does not say where the network part stops. That is the job of the **subnet mask**.\n\nA mask is also 32 bits, and it has one strict shape: a run of 1s from the left, then 0s to the end, never mixed. Each 1 marks a network bit in the same position of the address, and each 0 marks a host bit. 255.255.255.0 is twenty-four 1s followed by eight 0s, so the first 24 bits of the address are network and the last 8 are host.\n\nBecause only the number of 1s matters, a mask can be written as a **prefix length**: a slash and the count of 1s. 255.255.255.0 is /24, 255.255.0.0 is /16, and 255.255.255.192 is /26 (24 ones from the full octets plus 2 from the 192). IOS takes a dotted-decimal mask in the `ip address` command but shows prefix lengths in `show ip route` and `show ip interface`, so you need to move between them instantly.\n\n**Mask to prefix:** add 8 for every 255, then add the bits of the partial octet using the list from the last section (128 = 1, 192 = 2, 224 = 3, 240 = 4, 248 = 5, 252 = 6, 254 = 7). 255.255.240.0 is 8 + 8 + 4 = /20.\n\n**Prefix to mask:** write 255 for each full 8 bits, turn the leftover bits into a mask value, and fill the rest with 0. /27 is 8 + 8 + 8 + 3, so 255.255.255.224. /12 is 8 + 4, so 255.240.0.0.\n\nA longer prefix means more network bits and fewer host bits, so a smaller subnet. Every extra bit of prefix halves the number of addresses.",
-        "code": "Prefix  Mask               Prefix  Mask               Prefix  Mask\n/8      255.0.0.0          /17     255.255.128.0      /25     255.255.255.128\n/9      255.128.0.0        /18     255.255.192.0      /26     255.255.255.192\n/10     255.192.0.0        /19     255.255.224.0      /27     255.255.255.224\n/11     255.224.0.0        /20     255.255.240.0      /28     255.255.255.240\n/12     255.240.0.0        /21     255.255.248.0      /29     255.255.255.248\n/13     255.248.0.0        /22     255.255.252.0      /30     255.255.255.252\n/14     255.252.0.0        /23     255.255.254.0      /31     255.255.255.254\n/16     255.255.0.0        /24     255.255.255.0      /32     255.255.255.255",
-        "language": "plaintext",
-        "pitfall": "Accepting an impossible mask. 255.255.255.250 and 255.0.255.0 cannot be masks because their 1s are not contiguous. A mask octet is always 0, 128, 192, 224, 240, 248, 252, 254, or 255, and every octet after a partial one must be 0.",
+        "key": "A mask is a run of 1s then 0s; the prefix length counts the 1s, and every mask octet is 0, 128, 192, 224, 240, 248, 252, 254 or 255.",
+        "body": "Ask which network 172.16.45.9 is on and nobody can answer: the address alone does not say where the network part stops. The **subnet mask** does.\n\nA mask is 32 bits: 1s from the left, then 0s, never mixed. Each 1 marks a network bit, each 0 a host bit. Only the count of 1s matters, so it is also written as a **prefix length**: 255.255.255.0 is /24.\n\nIOS takes dotted masks in `ip address` but shows prefixes in `show ip route`, so convert both ways.\n\n[[visual]]\n\n[[visual 2]]\n\n[[visual 3]]\n\nA longer prefix means fewer host bits: each extra bit halves the subnet.",
+        "visual": [
+          {
+            "type": "steps",
+            "title": "Mask to prefix: 255.255.240.0",
+            "steps": [
+              { "label": "Count 8 for each 255", "work": "255.255 = 16" },
+              { "label": "Add the bits of the partial octet", "work": "240 = 11110000 = 4" }
+            ],
+            "result": "16 + 4 = /20"
+          },
+          {
+            "type": "steps",
+            "title": "Prefix to mask: /27",
+            "steps": [
+              { "label": "Split into full octets and leftover bits", "work": "27 = 8 + 8 + 8 + 3" },
+              { "label": "Write 255 for each full octet", "work": "255.255.255" },
+              { "label": "Turn the leftover bits into a value", "work": "11100000 = 224" }
+            ],
+            "result": "`255.255.255.224`"
+          },
+          {
+            "type": "table",
+            "title": "Every mask octet value",
+            "columns": ["Ones in the octet", "Value", "Prefixes"],
+            "rows": [
+              ["1", "128", "/9, /17, /25"],
+              ["2", "192", "/10, /18, /26"],
+              ["3", "224", "/11, /19, /27"],
+              ["4", "240", "/12, /20, /28"],
+              ["5", "248", "/13, /21, /29"],
+              ["6", "252", "/14, /22, /30"],
+              ["7", "254", "/15, /23, /31"],
+              ["8", "255", "/8, /16, /24, /32"]
+            ],
+            "mono": [1],
+            "caption": "Example: /12 is 255.240.0.0, /22 is 255.255.252.0, /30 is 255.255.255.252."
+          }
+        ],
+        "pitfall": "Accepting an impossible mask. 255.255.255.250 and 255.0.255.0 cannot be masks: their 1s are not contiguous. After a partial octet, every octet must be 0.",
         "check": {
           "question": "Which prefix length matches the mask 255.255.248.0?",
-          "choices": [
-            "/19",
-            "/21",
-            "/22",
-            "/20"
-          ],
+          "choices": ["/19", "/21", "/22", "/20"],
           "answer": 1,
           "explanation": "Two 255 octets give 16 bits, and 248 is 11111000, which adds 5 more: 16 + 5 = /21. /20 would be 255.255.240.0 and /22 would be 255.255.252.0."
         }
       },
       {
         "title": "Network part, host part, and the two reserved addresses",
-        "body": "Your PC is 192.168.10.77/24 and wants to send to 192.168.10.200. Should it send the frame straight to that host or hand it to the default gateway? Every IPv4 host asks this before every packet, and it uses the mask to answer.\n\nWith a /24, the first three octets are the **network part** and the last octet is the **host part**. Both addresses share 192.168.10, so they are in the same subnet: the PC uses ARP to learn 192.168.10.200's MAC address and delivers the frame directly. If the destination were 192.168.20.5, the network parts would differ, so the PC would send the frame to its default gateway's MAC address instead and let the router forward it.\n\nTwo addresses in every subnet are reserved:\n\n- The **network address** (also called the subnet ID or subnet number) has every host bit set to 0. It names the subnet and is what appears in routing tables. For 192.168.10.77/24 it is 192.168.10.0.\n- The **broadcast address** has every host bit set to 1. A packet sent to it reaches every host in the subnet. Here it is 192.168.10.255.\n\nEverything between them is the **usable host range**, 192.168.10.1 to 192.168.10.254. With h host bits a subnet holds 2^h addresses, and 2^h - 2 of them are usable. A /24 has 8 host bits: 256 addresses and 254 hosts. A /16 has 16 host bits: 65,536 addresses and 65,534 hosts.\n\nThe device finds the network address with a bitwise **AND** of the address and the mask: where the mask has a 1, the address bit is kept, and where it has a 0, the result is 0. On octet boundaries that means copying the octets where the mask is 255 and writing 0 where it is 0. For 10.20.30.40:\n\n- with /8: network 10.0.0.0, broadcast 10.255.255.255\n- with /16: network 10.20.0.0, broadcast 10.20.255.255\n- with /24: network 10.20.30.0, broadcast 10.20.30.255\n\nWhen a mask splits an octet, such as /26, the same AND still works. The subnetting lesson gives you a much faster decimal shortcut for those.",
-        "code": "Address    192.168.10.77    11000000.10101000.00001010.01001101\nMask       255.255.255.0    11111111.11111111.11111111.00000000\n                AND  ---->  11000000.10101000.00001010.00000000\nNetwork    192.168.10.0     host bits all 0\nBroadcast  192.168.10.255   11000000.10101000.00001010.11111111  host bits all 1\nUsable     192.168.10.1 to 192.168.10.254    2^8 - 2 = 254 hosts",
-        "language": "plaintext",
-        "pitfall": "Giving a host the network or broadcast address. 192.168.10.0/24 and 192.168.10.255/24 look like ordinary addresses, but IOS refuses them on an interface with a Bad mask error, and a PC set to either one will not communicate properly.",
+        "key": "Host bits all 0 give the network address and all 1 the broadcast; the 2^h - 2 addresses between are usable, and a host reaches its own subnet directly.",
+        "body": "Your PC is 192.168.10.77/24 and sends to 192.168.10.200. Direct, or via the default gateway? Every host asks this before every packet, using the mask.\n\nIt finds its subnet with a bitwise **AND** of address and mask: where the mask has a 1 the address bit is kept, where it has a 0 the result is 0.\n\n[[visual]]\n\nThe **network address** (subnet ID) names the subnet in routing tables; the **broadcast address** reaches every host in it. With h host bits a subnet holds 2^h addresses, 2^h - 2 usable: a /24 has 254 hosts, a /16 has 65,534.\n\n[[visual 2]]\n\n[[visual 3]]",
+        "visual": [
+          {
+            "type": "bits",
+            "title": "192.168.10.77/24",
+            "prefix": 24,
+            "octets": [3],
+            "rows": [
+              { "label": "Address", "value": "192.168.10.77" },
+              { "label": "Mask", "value": "255.255.255.0" },
+              { "label": "Network (AND)", "value": "192.168.10.0", "tone": "good" },
+              { "label": "Broadcast", "value": "192.168.10.255", "tone": "warn" }
+            ],
+            "caption": "Usable hosts: 192.168.10.1 to 192.168.10.254 (2^8 - 2 = 254)."
+          },
+          {
+            "type": "table",
+            "title": "One address, three masks: 10.20.30.40",
+            "columns": ["Prefix", "Network", "Broadcast"],
+            "rows": [
+              ["/8", "10.0.0.0", "10.255.255.255"],
+              ["/16", "10.20.0.0", "10.20.255.255"],
+              ["/24", "10.20.30.0", "10.20.30.255"]
+            ],
+            "mono": [1, 2],
+            "caption": "On octet boundaries, copy the octets where the mask is 255 and write 0 (network) or 255 (broadcast) elsewhere. In 10.0.0.0/8, addresses such as 10.0.0.255 and 10.255.255.0 are ordinary hosts."
+          },
+          {
+            "type": "flow",
+            "title": "Sending to another subnet",
+            "steps": [
+              { "label": "AND its own address with its mask to find its subnet" },
+              {
+                "label": "Is the destination in that subnet?",
+                "yes": "ARP for the destination and deliver directly",
+                "no": "It is remote: choose the default gateway"
+              },
+              { "label": "ARP for the gateway's MAC if it is not cached" },
+              {
+                "label": "Send a frame to the gateway's MAC carrying the original destination IP",
+                "tone": "accent"
+              }
+            ]
+          }
+        ],
+        "pitfall": "Giving a host the network or broadcast address. 192.168.10.0/24 and 192.168.10.255/24 look ordinary, but IOS rejects them on an interface and a PC set to either will not work properly.",
         "check": {
           "question": "Host A is 10.1.5.20/16. Which destination can it reach without using its default gateway?",
-          "choices": [
-            "10.2.5.20",
-            "11.1.5.20",
-            "10.0.5.20",
-            "10.1.200.9"
-          ],
+          "choices": ["10.2.5.20", "11.1.5.20", "10.0.5.20", "10.1.200.9"],
           "answer": 3,
           "explanation": "With /16, A's network is 10.1.0.0, covering 10.1.0.0 to 10.1.255.255. Only 10.1.200.9 shares the first two octets. 10.2.5.20 and 10.0.5.20 differ in the second octet, so they are remote even though they look similar."
         }
       },
       {
         "title": "Classful addressing and why CIDR replaced it",
-        "body": "Before 1993, routing updates carried no prefix lengths. The first octet of an address decided how big its network was, through a scheme called **classful addressing**. Each class begins with a fixed bit pattern, which is why the boundaries fall where they do: Class A addresses start with binary 0, B with 10, C with 110, D with 1110, and E with 1111.\n\nTwo first-octet values are left out of Class A on purpose. 0 is reserved (0.0.0.0 has special meanings, covered below) and 127 is reserved for loopback. So the usable Class A networks run from 1.0.0.0 to 126.0.0.0: 126 networks of 16,777,214 hosts each. Class B gives 16,384 networks of 65,534 hosts, and Class C gives 2,097,152 networks of 254 hosts.\n\nClassful addressing wasted space badly. An organization with 2,000 hosts was too big for a Class C and received a Class B, stranding more than 63,000 addresses. Internet routers also needed a separate route for every classful network, so routing tables ballooned.\n\n**CIDR** (Classless Inter-Domain Routing, 1993) removed the fixed sizes. Any prefix length can be used anywhere: an ISP can hand out a /22 (1,022 hosts) or a /29 (6 hosts), and it can advertise many customer blocks as one shorter summary route. Today the prefix length you configure defines the network, never the class.\n\nThe exam still uses classes for a few things: the **default mask** of a classful network (A is /8, B is /16, C is /24), naming the classful network an address sits in, and knowing that Class D is multicast and Class E is reserved.",
-        "code": "Class  First octet  Leading bits  Default mask         Purpose\nA      1 to 126     0             255.0.0.0      /8    Unicast, large networks\nB      128 to 191   10            255.255.0.0    /16   Unicast, medium networks\nC      192 to 223   110           255.255.255.0  /24   Unicast, small networks\nD      224 to 239   1110          none                 Multicast\nE      240 to 255   1111          none                 Reserved (experimental)\n\n0.x.x.x and 127.x.x.x are reserved, so they are not usable Class A networks.",
-        "language": "plaintext",
-        "pitfall": "Assuming the class sets the mask on a real interface. 10.1.1.1 is a Class A address, but configured with /24 its subnet is 10.1.1.0/24. Use the class only when a question asks about the classful network or the default mask.",
+        "key": "Classes (A 1 to 126, B 128 to 191, C 192 to 223, D multicast, E reserved) now only define default masks; with CIDR, any prefix length defines a network.",
+        "body": "Before 1993, routing updates carried no prefix lengths, so the first octet decided a network's size: **classful addressing**. Each class starts with a fixed bit pattern, which sets its first-octet range.\n\n[[visual]]\n\n0 and 127 are left out of Class A: 0 is reserved and 127 is loopback, so usable Class A networks run from 1.0.0.0 to 126.0.0.0.\n\n[[visual 2]]\n\nClasses wasted space: a company with 2,000 hosts got a Class B and stranded 63,000 addresses, and routing tables ballooned. **CIDR** (Classless Inter-Domain Routing, 1993) allows any prefix anywhere, such as a /22 or /29, and lets ISPs advertise many blocks as one summary.\n\nThe exam still uses classes for default masks, naming the classful network, and Class D multicast and Class E reserved.",
+        "visual": [
+          {
+            "type": "table",
+            "title": "The five classes",
+            "columns": ["Class (leading bits)", "First octet", "Default mask"],
+            "rows": [
+              ["A (`0`)", "1 to 126", "255.0.0.0 (/8)"],
+              ["B (`10`)", "128 to 191", "255.255.0.0 (/16)"],
+              ["C (`110`)", "192 to 223", "255.255.255.0 (/24)"],
+              ["D (`1110`)", "224 to 239", "None: multicast"],
+              ["E (`1111`)", "240 to 255", "None: reserved (experimental)"]
+            ],
+            "caption": "A, B and C are unicast for large, medium and small networks."
+          },
+          {
+            "type": "table",
+            "title": "Classful sizes",
+            "columns": ["Class", "Networks", "Hosts each"],
+            "rows": [
+              ["A", "126", "16,777,214"],
+              ["B", "16,384", "65,534"],
+              ["C", "2,097,152", "254"]
+            ]
+          }
+        ],
+        "pitfall": "Assuming the class sets the mask on a real interface. 10.1.1.1 is Class A, but configured with /24 its subnet is 10.1.1.0/24. Use the class only for the classful network or default mask.",
         "check": {
           "question": "What is the default mask of the classful network that contains 172.30.8.1?",
-          "choices": [
-            "255.0.0.0",
-            "255.255.255.0",
-            "255.255.0.0",
-            "255.255.240.0"
-          ],
+          "choices": ["255.0.0.0", "255.255.255.0", "255.255.0.0", "255.255.240.0"],
           "answer": 2,
           "explanation": "172 falls in 128 to 191, so the address is Class B, whose default mask is 255.255.0.0 (/16). 255.255.240.0 is a /20, which is not the default for any class."
         }
       },
       {
         "title": "Private addresses and why NAT exists",
-        "body": "Check the IP address of almost any home or office laptop and it starts with 10, with 172.16 through 172.31, or with 192.168. Millions of networks use exactly the same numbers at the same time and nothing breaks. That works because they are **private addresses**, set aside by **RFC 1918** for internal use.\n\nPrivate addresses are not globally unique, so internet routers carry no routes for them and ISPs filter them. Any organization may reuse them inside its own network without asking anyone. The catch: a packet with a private source address cannot find its way back across the internet.\n\n**NAT** (Network Address Translation) fixes that. The edge router rewrites the private source address to a public one on the way out and reverses the change for the replies. With **PAT** (Port Address Translation, also called NAT overload), thousands of inside hosts share a single public address and are told apart by port numbers. Your home router does exactly this.\n\nThat pairing is why IPv4 lasted far longer than 4.29 billion addresses should allow. IANA handed out its last blocks of public IPv4 space in 2011, and RFC 1918 plus NAT is the main reason the internet kept growing anyway. The lasting fix is IPv6, which has no shortage at all. Private addressing also keeps internet routing tables smaller, since nobody advertises internal networks.\n\nWatch the edges of the 172 range. 172.16.0.0/12 covers only 172.16.0.0 through 172.31.255.255, so 172.15.1.1 and 172.32.1.1 are public. Also keep 100.64.0.0/10 separate in your head: that is shared address space ISPs use for carrier-grade NAT (RFC 6598). It is not routed on the internet either, but it is not one of the three RFC 1918 ranges.\n\nA few other blocks are reserved and turn up in exam answers as distractors. **192.0.2.0/24, 198.51.100.0/24 and 203.0.113.0/24** are set aside for documentation (RFC 5737), which is why books and exam exhibits use them for \"public\" addresses. **127.0.0.0/8** (loopback) and **169.254.0.0/16** (link-local) come next. None of these is RFC 1918 space; when a question asks for a private address, only 10/8, 172.16/12 and 192.168/16 count.\n\nWhy would a company choose private space even with plenty of public addresses? Renumbering is painless when it changes ISPs, internal hosts are not directly reachable from the internet, and it can use a huge block such as 10.0.0.0/8 to give every site and VLAN room to grow.",
-        "code": "RFC 1918 block   Prefix           Address span                    Classful view\n10.0.0.0         10.0.0.0/8       10.0.0.0 to 10.255.255.255      1 Class A network\n172.16.0.0       172.16.0.0/12    172.16.0.0 to 172.31.255.255    16 Class B networks\n192.168.0.0      192.168.0.0/16   192.168.0.0 to 192.168.255.255  256 Class C networks",
-        "language": "plaintext",
-        "pitfall": "Calling 172.32.0.0 or 172.10.0.0 private. A /12 leaves only the low 4 bits of the second octet for addresses, so the block is 16 values wide and starts at 16: 172.16 through 172.31, nothing else.",
+        "key": "RFC 1918 sets aside 10.0.0.0/8, 172.16.0.0/12 and 192.168.0.0/16 for private use, and NAT translates them to a public address at the internet edge.",
+        "body": "Almost every home or office laptop has an address starting with 10, 172.16 to 172.31, or 192.168. Millions of networks reuse them at once: they are **private addresses** from **RFC 1918**.\n\n[[visual]]\n\nInternet routers carry no routes for private space and ISPs filter it, so a private source cannot get replies from the internet. **NAT** rewrites the private source to a public address on the way out. With **PAT** (NAT overload), thousands of hosts share one public address, told apart by port numbers.\n\nIANA handed out its last public IPv4 blocks in 2011; RFC 1918 plus NAT kept the internet growing, and IPv6 is the lasting fix.\n\nOther reserved blocks appear as exam distractors. None is RFC 1918:\n\n[[visual 2]]",
+        "visual": [
+          {
+            "type": "table",
+            "title": "RFC 1918 private ranges",
+            "columns": ["Block", "Span", "Classful view"],
+            "rows": [
+              ["`10.0.0.0/8`", "10.0.0.0 to 10.255.255.255", "1 Class A network"],
+              ["`172.16.0.0/12`", "172.16.0.0 to 172.31.255.255", "16 Class B networks"],
+              ["`192.168.0.0/16`", "192.168.0.0 to 192.168.255.255", "256 Class C networks"]
+            ]
+          },
+          {
+            "type": "table",
+            "title": "Reserved, but not private",
+            "columns": ["Block", "Use"],
+            "rows": [
+              ["`100.64.0.0/10`", "Shared space for ISP carrier-grade NAT (RFC 6598)"],
+              ["`192.0.2.0/24`, `198.51.100.0/24`, `203.0.113.0/24`", "Documentation and examples (RFC 5737): the \"public\" addresses in books and exhibits"],
+              ["`127.0.0.0/8`", "Loopback"],
+              ["`169.254.0.0/16`", "Link-local"]
+            ]
+          }
+        ],
+        "deeper": "Why choose private space even with public addresses to spare? Renumbering is painless when the company changes ISPs, internal hosts are not directly reachable from the internet, and a huge block such as 10.0.0.0/8 gives every site and VLAN room to grow. Private addressing also keeps internet routing tables smaller, since nobody advertises internal networks.",
+        "pitfall": "Calling 172.32.0.0 or 172.10.0.0 private. A /12 leaves 4 bits of the second octet, a block of 16 values starting at 16: 172.16 through 172.31, nothing else.",
         "check": {
           "question": "Which address is a private RFC 1918 address?",
-          "choices": [
-            "172.33.10.1",
-            "192.169.1.1",
-            "172.20.200.5",
-            "100.64.1.1"
-          ],
+          "choices": ["172.33.10.1", "192.169.1.1", "172.20.200.5", "100.64.1.1"],
           "answer": 2,
           "explanation": "172.20 sits inside 172.16.0.0/12 (172.16 to 172.31). 172.33 is just past the range, 192.169 is outside 192.168.0.0/16, and 100.64.1.1 is carrier-grade NAT space, not RFC 1918."
         }
       },
       {
         "title": "Special addresses and the three delivery types",
-        "body": "A user calls: the network is down, and their IP is 169.254.83.12. You know what happened before you look at anything else, because that address tells a story. A handful of addresses carry meanings like that:\n\n- **127.0.0.0/8, loopback.** Traffic to 127.0.0.1 (or any 127.x.x.x) never leaves the host; it goes down the stack and straight back up. A successful `ping 127.0.0.1` proves the local TCP/IP stack works, nothing more.\n- **169.254.0.0/16, link-local, known on Windows as APIPA.** A client that asked for a DHCP address and heard no reply gives itself one from this range. It can talk only to neighbors on the same link and has no gateway. Seeing it means DHCP failed: check the server, the VLAN, the cable, or the relay (`ip helper-address`).\n- **0.0.0.0** as a source means this host, with no address yet. A DHCP client uses it in its Discover. In a routing table, **0.0.0.0/0** means every destination: the default route.\n- **255.255.255.255, limited broadcast.** Every host on the local subnet. Routers never forward it. DHCP Discover is sent to it.\n- **Directed broadcast:** a subnet's own broadcast address, such as 192.168.10.255 for 192.168.10.0/24. Modern IOS does not forward directed broadcasts by default (`no ip directed-broadcast`), which blocks an old amplification attack.\n\nThose broadcasts lead to the three ways IPv4 delivers a packet:\n\n- **Unicast:** one sender to one receiver. Most traffic: web, SSH, file transfers, and the ARP reply.\n- **Broadcast:** one sender to every host in the subnet, such as an ARP request or a DHCP Discover. Every host has to stop and process it, which is why huge broadcast domains get sluggish and why subnets and VLANs keep them small.\n- **Multicast:** one sender to a group of receivers that joined, using Class D addresses (224.0.0.0/4). Routing protocols use reserved groups, such as 224.0.0.5 and 224.0.0.6 for OSPF and 224.0.0.10 for EIGRP. Addresses in 224.0.0.0/24 never leave the local link.\n\nIPv6 drops broadcast entirely and does everything with multicast, which you will see in the IPv6 lesson.",
-        "code": "Address or range      Name                  Meaning\n127.0.0.0/8           Loopback              Stays inside the host (127.0.0.1)\n169.254.0.0/16        Link-local (APIPA)    Self-assigned when DHCP fails\n0.0.0.0               Unspecified           No address yet (DHCP Discover source)\n0.0.0.0/0             Default route         Matches every destination\n255.255.255.255       Limited broadcast     All hosts on this subnet, never routed\n192.168.10.255 (/24)  Directed broadcast    All hosts in 192.168.10.0/24\n224.0.0.0/4           Multicast (Class D)   A group of receivers",
-        "language": "plaintext",
+        "key": "Some addresses carry meaning: 127.x is loopback, 169.254.x means DHCP failed, 255.255.255.255 is never routed; IPv4 delivers by unicast, broadcast or multicast.",
+        "body": "A user says the network is down, and their IP is 169.254.83.12. That address tells the story: the PC asked DHCP for an address, heard nothing, and assigned itself a **link-local** one (**APIPA** on Windows), with no gateway. Check the DHCP server, VLAN, cable or relay (`ip helper-address`).\n\n[[visual]]\n\nA successful `ping 127.0.0.1` proves only that the local TCP/IP stack works. IOS does not forward directed broadcasts by default (`no ip directed-broadcast`), which blocks an old amplification attack.\n\n[[visual 2]]\n\nIPv6 drops broadcast entirely and uses multicast instead.",
+        "visual": [
+          {
+            "type": "table",
+            "title": "Addresses with a meaning",
+            "columns": ["Address", "Name", "Meaning"],
+            "rows": [
+              ["`127.0.0.0/8`", "Loopback", "Never leaves the host (127.0.0.1)"],
+              ["`169.254.0.0/16`", "Link-local (APIPA)", "Self-assigned when DHCP fails"],
+              ["`0.0.0.0`", "Unspecified", "No address yet: the DHCP Discover source"],
+              ["`0.0.0.0/0`", "Default route", "Matches every destination"],
+              ["`255.255.255.255`", "Limited broadcast", "All hosts on this subnet; routers never forward it"],
+              ["`192.168.10.255` (/24)", "Directed broadcast", "All hosts in 192.168.10.0/24"],
+              ["`224.0.0.0/4`", "Multicast (Class D)", "A group of receivers"]
+            ]
+          },
+          {
+            "type": "compare",
+            "items": [
+              {
+                "title": "Unicast",
+                "sub": "one to one",
+                "points": ["Most traffic: web, SSH, file transfer", "The ARP reply"]
+              },
+              {
+                "title": "Broadcast",
+                "sub": "one to all in the subnet",
+                "tone": "warn",
+                "points": ["ARP request, DHCP Discover", "Every host must process it, so big broadcast domains get slow"]
+              },
+              {
+                "title": "Multicast",
+                "sub": "one to a joined group",
+                "tone": "accent",
+                "points": ["Class D, 224.0.0.0/4", "OSPF uses 224.0.0.5 and .6, EIGRP 224.0.0.10", "224.0.0.0/24 never leaves the link"]
+              }
+            ]
+          }
+        ],
         "pitfall": "Treating 169.254.x.x as a real address and troubleshooting routes or DNS. APIPA means the client never reached a DHCP server, so fix that path first.",
         "check": {
           "question": "A PC shows 169.254.19.7, mask 255.255.0.0, and no default gateway. What is the most likely cause?",
-          "choices": [
-            "Its DNS server is down",
-            "It has a duplicate static address",
-            "Its default route points to loopback",
-            "It received no reply from a DHCP server"
-          ],
+          "choices": ["Its DNS server is down", "It has a duplicate static address", "Its default route points to loopback", "It received no reply from a DHCP server"],
           "answer": 3,
           "explanation": "169.254.0.0/16 is the self-assigned link-local (APIPA) range a client falls back to when DHCP gets no answer. A DNS failure would leave the address alone, and a static duplicate would keep the static address."
         }
       },
       {
         "title": "Configuring and verifying an interface address",
-        "body": "You have just cabled a new router, R1. G0/0 faces the LAN 192.168.10.0/24 and should be the gateway at .1. G0/1 faces a /30 link to the ISP. Cisco router interfaces start out administratively down, so each one needs two things: an address with its mask, and `no shutdown`.\n\nThe `ip address` command takes the address and a dotted-decimal mask, never a prefix length: `ip address 192.168.10.1/24` is rejected. Entering a second `ip address` on the same interface replaces the first one (unless you add the `secondary` keyword).\n\nThen verify, roughly in this order:\n\n- `show ip interface brief`: one line per interface with its address and two status columns. Status is layer 1 (`up`, `down`, or `administratively down` when `no shutdown` is missing). Protocol is layer 2. You want up and up.\n- `show ip interface g0/0` or `show interfaces g0/0`: the address with its prefix length, as in `Internet address is 192.168.10.1/24`.\n- `show ip route connected`: once an interface is up/up, IOS adds a **connected route** (C) for the subnet and a **local route** (L) for the interface's own address as a /32. Neither appears while the interface is down.\n- `show running-config interface g0/0`: exactly what was typed.\n\nIOS also blocks two classic mistakes. It will not accept a subnet's network or broadcast address as an interface address, and it refuses an address whose subnet overlaps a subnet already on another interface, with a message like `% 192.168.10.0 overlaps with GigabitEthernet0/0`. Each router interface must sit in its own subnet.",
-        "code": "R1(config)# interface g0/0\nR1(config-if)# ip address 192.168.10.1 255.255.255.0\nR1(config-if)# no shutdown\nR1(config-if)# interface g0/1\nR1(config-if)# ip address 203.0.113.2 255.255.255.252\nR1(config-if)# no shutdown\nR1(config-if)# end\n\nR1# show ip interface brief\nInterface              IP-Address      OK? Method Status                Protocol\nGigabitEthernet0/0     192.168.10.1    YES manual up                    up\nGigabitEthernet0/1     203.0.113.2     YES manual up                    up\nGigabitEthernet0/2     unassigned      YES unset  administratively down down\n\nR1# show ip route connected\n      192.168.10.0/24 is variably subnetted, 2 subnets, 2 masks\nC        192.168.10.0/24 is directly connected, GigabitEthernet0/0\nL        192.168.10.1/32 is directly connected, GigabitEthernet0/0\n      203.0.113.0/24 is variably subnetted, 2 subnets, 2 masks\nC        203.0.113.0/30 is directly connected, GigabitEthernet0/1\nL        203.0.113.2/32 is directly connected, GigabitEthernet0/1",
+        "key": "On a router, ip address takes an address and dotted mask, no shutdown brings it up, and an up/up interface adds a connected (C) and a local /32 (L) route.",
+        "body": "New router R1: G0/0 is the LAN gateway at 192.168.10.1/24, and G0/1 is a /30 link to the ISP. Router interfaces start administratively down, so each needs an address and `no shutdown`.\n\n`ip address` takes a dotted mask, never a prefix: `ip address 192.168.10.1/24` is rejected. A second `ip address` replaces the first (unless you add `secondary`).\n\n[[code]]\n\n[[visual]]\n\nIOS blocks two classic mistakes: it refuses a subnet's network or broadcast address, and it refuses an address that overlaps a subnet on another interface (`% 192.168.10.0 overlaps with GigabitEthernet0/0`). Each router interface needs its own subnet.",
+        "visual": {
+          "type": "table",
+          "title": "Verify, roughly in this order",
+          "columns": ["Command", "Shows"],
+          "rows": [
+            ["`show ip interface brief`", "One line per interface: address, Status (Layer 1) and Protocol (Layer 2). You want up/up"],
+            ["`show ip interface g0/0`", "The address with its prefix: `Internet address is 192.168.10.1/24`"],
+            ["`show ip route connected`", "A **C** route for each up/up subnet and an **L** /32 for each interface address"],
+            ["`show running-config interface g0/0`", "Exactly what was typed"]
+          ]
+        },
+        "code": "R1(config)# interface g0/0\nR1(config-if)# ip address 192.168.10.1 255.255.255.0\nR1(config-if)# no shutdown\nR1(config-if)# interface g0/1\nR1(config-if)# ip address 203.0.113.2 255.255.255.252\nR1(config-if)# no shutdown\nR1(config-if)# end\nR1# show ip route connected\nC     192.168.10.0/24 is directly connected, GigabitEthernet0/0\nL     192.168.10.1/32 is directly connected, GigabitEthernet0/0\nC     203.0.113.0/30 is directly connected, GigabitEthernet0/1\nL     203.0.113.2/32 is directly connected, GigabitEthernet0/1",
         "language": "cisco",
         "tip": "Read show ip interface brief right to left: Protocol and Status first (is it up/up?), then the address.",
         "pitfall": "Forgetting no shutdown. The address is in the running config and looks right, but the interface stays administratively down and no connected route appears.",
@@ -228,38 +400,89 @@
       },
       {
         "title": "IPv4 on a Layer 2 switch: SVI and default gateway",
-        "body": "A Layer 2 switch forwards frames without needing any IP address at all. You give it one only so you can manage it remotely with SSH, SNMP or a web browser. The address does not go on a physical port; it goes on a **switch virtual interface (SVI)**, a logical interface that lives in one VLAN. By default that is `interface vlan 1`, though good practice moves management to its own VLAN.\n\nThe switch acts like a host, so it needs the same settings a PC needs:\n\n- `interface vlan 1`, then `ip address 192.168.1.200 255.255.255.0`, then `no shutdown` (the VLAN 1 SVI starts shut down on many switches).\n- `ip default-gateway 192.168.1.1` in **global** configuration mode, so the switch can answer management traffic from other subnets. A Layer 2 switch does not route, so it has no routing table to hold a default route; this command is its gateway setting, exactly like a PC's.\n- Optionally `ip name-server` for DNS.\n\nInstead of a static address, `ip address dhcp` on the SVI makes the switch a DHCP client, and it learns its address, mask and gateway. Verify with `show ip interface brief` (the Method column says `manual` for typed addresses and `DHCP` for learned ones), `show interfaces vlan 1`, and `show dhcp lease` when DHCP is used.\n\nA Layer 3 switch is different: with `ip routing` enabled, its SVIs are default gateways for the hosts in each VLAN, and it uses its routing table rather than `ip default-gateway`.\n\nThe most common mistake is a switch that works locally but cannot be managed from another subnet. Its address is fine; it simply has no `ip default-gateway`, so its replies to remote management stations have nowhere to go.",
-        "code": "SW1# configure terminal\nSW1(config)# interface vlan 1\nSW1(config-if)# ip address 192.168.1.200 255.255.255.0\nSW1(config-if)# no shutdown\nSW1(config-if)# exit\nSW1(config)# ip default-gateway 192.168.1.1\nSW1(config)# end\n\nSW1# show ip interface brief | include Vlan\nVlan1                  192.168.1.200   YES manual up                    up",
+        "key": "A Layer 2 switch gets its management address on an SVI such as interface vlan 1, plus a global ip default-gateway, exactly like a host.",
+        "body": "A Layer 2 switch forwards frames without any IP address. You add one only to manage it remotely (SSH, SNMP, web). It goes on a **switch virtual interface (SVI)**, a logical interface in one VLAN: `interface vlan 1` by default, though good practice uses a separate management VLAN.\n\n[[code]]\n\nThe VLAN 1 SVI starts shut down on many switches, hence `no shutdown`. `ip default-gateway` is a **global** command: a Layer 2 switch has no routing table, so this is its gateway, like a PC's. `ip name-server` adds DNS.\n\n`ip address dhcp` on the SVI makes the switch a DHCP client instead. In `show ip interface brief`, the Method column says `manual` or `DHCP`; `show dhcp lease` shows the lease.\n\n[[visual]]",
+        "visual": {
+          "type": "compare",
+          "items": [
+            {
+              "title": "Layer 2 switch",
+              "tone": "accent",
+              "points": ["One SVI address for management", "`ip default-gateway` in global config", "No routing table"]
+            },
+            {
+              "title": "Router or Layer 3 switch",
+              "points": ["Addresses on interfaces (or SVIs with `ip routing`)", "Its SVIs are the hosts' default gateways", "Uses its routing table, not `ip default-gateway`"]
+            }
+          ]
+        },
+        "code": "SW1(config)# interface vlan 1\nSW1(config-if)# ip address 192.168.1.200 255.255.255.0\nSW1(config-if)# no shutdown\nSW1(config-if)# exit\nSW1(config)# ip default-gateway 192.168.1.1\nSW1(config)# end\nSW1# show ip interface brief | include Vlan\nVlan1   192.168.1.200   YES manual up   up",
         "language": "cisco",
-        "tip": "Router or Layer 3 switch: addresses on interfaces and a routing table. Layer 2 switch: one SVI address plus ip default-gateway, like a host.",
-        "pitfall": "Thinking the gateway belongs to the SVI. ip default-gateway is a global setting for the whole switch, and it appears as a global line in the running config, not under interface Vlan1.",
+        "tip": "The classic fault: a switch reachable from its own subnet but not from others. Its address is fine; it has no ip default-gateway, so replies to remote stations have nowhere to go.",
+        "pitfall": "Thinking the gateway belongs to the SVI. ip default-gateway is a global setting for the whole switch, shown as a global line in the running config, not under interface Vlan1.",
         "check": {
           "question": "A Layer 2 switch has 192.168.1.200/24 on interface VLAN 1. Admins on the same subnet can SSH to it, but admins in other subnets cannot. What is most likely missing?",
-          "choices": [
-            "ip routing",
-            "A secondary IP address on VLAN 1",
-            "ip default-gateway pointing at the local router",
-            "no shutdown on every access port"
-          ],
+          "choices": ["ip routing", "A secondary IP address on VLAN 1", "ip default-gateway pointing at the local router", "no shutdown on every access port"],
           "answer": 2,
           "explanation": "The switch can answer local hosts directly, but replies to other subnets need a gateway. A Layer 2 switch uses ip default-gateway for that; ip routing would turn it into a router, which a Layer 2 switch cannot do."
         }
       },
       {
         "title": "Verifying addressing end to end",
-        "body": "Most addressing faults are not typos in a single device. They are two devices that disagree. Verify both sides of every link the same way:\n\n- **Read the router's view.** `show ip interface brief` for addresses and up/up, then `show ip interface g0/0` for the mask, shown as a prefix in `Internet address is 10.1.1.129/25`. `show ip route connected` lists each subnet the router thinks is attached to each interface.\n- **Read the host's view.** `ipconfig` or `ip address` for its address, mask and gateway.\n- **Do the math once for each side.** Work out the subnet each device believes it is in. They must be identical, and the host's gateway must be the router's address in that subnet.\n\nHere is the classic case. R1 has G0/0 at 10.1.1.129/25 (subnet 10.1.1.128/25) for the users and G0/1 at 10.1.1.1/25 (subnet 10.1.1.0/25) for the servers. A user PC was set to 10.1.1.200 with mask 255.255.255.0 and gateway 10.1.1.129. The PC believes its subnet is 10.1.1.0/24, so it treats every 10.1.1.x address as local. It reaches the internet and other networks fine through 10.1.1.129, and it reaches users on its own LAN, but when it tries the server 10.1.1.50 it ARPs for it directly. The server is on the other side of the router, nobody answers, and only that group of destinations fails. The fix is the PC's mask: 255.255.255.128.\n\nThen confirm with tests that climb the layers: ping the gateway, ping an address in another subnet, and ping by name. The first failure points at the layer to fix.",
-        "code": "R1# show ip route connected\n      10.0.0.0/8 is variably subnetted, 4 subnets, 2 masks\nC        10.1.1.0/25 is directly connected, GigabitEthernet0/1\nL        10.1.1.1/32 is directly connected, GigabitEthernet0/1\nC        10.1.1.128/25 is directly connected, GigabitEthernet0/0\nL        10.1.1.129/32 is directly connected, GigabitEthernet0/0\n\nPC:  10.1.1.200  mask 255.255.255.0  gateway 10.1.1.129\n     PC's view: 10.1.1.0/24, so 10.1.1.50 is \"local\"   (wrong)\n     R1's view: 10.1.1.50 is on G0/1, 10.1.1.200 on G0/0",
+        "key": "Most addressing faults are two devices that disagree: work out the subnet each side calculates, and check the host's gateway is the router's address in that subnet.",
+        "body": "Verify both sides of every link. On the router, `show ip interface brief`, then `show ip interface g0/0` for the prefix, then `show ip route connected` (each **L** route is the interface's own address as a /32). On the host, `ipconfig` or `ip address`. Then do the math once per side: the subnets must match.\n\nThe classic case:\n\n[[visual]]\n\n[[code]]\n\n[[visual 2]]\n\nThen test up the layers: ping the gateway, an address in another subnet, then a name. The first failure points at the layer to fix.",
+        "visual": [
+          {
+            "type": "topology",
+            "title": "R1 splits 10.1.1.0/24 into two /25s",
+            "nodes": [
+              { "id": "r1", "kind": "router", "label": "R1", "x": 1, "y": 0 },
+              {
+                "id": "pc",
+                "kind": "pc",
+                "label": "User PC",
+                "sub": "10.1.1.200 /24",
+                "x": 0,
+                "y": 1,
+                "tone": "bad"
+              },
+              { "id": "srv", "kind": "server", "label": "Server", "sub": "10.1.1.50", "x": 2, "y": 1 }
+            ],
+            "links": [
+              { "from": "r1", "to": "pc", "fromLabel": "G0/0 .129" },
+              { "from": "r1", "to": "srv", "fromLabel": "G0/1 .1" }
+            ],
+            "zones": [
+              {
+                "label": "10.1.1.128/25",
+                "nodes": ["pc"],
+                "tone": "accent"
+              },
+              {
+                "label": "10.1.1.0/25",
+                "nodes": ["srv"],
+                "tone": "good"
+              }
+            ]
+          },
+          {
+            "type": "table",
+            "title": "Two views of 10.1.1.50",
+            "columns": ["Device", "Its subnet", "So 10.1.1.50 is"],
+            "rows": [
+              ["PC, mask 255.255.255.0", "10.1.1.0/24", "Local: it ARPs directly, nobody answers"],
+              ["R1", "G0/0 is 10.1.1.128/25", "On G0/1, behind the router"]
+            ],
+            "caption": "The PC still reaches its own LAN and the internet via 10.1.1.129; only 10.1.1.0 to .127 fail. Fix: mask 255.255.255.128."
+          }
+        ],
+        "code": "R1# show ip route connected\nC     10.1.1.0/25 is directly connected, GigabitEthernet0/1\nL     10.1.1.1/32 is directly connected, GigabitEthernet0/1\nC     10.1.1.128/25 is directly connected, GigabitEthernet0/0\nL     10.1.1.129/32 is directly connected, GigabitEthernet0/0",
         "language": "cisco",
         "tip": "Write the subnet ID each device calculates side by side. If they differ, you have found the bug before sending a single ping.",
         "pitfall": "Declaring the PC fine because it can ping its gateway and the internet. A wrong mask breaks only the destinations it misclassifies, so test a host in the neighboring subnet too.",
         "check": {
           "question": "R1 G0/0 is 10.1.1.129/25 and the PC on that LAN is 10.1.1.200 with mask 255.255.255.0 and gateway 10.1.1.129. Which mask should the PC have?",
-          "choices": [
-            "255.255.255.0",
-            "255.255.255.128",
-            "255.255.255.192",
-            "255.255.0.0"
-          ],
+          "choices": ["255.255.255.0", "255.255.255.128", "255.255.255.192", "255.255.0.0"],
           "answer": 1,
           "explanation": "The router defines the LAN as 10.1.1.128/25, so every host on it needs /25, which is 255.255.255.128. With /24 the PC wrongly treats 10.1.1.0 to 10.1.1.127 as local, and /26 would cut off half the LAN."
         }
@@ -332,13 +555,12 @@
       }
     ],
     "summary": [
-      "An IPv4 address is 32 bits written as four octets, each 0 to 255; convert an octet with place values 128, 64, 32, 16, 8, 4, 2, 1.",
-      "The mask's 1s mark network bits; the prefix length counts them, and mask octets are only 0, 128, 192, 224, 240, 248, 252, 254, or 255.",
-      "Host bits all 0 give the network address, all 1 give the broadcast, and a subnet with h host bits has 2^h - 2 usable hosts.",
-      "Classes (A 1 to 126, B 128 to 191, C 192 to 223, D multicast, E reserved) survive only for default masks; CIDR made any prefix length valid.",
-      "RFC 1918 private ranges are 10/8, 172.16/12, and 192.168/16; NAT lets them reach the internet. 127/8 is loopback and 169.254/16 means DHCP failed.",
-      "Routers: ip address with a dotted mask plus no shutdown, verified by C and L routes. Layer 2 switches: an SVI address plus the global ip default-gateway.",
-      "Verify both ends: each device must calculate the same subnet, and the host gateway must be the router address in it."
+      "An IPv4 address is 32 bits in four octets of 0 to 255; place values are 128, 64, 32, 16, 8, 4, 2, 1.",
+      "A mask is 1s then 0s; mask octets are only 0, 128, 192, 224, 240, 248, 252, 254 or 255.",
+      "Host bits all 0 give the network address, all 1 the broadcast; h host bits give 2^h - 2 hosts.",
+      "Classes now only set default masks; RFC 1918 private space is 10/8, 172.16/12 and 192.168/16.",
+      "127/8 is loopback, 169.254/16 means DHCP failed, 255.255.255.255 is never routed.",
+      "Routers: ip address with a dotted mask and no shutdown. Layer 2 switches: SVI address plus ip default-gateway. Verify both ends agree."
     ],
     "feynmanPrompt": "Explain to a new help desk hire what the numbers in 192.168.10.77 255.255.255.0 mean: why each octet stops at 255, how the mask decides which other addresses are on the same network, why .0 and .255 cannot be given to a PC, and why a 169.254 address on a laptop is a clue that DHCP failed."
   },
@@ -364,17 +586,8 @@
       "type": "multi",
       "difficulty": "easy",
       "question": "Which of these are valid IPv4 addresses? Choose two.",
-      "choices": [
-        "10.300.1.1",
-        "172.16.254.1",
-        "192.168.1.256",
-        "8.8.4.4",
-        "1.2.3"
-      ],
-      "answers": [
-        1,
-        3
-      ],
+      "choices": ["10.300.1.1", "172.16.254.1", "192.168.1.256", "8.8.4.4", "1.2.3"],
+      "answers": [1, 3],
       "explanation": "An IPv4 address has exactly four octets, each 0 to 255. 10.300.1.1 and 192.168.1.256 have an octet over 255, and 1.2.3 has only three octets.",
       "concept": "valid octet values",
       "section": 0
@@ -385,11 +598,7 @@
       "difficulty": "medium",
       "question": "How many total IPv4 addresses are possible? Type the exact number.",
       "answer": "4294967296",
-      "accept": [
-        "2^32",
-        "2**32",
-        "4,294,967,296"
-      ],
+      "accept": ["2^32", "2**32", "4,294,967,296"],
       "explanation": "32 bits give 2^32 = 4,294,967,296 combinations, about 4.29 billion. That shortage is why private addressing, NAT, and IPv6 exist.",
       "concept": "IPv4 address space size",
       "section": 0
@@ -430,9 +639,7 @@
       "difficulty": "hard",
       "question": "Write 10.1.200.37 in binary as four 8-bit octets separated by dots.",
       "answer": "00001010.00000001.11001000.00100101",
-      "accept": [
-        "00001010 00000001 11001000 00100101"
-      ],
+      "accept": ["00001010 00000001 11001000 00100101"],
       "explanation": "10 = 8 + 2 = 00001010, 1 = 00000001, 200 = 128 + 64 + 8 = 11001000, and 37 = 32 + 4 + 1 = 00100101. Keep all leading zeros so each octet has 8 bits.",
       "concept": "address in binary",
       "section": 1
@@ -442,12 +649,7 @@
       "type": "mcq",
       "difficulty": "medium",
       "question": "Converting 222 to binary with the subtraction method, which place values get a 1?",
-      "choices": [
-        "128, 64, 32, 16, 8, 4",
-        "128, 64, 16, 8, 2, 1",
-        "128, 64, 16, 8, 4, 2",
-        "128, 32, 16, 8, 4, 2"
-      ],
+      "choices": ["128, 64, 32, 16, 8, 4", "128, 64, 16, 8, 2, 1", "128, 64, 16, 8, 4, 2", "128, 32, 16, 8, 4, 2"],
       "answer": 2,
       "explanation": "222 - 128 = 94, - 64 = 30, 32 does not fit, - 16 = 14, - 8 = 6, - 4 = 2, - 2 = 0. So 11011110. The first choice adds to 252 and the second to 219.",
       "concept": "subtraction method",
@@ -459,9 +661,7 @@
       "difficulty": "easy",
       "question": "What prefix length is the mask 255.255.255.0?",
       "answer": "/24",
-      "accept": [
-        "24"
-      ],
+      "accept": ["24"],
       "explanation": "Three octets of 255 are 3 x 8 = 24 ones, so /24.",
       "concept": "mask to prefix",
       "section": 2
@@ -482,9 +682,7 @@
       "difficulty": "medium",
       "question": "What prefix length is the mask 255.255.252.0?",
       "answer": "/22",
-      "accept": [
-        "22"
-      ],
+      "accept": ["22"],
       "explanation": "255.255 gives 16 bits and 252 is 11111100, six more bits: 16 + 6 = /22. A common slip is counting 252 as a /30 because it appears in 255.255.255.252.",
       "concept": "mask to prefix",
       "section": 2
@@ -495,26 +693,11 @@
       "difficulty": "medium",
       "question": "Match each mask to its prefix length.",
       "pairs": [
-        {
-          "left": "255.255.255.128",
-          "right": "/25"
-        },
-        {
-          "left": "255.255.192.0",
-          "right": "/18"
-        },
-        {
-          "left": "255.240.0.0",
-          "right": "/12"
-        },
-        {
-          "left": "255.255.255.252",
-          "right": "/30"
-        },
-        {
-          "left": "255.255.254.0",
-          "right": "/23"
-        }
+        { "left": "255.255.255.128", "right": "/25" },
+        { "left": "255.255.192.0", "right": "/18" },
+        { "left": "255.240.0.0", "right": "/12" },
+        { "left": "255.255.255.252", "right": "/30" },
+        { "left": "255.255.254.0", "right": "/23" }
       ],
       "explanation": "Add 8 per 255 octet, then the bits of the partial octet: 128 = 1, 192 = 2, 240 = 4, 252 = 6, 254 = 7.",
       "concept": "mask and prefix conversion",
@@ -525,19 +708,8 @@
       "type": "multi",
       "difficulty": "hard",
       "question": "Which of these are valid subnet masks? Choose three.",
-      "choices": [
-        "255.255.255.240",
-        "255.255.0.255",
-        "255.255.248.0",
-        "255.255.255.250",
-        "255.192.0.0",
-        "255.255.255.191"
-      ],
-      "answers": [
-        0,
-        2,
-        4
-      ],
+      "choices": ["255.255.255.240", "255.255.0.255", "255.255.248.0", "255.255.255.250", "255.192.0.0", "255.255.255.191"],
+      "answers": [0, 2, 4],
       "explanation": "A mask is contiguous 1s then 0s. 255.255.0.255 has 1s after 0s. 250 is 11111010 and 191 is 10111111, both broken runs, so neither is a valid mask octet.",
       "concept": "valid mask values",
       "section": 2
@@ -547,14 +719,7 @@
       "type": "order",
       "difficulty": "medium",
       "question": "Put these masks in order from the largest subnet (most hosts) to the smallest.",
-      "items": [
-        "255.255.0.0",
-        "255.255.128.0",
-        "255.255.240.0",
-        "255.255.255.0",
-        "255.255.255.192",
-        "255.255.255.252"
-      ],
+      "items": ["255.255.0.0", "255.255.128.0", "255.255.240.0", "255.255.255.0", "255.255.255.192", "255.255.255.252"],
       "explanation": "These are /16, /17, /20, /24, /26, and /30. Each extra prefix bit halves the subnet, so the shortest prefix is the largest subnet.",
       "concept": "prefix length and size",
       "section": 2
@@ -585,9 +750,7 @@
       "difficulty": "medium",
       "question": "How many usable host addresses does a /16 subnet have?",
       "answer": "65534",
-      "accept": [
-        "65,534"
-      ],
+      "accept": ["65,534"],
       "explanation": "16 host bits give 2^16 = 65,536 addresses. Subtract the network and broadcast addresses: 65,534.",
       "concept": "usable hosts formula",
       "section": 3
@@ -649,12 +812,7 @@
       "type": "mcq",
       "difficulty": "easy",
       "question": "Which class does the address 191.10.5.5 belong to?",
-      "choices": [
-        "Class A",
-        "Class B",
-        "Class C",
-        "Class D"
-      ],
+      "choices": ["Class A", "Class B", "Class C", "Class D"],
       "answer": 1,
       "explanation": "Class B covers first octets 128 to 191, so 191 is the last Class B value. Class C starts at 192.",
       "concept": "address classes",
@@ -666,26 +824,11 @@
       "difficulty": "medium",
       "question": "Match each address to its class and purpose.",
       "pairs": [
-        {
-          "left": "10.1.1.1",
-          "right": "Class A, default /8"
-        },
-        {
-          "left": "150.2.3.4",
-          "right": "Class B, default /16"
-        },
-        {
-          "left": "200.1.1.1",
-          "right": "Class C, default /24"
-        },
-        {
-          "left": "230.1.1.1",
-          "right": "Class D, multicast"
-        },
-        {
-          "left": "245.1.1.1",
-          "right": "Class E, reserved"
-        }
+        { "left": "10.1.1.1", "right": "Class A, default /8" },
+        { "left": "150.2.3.4", "right": "Class B, default /16" },
+        { "left": "200.1.1.1", "right": "Class C, default /24" },
+        { "left": "230.1.1.1", "right": "Class D, multicast" },
+        { "left": "245.1.1.1", "right": "Class E, reserved" }
       ],
       "explanation": "First octet ranges: A 1 to 126, B 128 to 191, C 192 to 223, D 224 to 239, E 240 to 255.",
       "concept": "classful ranges",
@@ -696,12 +839,7 @@
       "type": "mcq",
       "difficulty": "medium",
       "question": "Why do usable Class A networks stop at 126.0.0.0 instead of 127.0.0.0?",
-      "choices": [
-        "127.0.0.0/8 is the start of Class B",
-        "127.0.0.0/8 is reserved for loopback",
-        "127.0.0.0/8 is RFC 1918 private space",
-        "127 is the Class A broadcast network"
-      ],
+      "choices": ["127.0.0.0/8 is the start of Class B", "127.0.0.0/8 is reserved for loopback", "127.0.0.0/8 is RFC 1918 private space", "127 is the Class A broadcast network"],
       "answer": 1,
       "explanation": "Every 127.x.x.x address is loopback, handled inside the host. Class B starts at 128, and 127 is not a private RFC 1918 range.",
       "concept": "reserved Class A values",
@@ -738,19 +876,8 @@
       "type": "multi",
       "difficulty": "medium",
       "question": "Which addresses are RFC 1918 private addresses? Choose three.",
-      "choices": [
-        "10.250.1.1",
-        "172.31.255.1",
-        "172.32.0.1",
-        "192.168.200.9",
-        "169.254.1.1",
-        "100.64.0.1"
-      ],
-      "answers": [
-        0,
-        1,
-        3
-      ],
+      "choices": ["10.250.1.1", "172.31.255.1", "172.32.0.1", "192.168.200.9", "169.254.1.1", "100.64.0.1"],
+      "answers": [0, 1, 3],
       "explanation": "The private ranges are 10.0.0.0/8, 172.16.0.0/12 (172.16 to 172.31), and 192.168.0.0/16. 172.32 is past the /12, 169.254 is link-local (APIPA), and 100.64 is carrier-grade NAT space.",
       "concept": "RFC 1918 ranges",
       "section": 5
@@ -760,12 +887,7 @@
       "type": "mcq",
       "difficulty": "medium",
       "question": "Which single prefix covers the entire private 172 range?",
-      "choices": [
-        "172.16.0.0/16",
-        "172.0.0.0/8",
-        "172.16.0.0/12",
-        "172.16.0.0/20"
-      ],
+      "choices": ["172.16.0.0/16", "172.0.0.0/8", "172.16.0.0/12", "172.16.0.0/20"],
       "answer": 2,
       "explanation": "172.16.0.0/12 spans 172.16.0.0 to 172.31.255.255, the 16 private Class B networks. /16 covers only 172.16.x.x, and /8 would include public addresses.",
       "concept": "172.16.0.0/12",
@@ -803,26 +925,11 @@
       "difficulty": "medium",
       "question": "Match each address to what it means.",
       "pairs": [
-        {
-          "left": "127.0.0.1",
-          "right": "Loopback inside the host"
-        },
-        {
-          "left": "169.254.10.10",
-          "right": "Self-assigned after DHCP failed"
-        },
-        {
-          "left": "255.255.255.255",
-          "right": "Limited broadcast, never routed"
-        },
-        {
-          "left": "224.0.0.5",
-          "right": "Multicast group for OSPF routers"
-        },
-        {
-          "left": "0.0.0.0/0",
-          "right": "Default route matching everything"
-        }
+        { "left": "127.0.0.1", "right": "Loopback inside the host" },
+        { "left": "169.254.10.10", "right": "Self-assigned after DHCP failed" },
+        { "left": "255.255.255.255", "right": "Limited broadcast, never routed" },
+        { "left": "224.0.0.5", "right": "Multicast group for OSPF routers" },
+        { "left": "0.0.0.0/0", "right": "Default route matching everything" }
       ],
       "explanation": "These special addresses show up constantly in troubleshooting and routing tables, so read them on sight.",
       "concept": "special addresses",
@@ -834,12 +941,7 @@
       "difficulty": "easy",
       "question": "A user's PC shows the output below. What does it tell you?",
       "code": "Ethernet adapter Ethernet:\n   Autoconfiguration IPv4 Address. . : 169.254.112.40\n   Subnet Mask . . . . . . . . . . . : 255.255.0.0\n   Default Gateway . . . . . . . . . :",
-      "choices": [
-        "The PC could not get an address from a DHCP server",
-        "The PC has a working static address",
-        "The PC is behind PAT",
-        "The PC's DNS server is down"
-      ],
+      "choices": ["The PC could not get an address from a DHCP server", "The PC has a working static address", "The PC is behind PAT", "The PC's DNS server is down"],
       "answer": 0,
       "explanation": "Autoconfiguration with 169.254.x.x and no gateway is APIPA: the client sent DHCP Discovers and got no Offer. Look at the DHCP server, the access VLAN, or the ip helper-address on the gateway.",
       "concept": "APIPA",
@@ -866,17 +968,8 @@
       "type": "multi",
       "difficulty": "hard",
       "question": "Which IPv4 messages are sent as broadcasts? Choose two.",
-      "choices": [
-        "ARP request",
-        "ARP reply",
-        "DHCP Discover",
-        "OSPF Hello",
-        "ICMP echo reply"
-      ],
-      "answers": [
-        0,
-        2
-      ],
+      "choices": ["ARP request", "ARP reply", "DHCP Discover", "OSPF Hello", "ICMP echo reply"],
+      "answers": [0, 2],
       "explanation": "An ARP request goes to the broadcast MAC because the sender does not know the target yet, and a DHCP Discover goes to 255.255.255.255. ARP and echo replies are unicast, and OSPF Hellos use multicast 224.0.0.5.",
       "concept": "unicast broadcast multicast",
       "section": 6
@@ -886,12 +979,7 @@
       "type": "mcq",
       "difficulty": "easy",
       "question": "A technician runs ping 127.0.0.1 on a PC and it succeeds. What has been proven?",
-      "choices": [
-        "The default gateway is reachable",
-        "The local TCP/IP stack is working",
-        "The network cable is connected",
-        "DNS is resolving names"
-      ],
+      "choices": ["The default gateway is reachable", "The local TCP/IP stack is working", "The network cable is connected", "DNS is resolving names"],
       "answer": 1,
       "explanation": "Loopback traffic never leaves the host, so it tests only the local IP stack. It says nothing about the cable, the gateway, or DNS.",
       "concept": "loopback",
@@ -943,9 +1031,7 @@
       "difficulty": "medium",
       "question": "R1's G0/0 is configured with 10.5.5.1 255.255.255.0 and is up/up. What prefix length does show ip route list on the L (local) route for 10.5.5.1?",
       "answer": "/32",
-      "accept": [
-        "32"
-      ],
+      "accept": ["32"],
       "explanation": "IOS adds a connected route C 10.5.5.0/24 for the subnet and a local route L 10.5.5.1/32 for the router's own address, a host route for exactly one address.",
       "concept": "connected and local routes",
       "section": 9
@@ -955,17 +1041,8 @@
       "type": "multi",
       "difficulty": "hard",
       "question": "Which of these addresses can be assigned to a host in the network 10.0.0.0/8? Choose two.",
-      "choices": [
-        "10.0.0.0",
-        "10.255.255.255",
-        "10.255.255.0",
-        "10.0.0.255",
-        "11.0.0.1"
-      ],
-      "answers": [
-        2,
-        3
-      ],
+      "choices": ["10.0.0.0", "10.255.255.255", "10.255.255.0", "10.0.0.255", "11.0.0.1"],
+      "answers": [2, 3],
       "explanation": "In a /8 the host part is the last 24 bits, so only 10.0.0.0 (all host bits 0) and 10.255.255.255 (all host bits 1) are reserved. 10.255.255.0 and 10.0.0.255 have a mix of 0s and 1s in the host bits, so they are ordinary hosts. An octet of 0 or 255 is not automatically special. 11.0.0.1 is outside the network.",
       "concept": "reserved versus usable addresses",
       "section": 3
@@ -986,13 +1063,7 @@
       "type": "order",
       "difficulty": "medium",
       "question": "Put the steps to give a Layer 2 switch a static management address in order, starting in global configuration mode.",
-      "items": [
-        "interface vlan 1",
-        "ip address 192.168.1.200 255.255.255.0",
-        "no shutdown",
-        "exit",
-        "ip default-gateway 192.168.1.1"
-      ],
+      "items": ["interface vlan 1", "ip address 192.168.1.200 255.255.255.0", "no shutdown", "exit", "ip default-gateway 192.168.1.1"],
       "explanation": "Enter the SVI, give it the address and mask, enable it, return to global mode, and set the default gateway there, because ip default-gateway is a global command.",
       "concept": "switch SVI configuration",
       "section": 8
@@ -1004,12 +1075,7 @@
       "question": "Using the exhibit, a PC on R1's G0/0 LAN is configured as 10.1.1.200, mask 255.255.255.0, gateway 10.1.1.129. Which destination does it fail to reach?",
       "code": "R1# show ip route connected\n      10.0.0.0/8 is variably subnetted, 4 subnets, 2 masks\nC        10.1.1.0/25 is directly connected, GigabitEthernet0/1\nL        10.1.1.1/32 is directly connected, GigabitEthernet0/1\nC        10.1.1.128/25 is directly connected, GigabitEthernet0/0\nL        10.1.1.129/32 is directly connected, GigabitEthernet0/0",
       "language": "cisco",
-      "choices": [
-        "10.1.1.70, a server on G0/1",
-        "10.1.1.210, a printer on the same LAN",
-        "172.16.5.5, a server two routers away",
-        "10.1.1.129, its gateway"
-      ],
+      "choices": ["10.1.1.70, a server on G0/1", "10.1.1.210, a printer on the same LAN", "172.16.5.5, a server two routers away", "10.1.1.129, its gateway"],
       "answer": 0,
       "explanation": "The PC calculates 10.1.1.0/24 as its subnet, so it treats 10.1.1.70 as local and ARPs for it directly, but that server is on G0/1 in 10.1.1.0/25 behind the router. Destinations outside 10.1.1.0/24 go correctly to the gateway, and 10.1.1.210 really is on the PC's LAN.",
       "concept": "mask mismatch",
@@ -1020,12 +1086,7 @@
       "type": "mcq",
       "difficulty": "medium",
       "question": "An exam exhibit shows a \"public\" web server at 203.0.113.10. Which statement about that address is true?",
-      "choices": [
-        "It is RFC 1918 private space",
-        "It is a link-local address",
-        "It is a loopback address",
-        "It is reserved for documentation and examples"
-      ],
+      "choices": ["It is RFC 1918 private space", "It is a link-local address", "It is a loopback address", "It is reserved for documentation and examples"],
       "answer": 3,
       "explanation": "203.0.113.0/24 is one of the three documentation ranges (RFC 5737), used in books and examples so they never collide with real hosts. It is not RFC 1918 private space, and it is not link-local or loopback.",
       "concept": "documentation ranges",

@@ -11,21 +11,35 @@
   "prereqs": ["javascript-basics"],
   "tags": ["typescript", "types", "generics", "narrowing", "null-safety"],
   "lesson": {
-    "estimatedMinutes": 38,
-    "intro": "TypeScript is JavaScript with a type system on top. Its compiler reads your code and catches typos, wrong arguments and values that might be undefined before anything runs, then hands back plain JavaScript. Most modern front-end and Node.js codebases use it, so this lesson covers what you need on day one: inference, object and function types, unions and narrowing, strict null checks, generics, utility types and how to read the compiler's errors.",
+    "estimatedMinutes": 31,
+    "intro": "TypeScript is JavaScript with a type system on top: its compiler catches typos, wrong arguments and possibly undefined values before anything runs. This lesson covers inference, object and function types, unions and narrowing, null checks, generics, utility types and compiler errors.",
     "objectives": [
-      "Explain what the TypeScript compiler checks and what disappears at runtime",
+      "Explain what the compiler checks and what disappears at runtime",
       "Annotate parameters, objects and functions, and let inference handle the rest",
-      "Narrow union types with typeof, in and discriminant checks, and handle null and undefined safely",
+      "Narrow unions with typeof, in and discriminant checks, and handle null safely",
       "Write generic functions with constraints and use utility types such as Partial and Pick",
       "Read common compiler errors and fix their cause instead of silencing them"
     ],
     "sections": [
       {
         "title": "Why TypeScript?",
-        "body": "You rename a property from `fullname` to `fullName`, and three files away a function still reads `user.fullname`. JavaScript doesn't complain; it just prints `Hello, undefined` in production. **TypeScript** is JavaScript plus a type system, and its compiler finds that mistake while you type.\n\nTypeScript code is JavaScript with type information added: annotations such as `(user: User)` and declarations such as `interface User { ... }`. The compiler, `tsc`, checks the types and then **erases** them, producing plain JavaScript that runs anywhere JavaScript runs. Nothing about types exists at runtime. There are no runtime type checks, so a value that arrives from an API in the wrong shape isn't stopped by TypeScript alone.\n\nSo why bother? Because most bugs that reach production are the boring kind: a typo in a property name, arguments passed in the wrong order, a value that might be undefined, a refactor that missed one caller. The compiler catches all of these before the code runs. You also get:\n- Accurate autocomplete and inline documentation in your editor.\n- Safe refactoring: rename a property and every use that needs changing lights up.\n- Function signatures that document themselves, which matters a lot on a team.\n\nTypeScript is **structural**: a value matches a type if it has the right shape, whatever it's called or wherever it came from. Any object with a string `firstName` and a number `age` is a valid User.\n\nProjects configure the compiler in `tsconfig.json`. Turn on `\"strict\": true` from day one. It enables the checks that make TypeScript worth using, especially strict null checks and `noImplicitAny`, which reports parameters you forgot to type. Most modern frameworks (React with Vite, Next.js, Angular, NestJS) start projects in TypeScript, so an internship codebase very likely will be too.",
-        "code": "interface User {\n  firstName: string;\n  age: number;\n}\n\nfunction greet(user: User): string {\n  return `Hello, ${user.firstname}`;\n  // error TS2551: Property 'firstname' does not exist on type 'User'.\n  //   Did you mean 'firstName'?\n}\n\ngreet({ firstName: \"Ada\", age: 36 });   // fine\ngreet({ firstName: \"Linus\" });\n// error TS2345: Argument of type '{ firstName: string; }' is not assignable\n//   to parameter of type 'User'.\n//   Property 'age' is missing in type '{ firstName: string; }' but required in type 'User'.",
+        "key": "TypeScript's compiler checks types before the code runs and then erases them, so it catches typos and wrong arguments but never validates data at runtime.",
+        "body": "You rename `fullname` to `fullName`, and three files away a function still reads `user.fullname`. JavaScript prints `Hello, undefined` in production. **TypeScript**, JavaScript plus a type system, flags it while you type.\n\n[[visual]]\n\nThe compiler catches the boring bugs that reach production: a property typo, arguments in the wrong order, a value that might be undefined, a caller a refactor missed. You also get accurate autocomplete, safe renames and signatures that document themselves.\n\nTypeScript is **structural**: a value matches a type if it has the right shape, whatever it is called.\n\nConfigure the compiler in `tsconfig.json` and turn on `\"strict\": true` from day one: it enables strict null checks and `noImplicitAny`. Most frameworks (React with Vite, Next.js, Angular, NestJS) start projects in TypeScript.",
+        "visual": {
+          "type": "flow",
+          "title": "From TypeScript to running code",
+          "direction": "across",
+          "steps": [
+            { "label": "You write `.ts` with types" },
+            { "label": "`tsc` checks the types", "tone": "accent" },
+            { "label": "The types are erased" },
+            { "label": "Plain JavaScript runs" }
+          ],
+          "caption": "Nothing about types exists at runtime, so a value from an API in the wrong shape is not stopped by TypeScript alone."
+        },
+        "code": "interface User {\n  firstName: string;\n  age: number;\n}\n\nfunction greet(user: User): string {\n  return `Hello, ${user.firstname}`;\n  // error TS2551: Property 'firstname' does not exist\n  // on type 'User'. Did you mean 'firstName'?\n}\n\ngreet({ firstName: \"Linus\" });\n// error TS2345: Property 'age' is missing",
         "pitfall": "Assuming TypeScript validates data at runtime. Types are erased, so JSON from an API can still have any shape; check it where it enters your program.",
+        "language": "typescript",
         "activity": {
           "type": "code-runner",
           "title": "The bug TypeScript would catch",
@@ -51,9 +65,25 @@
       },
       {
         "title": "Annotations and inference",
-        "body": "You don't have to write types everywhere. TypeScript **infers** a type from a variable's starting value, so `let count = 0` is already a `number`, and assigning a string later is an error, exactly as if you had written the annotation.\n\nAn **annotation** is a colon and a type after a name, as in `let label: string`. Write one when there's nothing to infer from:\n- Function parameters. A parameter has no value until someone calls the function, so without an annotation it's implicitly `any`, which strict mode reports.\n- Variables declared without a starting value.\n- Places where you want the compiler to check a value against an intended type, or want a wider type than inference would pick.\n\nInference depends on `let` versus `const`. `let mode = \"dark\"` infers `string`, because the variable could later hold any string. `const mode = \"dark\"` infers the **literal type** `\"dark\"`, because it can never change. Object properties widen even inside a const object: in `const config = { mode: \"dark\" }`, `config.mode` is a `string`, because the property can be reassigned. Writing `as const` after the object keeps the literal types and makes the properties readonly.\n\nThe basic types are `string`, `number` (there is no separate int or float), `boolean`, `null`, `undefined`, `bigint` and `symbol`. Arrays are written `number[]` or `Array<number>`. A **tuple** is an array with a fixed length and a type per position, such as `[string, number]`. Return types are inferred too, but annotating them on exported functions documents intent and catches a wrong return at the function itself.\n\nA good rhythm: annotate the edges (parameters, exported functions, data from outside) and let inference handle the inside. Annotating every local adds noise without adding safety.",
-        "code": "let count = 0;                 // inferred: number\nconst mode = \"dark\";           // inferred: \"dark\" (a literal type)\nlet label: string;             // annotate when there's no starting value\nlabel = \"ready\";\n\nconst ids = [1, 2, 3];                       // number[]\nconst pair: [string, number] = [\"age\", 36];  // a tuple\n\nconst config = { mode: \"dark\" };             // config.mode: string\nconst fixed = { mode: \"dark\" } as const;     // fixed.mode: \"dark\", readonly\n\nfunction add(a: number, b: number) {   // parameters need annotations\n  return a + b;                         // return type inferred: number\n}\n\ncount = \"zero\";\n// error TS2322: Type 'string' is not assignable to type 'number'.",
-        "pitfall": "Annotating with a type that's wider than the truth, such as `let status: string` when only three values are valid. You throw away checking; use a literal union instead.",
+        "key": "TypeScript infers types from starting values, so annotate only what it cannot infer, such as parameters; note that `const` infers literal types.",
+        "body": "You do not write types everywhere. TypeScript **infers** them: `let count = 0` is already a `number`, and assigning a string later is an error.\n\nAn **annotation** is a colon and a type: `let label: string`. Write one where there is nothing to infer from: function parameters (strict mode reports an unannotated one as implicitly `any`), variables with no starting value, and places where you want a check against an intended type.\n\n[[visual]]\n\nThe basic types are `string`, `number` (no separate int or float), `boolean`, `null`, `undefined`, `bigint` and `symbol`. Arrays are `number[]` or `Array<number>`, and a **tuple** such as `[string, number]` fixes the length and each position's type.\n\nAnnotate the edges (parameters, exported functions, outside data) and let inference handle the inside.",
+        "visual": {
+          "type": "table",
+          "title": "What inference picks",
+          "columns": ["Code", "Inferred type"],
+          "rows": [
+            ["`let count = 0`", "`number`"],
+            ["`let mode = \"dark\"`", "`string`: a let could later hold any string"],
+            ["`const mode = \"dark\"`", "`\"dark\"`, a **literal type**: a const never changes"],
+            ["`const ids = [1, 2, 3]`", "`number[]`"],
+            ["`const config = { mode: \"dark\" }`", "`config.mode` is `string`: a property can be reassigned"],
+            ["`{ mode: \"dark\" } as const`", "`mode` is `\"dark\"`, and readonly"],
+            ["`function add(a: number, b: number)`", "Returns `number`: return types are inferred too"]
+          ]
+        },
+        "code": "let count = 0;  // number\nlet label: string;  // no starting value: annotate\nlabel = \"ready\";\nconst pair: [string, number] = [\"age\", 36];  // a tuple\n\nfunction add(a: number, b: number) {  // annotate parameters\n  return a + b;  // return type: number\n}\n\ncount = \"zero\";\n// error TS2322: Type 'string' is not assignable to type 'number'.",
+        "pitfall": "Annotating with a type wider than the truth, such as `let status: string` when only three values are valid. You throw away checking; use a literal union instead.",
+        "language": "typescript",
         "check": {
           "question": "What type does TypeScript infer for let price = 9.99?",
           "choices": ["any", "9.99", "number", "float"],
@@ -63,9 +93,39 @@
       },
       {
         "title": "Typing objects: interfaces and type aliases",
-        "body": "Most of the data you handle is objects, so describing object shapes is most of everyday TypeScript. There are two ways to name a shape:\n- An **interface**: `interface User { id: number; name: string }`.\n- A **type alias**: `type User = { id: number; name: string }`.\n\nFor plain object shapes they're nearly interchangeable. The differences: a type alias can name any type, including unions (`type ID = string | number`), tuples and primitives, while an interface only describes objects. Interfaces extend other interfaces with `extends`, and type aliases combine with `&`, an intersection. A common team convention is interfaces for object shapes and type aliases for everything else; being consistent matters more than the choice.\n\nTwo modifiers shape properties:\n- `?` makes a property **optional**: `email?: string`. Its type becomes `string | undefined`, and you must handle the missing case before calling string methods on it.\n- `readonly` forbids assignment after creation. It's a compile-time rule only; the JavaScript object can still be changed by code TypeScript doesn't check.\n\nBecause typing is structural, you can pass any object that has the required properties, even one with extra properties, when it's stored in a variable first. When you write an object literal directly where a type is expected, TypeScript applies an **excess property check** and flags properties the type doesn't declare, because there they're almost always typos.\n\nFor objects used as dictionaries, with keys you don't know ahead of time, use `Record<string, number>` or an index signature such as `{ [name: string]: number }`.",
-        "code": "interface User {\n  readonly id: number;\n  name: string;\n  email?: string;                 // optional: string | undefined\n}\n\ntype Point = { x: number; y: number };   // a type alias for an object\ntype ID = string | number;               // aliases can name any type\n\nconst u: User = { id: 1, name: \"Ada\" };  // email may be left out\nu.name = \"Ada L.\";                       // fine\nu.id = 2;\n// error TS2540: Cannot assign to 'id' because it is a read-only property.\n\ninterface Admin extends User {           // interfaces extend\n  permissions: string[];\n}\ntype Timestamped = User & { createdAt: Date };   // aliases combine with &",
-        "pitfall": "Making properties optional just to silence errors when creating objects. Every `?` forces every reader to handle the missing case; keep optional only what is genuinely optional.",
+        "key": "Name object shapes with an interface or a type alias; `?` marks optional properties, `readonly` blocks reassignment, and extra properties are flagged only in object literals.",
+        "body": "Most data is objects, so describing object shapes is most of everyday TypeScript. There are two ways to name a shape:\n\n[[visual]]\n\nPick one convention and keep it; many teams use interfaces for object shapes and type aliases for everything else.\n\n[[visual 2]]\n\nBecause typing is structural, you can pass an object with extra properties when it is stored in a variable first. An object literal written directly where a type is expected gets an **excess property check**, because extra properties there are usually typos.\n\nFor dictionaries with keys you do not know ahead of time, use `Record<string, number>` or an index signature such as `{ [name: string]: number }`.",
+        "visual": [
+          {
+            "type": "compare",
+            "items": [
+              {
+                "title": "Interface",
+                "points": ["`interface User { id: number; name: string }`", "Describes objects only", "Extends others: `interface Admin extends User`"]
+              },
+              {
+                "title": "Type alias",
+                "points": [
+                  "`type User = { id: number; name: string }`",
+                  "Can name any type: unions (`type ID = string | number`), tuples, primitives",
+                  "Combines with `&`, an intersection"
+                ]
+              }
+            ]
+          },
+          {
+            "type": "table",
+            "title": "Property modifiers",
+            "columns": ["Modifier", "Meaning"],
+            "rows": [
+              ["`email?: string`", "**Optional**: its type is `string | undefined`, so handle the missing case before using it"],
+              ["`readonly id: number`", "Cannot be assigned after creation (a compile-time rule only)"]
+            ]
+          }
+        ],
+        "code": "interface User {\n  readonly id: number;\n  name: string;\n  email?: string;  // string | undefined\n}\n\nconst u: User = { id: 1, name: \"Ada\" };  // email left out\nu.id = 2;\n// error TS2540: Cannot assign to 'id' because it is\n// a read-only property.\n\ntype Timestamped = User & { createdAt: Date };",
+        "pitfall": "Making properties optional just to silence errors when creating objects. Every `?` forces every reader to handle the missing case; keep optional only what truly is.",
+        "language": "typescript",
         "check": {
           "question": "In the code above, what is the type of u.email?",
           "choices": ["string", "string | undefined", "undefined", "any"],
@@ -75,9 +135,23 @@
       },
       {
         "title": "Typing functions",
-        "body": "A function's signature is a contract: what it accepts and what it gives back. In TypeScript the contract is written down and checked at every call site.\n\nAnnotate each parameter, and optionally the return type after the parameter list: `function formatPrice(amount: number, currency: string): string`. If the body returns something else, or one code path forgets to return, the compiler reports it at the function rather than at some distant caller.\n\nParameters can be optional or have defaults:\n- `level?: \"info\" | \"warn\"` may be left out, and inside the function its type includes `undefined`.\n- `currency: string = \"USD\"` gives a default; the annotation can even be dropped, because the type is inferred from the default.\n- Optional and defaulted parameters come after the required ones.\n\nA function that returns nothing useful has the return type `void`. A function that never returns at all, because it always throws, has the type `never`.\n\nFunctions are values, so they have types too. A **function type** looks like an arrow: `(a: number, b: number) => number`. Use it to type callbacks and to name signatures, as in `type Comparator = (a: number, b: number) => number`. When you pass an arrow function where a function type is expected, its parameters are inferred from context, which is why `items.map(item => item.id)` needs no annotations.\n\nEvery call is checked: the number of arguments, each argument's type and how you use the result. That's where TypeScript pays for itself during refactors. Change a parameter from `string` to `number` and every caller that needs updating shows an error.",
-        "code": "function formatPrice(amount: number, currency: string = \"USD\"): string {\n  return `${amount.toFixed(2)} ${currency}`;\n}\n\nfunction log(message: string, level?: \"info\" | \"warn\"): void {\n  console.log(`[${level ?? \"info\"}] ${message}`);\n}\n\ntype Comparator = (a: number, b: number) => number;   // a function type\nconst byValue: Comparator = (a, b) => a - b;          // a and b inferred as number\n\nfunction applyTwice(f: (n: number) => number, x: number): number {\n  return f(f(x));\n}\n\nformatPrice(9.5);             // \"9.50 USD\"\napplyTwice(n => n * 3, 2);    // 18\nformatPrice(\"9.5\");\n// error TS2345: Argument of type 'string' is not assignable to parameter of type 'number'.",
-        "pitfall": "Leaving a parameter unannotated. Under strict mode it's an error (implicitly any); without strict mode it silently becomes any and nothing about it is checked.",
+        "key": "Annotate parameters and optionally the return type, so every call is checked; a function type such as `(a: number) => string` describes callbacks.",
+        "body": "A function's signature is a contract: what it accepts and what it returns. TypeScript writes it down and checks it at every call site.\n\nAnnotate each parameter, and optionally the return type: `function formatPrice(amount: number, currency: string): string`. If one code path forgets to return, the compiler reports it at the function, not at a distant caller.\n\n[[visual]]\n\nFunctions are values, so they have types: `(a: number, b: number) => number`. Use them for callbacks and named signatures (`type Comparator = ...`). An arrow passed where a function type is expected gets its parameter types from context, so `items.map(item => item.id)` needs no annotations.\n\nChange a parameter from `string` to `number` and every caller that needs updating shows an error.",
+        "visual": {
+          "type": "table",
+          "title": "Signature pieces",
+          "columns": ["Write", "Means"],
+          "rows": [
+            ["`level?: \"info\" | \"warn\"`", "Optional: may be left out, and its type includes `undefined`"],
+            ["`currency = \"USD\"`", "A default; the type is inferred from it"],
+            ["Parameter order", "Optional and defaulted parameters come after the required ones"],
+            ["`: void`", "The function returns nothing useful"],
+            ["`: never`", "The function never returns, because it always throws"]
+          ]
+        },
+        "code": "function formatPrice(amount: number, currency = \"USD\"): string {\n  return `${amount.toFixed(2)} ${currency}`;\n}\n\ntype Comparator = (a: number, b: number) => number;\nconst byValue: Comparator = (a, b) => a - b;  // inferred\n\nfunction applyTwice(f: (n: number) => number, x: number) {\n  return f(f(x));\n}\n\napplyTwice(n => n * 3, 2);  // 18\nformatPrice(\"9.5\");\n// error TS2345: Argument of type 'string' is not\n// assignable to parameter of type 'number'.",
+        "pitfall": "Leaving a parameter unannotated. Under strict mode it is an error (implicitly any); without strict mode it silently becomes any and nothing about it is checked.",
+        "language": "typescript",
         "check": {
           "question": "What does the function type (item: string) => void describe?",
           "choices": [
@@ -92,9 +166,24 @@
       },
       {
         "title": "Unions, literal types and narrowing",
-        "body": "A function receives either a string or a number. A request is `\"idle\"`, `\"loading\"` or `\"done\"`. A shape is a circle or a square. **Union types** describe exactly these \"one of several\" situations, and they're where TypeScript really earns its keep.\n\n`string | number` means the value is one or the other. A union of **literal types**, like `type Status = \"idle\" | \"loading\" | \"done\"`, allows only those exact values: a misspelling such as `\"Done\"` is a compile error, which makes literal unions the go-to replacement for magic strings.\n\nOn a union you can only use what every member supports. To use something specific to one member, you **narrow** the type with a check the compiler understands:\n- `typeof value === \"string\"` for primitives.\n- `Array.isArray(value)` for arrays.\n- `value instanceof Date` for class instances.\n- `\"swim\" in animal` for objects that differ by a property.\n- Equality and truthiness checks, such as `if (user)`.\n\nInside the `if` the type is narrowed, and after an early `return` the rest of the function sees what's left. These checks are ordinary JavaScript that also runs at runtime, so the types and the behavior stay in sync.\n\nThe most useful pattern is the **discriminated union**: every member has a common literal field, such as `kind`, and checking it narrows to one member. With a `switch`, you can make the compiler prove you handled every case: in the `default` branch, assign the value to a variable of type `never`. If someone later adds a triangle to Shape without handling it, that assignment becomes an error that points at exactly the switch needing an update.",
-        "code": "type Status = \"idle\" | \"loading\" | \"done\";   // a union of literal types\nlet s: Status = \"idle\";\n\nfunction format(value: string | number): string {\n  if (typeof value === \"string\") {\n    return value.toUpperCase();      // value: string here\n  }\n  return value.toFixed(2);           // value: number here\n}\n\ntype Shape =\n  | { kind: \"circle\"; radius: number }\n  | { kind: \"square\"; side: number };\n\nfunction area(shape: Shape): number {\n  switch (shape.kind) {              // kind is the discriminant\n    case \"circle\":\n      return Math.PI * shape.radius ** 2;\n    case \"square\":\n      return shape.side ** 2;\n    default: {\n      const unreachable: never = shape;   // errors if a case is missing\n      return unreachable;\n    }\n  }\n}",
-        "pitfall": "Using `instanceof` with an interface or type alias. Those don't exist at runtime, so the compiler reports that the name only refers to a type; use `in` or a discriminant field.",
+        "key": "A union means one of several types; narrow it with a check the compiler understands, such as `typeof`, `in` or a shared `kind` field, before using member-specific features.",
+        "body": "A request is `\"idle\"`, `\"loading\"` or `\"done\"`; a shape is a circle or a square. **Union types** describe exactly these.\n\nA union of **literal types**, `type Status = \"idle\" | \"loading\" | \"done\"`, allows only those values, so `\"Done\"` is a compile error: the cure for magic strings.\n\nOn a union you can only use what every member supports. To go further, **narrow** it:\n\n[[visual]]\n\nInside the `if` the type is narrowed, and after an early `return` the rest of the function sees what is left. These checks are ordinary JavaScript, so types and runtime behavior stay in sync.\n\nThe best pattern is the **discriminated union**: every member has a literal field like `kind`. Switch on it, and in `default` assign the value to a `never` variable, so an unhandled new member becomes a compile error there.",
+        "visual": {
+          "type": "table",
+          "title": "Narrowing checks",
+          "columns": ["Check", "Narrows"],
+          "rows": [
+            ["`typeof value === \"string\"`", "Primitives"],
+            ["`Array.isArray(value)`", "Arrays"],
+            ["`value instanceof Date`", "Class instances (not interfaces or type aliases: they do not exist at runtime)"],
+            ["`\"swim\" in animal`", "Objects that differ by a property"],
+            ["`shape.kind === \"circle\"`", "A discriminated union, by its literal field"],
+            ["`if (user)`, `x === null`", "Truthiness and equality"]
+          ]
+        },
+        "code": "type Shape =\n  | { kind: \"circle\"; radius: number }\n  | { kind: \"square\"; side: number };\n\nfunction area(shape: Shape): number {\n  switch (shape.kind) {  // the discriminant\n    case \"circle\":\n      return Math.PI * shape.radius ** 2;\n    case \"square\":\n      return shape.side ** 2;\n    default: {\n      const unreachable: never = shape;  // missing case = error\n      return unreachable;\n    }\n  }\n}",
+        "pitfall": "Using `instanceof` with an interface or type alias. Those do not exist at runtime, so the compiler reports that the name only refers to a type; use `in` or a discriminant field.",
+        "language": "typescript",
         "activity": {
           "type": "code-runner",
           "title": "Narrowing is real JavaScript",
@@ -120,9 +209,23 @@
       },
       {
         "title": "Strict null checks",
-        "body": "\"Cannot read properties of undefined\" is one of the most common JavaScript errors in production. With `strictNullChecks`, which `strict` turns on, TypeScript tracks where null and undefined can appear and makes you handle them before they bite.\n\nUnder strict null checks, `string` means a real string, never null or undefined. A value that might be missing says so in its type: `string | undefined`, `User | null`. Many built-ins return these: `array.find()` returns `T | undefined` because nothing may match, `document.getElementById()` returns `HTMLElement | null`, and optional properties and parameters include `undefined`.\n\nBefore you use a possibly missing value, narrow it:\n- An `if (user)` check, or an early return such as `if (!user) return;`.\n- Optional chaining, `user?.address?.city`, which stops and gives undefined if anything along the way is missing.\n- A fallback with `??`, as in `user?.name ?? \"guest\"`, whose result type no longer includes undefined.\n\nOptional chaining also works for calls and indexes: `onDone?.()` calls the function only if it exists, and `rows?.[0]` reads the index only if rows exists. Each of these is ordinary JavaScript at runtime, so the check the compiler asked for is really there when the code runs.\n\nThere's also the **non-null assertion** operator `!`: `el!.textContent` tells the compiler \"trust me, this isn't null\". It adds no runtime check, so if you're wrong the program crashes exactly as plain JavaScript would. Treat every `!` as a promise you must be able to justify; a real check is almost always better.\n\nDesign for it too. Return `undefined` for \"not found\" instead of a fake value like -1, keep optional fields to those that are genuinely optional, and validate data where it enters the program so the inside of your code can rely on real values.",
-        "code": "interface User { id: number; name: string; manager?: User }\n\nconst users: User[] = [{ id: 1, name: \"Ada\" }];\nconst found = users.find(u => u.id === 2);   // User | undefined\n\nconsole.log(found.name);\n// error TS18048: 'found' is possibly 'undefined'.\n\nif (found) {\n  console.log(found.name);                   // narrowed to User\n}\nconsole.log(found?.name ?? \"not found\");     // optional chaining + fallback\n\nfunction managerName(u: User): string {\n  return u.manager?.name ?? \"none\";\n}\n\nconst el = document.getElementById(\"app\");  // HTMLElement | null\nel!.textContent = \"hi\";   // compiles, but crashes if there is no #app",
+        "key": "Under strict null checks a possibly missing value says so in its type, and you must narrow it with a check, `?.` or `??` before use; `!` only silences the compiler.",
+        "body": "\"Cannot read properties of undefined\" is one of the most common production errors. With `strictNullChecks` (part of `strict`), `string` means a real string, and a value that might be missing says so: `string | undefined`, `User | null`.\n\nMany built-ins return these: `array.find()` gives `T | undefined` because nothing may match, and `document.getElementById()` gives `HTMLElement | null`.\n\n[[visual]]\n\nThe **non-null assertion** `el!.textContent` tells the compiler \"trust me\". It adds no runtime check, so if you are wrong the program crashes exactly as plain JavaScript would.\n\nDesign for it: return `undefined` for \"not found\" instead of -1, keep optional fields to those that truly are, and validate data where it enters.",
+        "visual": {
+          "type": "table",
+          "title": "Handling a possibly missing value",
+          "columns": ["Code", "Effect"],
+          "rows": [
+            ["`if (user) { ... }`, `if (!user) return;`", "Narrows to `User` inside the block, or for the rest of the function"],
+            ["`user?.address?.city`", "Optional chaining: stops and gives `undefined` if anything is missing"],
+            ["`user?.name ?? \"guest\"`", "A fallback: the result type is plain `string`"],
+            ["`onDone?.()`, `rows?.[0]`", "Calls or indexes only if the value exists"],
+            ["`user!.name`", "Silences the compiler with no runtime check: avoid it"]
+          ]
+        },
+        "code": "interface User { id: number; name: string }\n\nconst users: User[] = [{ id: 1, name: \"Ada\" }];\nconst found = users.find(u => u.id === 2);  // User | undefined\n\nconsole.log(found.name);\n// error TS18048: 'found' is possibly 'undefined'.\n\nif (found) {\n  console.log(found.name);  // narrowed to User\n}\nconsole.log(found?.name ?? \"not found\");",
         "pitfall": "Sprinkling `!` to make null errors go away. The compiler stops complaining, but the crash it was warning you about is still there.",
+        "language": "typescript",
         "activity": {
           "type": "code-runner",
           "title": "Handle the missing cases",
@@ -148,9 +251,23 @@
       },
       {
         "title": "Generics",
-        "body": "You write a function that returns the first item of an array. Typed as `(items: any[]) => any`, it works, but callers get back `any` and lose all checking. Typed as `(items: number[]) => number`, it only works for numbers. **Generics** solve this: they let a function, interface or class work with many types while remembering which one is in use.\n\nA **type parameter** is a placeholder for a type, declared in angle brackets: `function first<T>(items: T[]): T | undefined`. When you call `first([10, 20])`, TypeScript infers `T = number`, so the result is `number | undefined`. Call it with strings and you get `string | undefined`. That connection between input and output is the whole point; with `any` it's lost.\n\nYou rarely write the type argument yourself, because inference fills it in from the arguments. When there are no arguments to infer from, write it explicitly: `new Map<string, number>()`, or `useState<User | null>(null)` in React.\n\nInside a generic function TypeScript knows nothing about T, so it only allows operations that work for every possible type. To use a property, add a **constraint**: `<T extends { length: number }>` accepts strings, arrays and anything else with a numeric length, and rejects numbers. Constraints keep the function generic while guaranteeing what it needs.\n\nTypes can be generic too: `interface ApiResponse<T> { data: T; error: string | null }` describes every endpoint's response with one definition. You've already met built-in generics: `Array<T>`, `Promise<T>`, `Map<K, V>`, `Set<T>` and `Record<K, V>`.\n\nDon't over-engineer. If a function only ever handles one type, a plain annotation is clearer. Reach for generics when the same logic genuinely applies to many types and callers need the precise type back.",
-        "code": "function first<T>(items: T[]): T | undefined {\n  return items[0];\n}\nconst a = first([10, 20]);        // number | undefined\nconst b = first([\"x\", \"y\"]);      // string | undefined\n\ninterface ApiResponse<T> {        // generic interfaces too\n  data: T;\n  error: string | null;\n}\nconst res: ApiResponse<string[]> = { data: [\"ok\"], error: null };\n\nfunction longest<T extends { length: number }>(a: T, b: T): T {\n  return a.length >= b.length ? a : b;   // allowed: T has a length\n}\nlongest(\"apple\", \"fig\");          // \"apple\"\nlongest([1, 2], [3]);             // [1, 2]\nlongest(10, 20);\n// error TS2345: Argument of type 'number' is not assignable to parameter\n//   of type '{ length: number; }'.\n\nconst counts = new Map<string, number>();   // explicit type arguments",
+        "key": "A type parameter like `<T>` lets one function or type work with many types while keeping the link between input and output types, which `any` throws away.",
+        "body": "A function returns the first item of an array. Typed with `any`, callers get `any` back and lose all checking; typed with `number[]`, it only works for numbers. **Generics** fix both.\n\nA **type parameter** is a placeholder declared in angle brackets: `function first<T>(items: T[]): T | undefined`. Call `first([10, 20])` and TypeScript infers `T = number`, so the result is `number | undefined`.\n\n[[visual]]\n\nWhen there is nothing to infer from, pass the type yourself: `new Map<string, number>()`, or `useState<User | null>(null)` in React.\n\nInside a generic function nothing is known about T. To use a property, add a **constraint**: `<T extends { length: number }>` accepts strings and arrays and rejects numbers.\n\nIf a function only ever handles one type, a plain annotation is clearer.",
+        "visual": {
+          "type": "table",
+          "title": "Generics you will meet",
+          "columns": ["Code", "Means"],
+          "rows": [
+            ["`first<T>(items: T[]): T | undefined`", "Strings in, `string | undefined` out"],
+            ["`wrap<T>(value: T): T[]`", "`wrap(42)` returns `number[]`"],
+            ["`<T extends { length: number }>`", "Only types with a numeric `length`"],
+            ["`interface ApiResponse<T> { data: T; error: string | null }`", "One definition for every endpoint's response"],
+            ["`Array<T>`, `Promise<T>`, `Map<K, V>`, `Set<T>`, `Record<K, V>`", "Built-in generics"]
+          ]
+        },
+        "code": "function longest<T extends { length: number }>(a: T, b: T): T {\n  return a.length >= b.length ? a : b;  // T has a length\n}\nlongest(\"apple\", \"fig\");  // \"apple\"\nlongest([1, 2], [3]);  // [1, 2]\nlongest(10, 20);\n// error TS2345: Argument of type 'number' is not\n// assignable to parameter of type '{ length: number; }'.",
         "pitfall": "Reaching for `any` to make a reusable function compile. It accepts everything but returns `any`, so every caller loses checking; a type parameter keeps it.",
+        "language": "typescript",
         "check": {
           "question": "What is T inferred as in first([true, false])?",
           "choices": ["boolean", "any", "true", "unknown"],
@@ -160,9 +277,57 @@
       },
       {
         "title": "any, unknown, utility types and common errors",
-        "body": "Sometimes you really don't know a value's type: the result of `JSON.parse`, an API response, a message from another window. TypeScript has two types for that, and choosing the right one matters.\n- `any` switches checking off. Any property, any call, any assignment goes. It's an escape hatch, and it spreads, because whatever you derive from an `any` is also `any`.\n- `unknown` accepts any value but allows almost nothing until you narrow it with `typeof`, `in`, `instanceof` or a custom check. It's the safe choice for data from outside.\n\n**Utility types** build new types from existing ones, so a change to the original flows through automatically:\n- `Partial<User>` makes every property optional, which suits update payloads.\n- `Pick<User, \"id\" | \"name\">` keeps only the listed properties, and `Omit<User, \"email\">` drops them.\n- `Record<string, number>` is an object with string keys and number values.\n- `Readonly<User>` makes every property readonly.\n\nReading compiler errors is a skill of its own. The messages are long, but the first line usually says it all, and the same few come up constantly:\n- `Type 'X' is not assignable to type 'Y'` (TS2322): a value of the wrong type, often a missing or misspelled property deeper inside an object.\n- `Argument of type 'X' is not assignable to parameter of type 'Y'` (TS2345): the same mismatch at a function call.\n- `Property 'x' does not exist on type 'Y'` (TS2339): a typo, or a property that exists on only some members of a union.\n- `'x' is possibly 'undefined'` (TS18048): narrow before using it.\n- `Parameter 'x' implicitly has an 'any' type` (TS7006): add an annotation.\n\nFix the cause, not the symptom. Reaching for `as any` or `!` makes the red line disappear and leaves the bug exactly where it was.",
-        "code": "interface User { id: number; name: string; email: string }\n\ntype UserPatch = Partial<User>;               // every property optional\ntype UserCard = Pick<User, \"id\" | \"name\">;    // only id and name\ntype NoEmail = Omit<User, \"email\">;           // everything except email\ntype ScoreBoard = Record<string, number>;     // string keys, number values\n\nconst loose: any = JSON.parse('{\"n\": 1}');\nloose.whatever.you.like;          // compiles, then crashes at runtime\n\nconst data: unknown = JSON.parse('{\"name\": \"Ada\"}');\ndata.name;\n// error TS18046: 'data' is of type 'unknown'.\nif (typeof data === \"object\" && data !== null && \"name\" in data) {\n  console.log(data.name);         // narrowed, so this compiles\n}",
+        "key": "Prefer `unknown` to `any` for outside data, build related types with utilities like `Partial` and `Pick`, and fix the cause of a compiler error instead of silencing it.",
+        "body": "Sometimes you truly do not know a value's type: `JSON.parse` output, an API response, a message from another window.\n\n[[visual]]\n\n**Utility types** build new types from existing ones, so a change to the original flows through automatically:\n\n[[visual 2]]\n\nCompiler messages are long, but the first line usually says it all:\n\n[[visual 3]]\n\nFix the cause, not the symptom: `as any` or `!` removes the red line and leaves the bug.",
+        "visual": [
+          {
+            "type": "compare",
+            "items": [
+              {
+                "title": "any",
+                "tone": "bad",
+                "points": ["Switches checking off: any property, call or assignment goes", "Spreads: whatever you derive from it is `any` too"]
+              },
+              {
+                "title": "unknown",
+                "tone": "good",
+                "points": [
+                  "Accepts any value but allows almost nothing",
+                  "Narrow it first with `typeof`, `in`, `instanceof` or a check function",
+                  "The safe choice for data from outside"
+                ]
+              }
+            ]
+          },
+          {
+            "type": "table",
+            "title": "Utility types",
+            "columns": ["Utility", "Gives"],
+            "rows": [
+              ["`Partial<User>`", "Every property optional: suits update payloads"],
+              ["`Pick<User, \"id\" | \"name\">`", "Only the listed properties"],
+              ["`Omit<User, \"email\">`", "Every property except the listed ones"],
+              ["`Record<string, number>`", "String keys with number values"],
+              ["`Readonly<User>`", "Every property readonly"]
+            ]
+          },
+          {
+            "type": "table",
+            "title": "Common compiler errors",
+            "columns": ["Message", "Usual cause"],
+            "rows": [
+              ["`Type 'X' is not assignable to type 'Y'` (TS2322)", "A value of the wrong type, often a missing or misspelled property deeper inside"],
+              ["`Argument of type 'X' is not assignable to parameter of type 'Y'` (TS2345)", "The same mismatch at a function call"],
+              ["`Property 'x' does not exist on type 'Y'` (TS2339)", "A typo, or a property only some union members have"],
+              ["`'x' is possibly 'undefined'` (TS18048)", "Narrow it before using it"],
+              ["`Parameter 'x' implicitly has an 'any' type` (TS7006)", "Add an annotation"],
+              ["`'data' is of type 'unknown'` (TS18046)", "Narrow the unknown value first"]
+            ]
+          }
+        ],
+        "code": "const data: unknown = JSON.parse('{\"name\": \"Ada\"}');\ndata.name;\n// error TS18046: 'data' is of type 'unknown'.\n\nif (typeof data === \"object\" && data !== null && \"name\" in data) {\n  console.log(data.name);  // narrowed, so this compiles\n}",
         "pitfall": "Fixing an error with `as any`. The message goes away, the checking for that value goes away with it, and the bug stays.",
+        "language": "typescript",
         "activity": {
           "type": "code-runner",
           "title": "Validate unknown data",
@@ -176,38 +341,66 @@
         },
         "check": {
           "question": "With User as above, what does Omit<User, \"email\"> describe?",
-          "choices": [
-            "{ email: string }",
-            "{ id?: number; name?: string; email?: string }",
-            "{ id: number; name: string }",
-            "{ id: number; name: string; email?: string }"
-          ],
+          "choices": ["{ email: string }", "{ id?: number; name?: string; email?: string }", "{ id: number; name: string }", "{ id: number; name: string; email?: string }"],
           "answer": 2,
           "explanation": "Omit removes the listed keys and keeps the rest unchanged. The all-optional version is what Partial<User> gives, and { email: string } is what Pick<User, \"email\"> gives."
         }
       }
     ],
     "keyTerms": [
-      { "term": "type annotation", "definition": "A colon and a type after a name, such as count: number, stating what it may hold." },
-      { "term": "type inference", "definition": "TypeScript working out a type from a value, so let n = 0 is a number without an annotation." },
-      { "term": "type erasure", "definition": "The compiler removing all types, so the output is plain JavaScript with no runtime type checks." },
-      { "term": "structural typing", "definition": "A value matches a type if it has the required shape, regardless of its name or origin." },
-      { "term": "interface", "definition": "A named description of an object's shape that can extend other interfaces." },
-      { "term": "literal type", "definition": "A type that allows one exact value, such as \"left\" or 42." },
+      {
+        "term": "type annotation",
+        "definition": "A colon and a type after a name, such as count: number, stating what it may hold."
+      },
+      {
+        "term": "type inference",
+        "definition": "TypeScript working out a type from a value, so let n = 0 is a number without an annotation."
+      },
+      {
+        "term": "type erasure",
+        "definition": "The compiler removing all types, so the output is plain JavaScript with no runtime type checks."
+      },
+      {
+        "term": "structural typing",
+        "definition": "A value matches a type if it has the required shape, regardless of its name or origin."
+      },
+      {
+        "term": "interface",
+        "definition": "A named description of an object's shape that can extend other interfaces."
+      },
+      {
+        "term": "literal type",
+        "definition": "A type that allows one exact value, such as \"left\" or 42."
+      },
       { "term": "union type", "definition": "A value that may be one of several types, written A | B." },
-      { "term": "narrowing", "definition": "Refining a union to one member with checks such as typeof, in or a discriminant field." },
-      { "term": "strict null checks", "definition": "A compiler mode where null and undefined must appear in a type before a value may hold them." },
-      { "term": "generic", "definition": "A type parameter such as T that lets code work with many types while keeping them precise." },
-      { "term": "unknown", "definition": "A type that accepts any value but must be narrowed before use; the safe alternative to any." },
-      { "term": "utility type", "definition": "A built-in type that transforms another, such as Partial, Pick, Omit or Record." }
+      {
+        "term": "narrowing",
+        "definition": "Refining a union to one member with checks such as typeof, in or a discriminant field."
+      },
+      {
+        "term": "strict null checks",
+        "definition": "A compiler mode where null and undefined must appear in a type before a value may hold them."
+      },
+      {
+        "term": "generic",
+        "definition": "A type parameter such as T that lets code work with many types while keeping them precise."
+      },
+      {
+        "term": "unknown",
+        "definition": "A type that accepts any value but must be narrowed before use; the safe alternative to any."
+      },
+      {
+        "term": "utility type",
+        "definition": "A built-in type that transforms another, such as Partial, Pick, Omit or Record."
+      }
     ],
     "summary": [
-      "TypeScript checks your code before it runs and then erases the types, so data from outside still needs runtime validation.",
+      "TypeScript checks code before it runs, then erases the types, so outside data still needs runtime checks.",
       "Annotate parameters and edges, let inference handle locals, and turn on strict mode.",
-      "Describe objects with interfaces or type aliases, using ? for optional and readonly for fixed properties.",
-      "Narrow unions with typeof, in and discriminant checks, and make switches exhaustive with never.",
-      "Handle possibly missing values with checks, ?. and ?? instead of the ! assertion.",
-      "Generics keep types precise across reusable code; prefer unknown to any and fix the cause of compiler errors."
+      "Describe objects with interfaces or type aliases, with ? for optional and readonly for fixed properties.",
+      "Narrow unions with typeof, in and discriminant checks; make switches exhaustive with never.",
+      "Handle missing values with checks, ?. and ?? instead of the ! assertion.",
+      "Generics keep types precise across reusable code; prefer unknown to any."
     ],
     "feynmanPrompt": "Explain to a JavaScript developer what TypeScript would have caught in a bug where user.fullname printed undefined, why the types disappear when the code runs, and why unknown is safer than any for data from an API."
   },
@@ -262,12 +455,7 @@
       "type": "mcq",
       "difficulty": "easy",
       "question": "Which of these can a type alias do that an interface cannot?",
-      "choices": [
-        "Name a union, such as string | number",
-        "Describe an object with optional properties",
-        "Mark a property as readonly",
-        "Be used as a function parameter type"
-      ],
+      "choices": ["Name a union, such as string | number", "Describe an object with optional properties", "Mark a property as readonly", "Be used as a function parameter type"],
       "answer": 0,
       "explanation": "An interface always describes an object shape. A type alias can name any type, including unions, tuples and primitives. Optional and readonly properties, and use as a parameter type, work the same with both.",
       "concept": "interface vs type alias",
@@ -421,12 +609,7 @@
       "difficulty": "easy",
       "question": "Which call compiles?",
       "code": "interface User { id: number; name: string; email: string }\n\nfunction updateUser(id: number, changes: Partial<User>) {\n  // ...\n}",
-      "choices": [
-        "updateUser(1, { email: \"ada@example.com\" })",
-        "updateUser(1, { age: 36 })",
-        "updateUser(1, { email: 42 })",
-        "updateUser(1, \"ada@example.com\")"
-      ],
+      "choices": ["updateUser(1, { email: \"ada@example.com\" })", "updateUser(1, { age: 36 })", "updateUser(1, { email: 42 })", "updateUser(1, \"ada@example.com\")"],
       "answer": 0,
       "explanation": "Partial<User> makes every property optional but keeps the property names and types, so passing only email is fine. age is not a User property, email must still be a string, and a bare string is not a matching object.",
       "concept": "Partial",
@@ -661,11 +844,23 @@
       "difficulty": "medium",
       "question": "Match each compiler error to its most likely cause.",
       "pairs": [
-        { "left": "Type 'string' is not assignable to type 'number'.", "right": "Storing a value of the wrong type" },
+        {
+          "left": "Type 'string' is not assignable to type 'number'.",
+          "right": "Storing a value of the wrong type"
+        },
         { "left": "Property 'nmae' does not exist on type 'User'.", "right": "A typo in a property name" },
-        { "left": "Parameter 'x' implicitly has an 'any' type.", "right": "A parameter with no annotation under strict mode" },
-        { "left": "'user' is possibly 'undefined'.", "right": "Using a value that might be missing without checking" },
-        { "left": "Argument of type 'number' is not assignable to parameter of type 'string'.", "right": "Calling a function with the wrong argument type" }
+        {
+          "left": "Parameter 'x' implicitly has an 'any' type.",
+          "right": "A parameter with no annotation under strict mode"
+        },
+        {
+          "left": "'user' is possibly 'undefined'.",
+          "right": "Using a value that might be missing without checking"
+        },
+        {
+          "left": "Argument of type 'number' is not assignable to parameter of type 'string'.",
+          "right": "Calling a function with the wrong argument type"
+        }
       ],
       "explanation": "These five cover most day-to-day TypeScript errors. Read the first line, find the exact value or property it names, and fix that rather than silencing it.",
       "concept": "reading compiler errors",

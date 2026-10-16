@@ -8,19 +8,8 @@
   "description": "Explain how HSRP, VRRP and GLBP keep the default gateway alive, and configure HSRP priority and preemption.",
   "icon": "FH",
   "language": "cisco",
-  "prereqs": [
-    "ccna-routing-table",
-    "ccna-intervlan-routing"
-  ],
-  "tags": [
-    "ccna",
-    "3.5",
-    "fhrp",
-    "hsrp",
-    "vrrp",
-    "glbp",
-    "high-availability"
-  ],
+  "prereqs": ["ccna-routing-table", "ccna-intervlan-routing"],
+  "tags": ["ccna", "3.5", "fhrp", "hsrp", "vrrp", "glbp", "high-availability"],
   "resources": [
     {
       "title": "Free CCNA 200-301 course (Jeremy's IT Lab)",
@@ -60,23 +49,43 @@
     }
   ],
   "lesson": {
-    "estimatedMinutes": 36,
-    "intro": "Hosts trust one default gateway address, so the router that owns it is a single point of failure for the whole subnet. First hop redundancy protocols let several routers share that gateway role. This lesson explains the virtual IP and MAC idea, configures HSRP priority and preemption, designs load sharing across VLANs, and compares HSRP with VRRP and GLBP.",
+    "estimatedMinutes": 24,
+    "intro": "Hosts trust one default gateway address, so the router that owns it is a single point of failure. First hop redundancy protocols let several routers share that role. Learn the virtual IP idea, HSRP in depth, and how VRRP and GLBP differ.",
     "objectives": [
-      "Explain why a default gateway is a single point of failure and how a virtual IP and virtual MAC remove it",
-      "Predict which HSRP router is active from priority, IP address and preempt settings",
-      "Configure and verify an HSRP group with priority and preemption, and read show standby output",
+      "Explain how a virtual IP and virtual MAC remove the gateway single point of failure",
+      "Predict the HSRP active router from priority, IP address and preempt",
+      "Configure and verify HSRP and read show standby output",
       "Design HSRP load sharing across VLANs on Layer 3 switch SVIs",
-      "Compare HSRP, VRRP and GLBP: standards, roles, virtual MACs, preemption defaults and load balancing"
+      "Compare HSRP, VRRP and GLBP"
     ],
     "sections": [
       {
         "title": "The default gateway is a single point of failure",
-        "body": "Two hundred PCs in VLAN 10 all have the same default gateway, 10.1.1.2, which is R1's address. The company paid for a second router, R2 (10.1.1.3), on the same VLAN with its own WAN link, and runs OSPF between both routers and the core. At 9:05 on Monday, R1's power supply dies. OSPF reconverges in seconds, and every router in the network knows how to reach everything through R2. The PCs still lose every connection outside their subnet.\n\nThe reason is the hosts. A PC does not run a routing protocol. It has one default gateway address, set statically or by DHCP, and it keeps ARPing for and sending to that address no matter what happens. R1 is a **single point of failure** for the whole subnet even though a perfectly good router sits right next to it.\n\nWithout help, the options are all bad:\n\n- Point every host at R1 and reconfigure them all by hand (or change DHCP and wait for leases) when R1 fails.\n- Point half the hosts at R1 and half at R2, so a failure only takes out half the users.\n- Hope R1 never fails.\n\nA **first hop redundancy protocol (FHRP)** fixes this without touching the hosts. The \"first hop\" is the default gateway, the first router a packet crosses on its way off the subnet. With an FHRP, two or more routers cooperate to act as one gateway, and if the one doing the work fails, another takes over that job in seconds while the hosts keep their settings.\n\nFHRPs run wherever a default gateway lives: on router interfaces and subinterfaces (including router-on-a-stick), and on the SVIs of Layer 3 switches. A typical campus has a pair of distribution switches running an FHRP on every user VLAN's SVI, so either switch can fail without users noticing.\n\nThere are three FHRPs to know: **HSRP** (Cisco), **VRRP** (open standard) and **GLBP** (Cisco). They share one core idea, covered next.",
-        "code": "                   VLAN 10, 10.1.1.0/24\nPC1 gw 10.1.1.2  \\\nPC2 gw 10.1.1.2   >--- [SW1] ---+--- R1 10.1.1.2  (dead)  --- WAN\nPC3 gw 10.1.1.2  /              |\n                                +--- R2 10.1.1.3  (healthy) --- WAN\n\nOSPF reroutes between routers, but every PC still sends to 10.1.1.2.",
-        "language": "plaintext",
+        "key": "Hosts know one default gateway address, so when the router that owns it fails they lose off-subnet access, even after the routing protocols reconverge.",
+        "body": "Two hundred PCs in VLAN 10 use gateway 10.1.1.2, router R1. A second router, R2 (10.1.1.3), sits on the same VLAN with its own WAN link, and OSPF runs everywhere. On Monday R1's power supply dies.\n\n[[visual]]\n\nOSPF reconverges in seconds, yet the PCs lose everything outside their subnet. A PC runs no routing protocol: it keeps sending to its one gateway address. R1 is a **single point of failure** even with a healthy router next to it.\n\nA **first hop redundancy protocol (FHRP)** fixes this without touching the hosts. The **first hop** is the default gateway. Several routers act as one gateway, and if the working one fails, another takes over in seconds.\n\nFHRPs run wherever gateways live: router interfaces and subinterfaces, and Layer 3 switch SVIs. The three to know: **HSRP** (Cisco), **VRRP** (open standard) and **GLBP** (Cisco).",
+        "visual": {
+          "type": "topology",
+          "nodes": [
+            { "id": "pcs", "kind": "pc", "label": "200 PCs", "sub": "gw 10.1.1.2", "x": 1, "y": 0 },
+            { "id": "sw1", "kind": "switch", "label": "SW1", "sub": "VLAN 10", "x": 1, "y": 1 },
+            { "id": "r1", "kind": "router", "label": "R1", "sub": "10.1.1.2", "x": 0, "y": 2, "tone": "bad" },
+            { "id": "r2", "kind": "router", "label": "R2", "sub": "10.1.1.3", "x": 2, "y": 2 },
+            { "id": "wan", "kind": "cloud", "label": "OSPF core", "x": 1, "y": 3 }
+          ],
+          "links": [
+            { "from": "pcs", "to": "sw1" },
+            { "from": "sw1", "to": "r1", "style": "dashed", "tone": "bad" },
+            { "from": "sw1", "to": "r2" },
+            { "from": "r1", "to": "wan", "style": "dashed", "tone": "bad" },
+            { "from": "r2", "to": "wan", "tone": "good" }
+          ],
+          "marks": [
+            { "at": "r1", "text": "Power failed", "tone": "bad" }
+          ],
+          "caption": "OSPF reroutes around R1, but every PC still sends to 10.1.1.2."
+        },
         "tip": "Routing protocols protect routers from each other's failures. FHRPs protect hosts from a gateway failure.",
-        "pitfall": "Assuming redundant routers and OSPF are enough. Hosts only know one gateway address, so without an FHRP they lose that gateway with the router that owns it.",
+        "pitfall": "Assuming redundant routers and OSPF are enough. Hosts only know one gateway address, so without an FHRP they lose it with the router that owns it.",
         "check": {
           "question": "Two routers serve VLAN 10 and run OSPF with the core. The hosts' gateway, R1, fails. With no FHRP, what happens?",
           "choices": [
@@ -91,11 +100,64 @@
       },
       {
         "title": "One virtual router: virtual IP and virtual MAC",
-        "body": "Every FHRP creates a **virtual router**. R1 keeps its own address (10.1.1.2) and R2 keeps its own (10.1.1.3), and both are configured with a third address in the same subnet, the **virtual IP**, say 10.1.1.1. Hosts use the virtual IP as their default gateway. With the virtual IP comes a **virtual MAC address** that the protocol derives automatically (for example 0000.0c07.ac01 for HSRP version 1, group 1).\n\nAt any moment one router owns the virtual addresses. When a host ARPs for 10.1.1.1, that router answers with the virtual MAC, so frames sent to the gateway arrive at it. The routers exchange FHRP **hello** messages so each knows the other is alive.\n\nWhen the owner fails, the hellos stop. After a hold timer expires, the backup router takes over the virtual IP and virtual MAC and starts forwarding. It also sends a **gratuitous ARP**: an ARP reply nobody asked for, sourced from the virtual MAC and sent as a broadcast. The switches learn the virtual MAC on the port toward the new router, so frames for the gateway now flow there.\n\nFrom the hosts' point of view, nothing happened. Their gateway is still 10.1.1.1, and their ARP cache still maps it to the same virtual MAC. Traffic pauses for the few seconds of failover and resumes.\n\nThe routers keep using their real interface addresses for their own traffic: routing protocol hellos, pings and SSH sessions to the router all use 10.1.1.2 or 10.1.1.3. Only traffic that hosts send to their gateway uses the virtual addresses. In HSRP the virtual IP must be a third address that is not assigned to any device in the subnet.\n\nThe generic recipe every FHRP follows:\n\n- Hosts keep one default gateway setting that never changes.\n- The routers share a virtual IP (and virtual MAC) in the subnet, and hosts use it as their gateway.\n- The routers exchange messages to agree on who does the forwarding.\n- When that router fails, another takes over the virtual addresses.",
-        "code": "Before R1 fails                         After R2 takes over\nPC ARP cache:                           PC ARP cache (unchanged):\n  10.1.1.1 -> 0000.0c07.ac01              10.1.1.1 -> 0000.0c07.ac01\nSW1 MAC table:                          SW1 MAC table (updated by gratuitous ARP):\n  0000.0c07.ac01 -> Gi1/0/1 (to R1)       0000.0c07.ac01 -> Gi1/0/2 (to R2)",
-        "language": "plaintext",
+        "key": "FHRP routers share a virtual IP and virtual MAC that hosts use as their gateway; on failover the backup takes both and sends a gratuitous ARP.",
+        "body": "Every FHRP creates a **virtual router**. R1 keeps 10.1.1.2 and R2 keeps 10.1.1.3, and both are given a third address in the subnet, the **virtual IP** 10.1.1.1. Hosts use it as their gateway. A **virtual MAC** comes with it, derived automatically (HSRP version 1, group 1: 0000.0c07.ac01).\n\nOne router owns both at a time and answers ARP for 10.1.1.1. The routers exchange **hello** messages to prove they are alive. When the owner fails:\n\n[[visual]]\n\nA **gratuitous ARP** is an ARP reply nobody asked for, broadcast from the virtual MAC so the switches relearn where it lives.\n\n[[visual 2]]\n\nThe routers keep using their real addresses for their own traffic (routing protocol hellos, pings, SSH). In HSRP the virtual IP must be an unused third address.",
+        "visual": [
+          {
+            "type": "sequence",
+            "actors": [
+              { "id": "pc", "label": "PC", "kind": "pc" },
+              { "id": "sw", "label": "SW1", "kind": "switch" },
+              { "id": "r1", "label": "R1 (active)", "kind": "router" },
+              { "id": "r2", "label": "R2 (standby)", "kind": "router" }
+            ],
+            "messages": [
+              { "from": "r1", "to": "r2", "label": "Hellos", "detail": "I am active" },
+              {
+                "note": "R1 fails: hellos stop",
+                "over": ["r1"]
+              },
+              {
+                "from": "r2",
+                "to": "r2",
+                "label": "Hold timer expires",
+                "detail": "takes the virtual IP and MAC"
+              },
+              {
+                "from": "r2",
+                "to": "sw",
+                "label": "Gratuitous ARP",
+                "detail": "from 0000.0c07.ac01, broadcast",
+                "tone": "accent"
+              },
+              { "from": "sw", "to": "sw", "label": "Relearns ac01", "detail": "now on the port to R2" },
+              {
+                "from": "pc",
+                "to": "r2",
+                "label": "Frames to 0000.0c07.ac01",
+                "detail": "reach R2",
+                "tone": "good"
+              }
+            ]
+          },
+          {
+            "type": "compare",
+            "items": [
+              {
+                "title": "Changes",
+                "tone": "warn",
+                "points": ["R2 answers for the virtual IP and MAC", "R2 sends a gratuitous ARP", "Switches move the virtual MAC to R2's port"]
+              },
+              {
+                "title": "Stays the same",
+                "tone": "good",
+                "points": ["Hosts' gateway: 10.1.1.1", "Hosts' ARP entry: 10.1.1.1 is 0000.0c07.ac01", "Each router's real address"]
+              }
+            ]
+          }
+        ],
         "tip": "Hosts never learn which real router they are using. They only ever see the virtual IP and virtual MAC.",
-        "pitfall": "Setting the hosts' gateway (or the DHCP default-router option) to one router's real interface address instead of the virtual IP. Failover then does nothing for those hosts.",
+        "pitfall": "Setting the hosts' gateway (or the DHCP default-router) to one router's real address instead of the virtual IP. Failover then does nothing for those hosts.",
         "check": {
           "question": "After an FHRP failover from R1 to R2, what must change on the hosts?",
           "choices": [
@@ -110,8 +172,40 @@
       },
       {
         "title": "HSRP: active, standby and the election",
-        "body": "**Hot Standby Router Protocol (HSRP)** is Cisco's FHRP and the one the CCNA uses as its main example. Routers that share a virtual IP form an **HSRP group**, identified by a group number that must match on every member.\n\nHSRP is **active/standby**. One router is **active**: it owns the virtual IP and MAC and forwards all traffic sent to the gateway. One router is **standby**: it watches the active router and takes over if it fails. Any further routers in the group sit in the **listen** state, ready to become standby.\n\nA router whose HSRP interface comes up walks through the states in order: **Initial** (shown as Init in logs), **Learn** (it has not yet learned the virtual IP from a hello), **Listen** (it knows the virtual IP but is neither active nor standby), **Speak** (it sends hellos and takes part in the election), then **Standby** or **Active**. Only the active and standby routers keep sending hellos; listen routers just listen. Every change is logged as `%HSRP-5-STATECHANGE`, which makes failovers easy to spot afterwards.\n\nHSRP routers send hellos every **3 seconds**, and the **hold time** is **10 seconds**: if the standby hears nothing from the active router for 10 seconds, it becomes active. Version 1 hellos go to multicast 224.0.0.2 and version 2 to 224.0.0.102, both on UDP port 1985.\n\nWhich router becomes active? When routers negotiate at the same time:\n\n- The highest **priority** wins (0 to 255, default **100**).\n- If priorities tie, the highest interface IP address wins.\n\nBecause one router forwards everything for a group, HSRP does not share load inside a group. It shares load across groups: one group per VLAN, with a different active router in each (a later section builds this design).\n\nIn the exhibit, R1 is active for VLAN 10 (its priority 110 beats R2) and standby for VLAN 20, where R2 is active.",
-        "code": "R1# show standby brief\n                     P indicates configured to preempt.\n                     |\nInterface   Grp  Pri P State   Active          Standby         Virtual IP\nGi0/0.10    10   110 P Active  local           10.1.10.3       10.1.10.1\nGi0/0.20    20   90  P Standby 10.1.20.3       local           10.1.20.1\n\n*Mar  8 18:10:29.242: %HSRP-5-STATECHANGE: GigabitEthernet0/0.20 Grp 20 state Standby -> Active\n*Mar  8 18:11:08.355: %HSRP-5-STATECHANGE: GigabitEthernet0/0.10 Grp 10 state Speak -> Standby",
+        "key": "HSRP elects one active router per group (highest priority, default 100, then highest IP) to forward for the virtual IP; the standby takes over after a 10-second hold time.",
+        "body": "**Hot Standby Router Protocol (HSRP)** is Cisco's FHRP and the CCNA's main example. Routers sharing a virtual IP form an **HSRP group**, with a group number that must match on every member.\n\nHSRP is **active/standby**. The **active** router owns the virtual IP and MAC and forwards everything sent to the gateway. The **standby** router watches it and takes over if it fails. Any extra routers **listen**.\n\n[[visual]]\n\nA router whose HSRP interface comes up walks through these states:\n\n[[visual 2]]\n\nOne router forwards per group, so HSRP shares load **across** groups, not inside one: one group per VLAN with a different active router each. Below, R1 is active for VLAN 10 (priority 110) and standby for VLAN 20.\n\n[[code]]",
+        "visual": [
+          {
+            "type": "table",
+            "columns": ["HSRP setting", "Default"],
+            "rows": [
+              ["Hello interval", "3 seconds"],
+              ["Hold time", "10 seconds: no hellos for that long and the standby takes over"],
+              ["Priority", "100 (range 0 to 255); highest wins"],
+              ["Priority tie", "Highest interface IP address wins"],
+              ["Hellos sent to", "224.0.0.2 (v1) or 224.0.0.102 (v2), UDP port 1985"]
+            ]
+          },
+          {
+            "type": "flow",
+            "steps": [
+              { "label": "Initial", "detail": "Shown as Init in logs" },
+              { "label": "Learn", "detail": "Has not yet learned the virtual IP from a hello" },
+              {
+                "label": "Listen",
+                "detail": "Knows the virtual IP, neither active nor standby. Extra routers stay here and only listen"
+              },
+              { "label": "Speak", "detail": "Sends hellos and takes part in the election" },
+              {
+                "label": "Standby or Active",
+                "detail": "Only these two keep sending hellos. Each change logs `%HSRP-5-STATECHANGE`",
+                "tone": "good"
+              }
+            ]
+          }
+        ],
+        "code": "R1# show standby brief\n                     P indicates configured to preempt.\n                     |\nInterface   Grp  Pri P State   Active          Standby         Virtual IP\nGi0/0.10    10   110 P Active  local           10.1.10.3       10.1.10.1\nGi0/0.20    20   90  P Standby 10.1.20.3       local           10.1.20.1\n\n%HSRP-5-STATECHANGE: GigabitEthernet0/0.20 Grp 20 state Standby -> Active\n%HSRP-5-STATECHANGE: GigabitEthernet0/0.10 Grp 10 state Speak -> Standby",
+        "language": "cisco",
         "tip": "Default HSRP priority is 100, higher wins, and a tie goes to the highest interface IP address. OSPF's DR election also uses \"highest wins\".",
         "pitfall": "Expecting two HSRP routers in one group to share the traffic. Only the active router forwards for its group; load sharing needs several groups.",
         "check": {
@@ -128,17 +222,55 @@
       },
       {
         "title": "Priority, preemption and tracking",
-        "body": "R1 has the fast uplink, so you want it active. You give it `standby 1 priority 110` (R2 keeps the default 100) and R1 becomes active. One night R1 reloads for an upgrade. R2 becomes active, as it should. R1 comes back up with its higher priority and... stays standby. The next morning all traffic still runs through R2.\n\nThat is HSRP's default: **no preemption**. A router that comes up while another router is already active does not take over, whatever its priority. To change that, configure `standby 1 preempt` on the router that should take the role back (R1 here). Preemption is a property of the router doing the taking over: with preempt on R1, R1 reclaims active as soon as it has the higher priority. `standby 1 preempt delay minimum 60` makes R1 wait 60 seconds after booting, so its routing can converge before it takes traffic.\n\nPriority and preemption also make **tracking** work. Suppose R1's WAN link fails but its LAN interface stays up. HSRP only watches the LAN, so R1 stays active and every packet takes a detour (or is lost). Object tracking fixes this: R1 tracks its uplink and lowers its own HSRP priority when the uplink goes down. With `track 1 interface GigabitEthernet0/1 line-protocol` and `standby 1 track 1 decrement 20`, R1 drops from 110 to 90. Now R2 (100) has the higher priority, and if R2 is configured to preempt, it takes over.\n\nThe configuration on each router's LAN interface:\n\n- `standby 1 ip 192.168.1.254`: the group number and the virtual IP.\n- `standby 1 priority 110`: the router you prefer.\n- `standby 1 preempt`: take the role back when it has the best priority.\n- Optionally `standby version 2`, covered in the next section.",
-        "code": "R1(config)# interface g0/0\nR1(config-if)# ip address 192.168.1.1 255.255.255.0\nR1(config-if)# standby 1 ip 192.168.1.254\nR1(config-if)# standby 1 priority 110\nR1(config-if)# standby 1 preempt\nR1(config-if)# no shutdown\n\nR2(config)# interface g0/0\nR2(config-if)# ip address 192.168.1.2 255.255.255.0\nR2(config-if)# standby 1 ip 192.168.1.254\nR2(config-if)# standby 1 preempt\nR2(config-if)# no shutdown\n\nR1# show standby brief\n                     P indicates configured to preempt.\n                     |\nInterface   Grp  Pri P State   Active          Standby         Virtual IP\nGi0/0       1    110 P Active  local           192.168.1.2     192.168.1.254",
-        "tip": "Higher priority decides who should be active. Preempt decides whether it actually takes the role back. You usually want both on the preferred router.",
-        "pitfall": "Configuring a higher priority without preempt and expecting the preferred router to reclaim active after a reboot. It stays standby until the current active router fails.",
+        "key": "HSRP preemption is off by default: a higher-priority router that recovers stays standby unless `standby <group> preempt` is configured on that router.",
+        "body": "R1 has the fast uplink, so you give it `standby 1 priority 110` (R2 keeps 100). One night R1 reloads:\n\n[[visual]]\n\nPreemption belongs to the router **doing the taking over**. `standby 1 preempt delay minimum 60` makes R1 wait 60 seconds after booting so its routing converges first.\n\n**Tracking** handles a different failure: R1's WAN link dies but its LAN stays up. HSRP only watches LAN hellos, so R1 stays active and traffic detours or is lost. With `track 1 interface GigabitEthernet0/1 line-protocol` and `standby 1 track 1 decrement 20`, R1 lowers its own priority:\n\n[[visual 2]]\n\n[[visual 3]]\n\n[[code]]",
+        "visual": [
+          {
+            "type": "flow",
+            "steps": [
+              { "label": "R1 (110) is active, R2 (100) is standby" },
+              { "label": "R1 reloads: R2 becomes active", "tone": "warn" },
+              {
+                "label": "R1 comes back. Is `standby 1 preempt` configured on R1?",
+                "yes": "R1 takes the active role back",
+                "no": "R1 stays standby; R2 keeps forwarding (the default)"
+              }
+            ]
+          },
+          {
+            "type": "steps",
+            "title": "Tracking the uplink",
+            "steps": [
+              { "label": "R1's configured priority", "work": "110" },
+              { "label": "Uplink down: decrement 20", "work": "110 - 20 = 90" },
+              { "label": "Compare with R2", "work": "90 < 100" }
+            ],
+            "result": "R2 becomes active, if R2 is configured to preempt"
+          },
+          {
+            "type": "table",
+            "title": "The interface commands",
+            "columns": ["Command", "Purpose"],
+            "rows": [
+              [
+                "`standby 1 ip 192.168.1.254`",
+                "Group 1 and its virtual IP. The group number must match on every router: different numbers make separate groups, and each router goes active"
+              ],
+              ["`standby 1 priority 110`", "Make this the preferred router"],
+              ["`standby 1 preempt`", "Take the role back with the best priority. Include the group: plain `standby preempt` applies to group 0"],
+              ["`standby version 2`", "Optional, next section"]
+            ]
+          }
+        ],
+        "code": "R1(config)# interface g0/0\nR1(config-if)# ip address 192.168.1.1 255.255.255.0\nR1(config-if)# standby 1 ip 192.168.1.254\nR1(config-if)# standby 1 priority 110\nR1(config-if)# standby 1 preempt\n\nR2(config)# interface g0/0\nR2(config-if)# ip address 192.168.1.2 255.255.255.0\nR2(config-if)# standby 1 ip 192.168.1.254\nR2(config-if)# standby 1 preempt\n\nR1# show standby brief\nInterface   Grp  Pri P State   Active          Standby         Virtual IP\nGi0/0       1    110 P Active  local           192.168.1.2     192.168.1.254",
+        "language": "cisco",
+        "tip": "Priority decides who should be active. Preempt decides whether it actually takes the role back. You usually want both on the preferred router.",
+        "pitfall": "Configuring a higher priority without preempt and expecting the preferred router to reclaim active after a reboot. It stays standby until the active router fails.",
         "activity": {
           "type": "ios-console",
           "title": "Make R1 the active HSRP gateway",
           "prompt": "Address G0/0 as 192.168.1.1/24, set HSRP group 1's virtual IP to 192.168.1.254, give R1 priority 110 and enable preempt. Then run show standby brief and find the P flag and the priority in R1's line.",
-          "props": {
-            "lab": "cl-d3-hsrp"
-          }
+          "props": { "lab": "cl-d3-hsrp" }
         },
         "check": {
           "question": "R1 (priority 110, no preempt) recovers from a reload while R2 (priority 100) is active. What happens?",
@@ -154,26 +286,85 @@
       },
       {
         "title": "Verifying HSRP, and versions 1 and 2",
-        "body": "`show standby brief` gives one line per group. Read it from the local router's point of view: **Grp** is the group, **Pri** the local priority, **P** means preempt is configured, **State** the local router's state, **Active** and **Standby** the addresses of the routers in those roles (or \"local\"), and **Virtual IP** the gateway address. `show standby` adds the details: version, virtual MAC, timers, preemption and who the other router is. The `expires in` countdown next to the other router is its hold timer: it restarts at 10 seconds with every hello, and if it ever reaches zero that router is declared dead. `Priority 110 (configured 110)` shows the current priority next to the configured one; they differ when tracking has lowered it.\n\nHSRP has two versions, and every router in a group must run the same one. Configure it per interface with `standby version 2` (no group number, since it applies to all groups on that interface). The differences worth memorizing:\n\n- **Group numbers:** version 1 allows 0 to 255; version 2 allows 0 to 4095.\n- **Virtual MAC:** version 1 uses **0000.0c07.acXX**, where XX is the group number in hex. Version 2 uses **0000.0c9f.fXXX**, with three hex digits for the group.\n- **Multicast address:** version 1 sends hellos to 224.0.0.2; version 2 uses 224.0.0.102.\n- **IPv6:** only version 2 supports HSRP for IPv6.\n- **Timers:** version 2 supports millisecond hello timers for faster failover.\n\nWorking out a virtual MAC is just a hex conversion. Group 1 in version 1 is 0000.0c07.ac01. Group 10 is 0a in hex, so version 1 gives 0000.0c07.ac0a and version 2 gives 0000.0c9f.f00a. Group 100 is 64 in hex: 0000.0c07.ac64 or 0000.0c9f.f064. Exam questions often show only the MAC and ask for the version and group, so practice both directions.\n\nIf one router runs version 1 and the other version 2 in the same group, they cannot understand each other's hellos, both consider themselves alone, and both become active.",
-        "code": "R1# show standby\nGigabitEthernet0/0 - Group 1 (version 2)\n  State is Active\n    2 state changes, last state change 00:04:11\n  Virtual IP address is 192.168.1.254\n  Active virtual MAC address is 0000.0c9f.f001\n    Local virtual MAC address is 0000.0c9f.f001 (v2 default)\n  Hello time 3 sec, hold time 10 sec\n    Next hello sent in 1.216 secs\n  Preemption enabled\n  Active router is local\n  Standby router is 192.168.1.2, priority 100 (expires in 9.024 sec)\n  Priority 110 (configured 110)\n  Group name is \"hsrp-Gi0/0-1\" (default)\n\n                HSRP version 1        HSRP version 2\nGroups          0 to 255              0 to 4095\nVirtual MAC     0000.0c07.acXX        0000.0c9f.fXXX     (group in hex)\nHello to        224.0.0.2             224.0.0.102\nIPv6            no                    yes",
+        "key": "HSRPv1 uses MAC 0000.0c07.acXX and groups 0 to 255; HSRPv2 uses 0000.0c9f.fXXX, groups 0 to 4095 and supports IPv6. Every router in a group must match.",
+        "body": "`show standby brief` gives one line per group, from the local router's point of view:\n\n[[visual]]\n\n`show standby` adds the version, virtual MAC, timers and the other router. `expires in` is the other router's hold timer, reset to 10 seconds by each hello. `Priority 110 (configured 110)` shows current versus configured priority; they differ when tracking has lowered it.\n\n[[code]]\n\nSet the version per interface with `standby version 2` (no group number). A router on version 1 and one on version 2 cannot read each other's hellos, so both become active.\n\n[[visual 2]]\n\n[[visual 3]]",
+        "visual": [
+          {
+            "type": "table",
+            "columns": ["Column", "Meaning"],
+            "rows": [
+              ["Grp", "Group number"],
+              ["Pri", "Local priority"],
+              ["P", "Preempt configured (blank means not)"],
+              ["State", "The local router's state"],
+              ["Active, Standby", "Address of the router in each role, or `local`"],
+              ["Virtual IP", "The gateway address hosts use"]
+            ]
+          },
+          {
+            "type": "table",
+            "columns": ["Feature", "Version 1", "Version 2"],
+            "rows": [
+              ["Groups", "0 to 255", "0 to 4095"],
+              ["Virtual MAC", "`0000.0c07.acXX`", "`0000.0c9f.fXXX`"],
+              ["Hellos to", "224.0.0.2", "224.0.0.102"],
+              ["IPv6", "No", "Yes"],
+              ["Millisecond timers", "No", "Yes"]
+            ]
+          },
+          {
+            "type": "steps",
+            "title": "Working out a virtual MAC",
+            "steps": [
+              { "label": "Convert the group to hex", "work": "10 = 0x0a\n100 = 0x64" },
+              {
+                "label": "Version 1: two hex digits",
+                "work": "group 10: 0000.0c07.ac0a\ngroup 100: 0000.0c07.ac64"
+              },
+              {
+                "label": "Version 2: three hex digits",
+                "work": "group 10: 0000.0c9f.f00a\ngroup 100: 0000.0c9f.f064"
+              }
+            ],
+            "result": "Read it backward too: `ac0a` is version 1 group 10, while `ac10` is group 16"
+          }
+        ],
+        "code": "R1# show standby\nGigabitEthernet0/0 - Group 1 (version 2)\n  State is Active\n  Virtual IP address is 192.168.1.254\n  Active virtual MAC address is 0000.0c9f.f001\n    Local virtual MAC address is 0000.0c9f.f001 (v2 default)\n  Hello time 3 sec, hold time 10 sec\n  Preemption enabled\n  Active router is local\n  Standby router is 192.168.1.2, priority 100 (expires in 9.024 sec)\n  Priority 110 (configured 110)",
+        "language": "cisco",
         "tip": "Spot the version from the MAC: 0c07.ac means version 1, 0c9f.f means version 2. The last two or three hex digits are the group.",
         "pitfall": "Forgetting to convert the group number to hex. Group 10 is ac0a, not ac10 (ac10 would be group 16).",
         "check": {
           "question": "Which virtual MAC address does HSRP version 1 use for group 10?",
-          "choices": [
-            "0000.0c07.ac10",
-            "0000.0c07.ac0a",
-            "0000.0c9f.f00a",
-            "0000.5e00.010a"
-          ],
+          "choices": ["0000.0c07.ac10", "0000.0c07.ac0a", "0000.0c9f.f00a", "0000.5e00.010a"],
           "answer": 1,
           "explanation": "Version 1 uses 0000.0c07.ac plus the group in two hex digits, and 10 decimal is 0a. ac10 is group 16, 0c9f.f00a is version 2, and 0000.5e00.01xx belongs to VRRP."
         }
       },
       {
         "title": "Load sharing: one HSRP group per VLAN",
-        "body": "In a campus the default gateways usually live on a pair of distribution Layer 3 switches, DSW1 and DSW2, as SVIs. Each VLAN's subnet gets an HSRP group on both switches, and the hosts (through DHCP) use that group's virtual IP as their gateway.\n\nThe design trick is to split the active roles. DSW1 gets the higher priority in VLAN 10's group and DSW2 the higher priority in VLAN 20's group, both with preempt. In normal operation DSW1 forwards for VLAN 10 and DSW2 for VLAN 20, so both switches and both uplinks carry traffic. If either switch fails, the other becomes active for both groups within the hold time, and when it recovers, preemption hands its groups back.\n\nRules that make the design work:\n\n- Configure HSRP on the interface that owns the gateway address: the SVI (`interface vlan 10`), a router-on-a-stick subinterface (`interface g0/0.10`) or a routed interface, never on a Layer 2 access port.\n- Use the same group number and virtual IP on both switches for each VLAN. Numbering the group after the VLAN is a convention, not a requirement, but it keeps the output readable.\n- Each SVI keeps its own real address (.2 and .3 here); the virtual IP (.1) is a third address in the subnet.\n- Hand out the virtual IP as the gateway, for example `default-router 10.1.10.1` in the VLAN 10 DHCP pool.\n\nYou can also run two groups inside one subnet (group 1 with virtual IP .1 and group 2 with .254, different active routers) and give half of the hosts each gateway. That balances a single VLAN with HSRP, at the cost of managing two gateway addresses. GLBP, covered last, balances one subnet with a single group.\n\nThe outputs below show the result from each side: DSW1 is active for group 10 and standby for group 20, and DSW2 is the mirror image.",
-        "code": "DSW1(config)# interface vlan 10\nDSW1(config-if)# ip address 10.1.10.2 255.255.255.0\nDSW1(config-if)# standby 10 ip 10.1.10.1\nDSW1(config-if)# standby 10 priority 110\nDSW1(config-if)# standby 10 preempt\nDSW1(config-if)# interface vlan 20\nDSW1(config-if)# ip address 10.1.20.2 255.255.255.0\nDSW1(config-if)# standby 20 ip 10.1.20.1\nDSW1(config-if)# standby 20 preempt\n! DSW2 mirrors this with .3 addresses and priority 110 in group 20\n\nDSW1# show standby brief\n                     P indicates configured to preempt.\n                     |\nInterface   Grp  Pri P State   Active          Standby         Virtual IP\nVl10        10   110 P Active  local           10.1.10.3       10.1.10.1\nVl20        20   100 P Standby 10.1.20.3       local           10.1.20.1\n\nDSW2# show standby brief\n                     P indicates configured to preempt.\n                     |\nInterface   Grp  Pri P State   Active          Standby         Virtual IP\nVl10        10   100 P Standby 10.1.10.2       local           10.1.10.1\nVl20        20   110 P Active  local           10.1.20.2       10.1.20.1",
+        "key": "Run one HSRP group per VLAN on both gateways and alternate the higher priority, with preempt on both, so each carries traffic and backs up the other.",
+        "body": "In a campus, the gateways are usually SVIs on two distribution Layer 3 switches, DSW1 and DSW2. Each VLAN gets an HSRP group on both, and the trick is to split the active roles:\n\n[[visual]]\n\nBoth switches carry traffic. If one fails, the other becomes active for both groups within the hold time, and preemption hands the groups back when it recovers.\n\n- Configure HSRP where the gateway address lives: the SVI (`interface vlan 10`), a router-on-a-stick subinterface or a routed interface, never a Layer 2 port.\n- Use the same group and virtual IP on both switches. Group = VLAN number is a convention, not a rule.\n- Each SVI keeps its real address (.2 and .3); the virtual IP (.1) is a third.\n- DHCP must hand out the virtual IP: `default-router 10.1.10.1`. A real address dies with its switch.\n\n[[code]]",
+        "visual": {
+          "type": "topology",
+          "nodes": [
+            { "id": "d1", "kind": "l3switch", "label": "DSW1", "sub": "Active VLAN 10", "x": 0, "y": 0 },
+            { "id": "d2", "kind": "l3switch", "label": "DSW2", "sub": "Active VLAN 20", "x": 2, "y": 0 },
+            { "id": "a1", "kind": "switch", "label": "ASW1", "x": 1, "y": 1 },
+            { "id": "p10", "kind": "pc", "label": "VLAN 10", "sub": "gw 10.1.10.1", "x": 0, "y": 2 },
+            { "id": "p20", "kind": "pc", "label": "VLAN 20", "sub": "gw 10.1.20.1", "x": 2, "y": 2 }
+          ],
+          "links": [
+            { "from": "d1", "to": "d2" },
+            { "from": "d1", "to": "a1", "tone": "accent" },
+            { "from": "d2", "to": "a1", "tone": "good" },
+            { "from": "a1", "to": "p10", "tone": "accent" },
+            { "from": "a1", "to": "p20", "tone": "good" }
+          ],
+          "caption": "DSW1: priority 110 in group 10, 100 in group 20. DSW2: the reverse. Both preempt."
+        },
+        "code": "DSW1(config)# interface vlan 10\nDSW1(config-if)# ip address 10.1.10.2 255.255.255.0\nDSW1(config-if)# standby 10 ip 10.1.10.1\nDSW1(config-if)# standby 10 priority 110\nDSW1(config-if)# standby 10 preempt\nDSW1(config-if)# interface vlan 20\nDSW1(config-if)# ip address 10.1.20.2 255.255.255.0\nDSW1(config-if)# standby 20 ip 10.1.20.1\nDSW1(config-if)# standby 20 preempt\n! DSW2 mirrors this with .3 addresses and priority 110 in group 20\n\nDSW1# show standby brief\nInterface   Grp  Pri P State   Active          Standby         Virtual IP\nVl10        10   110 P Active  local           10.1.10.3       10.1.10.1\nVl20        20   100 P Standby 10.1.20.3       local           10.1.20.1",
+        "language": "cisco",
+        "deeper": "**Two groups in one subnet.** You can balance a single VLAN with HSRP too: group 1 with virtual IP .1 active on DSW1, group 2 with virtual IP .254 active on DSW2, and half the hosts given each gateway (for example with two DHCP pools). It works, but you now manage two gateway addresses for one subnet. GLBP, covered last, balances one subnet with a single group and a single gateway address.",
         "tip": "Alternate the active role per VLAN, enable preempt on both switches, and hand out the virtual IP as the DHCP default router.",
         "pitfall": "Giving one switch the higher priority in every group. Failover still works, but one switch carries all the traffic while the other sits idle.",
         "check": {
@@ -190,26 +381,85 @@
       },
       {
         "title": "VRRP: the open standard",
-        "body": "A company replaces one of its two Cisco gateways with another vendor's router. HSRP is Cisco proprietary, so the pair can no longer run it. The answer is the **Virtual Router Redundancy Protocol (VRRP)**, an IETF standard (version 3, RFC 5798, covers IPv4 and IPv6) that Cisco IOS supports as well.\n\nVRRP works like HSRP with different names. The routers sharing a gateway form a **virtual router** identified by a **VRID**, the equivalent of the HSRP group number. One router is the **master** and forwards traffic sent to the virtual IP; the others are **backups**. The master sends an advertisement every second to multicast **224.0.0.18** (VRRP runs directly over IP as protocol 112, not over UDP), and a backup takes over when the advertisements stop.\n\nThe differences from HSRP that exam questions like:\n\n- **Virtual MAC:** 0000.5e00.01XX, where XX is the VRID in hex. VRID 10 uses 0000.5e00.010a.\n- **Priority:** default 100, highest wins, configurable from 1 to 254.\n- **Preemption is on by default.** A higher-priority backup that comes back takes the master role without any extra command. In HSRP you must add `standby preempt`.\n- **The virtual IP may be a real interface address.** The router that owns that address is the **IP address owner**: it uses priority 255 and is always master while it is up. HSRP requires a separate third address.\n- **Only the master advertises.** In HSRP both the active and the standby router send hellos.\n\nEverything else carries over. Hosts use the virtual IP as their gateway, failover is invisible to them, and load sharing works the HSRP way: several virtual routers with a different master per VLAN.",
-        "code": "! Classic IOS syntax, VRID 10 on VLAN 10\nR1(config)# interface g0/0.10\nR1(config-subif)# vrrp 10 ip 10.1.10.1\nR1(config-subif)# vrrp 10 priority 120\n\nRouter  Real IP      Priority  Role\nR1      10.1.10.2    120       Master  (answers ARP for 10.1.10.1 with 0000.5e00.010a)\nR2      10.1.10.3    100       Backup  (silent while advertisements arrive)\n\nPC ARP cache:    10.1.10.1 -> 0000.5e00.010a\nAdvertisements:  R1 -> 224.0.0.18 every 1 second, IP protocol 112\n\nOwner variant: virtual IP 10.1.10.2 is R1's own address\n  -> R1 is the IP address owner, priority 255, master whenever it is up",
+        "key": "VRRP is the IETF standard FHRP: a master and backups, advertisements to 224.0.0.18, MAC 0000.5e00.01XX, and preemption on by default.",
+        "body": "A company replaces one of its two Cisco gateways with another vendor's router. HSRP is Cisco proprietary, so the pair can no longer run it. The answer is the **Virtual Router Redundancy Protocol (VRRP)**, an IETF standard (version 3, RFC 5798, IPv4 and IPv6) that IOS supports too.\n\nVRRP works like HSRP with different names and a few different defaults:\n\n[[visual]]\n\nEverything else carries over: hosts use the virtual IP, failover is invisible to them, and load sharing means several virtual routers with a different master per VLAN.\n\n[[code]]",
+        "visual": {
+          "type": "table",
+          "columns": ["Feature", "HSRP", "VRRP"],
+          "rows": [
+            ["Standard", "Cisco proprietary", "IETF, RFC 5798"],
+            ["Group ID", "Group number", "**VRID** (virtual router ID)"],
+            ["Roles", "Active, standby", "**Master**, backups"],
+            ["Who sends hellos", "Active and standby, every 3 s", "Only the master, every 1 s"],
+            ["Destination", "224.0.0.2 or 224.0.0.102, UDP 1985", "**224.0.0.18**, IP protocol 112"],
+            ["Virtual MAC", "`0000.0c07.acXX` (v1)", "`0000.5e00.01XX`: VRID 10 is `0000.5e00.010a`"],
+            ["Priority", "Default 100", "Default 100, configurable 1 to 254"],
+            ["Preemption", "Off by default", "**On by default**"],
+            [
+              "Virtual IP",
+              "Must be an unused third address",
+              "May be a real interface address: that **IP address owner** gets priority 255 and is master whenever it is up"
+            ]
+          ],
+          "highlight": [7]
+        },
+        "code": "! Classic IOS syntax, VRID 10 on VLAN 10\nR1(config)# interface g0/0.10\nR1(config-subif)# vrrp 10 ip 10.1.10.1\nR1(config-subif)# vrrp 10 priority 120",
+        "language": "cisco",
         "tip": "VRRP in one line: master and backup, 224.0.0.18, MAC 0000.5e00.01XX, preemption on by default, open standard.",
-        "pitfall": "Expecting VRRP to behave like HSRP when a router recovers. A recovered higher-priority VRRP router takes the master role back automatically, because preemption is on by default.",
+        "pitfall": "Expecting VRRP to behave like HSRP when a router recovers. A recovered higher-priority VRRP router takes the master role back automatically.",
         "check": {
           "question": "Which first hop redundancy protocol is an open standard?",
-          "choices": [
-            "HSRP",
-            "GLBP",
-            "All three are open standards",
-            "VRRP"
-          ],
+          "choices": ["HSRP", "GLBP", "All three are open standards", "VRRP"],
           "answer": 3,
           "explanation": "VRRP is defined by the IETF (RFC 5798) and runs on routers from any vendor. HSRP and GLBP are Cisco proprietary."
         }
       },
       {
         "title": "GLBP, and choosing an FHRP",
-        "body": "HSRP and VRRP leave the standby router idle within each group. **Gateway Load Balancing Protocol (GLBP)**, also Cisco proprietary, keeps every router busy inside one subnet with one virtual IP.\n\nOne router is elected the **active virtual gateway (AVG)**: highest GLBP priority (default 100), then highest IP address, with a standby AVG ready to replace it. Up to four routers act as **active virtual forwarders (AVFs)**, and each AVF owns its own virtual MAC, 0007.b400.XXYY, where XX is the group and YY the forwarder number (0007.b400.0102 is group 1, forwarder 2).\n\nThe trick is in ARP. Every host uses the same virtual IP as its gateway, and the AVG answers every ARP request for it. It answers host A with forwarder 1's virtual MAC and host B with forwarder 2's, round robin by default. Host A then sends its off-subnet traffic to one router and host B to the other: **per-host load balancing inside a single subnet**. If an AVF fails, another router takes over its virtual MAC, so the hosts that learned it keep working without a new ARP.\n\n`show glbp brief` shows both jobs. The line with a dash in the Fwd column describes the AVG and lists the virtual IP; the numbered lines describe the forwarders, with each virtual MAC in the Address column and the router currently forwarding for it under Active router.\n\nWhich one to choose? In an all-Cisco network HSRP is the usual default, typically one group per VLAN with the active role alternated between the two gateways. VRRP is the choice when routers from different vendors must share a gateway. GLBP suits a large single subnet where you want every router forwarding without splitting the hosts across two gateway addresses. You pick one FHRP per group: HSRP, VRRP and GLBP do not interoperate.",
-        "code": "R1# show glbp brief\nInterface   Grp  Fwd Pri State    Address         Active router   Standby router\nGi0/0       1    -   110 Active   10.1.1.1        local           10.1.1.129\nGi0/0       1    1   -   Listen   0007.b400.0101  10.1.1.129      -\nGi0/0       1    2   -   Active   0007.b400.0102  local           -\n\nFeature             HSRP                     VRRP                    GLBP\nStandard            Cisco proprietary        IETF (RFC 5798)         Cisco proprietary\nRoles               Active / Standby         Master / Backup         AVG + up to 4 AVFs\nWho forwards        one router per group     one router per group    all AVFs at once\nLoad balancing      per group (subnet)       per group (subnet)      per host, in one group\nVirtual MAC         0000.0c07.acXX (v1)      0000.5e00.01XX          0007.b400.XXYY\n                    0000.0c9f.fXXX (v2)\nHello destination   224.0.0.2 / 224.0.0.102  224.0.0.18              224.0.0.102\nDefault priority    100                      100                     100\nPreempt by default  No                       Yes                     No (for the AVG)",
+        "key": "GLBP balances hosts inside one subnet: the AVG answers ARP for the single virtual IP with different forwarders' virtual MACs, so every router forwards.",
+        "body": "HSRP and VRRP leave the standby idle in each group. **Gateway Load Balancing Protocol (GLBP)**, also Cisco proprietary, keeps every router busy behind one virtual IP.\n\nOne router is the **active virtual gateway (AVG)**: highest priority (default 100), then highest IP, with a standby AVG. Up to four routers are **active virtual forwarders (AVFs)**, each owning a virtual MAC 0007.b400.XXYY (XX group, YY forwarder).\n\n[[visual]]\n\nIf an AVF fails, another router takes over its virtual MAC, so its hosts keep working with no new ARP. In `show glbp brief`, the line with a dash under Fwd is the AVG; numbered lines are forwarders, each MAC with the router currently forwarding for it:\n\n[[code]]\n\n[[visual 2]]\n\nChoosing: HSRP is the usual all-Cisco default, VRRP mixes vendors, GLBP spreads one large subnet. The three do not interoperate.",
+        "visual": [
+          {
+            "type": "sequence",
+            "actors": [
+              { "id": "a", "label": "Host A", "kind": "pc" },
+              { "id": "b", "label": "Host B", "kind": "pc" },
+              { "id": "r1", "label": "R1: AVG, AVF 2", "kind": "router" },
+              { "id": "r2", "label": "R2: AVF 1", "kind": "router" }
+            ],
+            "messages": [
+              { "from": "a", "to": "r1", "label": "ARP: who is 10.1.1.1?" },
+              { "from": "r1", "to": "a", "label": "0007.b400.0101", "detail": "forwarder 1", "dashed": true },
+              { "from": "b", "to": "r1", "label": "ARP: who is 10.1.1.1?" },
+              {
+                "from": "r1",
+                "to": "b",
+                "label": "0007.b400.0102",
+                "detail": "forwarder 2, round robin",
+                "dashed": true
+              },
+              { "from": "a", "to": "r2", "label": "Traffic to ...0101", "tone": "accent" },
+              { "from": "b", "to": "r1", "label": "Traffic to ...0102", "tone": "good" }
+            ]
+          },
+          {
+            "type": "table",
+            "title": "The three FHRPs",
+            "columns": ["Feature", "HSRP", "VRRP", "GLBP"],
+            "rows": [
+              ["Standard", "Cisco", "IETF (RFC 5798)", "Cisco"],
+              ["Roles", "Active, standby", "Master, backup", "AVG plus up to 4 AVFs"],
+              ["Who forwards", "One router per group", "One router per group", "All AVFs at once"],
+              ["Load balancing", "Per group (subnet)", "Per group (subnet)", "Per host, in one group"],
+              ["Virtual MAC", "`0000.0c07.acXX` (v1), `0000.0c9f.fXXX` (v2)", "`0000.5e00.01XX`", "`0007.b400.XXYY`"],
+              ["Hellos to", "224.0.0.2 or 224.0.0.102", "224.0.0.18", "224.0.0.102"],
+              ["Default priority", "100", "100", "100"],
+              ["Preempt by default", "No", "Yes", "No (for the AVG)"]
+            ]
+          }
+        ],
+        "code": "R1# show glbp brief\nInterface   Grp  Fwd Pri State    Address         Active router   Standby router\nGi0/0       1    -   110 Active   10.1.1.1        local           10.1.1.129\nGi0/0       1    1   -   Listen   0007.b400.0101  10.1.1.129      -\nGi0/0       1    2   -   Active   0007.b400.0102  local           -",
+        "language": "cisco",
         "tip": "Open standard: VRRP. Load balancing inside one subnet: GLBP. Cisco default for the exam: HSRP.",
         "pitfall": "Saying HSRP or VRRP cannot load balance at all. They can, across groups or subnets; what they cannot do is balance hosts within one group, which is GLBP's trick.",
         "check": {
@@ -238,10 +488,7 @@
         "term": "Virtual MAC",
         "definition": "The MAC address that goes with the virtual IP, derived from the protocol and group number."
       },
-      {
-        "term": "HSRP",
-        "definition": "Hot Standby Router Protocol, Cisco's active/standby FHRP."
-      },
+      { "term": "HSRP", "definition": "Hot Standby Router Protocol, Cisco's active/standby FHRP." },
       {
         "term": "Active and standby",
         "definition": "HSRP roles: the active router forwards, the standby takes over if it fails."
@@ -284,12 +531,12 @@
       }
     ],
     "summary": [
-      "Hosts know one gateway address, so without an FHRP a failed gateway router cuts the subnet off even when routing has converged.",
-      "FHRP routers share a virtual IP and virtual MAC; on failover the backup takes both and sends a gratuitous ARP, and hosts change nothing.",
-      "HSRP: active/standby, hellos every 3 s, hold 10 s, priority 100 by default, highest priority then highest IP wins, preempt off by default.",
-      "Share load by running one group per VLAN on the SVIs with the active role alternated, and hand out the virtual IP as the DHCP default router.",
-      "HSRPv1 MAC 0000.0c07.acXX (groups 0 to 255), HSRPv2 MAC 0000.0c9f.fXXX (0 to 4095, IPv6).",
-      "VRRP is the open standard (master/backup, 224.0.0.18, 0000.5e00.01XX, preempts by default); GLBP balances per host with an AVG and up to four AVFs (0007.b400.XXYY)."
+      "Without an FHRP, a failed gateway cuts the subnet off even after routing converges.",
+      "FHRP routers share a virtual IP and MAC; the backup takes both and sends a gratuitous ARP.",
+      "HSRP: active/standby, hello 3 s, hold 10 s, priority 100, highest priority then IP, no preempt by default.",
+      "Share load with one group per VLAN, alternating the active role, and hand out the virtual IP by DHCP.",
+      "HSRPv1 0000.0c07.acXX (0 to 255), HSRPv2 0000.0c9f.fXXX (0 to 4095, IPv6).",
+      "VRRP: open standard, 224.0.0.18, 0000.5e00.01XX, preempts. GLBP: AVG plus up to 4 AVFs, per-host balancing."
     ],
     "feynmanPrompt": "Explain to a colleague what happens, step by step, when the active HSRP router for a busy office VLAN loses power, why nobody has to touch the PCs, and what you would configure so that the repaired router becomes active again afterwards."
   },
@@ -416,22 +663,10 @@
       "difficulty": "easy",
       "question": "Match each HSRP term to its meaning.",
       "pairs": [
-        {
-          "left": "Active router",
-          "right": "Forwards traffic sent to the virtual MAC"
-        },
-        {
-          "left": "Standby router",
-          "right": "Monitors the active router and takes over if it fails"
-        },
-        {
-          "left": "Virtual IP",
-          "right": "The address hosts use as their default gateway"
-        },
-        {
-          "left": "Priority",
-          "right": "Value (default 100) that decides which router should be active"
-        },
+        { "left": "Active router", "right": "Forwards traffic sent to the virtual MAC" },
+        { "left": "Standby router", "right": "Monitors the active router and takes over if it fails" },
+        { "left": "Virtual IP", "right": "The address hosts use as their default gateway" },
+        { "left": "Priority", "right": "Value (default 100) that decides which router should be active" },
         {
           "left": "Preempt",
           "right": "Lets a higher-priority router take the active role from a lower one"
@@ -581,12 +816,7 @@
       "question": "R1 must take the active role back in group 10 after it recovers. Complete the configuration.",
       "code": "interface GigabitEthernet0/0\n ip address 10.1.1.2 255.255.255.0\n standby version 2\n standby 10 ip 10.1.1.1\n standby 10 priority 120\n _____",
       "language": "cisco",
-      "choices": [
-        "standby 10 preempt",
-        "standby preempt",
-        "standby 10 track",
-        "preempt enable"
-      ],
+      "choices": ["standby 10 preempt", "standby preempt", "standby 10 track", "preempt enable"],
       "answer": 0,
       "explanation": "Preempt is set per group, so it needs the group number: standby 10 preempt. Without a number, standby preempt applies to group 0, not group 10. Tracking lowers priority; it does not enable preemption.",
       "concept": "HSRP preempt syntax",
@@ -618,30 +848,12 @@
       "difficulty": "medium",
       "question": "Match each item to the HSRP version fact it belongs to.",
       "pairs": [
-        {
-          "left": "0000.0c07.acXX",
-          "right": "HSRP version 1 virtual MAC"
-        },
-        {
-          "left": "0000.0c9f.fXXX",
-          "right": "HSRP version 2 virtual MAC"
-        },
-        {
-          "left": "224.0.0.2",
-          "right": "HSRP version 1 hello destination"
-        },
-        {
-          "left": "224.0.0.102",
-          "right": "HSRP version 2 hello destination"
-        },
-        {
-          "left": "Groups 0 to 4095",
-          "right": "HSRP version 2 group range"
-        },
-        {
-          "left": "HSRP for IPv6",
-          "right": "Requires HSRP version 2"
-        }
+        { "left": "0000.0c07.acXX", "right": "HSRP version 1 virtual MAC" },
+        { "left": "0000.0c9f.fXXX", "right": "HSRP version 2 virtual MAC" },
+        { "left": "224.0.0.2", "right": "HSRP version 1 hello destination" },
+        { "left": "224.0.0.102", "right": "HSRP version 2 hello destination" },
+        { "left": "Groups 0 to 4095", "right": "HSRP version 2 group range" },
+        { "left": "HSRP for IPv6", "right": "Requires HSRP version 2" }
       ],
       "explanation": "Version 2 expands the group range (so the MAC needs three hex digits), moves to a new multicast address and adds IPv6 support.",
       "concept": "HSRP versions",
@@ -654,12 +866,7 @@
       "question": "Based on this output line, which HSRP version and group is this?",
       "code": "R1# show standby | include virtual MAC\n  Active virtual MAC address is 0000.0c07.ac0a\n    Local virtual MAC address is 0000.0c07.ac0a (v1 default)",
       "language": "cisco",
-      "choices": [
-        "Version 2, group 10",
-        "Version 1, group 1",
-        "Version 1, group 16",
-        "Version 1, group 10"
-      ],
+      "choices": ["Version 2, group 10", "Version 1, group 1", "Version 1, group 16", "Version 1, group 10"],
       "answer": 3,
       "explanation": "0000.0c07.ac means version 1, and the last byte 0a is the group in hex: 10 decimal. Version 2 would start 0000.0c9f.f. Group 16 would be ac10.",
       "concept": "decode virtual MAC",
@@ -697,12 +904,7 @@
       "type": "mcq",
       "difficulty": "medium",
       "question": "Which FHRP lets several routers forward traffic for different hosts in the same subnet using a single virtual IP?",
-      "choices": [
-        "HSRP",
-        "GLBP",
-        "VRRP",
-        "None; FHRPs always use one forwarding router per subnet"
-      ],
+      "choices": ["HSRP", "GLBP", "VRRP", "None; FHRPs always use one forwarding router per subnet"],
       "answer": 1,
       "explanation": "GLBP's AVG answers ARP requests for the one virtual IP with different virtual MACs, each owned by a different AVF, so hosts are spread across routers. HSRP and VRRP have one forwarding router per group.",
       "concept": "GLBP load balancing",
@@ -720,10 +922,7 @@
         "Preemption is enabled by default",
         "It runs only on Cisco routers"
       ],
-      "answers": [
-        1,
-        3
-      ],
+      "answers": [1, 3],
       "explanation": "VRRP is standardized (RFC 5798) and preempts by default. 0000.0c07.acXX is HSRP version 1, the AVG belongs to GLBP, and an open standard runs on any vendor's routers.",
       "concept": "VRRP facts",
       "section": 6
@@ -744,18 +943,9 @@
       "difficulty": "easy",
       "question": "Match each FHRP to how it organizes its routers.",
       "pairs": [
-        {
-          "left": "HSRP",
-          "right": "One active and one standby router, Cisco proprietary"
-        },
-        {
-          "left": "VRRP",
-          "right": "A master and one or more backup routers, IETF standard"
-        },
-        {
-          "left": "GLBP",
-          "right": "One AVG plus up to four forwarding AVFs, Cisco proprietary"
-        }
+        { "left": "HSRP", "right": "One active and one standby router, Cisco proprietary" },
+        { "left": "VRRP", "right": "A master and one or more backup routers, IETF standard" },
+        { "left": "GLBP", "right": "One AVG plus up to four forwarding AVFs, Cisco proprietary" }
       ],
       "explanation": "HSRP and VRRP are both active/standby designs with different names and owners. GLBP is active/active: every AVF forwards.",
       "concept": "FHRP roles",
@@ -870,12 +1060,7 @@
       "question": "Based on R1's output, which router forwards packets from hosts whose ARP cache maps the gateway to 0007.b400.0101?",
       "code": "R1# show glbp brief\nInterface   Grp  Fwd Pri State    Address         Active router   Standby router\nGi0/0       1    -   110 Active   10.1.1.1        local           10.1.1.129\nGi0/0       1    1   -   Listen   0007.b400.0101  10.1.1.129      -\nGi0/0       1    2   -   Active   0007.b400.0102  local           -",
       "language": "cisco",
-      "choices": [
-        "R1, because it is the AVG",
-        "Both routers, because GLBP balances every packet",
-        "The router at 10.1.1.1",
-        "The router with interface address 10.1.1.129"
-      ],
+      "choices": ["R1, because it is the AVG", "Both routers, because GLBP balances every packet", "The router at 10.1.1.1", "The router with interface address 10.1.1.129"],
       "answer": 3,
       "explanation": "Forwarder 1's line lists 0007.b400.0101 with active router 10.1.1.129, so that router forwards for hosts that learned this MAC. R1 is the AVG (the Fwd dash line) and forwards for 0007.b400.0102. 10.1.1.1 is the virtual IP, not a router.",
       "concept": "show glbp brief",
@@ -903,22 +1088,10 @@
       "difficulty": "medium",
       "question": "Match each virtual MAC address to the protocol and group that uses it.",
       "pairs": [
-        {
-          "left": "0000.0c07.ac01",
-          "right": "HSRP version 1, group 1"
-        },
-        {
-          "left": "0000.0c9f.f001",
-          "right": "HSRP version 2, group 1"
-        },
-        {
-          "left": "0000.5e00.0101",
-          "right": "VRRP, virtual router ID 1"
-        },
-        {
-          "left": "0007.b400.0102",
-          "right": "GLBP group 1, forwarder 2"
-        }
+        { "left": "0000.0c07.ac01", "right": "HSRP version 1, group 1" },
+        { "left": "0000.0c9f.f001", "right": "HSRP version 2, group 1" },
+        { "left": "0000.5e00.0101", "right": "VRRP, virtual router ID 1" },
+        { "left": "0007.b400.0102", "right": "GLBP group 1, forwarder 2" }
       ],
       "explanation": "The prefix names the protocol: 0c07.ac for HSRPv1, 0c9f.f for HSRPv2, 5e00.01 for VRRP and 0007.b400 for GLBP. The trailing hex digits carry the group, plus the forwarder number for GLBP.",
       "concept": "FHRP virtual MACs",
@@ -936,11 +1109,7 @@
         "Hosts change their default gateway to R2's real address",
         "Hosts flush their ARP caches and ARP for the gateway again"
       ],
-      "answers": [
-        0,
-        1,
-        2
-      ],
+      "answers": [0, 1, 2],
       "explanation": "Every change happens on the routers and switches: R2 takes the virtual addresses and announces the virtual MAC with a gratuitous ARP, which moves the switches' MAC table entries toward R2. The hosts keep the same gateway IP and the same ARP entry.",
       "concept": "what changes in failover",
       "section": 1

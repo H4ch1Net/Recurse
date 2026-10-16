@@ -8,42 +8,68 @@
   "description": "The building blocks of scalable systems: requests, latency, load balancers, caches, CDNs, replicas, queues, availability.",
   "icon": "SD",
   "language": "plaintext",
-  "prereqs": [
-    "http-web",
-    "data-structures"
-  ],
-  "tags": [
-    "system design",
-    "scalability",
-    "caching",
-    "databases",
-    "load balancing",
-    "availability"
-  ],
+  "prereqs": ["http-web", "data-structures"],
+  "tags": ["system design", "scalability", "caching", "databases", "load balancing", "availability"],
   "lesson": {
-    "estimatedMinutes": 30,
-    "intro": "System design is deciding how the pieces of a service fit together so it stays fast and available as it grows. This pack introduces the building blocks behind almost every large web service: clients and servers, latency numbers, load balancers, caches, CDNs, databases, queues and redundancy. The swe-system-design pack then puts them to work in interview-style designs.",
+    "estimatedMinutes": 27,
+    "intro": "System design is deciding how the pieces of a service fit together so it stays fast and available as it grows. This pack covers the building blocks: clients and servers, latency, load balancers, caches, CDNs, databases, queues and redundancy.",
     "objectives": [
-      "Trace a web request from client to server and back, and explain why servers should be stateless",
-      "Use latency numbers and back-of-the-envelope math to judge whether a design is fast enough",
-      "Explain scaling up and out, load balancing, caching layers and CDNs, and when each helps",
-      "Describe replication, sharding, queues and redundancy, and the trade-offs each one brings"
+      "Trace a web request and explain why servers should be stateless",
+      "Use latency numbers and rough math to judge whether a design is fast enough",
+      "Explain scaling up and out, load balancing, caches and CDNs, and when each helps",
+      "Describe replication, sharding, queues and redundancy, with their trade-offs"
     ],
     "sections": [
       {
         "title": "Clients, servers and the life of a request",
-        "body": "Type a web address and press Enter. In the next few hundred milliseconds your browser finds a server, possibly on another continent, asks it for a page, and draws the answer. Every system design, from a to-do app to a video platform, is a more elaborate version of that exchange.\n\nIn the **client-server** model, a **client** (a browser, a mobile app, another service) sends a **request**, and a **server** does the work and sends back a **response**. Clients never touch the database or the files directly. The server is the gatekeeper that enforces the rules, checks permissions and keeps the data consistent.\n\nWhat happens when you load a page:\n\n- **DNS** turns the domain name into an IP address, usually answered from a cache.\n- The client opens a **TCP** connection to that address, plus a **TLS** session for HTTPS.\n- It sends an **HTTP request**: a method (GET, POST), a path, headers and sometimes a body.\n- The server runs application code, which may read a cache, query a database or call other services.\n- It returns an **HTTP response** with a status code (200 OK, 404 Not Found, 500 Internal Server Error) and a body, often HTML or JSON.\n\nMost web systems split the server side into **tiers**: an application tier that handles requests, and a data tier (databases, caches, file storage) that remembers things. Splitting them lets each grow independently, and that is where the rest of this pack happens.\n\nHTTP is **stateless**: each request stands alone, and the server does not remember the previous one unless the client reminds it, which is why requests carry cookies or tokens. Designing the application tier to keep no per-user state in its own memory is the single most useful habit in system design, because it is what lets you run many identical copies later.",
-        "code": "GET /api/users/42 HTTP/1.1\nHost: example.com\nAuthorization: Bearer eyJhbGciOi...\nAccept: application/json\n\nHTTP/1.1 200 OK\nContent-Type: application/json\nCache-Control: max-age=60\n\n{\"id\": 42, \"name\": \"Ana\", \"plan\": \"pro\"}",
-        "language": "plaintext",
+        "key": "A client sends a request, and a server does the work and sends a response; keep app servers stateless so any copy can handle any request.",
+        "body": "Type a web address and press Enter. In a few hundred milliseconds your browser finds a server, asks it for a page and draws the answer. Every system design is a bigger version of that **client-server** exchange:\n\n[[visual]]\n\nClients never touch the database directly: the server is the gatekeeper that enforces rules, checks permissions and keeps data consistent. Most systems split the server side into **tiers**: an application tier that handles requests and a data tier (databases, caches, file storage) that remembers things, so each can grow on its own.\n\nHTTP is **stateless**: each request stands alone, which is why every request carries a cookie or token saying who is calling. Keeping no per-user state in app server memory is the most useful habit in system design: it lets you run many identical copies.\n\n[[code]]",
+        "visual": {
+          "type": "sequence",
+          "title": "Loading https://example.com/profile",
+          "actors": [
+            { "id": "b", "label": "Browser", "kind": "laptop" },
+            { "id": "dns", "label": "DNS", "kind": "server" },
+            { "id": "s", "label": "App server", "kind": "server" },
+            { "id": "db", "label": "Database", "kind": "db" }
+          ],
+          "messages": [
+            {
+              "from": "b",
+              "to": "dns",
+              "label": "Where is example.com?",
+              "detail": "usually answered from a cache"
+            },
+            { "from": "dns", "to": "b", "label": "IP address", "dashed": true },
+            { "from": "b", "to": "s", "label": "TCP connection, then TLS", "detail": "for HTTPS" },
+            {
+              "from": "b",
+              "to": "s",
+              "label": "GET /profile",
+              "detail": "method, path, headers, cookie",
+              "tone": "accent"
+            },
+            { "from": "s", "to": "db", "label": "query", "detail": "or a cache, or another service" },
+            { "from": "db", "to": "s", "label": "rows", "dashed": true },
+            {
+              "from": "s",
+              "to": "b",
+              "label": "200 OK + HTML or JSON",
+              "detail": "or 404 Not Found, 500 Server Error",
+              "dashed": true,
+              "tone": "good"
+            }
+          ]
+        },
+        "code": "$ curl -i https://example.com/api/users/42 \\\n    -H \"Authorization: Bearer eyJhbGciOi...\"\nHTTP/1.1 200 OK\nContent-Type: application/json\nCache-Control: max-age=60\n\n{\"id\": 42, \"name\": \"Ana\", \"plan\": \"pro\"}",
+        "language": "bash",
+        "pitfall": "Letting clients talk to the database directly. Anyone can modify a client, so every rule about who may read or change what, and what counts as valid data, must be enforced on the server.",
         "activity": {
           "type": "http-explorer",
           "title": "Be the client",
           "prompt": "List the tasks, create one, fetch it, update it and delete it, reading the status code each time. Notice that every request carries everything the server needs to handle it: the server remembers the data, not the conversation.",
-          "props": {
-            "scenario": "rest-basics"
-          }
+          "props": { "scenario": "rest-basics" }
         },
-        "pitfall": "Letting clients talk to the database directly. Anyone can modify a client, so every rule about who may read or change what, and what counts as valid data, must be enforced on the server.",
         "check": {
           "question": "The signup form already checks that an email address is valid. Why must the server check it again?",
           "choices": [
@@ -58,9 +84,59 @@
       },
       {
         "title": "Latency numbers and back-of-the-envelope estimates",
-        "body": "Should a page that makes 20 database queries be fast? It depends entirely on where those queries go. Twenty round trips inside one data center cost about 10 ms; twenty round trips to another continent cost about 3 seconds. Designing systems starts with a feel for how long things take.\n\nThe table lists rough figures worth memorizing. Exact values shift with hardware, but the **ratios** are what matter: RAM is about 100 times slower than the CPU's cache, an SSD read about 1,000 times slower than RAM, and a cross-continent round trip roughly another 1,000 times slower than that.\n\nThe lessons hiding in those numbers:\n\n- **Avoid round trips.** Batch many small requests into one, and run independent calls in parallel rather than one after another.\n- **Keep hot data in memory.** A cache in RAM answers in microseconds; the database behind it may need milliseconds.\n- **Put data near users.** Light in fiber covers about 200 km per millisecond, so physics alone puts tens of milliseconds between continents.\n\nThe same habit of rough arithmetic gives you **back-of-the-envelope estimates**. Round aggressively: a day has 86,400 seconds, so call it 100,000 (10^5). Then:\n\n- 50 million requests per day / 10^5 seconds is about 500 requests per second on average. Peaks are often 2 to 10 times the average.\n- 2 million uploads per day × 500 KB each is 10^12 bytes: about 1 TB per day, or roughly 365 TB a year before replication.\n\nEstimates turn vague requirements into concrete ones. Requirements come in two kinds: **functional** (what the system does: users can upload photos) and **non-functional** (how well it does it: 99 percent of uploads finish within 2 seconds, the service is up 99.9 percent of the time, data is never lost). The non-functional ones drive most design decisions.",
-        "code": "Operation                            Rough time   Compared with RAM\n-----------------------------------  -----------  -----------------\nL1 cache reference                   1 ns         100x faster\nMain memory (RAM) reference          100 ns       1x\nSSD random read                      ~100 µs      1,000x slower\nRound trip within one data center    ~500 µs      5,000x slower\nHard disk seek                       ~10 ms       100,000x slower\nRound trip California to Europe      ~150 ms      1,500,000x slower",
-        "language": "plaintext",
+        "key": "Rough latencies and rounded arithmetic tell you whether a design is fast enough: a round trip costs about 0.5 ms inside a data center but about 150 ms across continents.",
+        "body": "Is a page that makes 20 database queries fast? Twenty round trips inside one data center cost about 10 ms; twenty to another continent cost about 3 seconds. The **ratios** are what matter:\n\n[[visual]]\n\n- **Avoid round trips**: batch small requests, and run independent calls in parallel.\n- **Keep hot data in memory**: a RAM cache answers in microseconds, a database in milliseconds.\n- **Put data near users**: light in fiber covers about 200 km per millisecond.\n\nRough arithmetic also gives **back-of-the-envelope estimates**. Round hard: a day has 86,400 seconds, so call it 10^5.\n\n[[visual 2]]\n\nEstimates make requirements concrete. **Functional** requirements say what the system does; **non-functional** ones say how well, and they drive most design decisions:\n\n[[visual 3]]",
+        "visual": [
+          {
+            "type": "bars",
+            "title": "Rough latencies",
+            "scale": "log",
+            "items": [
+              { "label": "L1 cache reference", "value": 1, "display": "1 ns", "tone": "good" },
+              { "label": "RAM reference", "value": 100, "display": "100 ns", "tone": "good" },
+              { "label": "SSD random read", "value": 100000, "display": "~100 µs" },
+              { "label": "Round trip in one data center", "value": 500000, "display": "~500 µs" },
+              { "label": "Hard disk seek", "value": 10000000, "display": "~10 ms", "tone": "warn" },
+              {
+                "label": "Round trip California to Europe",
+                "value": 150000000,
+                "display": "~150 ms",
+                "tone": "bad"
+              }
+            ],
+            "caption": "RAM is about 100 times slower than L1, an SSD about 1,000 times slower than RAM, and a cross-continent trip about 1,000 times slower again."
+          },
+          {
+            "type": "steps",
+            "title": "Two quick estimates",
+            "steps": [
+              {
+                "label": "20 million requests a day",
+                "work": "2 × 10^7 / 10^5 = 200 per second",
+                "note": "peaks are often 2 to 10 times the average"
+              },
+              {
+                "label": "1 million uploads a day at 2 MB each",
+                "work": "10^6 × 2 × 10^6 B = 2 TB a day",
+                "note": "about 730 TB a year, before replication"
+              }
+            ]
+          },
+          {
+            "type": "compare",
+            "items": [
+              {
+                "title": "Functional",
+                "points": ["What the system does", "Users can upload photos", "Users see a feed of friends' posts"]
+              },
+              {
+                "title": "Non-functional",
+                "tone": "accent",
+                "points": ["How well it does it", "99% of uploads finish within 2 seconds", "Up 99.9% of the time; no data ever lost"]
+              }
+            ]
+          }
+        ],
         "pitfall": "Making calls one after another that could run in parallel. Five independent 100 ms calls take 500 ms in sequence but about 100 ms together. When a page is slow, look for sequential round trips first.",
         "check": {
           "question": "Why does a request from Europe to a server in California take at least tens of milliseconds, however fast the server is?",
@@ -76,27 +152,120 @@
       },
       {
         "title": "Scaling up, scaling out, and load balancing",
-        "body": "Your app launches and traffic doubles every week. The single server sits at 90 percent CPU. You have two options.\n\n**Scaling up** (vertical scaling) means a bigger machine: more cores, more RAM, faster disks. It needs no code changes and is often the right first move. But it has a ceiling (the biggest machine you can buy), prices climb steeply near the top, and one machine is still a **single point of failure**.\n\n**Scaling out** (horizontal scaling) means more machines running the same code. There is no hard ceiling, and losing one machine is survivable. The price is complexity: something has to spread requests across the machines, and the machines must be **stateless**, keeping sessions, uploads and caches in shared stores (a database, Redis, object storage) instead of local memory or local disk. Otherwise a user who logged in on server 1 is a stranger to server 2.\n\nThe thing that spreads requests is a **load balancer**. Clients connect to it, and it forwards each request to a healthy server behind it. Common strategies:\n\n- **Round robin**: take turns. Simple, and fine when requests cost about the same.\n- **Least connections**: send each request to the server with the fewest in flight. Better when some requests are much slower than others.\n- **Hashing** on client IP or user ID: the same client always lands on the same server, useful for server-local caches, at the cost of less even load.\n\nA load balancer also runs **health checks**, probing each server every few seconds and taking failing ones out of rotation. That is how scaling out turns into higher availability. **Layer 4** balancers route by IP address and port and are very fast; **layer 7** balancers understand HTTP, so they can route by path or header, terminate TLS and retry failed requests. Because the load balancer now sits in front of everything, production setups run it redundantly as well.",
-        "code": "# nginx as a layer 7 load balancer in front of three app servers\nupstream app {\n    least_conn;                    # pick the server with the fewest active requests\n    server 10.0.0.11:8080 max_fails=3 fail_timeout=10s;\n    server 10.0.0.12:8080 max_fails=3 fail_timeout=10s;\n    server 10.0.0.13:8080 max_fails=3 fail_timeout=10s;\n    # max_fails / fail_timeout: stop using a server that keeps failing\n}\n\nserver {\n    listen 80;\n    location / {\n        proxy_pass http://app;     # forward each request to the pool\n    }\n}",
-        "language": "plaintext",
+        "key": "Scale up first because it needs no code changes; scale out behind a load balancer for capacity and redundancy, once the servers are stateless.",
+        "body": "Your app launches, traffic doubles weekly, and the single server sits at 90 percent CPU. Two options:\n\n[[visual]]\n\nScaling out needs **stateless** servers: sessions, uploads and caches move to shared stores, or a user who logged in on server 1 is a stranger to server 2. A **load balancer** then spreads requests across the copies:\n\n[[visual 2]]\n\n[[visual 3]]\n\nIt also runs **health checks**, probing each server every few seconds and dropping failing ones. **Layer 4** balancers route by IP and port and are very fast; **layer 7** balancers understand HTTP, so they route by path, terminate TLS and retry. Run the balancer redundantly too.",
+        "visual": [
+          {
+            "type": "compare",
+            "items": [
+              {
+                "title": "Scale up",
+                "sub": "vertical: a bigger machine",
+                "points": ["No code or architecture changes: often the right first move", "Has a ceiling, and prices climb steeply near the top", "Still a **single point of failure**"]
+              },
+              {
+                "title": "Scale out",
+                "sub": "horizontal: more machines",
+                "tone": "accent",
+                "points": ["No hard ceiling", "Losing one machine is survivable", "Needs a load balancer and stateless servers"]
+              }
+            ]
+          },
+          {
+            "type": "topology",
+            "nodes": [
+              { "id": "u", "kind": "internet", "label": "Users", "x": 1, "y": 0 },
+              { "id": "lb", "kind": "server", "label": "LB", "sub": "load balancer", "x": 1, "y": 1 },
+              { "id": "a1", "kind": "server", "label": "app-1", "x": 0, "y": 2 },
+              { "id": "a2", "kind": "server", "label": "app-2", "x": 1, "y": 2 },
+              { "id": "a3", "kind": "server", "label": "app-3", "x": 2, "y": 2 },
+              { "id": "s", "kind": "db", "label": "Shared", "sub": "DB, Redis, files", "x": 1, "y": 3 }
+            ],
+            "links": [
+              { "from": "u", "to": "lb" },
+              { "from": "lb", "to": "a1" },
+              { "from": "lb", "to": "a2" },
+              { "from": "lb", "to": "a3" },
+              { "from": "a1", "to": "s" },
+              { "from": "a2", "to": "s" },
+              { "from": "a3", "to": "s" }
+            ],
+            "zones": [
+              {
+                "label": "Stateless app tier",
+                "nodes": ["a1", "a2", "a3"],
+                "tone": "accent"
+              }
+            ]
+          },
+          {
+            "type": "table",
+            "title": "Balancing strategies",
+            "columns": ["Strategy", "How", "Best when"],
+            "rows": [
+              ["Round robin", "take turns", "requests cost about the same"],
+              ["Least connections", "pick the server with the fewest requests in flight", "some requests are far slower than others"],
+              ["Hashing", "by client IP or user ID: the same client hits the same server", "servers keep local caches; load is less even"]
+            ]
+          }
+        ],
         "pitfall": "Scaling out stateful servers. If sessions, uploaded files or in-process caches live on one machine, adding machines breaks users at random. Move state to shared stores first, then add servers.",
         "check": {
           "question": "Which is an advantage of scaling up over scaling out?",
-          "choices": [
-            "It has no upper limit",
-            "It removes the single point of failure",
-            "It needs no code or architecture changes",
-            "It makes the servers stateless"
-          ],
+          "choices": ["It has no upper limit", "It removes the single point of failure", "It needs no code or architecture changes", "It makes the servers stateless"],
           "answer": 2,
           "explanation": "A bigger machine runs the same code unchanged, which is why teams often scale up first. It does have a ceiling, and one machine is still one point of failure; those are the reasons to scale out later."
         }
       },
       {
         "title": "Caching layers",
-        "body": "The home page of a news site is requested 10,000 times a minute and changes a few times an hour. Querying the database 10,000 times for the same answer is pure waste. A **cache** keeps a copy of expensive results in fast storage so repeated requests skip the slow path.\n\nCaches sit at every layer between the user and the data:\n\n- **Browser cache**: the client keeps files according to HTTP headers such as `Cache-Control: max-age=3600`.\n- **CDN**: servers near users keep copies of static files and shareable pages (next section).\n- **Application cache**: an in-memory store such as Redis or Memcached, shared by all app servers, holding query results, rendered fragments and sessions.\n- **Database cache**: the database keeps hot data pages in its own memory.\n\nThe most common pattern in application code is **cache-aside**. On a read, check the cache. On a hit, return the value. On a miss, load it from the database, store it in the cache with a **TTL** (time to live), and return it. The cache fills only with data someone actually asked for.\n\nThe **hit rate** decides how much a cache helps. If a hit takes 1 ms and a miss 20 ms, a 90 percent hit rate averages about 3 ms, and 99 percent about 1.2 ms. When the cache is full it **evicts** entries, most often the **least recently used (LRU)**.\n\nThe hard part is freshness:\n\n- **TTL expiry** bounds how stale data can get, but users may see old data until it expires.\n- **Invalidate on write**: when data changes, delete its cache key so the next read reloads it. This is the usual default.\n- **Cache stampede**: a popular key expires and thousands of requests miss at the same moment and pile onto the database. Fixes include letting one request rebuild the value while the others wait or get the old copy, and adding random jitter to TTLs.\n\nDo not cache everything. Data that must be exactly current (an account balance just before a payment) or that is read only once gains nothing from caching and adds staleness risk.",
-        "code": "import json\n\ndef get_product(product_id):\n    key = f\"product:{product_id}\"\n    cached = cache.get(key)                       # 1. try the cache (~1 ms)\n    if cached is not None:\n        return json.loads(cached)                 # hit\n    product = db.query_one(                       # 2. miss: ask the database\n        \"SELECT * FROM products WHERE id = %s\", (product_id,))\n    cache.set(key, json.dumps(product), ex=300)   # 3. keep it for 5 minutes\n    return product\n\ndef update_price(product_id, price):\n    db.execute(\"UPDATE products SET price = %s WHERE id = %s\", (price, product_id))\n    cache.delete(f\"product:{product_id}\")         # invalidate on write",
+        "key": "A cache keeps copies of expensive results in fast storage; in cache-aside the app checks the cache, loads from the database on a miss, and invalidates on every write.",
+        "body": "A news home page is requested 10,000 times a minute and changes a few times an hour. A **cache** keeps a copy of expensive results in fast storage, and caches sit at every layer:\n\n[[visual]]\n\nIn application code the usual pattern is **cache-aside**:\n\n[[visual 2]]\n\n[[code]]\n\nThe **hit rate** decides how much it helps: with 1 ms hits and 20 ms misses, 90 percent hits average 0.9 × 1 + 0.1 × 20 = 2.9 ms. A full cache **evicts** entries, usually the **least recently used (LRU)**. The hard part is freshness:\n\n[[visual 3]]\n\nSkip caching data that must be exactly current (a balance before a payment) or is read only once.",
+        "visual": [
+          {
+            "type": "stack",
+            "layers": [
+              {
+                "label": "Browser cache",
+                "detail": "keeps files per HTTP headers such as `Cache-Control: max-age=3600`"
+              },
+              { "label": "CDN", "detail": "edge servers near users keep static files and shareable pages" },
+              {
+                "label": "Application cache",
+                "detail": "Redis or Memcached, shared by all app servers: query results, fragments, sessions",
+                "tone": "accent"
+              },
+              { "label": "Database cache", "detail": "the database keeps hot pages in memory" },
+              { "label": "Database", "detail": "the slow path" }
+            ],
+            "arrow": "down",
+            "arrowLabel": "A request goes only as deep as its first hit"
+          },
+          {
+            "type": "flow",
+            "steps": [
+              { "label": "Read the key from the cache" },
+              { "label": "Is it there?", "yes": "Hit: return it", "no": "Miss: load it from the database" },
+              { "label": "Store it in the cache with a **TTL** (time to live)" },
+              { "label": "Return it; the next read is a hit", "tone": "good" }
+            ]
+          },
+          {
+            "type": "table",
+            "columns": ["Freshness tool", "Trade-off"],
+            "rows": [
+              ["**TTL expiry**", "bounds staleness, but users may see old data until it expires"],
+              ["**Invalidate on write**", "delete the key when data changes so the next read reloads it: the usual default"],
+              [
+                "**Stampede** protection",
+                "when a hot key expires, thousands miss at once; let one request rebuild while others wait or get the old copy, and add jitter to TTLs"
+              ]
+            ]
+          }
+        ],
+        "code": "def get_product(pid):\n    key = f\"product:{pid}\"\n    cached = cache.get(key)    # ~1 ms\n    if cached is not None:\n        return json.loads(cached)   # hit\n    product = db.query_one(\n        \"SELECT * FROM products\"\n        \" WHERE id = %s\", (pid,))\n    cache.set(key, json.dumps(product),\n              ex=300)          # 5 minutes\n    return product\n\ndef update_price(pid, price):\n    db.execute(\n        \"UPDATE products SET price = %s\"\n        \" WHERE id = %s\", (price, pid))\n    # invalidate on write\n    cache.delete(f\"product:{pid}\")",
         "language": "python",
+        "deeper": "Cache-aside leaves the application in charge: it reads the cache, falls back to the database and fills the cache itself, so the cache only ever holds data someone asked for. In **read-through** caching the cache library loads from the database on a miss by itself, and in **write-through** every write goes to the cache and the database together. With 99 percent hits in the example above, the average drops to about 1.2 ms.",
         "pitfall": "Updating the database and forgetting the cache. Users then see stale data until the TTL runs out. Every write path for cached data must invalidate or update its key.",
         "check": {
           "question": "In the cache-aside pattern, what happens on a cache miss?",
@@ -112,9 +281,56 @@
       },
       {
         "title": "CDNs: content at the edge",
-        "body": "A video site hosted in Virginia serves a viewer in Sydney. Every image, script and video chunk crosses the Pacific, at about 200 ms per round trip, and a page needs dozens of them. A **content delivery network (CDN)** fixes this by keeping copies of content on **edge servers** in hundreds of cities, so the Sydney viewer is served from Sydney.\n\nHow it works: the domain for your static content (say `static.example.com`) points at the CDN, and DNS or anycast routing sends each user to a nearby edge. On the first request for a file, the edge has a **miss**: it fetches the file from your **origin** server, stores it and serves it. Every later request for that file in that region is a **hit**, served from the edge without touching your servers.\n\nWhat a CDN gives you:\n\n- **Lower latency**, because content travels a short distance.\n- **Less load on the origin**: for popular files, almost every request is absorbed at the edge.\n- **Resilience**: CDNs soak up traffic spikes and many denial-of-service attacks.\n\nCDNs are perfect for **static assets** (images, CSS, JavaScript, fonts, video segments) and good for whole pages that are the same for every visitor. Personalized or rapidly changing responses usually still go to the origin, although some CDNs can run small pieces of code at the edge.\n\nYou control CDN caching with HTTP headers: `Cache-Control: public, max-age=31536000, immutable` says a file may be cached for a year. That raises an obvious question: how do you ship a new version? The standard answer is **cache busting** with versioned file names. Build tools put a hash of the file's content in its name, such as `app.3f9a1c.js`, so every change produces a new URL that no cache has seen, while the HTML that references it is cached briefly or revalidated on every request. CDNs also offer explicit **purges**, but versioned names are faster and more reliable.",
-        "code": "# Hashed asset: safe to cache everywhere for a year\nGET /assets/app.3f9a1c.js\nCache-Control: public, max-age=31536000, immutable\n\n# The HTML that points to it: revalidate before every use\nGET /index.html\nCache-Control: no-cache\n\nFirst request from Sydney:  edge MISS -> origin in Virginia (~200 ms)\nLater requests in Sydney:   edge HIT  -> served locally (~10 ms)",
-        "language": "plaintext",
+        "key": "A CDN serves content from edge servers near users: the first request in a region fetches the file from the origin, and later requests there are local hits.",
+        "body": "A video site hosted in Virginia serves a viewer in Sydney: every image, script and video chunk crosses the Pacific at about 200 ms a round trip. A **content delivery network (CDN)** keeps copies on **edge servers** in hundreds of cities. Your static domain points at the CDN, and DNS or anycast routes each user to a nearby edge:\n\n[[visual]]\n\n- **Lower latency**: content travels a short distance.\n- **Less load on the origin**: popular files are absorbed at the edge.\n- **Resilience**: CDNs soak up spikes and many denial-of-service attacks.\n\nCDNs suit **static assets** (images, CSS, JavaScript, fonts, video segments) and pages that are the same for everyone. Personalized responses usually still go to the origin. Headers control caching, and versioned file names handle new releases (**cache busting**):\n\n[[visual 2]]",
+        "visual": [
+          {
+            "type": "sequence",
+            "actors": [
+              { "id": "v", "label": "Viewer", "kind": "laptop" },
+              { "id": "e", "label": "Sydney edge", "kind": "server" },
+              { "id": "o", "label": "Origin", "kind": "server" }
+            ],
+            "messages": [
+              { "from": "v", "to": "e", "label": "GET /img/cat.jpg", "detail": "first request in Sydney" },
+              {
+                "from": "e",
+                "to": "o",
+                "label": "MISS: fetch it",
+                "detail": "from Virginia, ~200 ms",
+                "tone": "warn"
+              },
+              { "from": "o", "to": "e", "label": "the file", "dashed": true },
+              { "from": "e", "to": "v", "label": "the file (now cached)", "dashed": true },
+              { "from": "v", "to": "e", "label": "GET /img/cat.jpg", "detail": "any later Sydney viewer" },
+              {
+                "from": "e",
+                "to": "v",
+                "label": "HIT: served locally",
+                "detail": "~10 ms, origin untouched",
+                "dashed": true,
+                "tone": "good"
+              }
+            ]
+          },
+          {
+            "type": "compare",
+            "items": [
+              {
+                "title": "Hashed asset",
+                "sub": "`/assets/app.3f9a1c.js`",
+                "tone": "good",
+                "points": ["`Cache-Control: public, max-age=31536000, immutable`", "Cached everywhere for a year", "A content change makes a new name, so a new URL no cache has seen"]
+              },
+              {
+                "title": "The HTML that links to it",
+                "sub": "`/index.html`",
+                "points": ["`Cache-Control: no-cache`", "Revalidated before every use", "So it always points at the current asset names"]
+              }
+            ],
+            "caption": "CDNs also offer explicit purges, but versioned names are faster and more reliable."
+          }
+        ],
         "pitfall": "Caching files under a fixed name with a long max-age. After you deploy a fix, browsers and edges keep serving the old file until it expires. Use content-hashed names for long-lived assets.",
         "check": {
           "question": "A viewer in Sydney requests an image the Sydney edge server has never served. What happens?",
@@ -130,9 +346,57 @@
       },
       {
         "title": "Databases and replication",
-        "body": "Every system eventually holds data that must not be lost: accounts, orders, messages. That data lives in a database, and the database is usually the hardest part to scale, because unlike app servers it is full of state.\n\nTwo broad families:\n\n- **Relational (SQL)** databases such as PostgreSQL and MySQL store tables with a fixed schema, support joins and flexible queries, and offer **ACID transactions**: a transfer that debits one account and credits another either happens completely or not at all. The sensible default for most applications.\n- **NoSQL** stores trade some of that for scale or flexibility: key-value stores (Redis, DynamoDB), document stores (MongoDB), wide-column stores (Cassandra) and others. They suit huge volumes of simple lookups by key, loosely structured records or write-heavy workloads.\n\nThe first scaling tool is **replication**: keep copies of the data on several machines. In the common **primary-replica** setup, all writes go to the primary, which streams its changes to one or more replicas. Reads can be spread across the replicas, and if the primary dies, a replica can be **promoted** to take its place.\n\nReplication is usually **asynchronous**: the primary confirms a write before the replicas have it. That keeps writes fast but has two consequences:\n\n- **Replication lag**: a read from a replica may not show a write you just made. A common fix is to read a user's own recent writes from the primary.\n- If the primary crashes, writes it confirmed but had not yet shipped are lost when a replica is promoted. **Synchronous** replication prevents this at the cost of slower writes.\n\nWhen one primary cannot keep up with the writes, or the data no longer fits on one machine, you **shard**: split the data across several databases by a **shard key**, such as a hash of the user ID. A good key spreads data and traffic evenly; a bad one creates a hot shard. Sharding makes cross-shard queries and transactions much harder, so teams put it off as long as they can.\n\nDistributed data also faces the **CAP theorem**: during a network **partition**, a system must choose between **consistency** (refuse requests that could produce conflicting data) and **availability** (answer anyway and reconcile later). Banking systems lean toward consistency; shopping carts and social feeds often choose availability with **eventual consistency**.",
-        "code": "writes ------------------> [ PRIMARY ]\n                             |       |\n              async copies   |       |\n                             v       v\nreads -------------> [ REPLICA 1 ] [ REPLICA 2 ] <------ reads\n\nSharding by hash(user_id) % 4:\n  [ shard 0 ] [ shard 1 ] [ shard 2 ] [ shard 3 ]\n  each holds about a quarter of the users and their traffic",
-        "language": "plaintext",
+        "key": "Replicas spread reads and stand by for failover but lag behind the primary; shard data by a well-spread key only when one primary cannot cope.",
+        "body": "Accounts, orders and messages must not be lost, and the database is the hardest part to scale because it is full of state.\n\n[[visual]]\n\nThe first scaling tool is **replication**. In a **primary-replica** setup all writes go to the primary, which streams changes to replicas. Reads spread across replicas, and if the primary dies a replica is **promoted**:\n\n[[visual 2]]\n\nReplication is usually **asynchronous**: the primary confirms a write before replicas have it. That keeps writes fast, with costs:\n\n[[visual 3]]\n\nDuring a network **partition**, the **CAP theorem** forces a choice: **consistency** (refuse requests that could conflict) or **availability** (answer and reconcile later). Banks choose consistency; carts and feeds often choose availability with **eventual consistency**.",
+        "visual": [
+          {
+            "type": "compare",
+            "items": [
+              {
+                "title": "Relational (SQL)",
+                "sub": "PostgreSQL, MySQL",
+                "tone": "accent",
+                "points": ["Tables with a fixed schema, joins, flexible queries", "**ACID transactions**: a transfer debits and credits completely or not at all", "The sensible default"]
+              },
+              {
+                "title": "NoSQL",
+                "sub": "Redis, DynamoDB, MongoDB, Cassandra",
+                "points": ["Key-value, document and wide-column stores", "Trade some features for scale or flexibility", "Huge volumes of lookups by key, loose records, heavy writes"]
+              }
+            ]
+          },
+          {
+            "type": "topology",
+            "nodes": [
+              { "id": "app", "kind": "server", "label": "App", "x": 1, "y": 0 },
+              { "id": "p", "kind": "db", "label": "Primary", "sub": "all writes", "x": 1, "y": 1 },
+              { "id": "r1", "kind": "db", "label": "Replica 1", "sub": "reads", "x": 0, "y": 2 },
+              { "id": "r2", "kind": "db", "label": "Replica 2", "sub": "reads", "x": 2, "y": 2 }
+            ],
+            "links": [
+              { "from": "app", "to": "p", "label": "writes" },
+              { "from": "p", "to": "r1", "label": "async copy", "style": "dashed" },
+              { "from": "p", "to": "r2", "label": "async copy", "style": "dashed" }
+            ]
+          },
+          {
+            "type": "table",
+            "columns": ["Issue", "What happens", "Remedy"],
+            "rows": [
+              ["**Replication lag**", "a replica read misses a write you just made", "read a user's own recent writes from the primary"],
+              [
+                "Failover loss",
+                "the primary crashes before shipping confirmed writes; a promoted replica never had them",
+                "**synchronous** replication, at the cost of slower writes"
+              ],
+              [
+                "Too many writes for one primary",
+                "the primary or its disk cannot keep up",
+                "**shard**: split data by a **shard key** such as a hash of user_id; a bad key makes a hot shard, and cross-shard queries get hard"
+              ]
+            ]
+          }
+        ],
         "pitfall": "Reading from a replica right after a write. Even a second of lag makes a user's own change seem to vanish. Send a user's reads to the primary for a short while after they write.",
         "check": {
           "question": "What is the main benefit of adding read replicas?",
@@ -148,8 +412,52 @@
       },
       {
         "title": "Queues and asynchronous work",
-        "body": "A user uploads a video, and transcoding it into five resolutions takes four minutes. You cannot hold the HTTP request open that long, and a burst of uploads should not melt the servers. So the upload handler saves the file, puts a \"transcode video 123\" message on a **queue**, and immediately answers \"processing\". A pool of **workers** takes messages off the queue and does the work at its own pace.\n\nA **message queue** (RabbitMQ, Amazon SQS, Kafka, Redis-based queues) sits between **producers** that create work and **consumers** that do it. That decoupling buys a lot:\n\n- **Fast responses**: the request does only the quick part, and slow work (emails, image processing, reports, webhooks) happens in the background.\n- **Absorbing spikes**: a burst of 10,000 jobs waits in the queue instead of overwhelming anything. Workers drain it steadily, and you add workers when the backlog grows.\n- **Resilience**: if a worker crashes or a downstream service is down, the message stays in the queue and is retried later.\n- **Independence**: producers and consumers are deployed and scaled separately, and can even be written in different languages.\n\nDelivery guarantees matter. Most queues promise **at-least-once** delivery: a message is delivered again if the worker does not **acknowledge** it, for example because it crashed halfway through. So a message can be processed twice, and consumers must be **idempotent**: handling the same message twice has the same effect as handling it once. Record which order IDs have been charged and skip repeats, and prefer upserts to blind inserts. Messages that keep failing move to a **dead-letter queue** for a person to inspect, rather than being retried forever.\n\nA related pattern is **publish/subscribe**: a producer publishes an event (\"order placed\") and several independent subscribers react to it (billing, email, analytics) without the producer knowing about any of them.\n\nQueues add moving parts and make the system **eventually consistent**: the video is not ready the instant the upload finishes. Use them where a delay is acceptable, and show users progress.",
-        "code": "# Producer: runs inside the web request, fast\ndef upload_video(request):\n    video_id = storage.save(request.file)\n    queue.publish(\"transcode\", {\"video_id\": video_id})\n    return {\"status\": \"processing\", \"id\": video_id}   # answers in milliseconds\n\n# Consumer: a separate worker process, slow but steady\ndef worker():\n    while True:\n        msg = queue.receive(\"transcode\")               # waits for work\n        if not already_done(msg[\"video_id\"]):          # idempotent: skip repeats\n            transcode(msg[\"video_id\"])\n            mark_done(msg[\"video_id\"])\n        queue.ack(msg)                                 # only now is it removed",
+        "key": "A queue lets a request hand slow work to background workers, keeping responses fast and absorbing spikes; at-least-once delivery means every consumer must be idempotent.",
+        "body": "A user uploads a video, and transcoding takes four minutes. You cannot hold the request open that long, so the handler saves the file, puts a message on a **queue** and answers at once. **Workers** take messages off and do the work at their own pace:\n\n[[visual]]\n\n[[visual 2]]\n\nMost queues deliver **at least once**: a message comes back if the worker does not **acknowledge** it, say after a crash halfway through. So consumers must be **idempotent**: handling a message twice has the same effect as once (record charged order IDs and skip repeats; prefer upserts).\n\nMessages that keep failing go to a **dead-letter queue** for a person to inspect.\n\n[[code]]\n\nIn **publish/subscribe**, one event (\"order placed\") reaches several independent subscribers: billing, email, analytics. Queues make a system **eventually consistent**, so show users progress.",
+        "visual": [
+          {
+            "type": "sequence",
+            "actors": [
+              { "id": "u", "label": "User", "kind": "laptop" },
+              { "id": "w", "label": "Web server", "kind": "server" },
+              { "id": "q", "label": "Queue" },
+              { "id": "k", "label": "Worker", "kind": "server" }
+            ],
+            "messages": [
+              { "from": "u", "to": "w", "label": "upload video" },
+              { "from": "w", "to": "q", "label": "publish \"transcode 123\"", "tone": "accent" },
+              {
+                "from": "w",
+                "to": "u",
+                "label": "\"processing\"",
+                "detail": "answers in milliseconds",
+                "dashed": true,
+                "tone": "good"
+              },
+              { "from": "k", "to": "q", "label": "receive", "detail": "when it has capacity" },
+              {
+                "from": "k",
+                "to": "k",
+                "label": "transcode, unless already done",
+                "detail": "about four minutes"
+              },
+              { "from": "k", "to": "q", "label": "ack", "detail": "only now is the message removed" }
+            ]
+          },
+          {
+            "type": "table",
+            "title": "What a queue buys",
+            "columns": ["Benefit", "How"],
+            "rows": [
+              ["Fast responses", "the request does the quick part; emails, image work, reports and webhooks run in the background"],
+              ["Absorbing spikes", "10,000 jobs wait in line instead of overwhelming anything; add workers when the backlog grows"],
+              ["Resilience", "if a worker or downstream service is down, the message waits and is retried"],
+              ["Independence", "producers and consumers deploy and scale separately, even in different languages"]
+            ],
+            "caption": "Common queues: RabbitMQ, Amazon SQS, Kafka, Redis-based queues."
+          }
+        ],
+        "code": "# Producer: inside the web request, fast\ndef upload_video(request):\n    video_id = storage.save(request.file)\n    queue.publish(\"transcode\",\n                  {\"video_id\": video_id})\n    return {\"status\": \"processing\"}\n\n# Consumer: a separate worker process\ndef worker():\n    while True:\n        msg = queue.receive(\"transcode\")\n        vid = msg[\"video_id\"]\n        # idempotent: skip repeats\n        if not already_done(vid):\n            transcode(vid)\n            mark_done(vid)\n        queue.ack(msg)   # only now removed",
         "language": "python",
         "pitfall": "Assuming each message is processed exactly once. With at-least-once delivery, a crash between doing the work and acknowledging the message means the work runs again. Make every consumer idempotent.",
         "check": {
@@ -166,10 +474,50 @@
       },
       {
         "title": "Availability: designing for failure",
-        "body": "At scale, something is always broken: a disk dies, a server reboots for an update, a deploy ships a bug, a data center loses power. **Availability** is the fraction of time the system works for its users, and you get it not by preventing every failure but by surviving them.\n\nAvailability is quoted in **nines**, shown in the table. Each extra nine is ten times harder to reach, and 99.9 percent, which sounds high, still allows almost 9 hours of downtime a year.\n\nThe core technique is **redundancy**: remove every **single point of failure** (SPOF), any component whose failure takes everything down. Run at least two of everything that matters: app servers behind a load balancer, a database replica ready for **failover**, load balancers in pairs, and copies spread across separate **availability zones** (independent data centers) or even regions.\n\nTwo pieces of arithmetic explain why:\n\n- Components in **series**, where a request needs all of them, multiply their availabilities. An app tier at 99.9 percent and a database at 99.9 percent give about 99.8 percent together, so every extra required dependency lowers availability.\n- Redundant copies in **parallel**, where any one is enough, multiply their chances of failure. Two independent servers at 99 percent are both down only 0.01 × 0.01 = 0.01 percent of the time, so the pair is 99.99 percent available. Real failures are not perfectly independent, which is why copies go in separate zones.\n\nOther habits of reliable systems:\n\n- **Health checks and automatic failover**, so a dead component is noticed in seconds rather than when users complain.\n- **Timeouts and retries with backoff**, so a slow dependency does not tie up every thread and retries do not turn into a self-inflicted flood.\n- **Rate limiting** to protect against overload: return 429 Too Many Requests when a client exceeds its quota. A **token bucket** lets a client burst up to the bucket's size, then refills at a steady rate.\n- **Graceful degradation**: if the recommendation service is down, show the page without recommendations instead of an error.\n- **Backups you have actually restored**, because replication faithfully copies a mistaken `DELETE` too.\n\nThose are the building blocks. The swe-system-design pack puts them together into complete designs, the way an interview expects.",
-        "code": "Availability   Downtime per year   Downtime per month\n------------   -----------------   ------------------\n99%            ~3.65 days          ~7.3 hours\n99.9%          ~8.8 hours          ~44 minutes\n99.99%         ~53 minutes         ~4.4 minutes\n99.999%        ~5.3 minutes        ~26 seconds\n\nSeries:    LB 99.99% x app 99.9% x DB 99.9%   ->  about 99.8%\nParallel:  two independent 99% servers        ->  1 - 0.01 x 0.01 = 99.99%",
-        "language": "plaintext",
-        "pitfall": "Retrying instantly and forever. When a dependency struggles, thousands of clients retrying at once keep it down. Use timeouts, a few retries with exponential backoff and random jitter, and then give up gracefully.",
+        "key": "Availability comes from surviving failures: remove single points of failure with redundancy, since required parts in series multiply availability and parallel copies multiply failure odds.",
+        "body": "At scale something is always broken: a dead disk, a rebooting server, a bad deploy, a data center without power. **Availability** is the fraction of time the system works, quoted in **nines**:\n\n[[visual]]\n\nThe core technique is **redundancy**: remove every **single point of failure** (SPOF), any component whose failure takes everything down. Run two or more of everything that matters (app servers, a database replica for **failover**, paired load balancers), spread across separate **availability zones**. The arithmetic shows why:\n\n[[visual 2]]\n\n[[visual 3]]",
+        "visual": [
+          {
+            "type": "table",
+            "columns": ["Availability", "Downtime per year", "Per month"],
+            "rows": [
+              ["99%", "about 3.65 days", "about 7.3 hours"],
+              ["99.9%", "about 8.8 hours", "about 44 minutes"],
+              ["99.99%", "about 53 minutes", "about 4.4 minutes"],
+              ["99.999%", "about 5.3 minutes", "about 26 seconds"]
+            ],
+            "mono": [0],
+            "caption": "Each extra nine is ten times harder to reach."
+          },
+          {
+            "type": "steps",
+            "steps": [
+              {
+                "label": "**Series**: a request needs all of them, so multiply availabilities",
+                "work": "0.999 × 0.999 = 0.998\n(app tier and database)",
+                "note": "every extra required dependency lowers it"
+              },
+              {
+                "label": "**Parallel**: any one copy is enough, so multiply the failure chances",
+                "work": "1 - 0.01 × 0.01 = 0.9999\n(two 99% servers)",
+                "note": "real failures correlate, so put copies in separate zones"
+              }
+            ]
+          },
+          {
+            "type": "table",
+            "title": "Habits of reliable systems",
+            "columns": ["Habit", "Why"],
+            "rows": [
+              ["Health checks and automatic failover", "a dead component is noticed in seconds, not when users complain"],
+              ["Timeouts, and retries with backoff", "a slow dependency does not tie up every thread, and retries do not become a flood"],
+              ["**Rate limiting**", "return **429 Too Many Requests** past a quota; a **token bucket** allows bursts up to its size, then refills at a steady rate"],
+              ["Graceful degradation", "if recommendations are down, show the page without them"],
+              ["Backups you have restored", "replication faithfully copies a mistaken `DELETE` too"]
+            ]
+          }
+        ],
+        "pitfall": "Retrying instantly and forever. When a dependency struggles, thousands of clients retrying at once keep it down. Use timeouts, a few retries with exponential backoff and jitter, then give up gracefully.",
         "check": {
           "question": "The app tier and the database are each 99.9% available, and every request needs both. You add a cache (99.9% available) that every request must also pass through. What happens to overall availability?",
           "choices": [
@@ -234,12 +582,12 @@
       }
     ],
     "summary": [
-      "Clients send requests and servers respond; keep servers stateless so any copy can handle any request.",
-      "Know rough latencies (RAM about 100 ns, SSD about 100 µs, a data center round trip about 0.5 ms, cross-continent about 150 ms) and avoid sequential round trips.",
-      "Scale up first for simplicity, then scale out behind a load balancer with health checks for capacity and redundancy.",
-      "Cache at every layer, from browser and CDN to Redis, and invalidate on write; CDNs serve static content from the edge with hashed file names.",
-      "Replicas spread reads and provide failover but lag behind the primary; shard only when one primary cannot cope.",
-      "Queues absorb spikes and move slow work to idempotent background workers, while redundancy, timeouts and rate limits keep the system available."
+      "Clients send requests and servers respond; keep servers stateless so any copy can serve any request.",
+      "Know rough latencies (RAM 100 ns, SSD 100 µs, data center round trip 0.5 ms, cross-continent 150 ms) and avoid sequential round trips.",
+      "Scale up first, then scale out behind a load balancer with health checks.",
+      "Cache at every layer and invalidate on write; CDNs serve static files from the edge with hashed names.",
+      "Replicas spread reads and allow failover but lag; shard only when one primary cannot cope.",
+      "Queues absorb spikes for idempotent workers; redundancy, timeouts and rate limits keep a system up."
     ],
     "feynmanPrompt": "Explain to a friend how a photo-sharing app could grow from 100 users on one server to 10 million users, naming each piece you would add (load balancer, cache, CDN, database replicas, queue) and the problem each one solves."
   },
@@ -250,13 +598,7 @@
       "difficulty": "medium",
       "question": "A service receives 50 million requests per day, spread evenly. Using 1 day = 100,000 seconds, about how many requests per second is that?",
       "answer": "500",
-      "accept": [
-        "500 rps",
-        "500 qps",
-        "500/s",
-        "578",
-        "579"
-      ],
+      "accept": ["500 rps", "500 qps", "500/s", "578", "579"],
       "explanation": "50,000,000 / 100,000 = 500 requests per second. The exact figure with 86,400 seconds is about 579, but the rounded 10^5 is close enough for design decisions. Peaks will be higher than this average.",
       "concept": "QPS estimation",
       "section": 1
@@ -266,12 +608,7 @@
       "type": "mcq",
       "difficulty": "easy",
       "question": "Which of these is a non-functional requirement?",
-      "choices": [
-        "Users can upload a profile photo",
-        "Users can follow other users",
-        "95% of feed loads finish in under 200 ms",
-        "Admins can delete any post"
-      ],
+      "choices": ["Users can upload a profile photo", "Users can follow other users", "95% of feed loads finish in under 200 ms", "Admins can delete any post"],
       "answer": 2,
       "explanation": "A latency target describes how well the system performs, which makes it non-functional. The others describe features the system offers, which are functional requirements.",
       "concept": "requirements",
@@ -282,12 +619,7 @@
       "type": "mcq",
       "difficulty": "medium",
       "question": "Users upload 2 million photos a day, averaging 500 KB each. Roughly how much new storage is needed per day?",
-      "choices": [
-        "About 1 TB",
-        "About 1 GB",
-        "About 100 GB",
-        "About 10 TB"
-      ],
+      "choices": ["About 1 TB", "About 1 GB", "About 100 GB", "About 10 TB"],
       "answer": 0,
       "explanation": "2 x 10^6 photos x 500 x 10^3 bytes = 10^12 bytes, which is 1 TB per day, or about 365 TB a year before replication. Getting 1 GB means dropping a factor of 1,000 somewhere in the units.",
       "concept": "storage estimation",
@@ -325,12 +657,7 @@
       "type": "mcq",
       "difficulty": "medium",
       "question": "Some requests to a service take 20 ms and others take 30 seconds. Which load balancing algorithm spreads the work most evenly?",
-      "choices": [
-        "Round robin",
-        "Random selection",
-        "Hashing on the client IP",
-        "Least connections"
-      ],
+      "choices": ["Round robin", "Random selection", "Hashing on the client IP", "Least connections"],
       "answer": 3,
       "explanation": "Least connections sends each new request to the server with the fewest requests in flight, so a server stuck on slow requests gets fewer new ones. Round robin hands out equal counts, which can pile slow requests onto one server.",
       "concept": "load balancing algorithms",
@@ -342,12 +669,7 @@
       "difficulty": "easy",
       "question": "Complete the cache-aside read so the next request for this user is a cache hit.",
       "code": "function getUser(id):\n    user = cache.get(\"user:\" + id)\n    if user is null:\n        user = db.query(\"SELECT * FROM users WHERE id = ?\", id)\n        _____\n    return user",
-      "choices": [
-        "db.update(\"users\", id, user)",
-        "cache.delete(\"user:\" + id)",
-        "cache.set(\"user:\" + id, user, 300)",
-        "user = cache.get(\"user:\" + id)"
-      ],
+      "choices": ["db.update(\"users\", id, user)", "cache.delete(\"user:\" + id)", "cache.set(\"user:\" + id, user, 300)", "user = cache.get(\"user:\" + id)"],
       "answer": 2,
       "explanation": "After a miss, cache-aside stores the value it just loaded, here with a 300-second TTL, so later reads skip the database. Deleting the key is what you do after a write, not after a read.",
       "concept": "cache-aside",
@@ -406,12 +728,7 @@
       "type": "mcq",
       "difficulty": "medium",
       "question": "You are sharding a users table across 8 database servers. Which shard key spreads data and traffic most evenly?",
-      "choices": [
-        "Country",
-        "Signup date, one date range per shard",
-        "A hash of user_id",
-        "Account type (free or paid)"
-      ],
+      "choices": ["Country", "Signup date, one date range per shard", "A hash of user_id", "Account type (free or paid)"],
       "answer": 2,
       "explanation": "Hashing a high-cardinality key like user_id scatters users evenly. Country puts big countries on one hot shard, date ranges send every new signup to the newest shard, and account type has only two values for 8 shards.",
       "concept": "shard keys",
@@ -422,12 +739,7 @@
       "type": "mcq",
       "difficulty": "hard",
       "question": "During a network partition, a bank's replicated ledger rejects writes on the side that cannot reach a majority, rather than risk conflicting balances. Which CAP trade-off is this?",
-      "choices": [
-        "Consistency over availability",
-        "Availability over consistency",
-        "Partition tolerance over consistency",
-        "Eventual consistency"
-      ],
+      "choices": ["Consistency over availability", "Availability over consistency", "Partition tolerance over consistency", "Eventual consistency"],
       "answer": 0,
       "explanation": "Refusing requests to avoid conflicting data keeps the system consistent at the cost of availability. An available design would accept writes on both sides and reconcile later, which is eventual consistency.",
       "concept": "CAP theorem",
@@ -488,9 +800,7 @@
       "difficulty": "easy",
       "question": "Which HTTP status code should an API return when a client has exceeded its rate limit?",
       "answer": "429",
-      "accept": [
-        "429 Too Many Requests"
-      ],
+      "accept": ["429 Too Many Requests"],
       "explanation": "429 Too Many Requests tells the client to slow down, ideally with a Retry-After header saying when to try again. 503 means the server itself is unavailable, which is a different message.",
       "concept": "rate limiting",
       "section": 7
@@ -543,26 +853,11 @@
       "difficulty": "medium",
       "question": "Match each operation with its rough latency.",
       "pairs": [
-        {
-          "left": "L1 cache reference",
-          "right": "About 1 nanosecond"
-        },
-        {
-          "left": "Main memory (RAM) reference",
-          "right": "About 100 nanoseconds"
-        },
-        {
-          "left": "Round trip inside one data center",
-          "right": "About half a millisecond"
-        },
-        {
-          "left": "Hard disk seek",
-          "right": "About 10 milliseconds"
-        },
-        {
-          "left": "Round trip from California to Europe",
-          "right": "About 150 milliseconds"
-        }
+        { "left": "L1 cache reference", "right": "About 1 nanosecond" },
+        { "left": "Main memory (RAM) reference", "right": "About 100 nanoseconds" },
+        { "left": "Round trip inside one data center", "right": "About half a millisecond" },
+        { "left": "Hard disk seek", "right": "About 10 milliseconds" },
+        { "left": "Round trip from California to Europe", "right": "About 150 milliseconds" }
       ],
       "explanation": "Each step down the list is roughly 100 to 1,000 times slower than the one before. Memorizing the orders of magnitude is enough to spot designs that make too many slow trips.",
       "concept": "latency numbers",
@@ -574,10 +869,7 @@
       "difficulty": "easy",
       "question": "A request handler calls a service in another region three times, one call after another, and each round trip takes 100 ms. At minimum, how many milliseconds do those calls add?",
       "answer": "300",
-      "accept": [
-        "300 ms",
-        "300ms"
-      ],
+      "accept": ["300 ms", "300ms"],
       "explanation": "Sequential calls add up: 3 × 100 ms = 300 ms. If the calls do not depend on each other, making them in parallel cuts that to about 100 ms.",
       "concept": "sequential round trips",
       "section": 1
@@ -626,11 +918,7 @@
         "Static images and JavaScript files",
         "A one-time login code the user just received"
       ],
-      "answers": [
-        0,
-        1,
-        3
-      ],
+      "answers": [0, 1, 3],
       "explanation": "Caching pays off for data that is read far more often than it changes and can tolerate brief staleness. A balance checked before a payment must be exact, and a one-time code is read once, so caching either one adds risk and saves nothing.",
       "concept": "what to cache",
       "section": 3
@@ -641,10 +929,7 @@
       "difficulty": "hard",
       "question": "A cache hit takes 2 ms and a miss (check the cache, then query the database) takes 50 ms. With an 80% hit rate, what is the average latency in ms?",
       "answer": "11.6",
-      "accept": [
-        "11.6 ms",
-        "11.6ms"
-      ],
+      "accept": ["11.6 ms", "11.6ms"],
       "explanation": "0.8 × 2 + 0.2 × 50 = 1.6 + 10 = 11.6 ms. The misses dominate: raising the hit rate to 95% would bring the average down to about 4.4 ms.",
       "concept": "cache hit rate",
       "section": 3
@@ -719,15 +1004,7 @@
       "difficulty": "easy",
       "question": "99.9% availability allows roughly how many hours of downtime per year?",
       "answer": "8.76",
-      "accept": [
-        "8.8",
-        "9",
-        "8.7",
-        "about 9",
-        "8.76 hours",
-        "9 hours",
-        "8.8 hours"
-      ],
+      "accept": ["8.8", "9", "8.7", "about 9", "8.76 hours", "9 hours", "8.8 hours"],
       "explanation": "A year has 8,760 hours, and 0.1% of that is 8.76 hours. Each extra nine cuts it tenfold: 99.99% allows about 53 minutes a year.",
       "concept": "nines of availability",
       "section": 7
@@ -737,12 +1014,7 @@
       "type": "mcq",
       "difficulty": "hard",
       "question": "Every request passes through four services, each 99.9% available, and fails if any one is down. Roughly what is the availability of the whole path?",
-      "choices": [
-        "About 99.6%",
-        "99.9%",
-        "99.99%",
-        "About 96%"
-      ],
+      "choices": ["About 99.6%", "99.9%", "99.99%", "About 96%"],
       "answer": 0,
       "explanation": "Required components in series multiply: 0.999^4 is about 0.996, or 99.6%, which is roughly 35 hours of downtime a year. Every hard dependency you add lowers availability, which is why critical paths are kept short.",
       "concept": "availability in series",

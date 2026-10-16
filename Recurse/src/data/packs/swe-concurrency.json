@@ -8,47 +8,110 @@
   "description": "Threads, processes, races, locks and deadlock, the JavaScript event loop, async/await, asyncio, the GIL and thread pools.",
   "icon": "Con",
   "language": "python",
-  "prereqs": [
-    "operating-systems",
-    "javascript-basics",
-    "python-basics"
-  ],
-  "tags": [
-    "concurrency",
-    "threads",
-    "async",
-    "event-loop",
-    "asyncio",
-    "gil",
-    "locks"
-  ],
+  "prereqs": ["operating-systems", "javascript-basics", "python-basics"],
+  "tags": ["concurrency", "threads", "async", "event-loop", "asyncio", "gil", "locks"],
   "lesson": {
     "estimatedMinutes": 32,
-    "intro": "Concurrency bugs are the ones that pass every test and then corrupt data at 2 a.m. under real load. This lesson builds the mental models you need: how threads and processes differ, why a simple counter loses updates, how locks and deadlocks work, how the JavaScript event loop orders callbacks, and when to use threads, asyncio or processes in Python.",
+    "intro": "Concurrency bugs pass every test, then corrupt data at 2 a.m. under real load. This lesson builds the mental models: threads and processes, lost updates, locks and deadlocks, the JavaScript event loop, and when to use threads, asyncio or processes in Python.",
     "objectives": [
-      "Distinguish processes from threads and concurrency from parallelism, and classify work as I/O-bound or CPU-bound",
-      "Explain a race condition step by step and fix it with a lock or an atomic operation",
-      "Name the four deadlock conditions and prevent deadlock with a global lock order",
-      "Predict the output of JavaScript code that mixes synchronous code, promises and setTimeout",
-      "Choose between async/await, threads, processes and thread pools for a task"
+      "Tell processes from threads, and concurrency from parallelism",
+      "Explain a race condition and fix it with a lock or an atomic operation",
+      "Name the four deadlock conditions and prevent deadlock with a lock order",
+      "Predict the output of code mixing synchronous code, promises and setTimeout",
+      "Choose between async/await, threads, processes and pools for a task"
     ],
     "sections": [
       {
         "title": "Processes, threads, concurrency and parallelism",
-        "body": "Open your laptop's activity monitor: hundreds of processes, thousands of threads, and maybe 8 CPU cores. Somehow music keeps playing while code compiles and a browser tab loads. How that works is the foundation for everything else in this lesson.\n\nA **process** is a running program with its own private memory: its own variables, heap and open files. The operating system keeps processes isolated, so a crash in one browser tab's process does not take down the others. Processes talk only through explicit channels such as pipes, sockets and files. Starting one is relatively expensive.\n\nA **thread** is a path of execution inside a process. All threads of a process share its memory, so they can read and write the same objects directly, which is both their power and their danger. Each thread has its own call stack, and creating one is much cheaper than creating a process.\n\nTwo words interviewers want to hear you separate:\n\n- **Concurrency** is about structure: several tasks are in progress during the same period, and their steps interleave. One core can run many tasks concurrently by switching between them quickly (time slicing), like one cook keeping three pans going.\n- **Parallelism** is about execution: several tasks run at the same instant on different cores, like three cooks with a pan each.\n\nYou can have concurrency without parallelism: a single-core machine, or JavaScript's single-threaded event loop juggling thousands of requests. Parallelism is what speeds up heavy computation. Most work also falls into one of two kinds:\n\n- **I/O-bound** work spends most of its time waiting on networks, disks or databases. Concurrency helps enormously, even on one core, because while one task waits another can run.\n- **CPU-bound** work (resizing images, compressing files, number crunching) keeps a core busy. Only parallelism across cores makes it faster.\n\nThat one distinction drives almost every choice later in this lesson: threads, processes, async/await or a pool.",
-        "code": "One core, three tasks (concurrency: interleaved)\ncore 1 | A A B B C C A A B C C A ...     all three progress, one at a time\n\nThree cores, three tasks (parallelism: simultaneous)\ncore 1 | A A A A A A\ncore 2 | B B B B B B\ncore 3 | C C C C C C\n\n               Process                       Thread\nMemory         private address space         shared with sibling threads\nA crash        usually affects only itself   can take down the whole process\nCost to start  higher                        lower\nTalks via      pipes, sockets, files         shared variables (needs locks)",
-        "language": "plaintext",
-        "tip": "When someone says 'make it faster with threads', ask first: is it waiting on I/O or burning CPU? The answer decides the tool.",
-        "pitfall": "Using 'concurrent' and 'parallel' as synonyms. A single-threaded Node.js server is highly concurrent and not parallel at all.",
+        "key": "Concurrency interleaves tasks over the same period; parallelism runs them at the same instant on different cores. I/O-bound work gains from the first, CPU-bound only from the second.",
+        "body": "Hundreds of processes and thousands of threads share maybe 8 cores, yet music plays while code compiles.\n\n[[visual]]\n\nInterviewers want two words kept apart. **Concurrency** is structure: several tasks in progress at once, their steps interleaved, like one cook keeping three pans going. **Parallelism** is execution: tasks running at the same instant on different cores, like three cooks.\n\n[[visual 2]]\n\n[[visual 3]]\n\nA single-threaded Node.js server is highly concurrent and not parallel at all. Most work is one of two kinds:\n\n[[visual 4]]",
+        "visual": [
+          {
+            "type": "compare",
+            "items": [
+              {
+                "title": "Process",
+                "points": [
+                  "A running program with its own private memory: variables, heap, open files",
+                  "Isolated: one crashed browser tab leaves the others alone",
+                  "Talks through pipes, sockets and files",
+                  "Relatively expensive to start"
+                ]
+              },
+              {
+                "title": "Thread",
+                "points": ["A path of execution inside a process", "Shares the process's memory with its siblings: power and danger", "Has its own call stack", "Much cheaper to create"]
+              }
+            ]
+          },
+          {
+            "type": "cells",
+            "style": "array",
+            "title": "One core: concurrency",
+            "rows": [
+              {
+                "label": "core 1",
+                "cells": ["A", "A", "B", "B", "C", "C", "A", "B", "C"],
+                "tones": {
+                  "0": "accent",
+                  "1": "accent",
+                  "2": "good",
+                  "3": "good",
+                  "4": "warn",
+                  "5": "warn",
+                  "6": "accent",
+                  "7": "good",
+                  "8": "warn"
+                }
+              }
+            ],
+            "caption": "All three tasks progress, one at a time (time slicing)."
+          },
+          {
+            "type": "cells",
+            "style": "array",
+            "title": "Three cores: parallelism",
+            "rows": [
+              {
+                "label": "core 1",
+                "cells": ["A", "A", "A", "A", "A", "A"],
+                "tones": { "0": "accent", "1": "accent", "2": "accent", "3": "accent", "4": "accent", "5": "accent" }
+              },
+              {
+                "label": "core 2",
+                "cells": ["B", "B", "B", "B", "B", "B"],
+                "tones": { "0": "good", "1": "good", "2": "good", "3": "good", "4": "good", "5": "good" }
+              },
+              {
+                "label": "core 3",
+                "cells": ["C", "C", "C", "C", "C", "C"],
+                "tones": { "0": "warn", "1": "warn", "2": "warn", "3": "warn", "4": "warn", "5": "warn" }
+              }
+            ]
+          },
+          {
+            "type": "compare",
+            "items": [
+              {
+                "title": "I/O-bound",
+                "tone": "accent",
+                "points": ["Mostly waiting on networks, disks or databases", "Concurrency helps a lot, even on one core: while one task waits, another runs"]
+              },
+              {
+                "title": "CPU-bound",
+                "points": ["Keeps a core busy: resizing images, compression, number crunching", "Only parallelism across cores makes it faster"]
+              }
+            ]
+          }
+        ],
+        "tip": "When someone says \"make it faster with threads\", ask first: is it waiting on I/O or burning CPU? The answer decides the tool.",
+        "pitfall": "Using \"concurrent\" and \"parallel\" as synonyms. A single-threaded Node.js server is highly concurrent and not parallel at all.",
         "activity": {
           "type": "cpu-scheduling",
           "title": "Concurrency on one CPU",
           "prompt": "Run the same processes under first-come first-served and round robin. Round robin is concurrency on a single CPU: no two processes ever run at the same instant, yet every process starts making progress early. Watch the Gantt chart interleave, then compare the average waiting times.",
           "props": {
-            "algorithms": [
-              "fcfs",
-              "rr"
-            ],
+            "algorithms": ["fcfs", "rr"],
             "quantum": 2
           }
         },
@@ -66,10 +129,45 @@
       },
       {
         "title": "Race conditions: the lost increment",
-        "body": "Here is a bug that passes every test on your laptop and corrupts data in production. A page-view counter is shared by several threads, and each one adds to it. Four threads each add 1,000. You expect 4,000. You get 1,004.\n\nThe reason: `counter += 1` looks like one step but is really three: **read** the current value, **add** 1, **write** the result back. If a thread is paused between its read and its write, and another thread runs in that gap, an update is lost. The trace at the bottom of the example shows it: both threads read 41, both write 42, and two increments produced one.\n\nThis is a **race condition**: the result depends on the unpredictable timing of threads. The stretch of code that touches shared state and must not be interleaved is the **critical section**.\n\nThe example widens the gap on purpose with `time.sleep(0)`, which hands control to another thread, so the bug shows up on every run. With a plain `counter += 1` the gap is tiny, so the bug appears rarely, which is worse: it slips through tests and appears under production load. (Recent CPython versions switch threads less often in the middle of such a loop, so the plain version may even look correct on your machine. It is still a race.)\n\nRaces are not only about counters. The same read-then-act shape appears everywhere:\n\n- **Check-then-act**: `if balance >= amount: balance -= amount`. Two withdrawals both pass the check before either subtracts, and the balance goes negative.\n- **Lazy initialization**: `if cache is None: cache = build()`. Two threads both build.\n- **Read-modify-write on a database row** in application code: the lost update from the databases lesson.\n\nThe cure is to make the read and the write happen as one indivisible unit. That is exactly what locks and atomic operations provide.",
-        "code": "import threading, time\n\ncounter = 0\n\ndef work():\n    global counter\n    for _ in range(1000):\n        current = counter        # 1. read\n        time.sleep(0)            # let another thread run (widens the gap)\n        counter = current + 1    # 2. write\n\nthreads = [threading.Thread(target=work) for _ in range(4)]\nfor t in threads:\n    t.start()\nfor t in threads:\n    t.join()\nprint(counter)                   # expected 4000; prints something like 1004\n\n# One lost update, step by step (counter starts at 41):\n#   Thread A: read 41\n#   Thread B: read 41\n#   Thread A: write 42\n#   Thread B: write 42    <- B never saw A's write, so one increment is lost",
+        "key": "`counter += 1` is a read, an add and a write; if another thread runs between the read and the write, an update is lost. That is a race condition.",
+        "body": "Four threads each add 1,000 to a shared page-view counter. You expect 4,000 and get 1,004. `counter += 1` is really three steps: **read**, **add**, **write**. If a thread pauses between its read and its write while another runs, an update is lost:\n\n[[visual]]\n\nThat is a **race condition**: the result depends on thread timing. Code that touches shared state and must not interleave is a **critical section**.\n\nThe example widens the gap with `time.sleep(0)` so the bug shows every run. With a plain `counter += 1` the gap is tiny and the bug is rare, which is worse: it passes tests and appears under production load.\n\n[[code]]\n\nThe same read-then-act shape appears everywhere:\n\n[[visual 2]]",
+        "visual": [
+          {
+            "type": "sequence",
+            "title": "One lost update, counter starts at 41",
+            "actors": [
+              { "id": "a", "label": "Thread A" },
+              { "id": "c", "label": "counter" },
+              { "id": "b", "label": "Thread B" }
+            ],
+            "messages": [
+              { "from": "c", "to": "a", "label": "read 41" },
+              { "from": "c", "to": "b", "label": "read 41" },
+              { "from": "a", "to": "c", "label": "write 42" },
+              { "from": "b", "to": "c", "label": "write 42", "tone": "bad" },
+              {
+                "note": "B never saw A's write: two increments, one lost",
+                "over": ["a", "c", "b"]
+              }
+            ]
+          },
+          {
+            "type": "table",
+            "title": "Race shapes",
+            "columns": ["Shape", "Example", "What goes wrong"],
+            "rows": [
+              ["Read-modify-write", "`counter += 1`", "both read the old value, one write is lost"],
+              ["**Check-then-act**", "`if balance >= amount: balance -= amount`", "two withdrawals pass the check before either subtracts; the balance goes negative"],
+              ["Lazy initialization", "`if cache is None: cache = build()`", "two threads both build"],
+              ["A database row in app code", "read a row, change it, write it back", "the lost update from the databases lesson"]
+            ],
+            "caption": "The cure: make the read and the write one indivisible unit, with a lock or an atomic operation."
+          }
+        ],
+        "code": "import threading, time\n\ncounter = 0\n\ndef work():\n    global counter\n    for _ in range(1000):\n        current = counter    # 1. read\n        time.sleep(0)        # others run\n        counter = current + 1  # 2. write\n\nthreads = [threading.Thread(target=work)\n           for _ in range(4)]\nfor t in threads:\n    t.start()\nfor t in threads:\n    t.join()\nprint(counter)  # not 4000: about 1004",
         "language": "python",
-        "tip": "If two threads can touch the same variable and at least one of them writes it, you need synchronization. No exceptions for 'it's just a counter'.",
+        "deeper": "Recent CPython versions switch threads less often in the middle of a tight loop, so a plain `counter += 1` race may look correct on your machine for a long time. It is still a race: a busier machine, a different Python version or the free-threaded build can expose it. The only proof of safety is synchronization, never a passing test run.",
+        "tip": "If two threads can touch the same variable and at least one of them writes it, you need synchronization. No exceptions for \"it's just a counter\".",
         "pitfall": "Concluding there is no race because the tests pass. Races depend on timing, so they hide on an idle laptop and appear under load.",
         "check": {
           "question": "Two threads each run `counter += 1` once. How can counter end up increased by only 1?",
@@ -85,9 +183,39 @@
       },
       {
         "title": "Locks and atomic operations",
-        "body": "The counter needs one rule: only one thread at a time may run the read, add and write. A **lock** (also called a mutex, for mutual exclusion) enforces exactly that. A thread **acquires** the lock before the critical section and **releases** it afterward. Any other thread that tries to acquire it in the meantime waits.\n\nIn Python, use the lock as a context manager. `with lock:` acquires it and guarantees release when the block ends, even if an exception is raised. Calling `acquire()` without a matching `release()` in a `finally` is how one exception leaves a lock held forever, with every other thread stuck behind it.\n\nRules for using locks well:\n\n- **Guard every access.** A lock only works if every thread that reads or writes the shared data takes it. One unguarded read can still see a half-finished update.\n- **Share the same lock.** Each thread must use the same lock object. A lock created inside the function protects nothing, because every call gets its own.\n- **Keep critical sections short.** Hold the lock while touching shared state, then let go. Never hold it during slow work such as a network call, a database query or a sleep, or every other thread waits on you.\n- **Coarse or fine-grained.** One big lock for everything is simple and safe but makes threads take turns. A lock per account or per bucket allows more parallelism, but brings more chances for deadlock (next section).\n\nAn **atomic operation** completes as one indivisible step, so no lock is needed. CPUs provide atomic instructions such as **compare-and-swap** (CAS): \"set this memory to 43, but only if it still holds 42\", which reports whether it worked so the caller can retry. Languages expose these as atomic types: `AtomicInteger.incrementAndGet()` in Java, the `sync/atomic` package in Go, `Atomics.add` on shared memory in JavaScript. They are faster than locks for single variables, but each covers one variable. Keeping two related values in step still needs a lock or a transaction.\n\nPython's standard library has no atomic integer, so use a `Lock`, or better, avoid shared mutable state: give each thread its own result and combine them at the end, or pass work through a thread-safe `queue.Queue`. When the shared state lives in a database, let the database be atomic for you: `UPDATE counters SET n = n + 1 WHERE id = 1` is one atomic statement.",
-        "code": "import threading\n\ncounter = 0\nlock = threading.Lock()          # one lock, shared by every thread\n\ndef work():\n    global counter\n    for _ in range(100_000):\n        with lock:               # acquire; released automatically, even on error\n            counter += 1         # critical section: read, add, write as one unit\n\nthreads = [threading.Thread(target=work) for _ in range(4)]\nfor t in threads:\n    t.start()\nfor t in threads:\n    t.join()\nprint(counter)                   # always 400000\n\n# Even simpler: no shared state. Each worker returns its own count,\n# and the main thread adds them up, so no lock is needed at all.",
+        "key": "A lock lets only one thread at a time run the critical section; an atomic operation such as compare-and-swap updates a single value safely without one.",
+        "body": "A **lock** (or **mutex**, for mutual exclusion) enforces one thread at a time: **acquire** it before the critical section, **release** it after, and any other thread trying to acquire it waits. In Python, `with lock:` guarantees release even if an exception is raised.\n\n[[code]]\n\n[[visual]]\n\nAn **atomic operation** completes as one indivisible step. The CPU's **compare-and-swap** (CAS) is the building block:\n\n[[visual 2]]\n\nLanguages expose atomics: Java's `AtomicInteger.incrementAndGet()`, Go's `sync/atomic`, JavaScript's `Atomics.add`. Each covers one variable; two related values still need a lock or a transaction. Python has no atomic integer, so use a `Lock`, give each thread its own result, or pass work through `queue.Queue`.",
+        "visual": [
+          {
+            "type": "table",
+            "title": "Using locks well",
+            "columns": ["Rule", "Why"],
+            "rows": [
+              ["Guard every access", "one unguarded read can see a half-finished update"],
+              ["Share the same lock", "a lock created inside the function is new on every call and protects nothing"],
+              ["Keep critical sections short", "never hold a lock during a network call, query or sleep: every other thread waits"],
+              ["Choose coarse or fine", "one big lock is simple but serializes threads; a lock per account allows more parallelism but risks deadlock"],
+              ["Release in all cases", "`acquire()` without `release()` in a `finally` leaves the lock held forever after one exception"]
+            ]
+          },
+          {
+            "type": "flow",
+            "title": "A lock-free increment with CAS",
+            "steps": [
+              { "label": "Read the current value", "detail": "say 42" },
+              { "label": "Compute the new value", "detail": "43" },
+              {
+                "label": "CAS: set it to 43 only if it still holds 42",
+                "yes": "Done",
+                "no": "Someone changed it: read again and retry",
+                "tone": "accent"
+              }
+            ]
+          }
+        ],
+        "code": "import threading\n\ncounter = 0\nlock = threading.Lock()  # one, shared\n\ndef work():\n    global counter\n    for _ in range(100_000):\n        with lock:  # released even on error\n            counter += 1\n# 4 threads of work() always give 400000",
         "language": "python",
+        "deeper": "When the shared state lives in a database, let the database be atomic for you: `UPDATE counters SET n = n + 1 WHERE id = 1` is one atomic statement, while reading the row into Python, adding 1 and writing it back is the same lost-update race as the threaded counter. The safest shared state is none at all: give each worker its own data and merge the results at the end.",
         "tip": "The safest shared state is no shared state. Prefer giving each worker its own data and merging results, or passing messages through a queue.",
         "pitfall": "Holding a lock while making a network call or a database query. Every other thread stalls behind one slow request.",
         "check": {
@@ -104,11 +232,48 @@
       },
       {
         "title": "Deadlock and its four conditions",
-        "body": "A banking service moves money between accounts and locks both accounts during each transfer. It runs fine for weeks. Then one afternoon two requests hang forever, and every request touching those accounts piles up behind them. Thread 1 is transferring from A to B: it holds A's lock and waits for B's. Thread 2 is transferring from B to A: it holds B's lock and waits for A's. Neither can ever continue. That is a **deadlock**.\n\nA deadlock can only happen when all four of these conditions hold at once (the Coffman conditions):\n\n1. **Mutual exclusion**: a resource can be held by only one thread at a time, which is what a lock is.\n2. **Hold and wait**: a thread holds one resource while waiting for another.\n3. **No preemption**: a resource cannot be taken away; the holder must release it.\n4. **Circular wait**: there is a cycle of threads, each waiting for a resource the next one holds.\n\nBreak any one and deadlock becomes impossible. In practice:\n\n- **Lock ordering** breaks circular wait, and it is the fix to reach for first. Pick a global order, such as always locking the account with the smaller id first, and make every code path follow it. Both transfers then try to lock A first, so one of them waits before it holds anything.\n- **All or nothing**: try to take every lock you need, and if one is busy, release what you hold and retry. This breaks hold and wait.\n- **Timeouts**: `lock.acquire(timeout=1)` lets a thread give up, release its locks and retry later, turning a permanent hang into a recoverable error. Add a random backoff so the threads do not collide again in lockstep.\n- **Fewer locks**: one coarser lock, or no shared state at all, removes the problem entirely.\n\nDatabases face the same issue with row locks. They detect the cycle and abort one transaction with a deadlock error, which your code should catch and retry.\n\nTwo related terms you may be asked about: **livelock**, where threads keep reacting to each other and retrying, busy but making no progress; and **starvation**, where one thread never gets the resource because others keep winning it.",
-        "code": "# Deadlock-prone: the lock order depends on the direction of the transfer\ndef transfer(src, dst, amount):\n    with src.lock:\n        with dst.lock:\n            src.balance -= amount\n            dst.balance += amount\n\n# Thread 1: transfer(A, B, 10)   holds A, waits for B\n# Thread 2: transfer(B, A, 5)    holds B, waits for A    -> a cycle: deadlock\n\n# Fixed: always lock in one global order (smaller id first)\ndef transfer(src, dst, amount):\n    first, second = (src, dst) if src.id < dst.id else (dst, src)\n    with first.lock:\n        with second.lock:\n            src.balance -= amount\n            dst.balance += amount",
+        "key": "Deadlock needs all four Coffman conditions at once; break any one and it cannot happen. A single global lock order, which breaks circular wait, is the first fix.",
+        "body": "A banking service locks both accounts during each transfer. It runs for weeks, then two requests hang forever:\n\n[[visual]]\n\nThat is a **deadlock**. It can happen only when all four **Coffman conditions** hold:\n\n[[visual 2]]\n\n[[code]]\n\nDatabases face the same issue with row locks: they detect the cycle and abort one transaction with a deadlock error, which your code should catch and retry.\n\nRelated terms: **livelock**, where threads keep reacting to each other and retrying without progress, and **starvation**, where one thread never wins the resource.",
+        "visual": [
+          {
+            "type": "sequence",
+            "actors": [
+              { "id": "t1", "label": "Thread 1" },
+              { "id": "a", "label": "Account A" },
+              { "id": "b", "label": "Account B" },
+              { "id": "t2", "label": "Thread 2" }
+            ],
+            "messages": [
+              {
+                "note": "Thread 1 moves A to B; Thread 2 moves B to A",
+                "over": ["t1", "a", "b", "t2"]
+              },
+              { "from": "t1", "to": "a", "label": "lock: got it", "tone": "good" },
+              { "from": "t2", "to": "b", "label": "lock: got it", "tone": "good" },
+              { "from": "t1", "to": "b", "label": "lock: waits", "tone": "bad" },
+              { "from": "t2", "to": "a", "label": "lock: waits", "tone": "bad" },
+              {
+                "note": "Each holds what the other needs: neither can ever continue",
+                "over": ["t1", "a", "b", "t2"]
+              }
+            ]
+          },
+          {
+            "type": "table",
+            "columns": ["Condition", "Break it with"],
+            "rows": [
+              ["Mutual exclusion: one holder at a time (a lock)", "fewer locks, or no shared state"],
+              ["Hold and wait: holds one, waits for another", "all or nothing: take every lock, or release and retry"],
+              ["No preemption: nobody can take it away", "timeouts: `lock.acquire(timeout=1)`, then release and retry with random backoff"],
+              ["Circular wait: a cycle of waiting threads", "**lock ordering**: for example, always lock the smaller account id first"]
+            ],
+            "highlight": [3]
+          }
+        ],
+        "code": "# Deadlock-prone: order depends on direction\ndef transfer(src, dst, amount):\n    with src.lock:\n        with dst.lock:\n            src.balance -= amount\n            dst.balance += amount\n\n# Fixed: one global order, smaller id first\ndef transfer(src, dst, amount):\n    first, second = sorted(\n        [src, dst], key=lambda a: a.id)\n    with first.lock:\n        with second.lock:\n            src.balance -= amount\n            dst.balance += amount",
         "language": "python",
-        "tip": "When you see nested locks in a code review, ask 'is the order the same everywhere?' That one question prevents most deadlocks.",
-        "pitfall": "'Fixing' a deadlock with sleeps or retries without breaking one of the four conditions. The hang becomes rarer and much harder to reproduce.",
+        "tip": "When you see nested locks in a code review, ask \"is the order the same everywhere?\" That one question prevents most deadlocks.",
+        "pitfall": "\"Fixing\" a deadlock with sleeps or retries without breaking one of the four conditions. The hang becomes rarer and much harder to reproduce.",
         "check": {
           "question": "Which change prevents the transfer deadlock by breaking the circular-wait condition?",
           "choices": [
@@ -123,10 +288,59 @@
       },
       {
         "title": "The JavaScript event loop",
-        "body": "JavaScript runs your code on a single thread, yet a Node.js server handles thousands of connections, and a web page stays responsive while it fetches data. The trick is the **event loop**, and interviewers test it with predict-the-output puzzles. The parts:\n\n- The **call stack** runs synchronous code: the main script and the functions it calls. Nothing else happens until the stack is empty.\n- Slow operations (timers, network requests, file reads) are handed to the browser or Node, which does the waiting off the main thread. When one completes, its callback is queued.\n- The **task queue** (also called the macrotask or callback queue) holds callbacks from `setTimeout`, `setInterval`, I/O and UI events.\n- The **microtask queue** holds promise callbacks (`.then`, `.catch`, `.finally`, and the code after an `await`) and `queueMicrotask` callbacks.\n\nThe loop's rule:\n\n1. Run the current script until the call stack is empty.\n2. Run **every** microtask, including microtasks queued by other microtasks, until that queue is empty.\n3. Take **one** task from the task queue, run it, then go back to step 2.\n\nSo promise callbacks always run before the next `setTimeout` callback, even one with a delay of 0. `setTimeout(fn, 0)` does not mean \"now\". It means \"as a new task, after the current script and every pending microtask\".\n\nTrace the example. `1` and `7` print first because they are synchronous. The stack is now empty, so microtasks run in the order they were queued: the first `.then` prints `3` and schedules timeout `4`; the `queueMicrotask` callback prints `6`; finishing the first `.then` queued the second one, which prints `5`. Only then do tasks run: `2`, which was queued first, then `4`. Output: `1 7 3 6 5 2 4`.\n\nOne consequence matters at work every day: because everything shares one thread, a long synchronous loop **blocks the event loop**. No timers fire, no requests are answered, and the page cannot repaint until it finishes. Move CPU-heavy work off the main thread (a Web Worker in the browser, a worker thread or a separate service in Node) or split it into chunks.",
-        "code": "console.log('1')\n\nsetTimeout(() => console.log('2'), 0)\n\nPromise.resolve()\n  .then(() => {\n    console.log('3')\n    setTimeout(() => console.log('4'), 0)\n  })\n  .then(() => console.log('5'))\n\nqueueMicrotask(() => console.log('6'))\n\nconsole.log('7')\n\n// Output: 1 7 3 6 5 2 4",
+        "key": "The event loop runs the script to completion, then every microtask (promise callbacks), then one task (such as a setTimeout callback), draining microtasks again after each task.",
+        "body": "JavaScript runs your code on one thread, yet Node.js serves thousands of connections. The **call stack** runs synchronous code; slow work (timers, network, files) is handed to the browser or Node, and its callback is queued when it completes. There are two queues:\n\n[[visual]]\n\n[[visual 2]]\n\nSo promise callbacks always run before the next `setTimeout` callback, even one with a 0 ms delay. `setTimeout(fn, 0)` means \"as a new task, after the script and every pending microtask\", not \"now\".\n\n[[code]]\n\n[[visual 3]]\n\nOne thread also means a long synchronous loop **blocks the event loop**: no timers fire, no requests are answered, the page cannot repaint. Move heavy work to a Web Worker or worker thread, or split it into chunks.",
+        "visual": [
+          {
+            "type": "compare",
+            "items": [
+              {
+                "title": "Microtask queue",
+                "tone": "accent",
+                "points": ["Promise callbacks: `.then`, `.catch`, `.finally`", "The code after an `await`", "`queueMicrotask` callbacks"]
+              },
+              {
+                "title": "Task queue",
+                "sub": "also macrotask or callback queue",
+                "points": ["`setTimeout` and `setInterval` callbacks", "I/O callbacks", "UI events"]
+              }
+            ]
+          },
+          {
+            "type": "flow",
+            "title": "The loop's rule",
+            "steps": [
+              { "label": "Run the script until the call stack is empty" },
+              {
+                "label": "Run every microtask",
+                "detail": "including microtasks queued by other microtasks, until the queue is empty",
+                "tone": "accent"
+              },
+              { "label": "Take one task from the task queue and run it" }
+            ],
+            "loop": "Back to the microtasks after every task"
+          },
+          {
+            "type": "steps",
+            "title": "Tracing the example",
+            "steps": [
+              {
+                "label": "Synchronous code prints, then the stack is empty",
+                "work": "prints 1 7\ntasks: 2   micro: then-3, 6"
+              },
+              {
+                "label": "The first .then prints 3, queues task 4 and the next .then",
+                "work": "prints 3\ntasks: 2, 4   micro: 6, then-5"
+              },
+              { "label": "Drain the remaining microtasks", "work": "prints 6, then 5" },
+              { "label": "Now tasks, one at a time, in queue order", "work": "prints 2, then 4" }
+            ],
+            "result": "`1 7 3 6 5 2 4`"
+          }
+        ],
+        "code": "console.log('1')\n\nsetTimeout(() => console.log('2'), 0)\n\nPromise.resolve()\n  .then(() => {\n    console.log('3')\n    setTimeout(() => console.log('4'), 0)\n  })\n  .then(() => console.log('5'))\n\nqueueMicrotask(() => console.log('6'))\n\nconsole.log('7')",
         "language": "javascript",
-        "tip": "For any ordering puzzle, keep three columns on paper: synchronous output, microtask queue, task queue. Fill them as you read the code, then drain them in that order.",
+        "tip": "For any ordering puzzle, keep three columns on paper: synchronous output, microtask queue, task queue. Fill them as you read, then drain them in that order.",
         "pitfall": "Believing `setTimeout(fn, 0)` runs immediately, or before promise callbacks. It waits for the current script and every queued microtask.",
         "activity": {
           "type": "code-runner",
@@ -153,8 +367,46 @@
       },
       {
         "title": "async/await in JavaScript",
-        "body": "A dashboard loads the user, their orders and their notifications from three endpoints, each taking about 300 ms. The page takes 900 ms to load. A small change brings it down to 300 ms. Seeing why is seeing how `async` and `await` work.\n\n`async`/`await` is syntax on top of promises:\n\n- An `async` function always returns a promise.\n- `await somePromise` pauses that function, not the program. The rest of the function is scheduled as a microtask for when the promise settles, and the event loop is free to do other work meanwhile.\n- An async function runs synchronously until its first `await`. That is why, at the bottom of the example, `B` prints before `C`.\n\n**Sequential or concurrent.** Awaiting one call after another makes them run one at a time. If the calls do not depend on each other, start them all, then await them together with `Promise.all`, as in `loadDashboard`.\n\nThe combinators worth knowing:\n\n- `Promise.all([...])` resolves with every result, in order, but rejects as soon as **any** promise rejects. (The other operations keep running; their results are just ignored.)\n- `Promise.allSettled([...])` waits for everything and gives you `{ status, value }` or `{ status, reason }` for each. Use it when partial results are fine, such as rendering the widgets that loaded.\n- `Promise.race` settles with whichever promise settles first, handy for timeouts. `Promise.any` resolves with the first success.\n\nClassic mistakes:\n\n- `items.forEach(async (item) => { await save(item) })` does not wait. forEach ignores the promises its callback returns, so the code after it runs before any save finishes, and failures become unhandled rejections. Use `for (const item of items) { await save(item) }` for one at a time, or `await Promise.all(items.map(save))` for all at once.\n- Forgetting `await`: `const user = getUser()` holds a pending promise, so `user.name` is `undefined`.\n- Unbounded concurrency: `Promise.all` over 10,000 URLs fires 10,000 requests at once. Work in batches or use a small concurrency limiter.",
-        "code": "// Sequential: about 900 ms, each await waits for the previous call\nasync function loadDashboardSlow(id) {\n  const user = await getUser(id)\n  const orders = await getOrders(id)\n  const notes = await getNotifications(id)\n  return { user, orders, notes }\n}\n\n// Concurrent: about 300 ms, all three requests are in flight together\nasync function loadDashboard(id) {\n  const [user, orders, notes] = await Promise.all([\n    getUser(id),\n    getOrders(id),\n    getNotifications(id)\n  ])\n  return { user, orders, notes }\n}\n\n// Ordering inside an async function\nasync function f() {\n  console.log('B')     // runs synchronously, as part of the call\n  await null\n  console.log('D')     // resumes later, as a microtask\n}\nconsole.log('A')\nf()\nconsole.log('C')\n// Output: A B C D",
+        "key": "An async function runs synchronously until its first await, then resumes later as a microtask; start independent calls together and await them with Promise.all.",
+        "body": "A dashboard loads three endpoints of about 300 ms each and takes 900 ms. A small change makes it 300 ms. `async`/`await` is syntax on promises:\n\n- An `async` function always returns a promise.\n- `await` pauses that function, not the program; the rest resumes as a microtask when the promise settles.\n- An async function runs synchronously until its first `await`, so below, `B` prints before `C`.\n\n[[code]]\n\n[[visual]]\n\n[[visual 2]]\n\n[[visual 3]]",
+        "visual": [
+          {
+            "type": "bars",
+            "title": "Three independent 300 ms calls",
+            "unit": " ms",
+            "items": [
+              { "label": "Awaited one after another", "value": 900, "tone": "bad" },
+              { "label": "Started together, `Promise.all`", "value": 300, "tone": "good" }
+            ],
+            "caption": "Concurrent calls take about as long as the slowest one, not the sum."
+          },
+          {
+            "type": "table",
+            "title": "Combinators",
+            "columns": ["Call", "Settles with"],
+            "rows": [
+              ["`Promise.all([...])`", "every result in order, or rejects as soon as any rejects (the others keep running, ignored)"],
+              ["`Promise.allSettled([...])`", "`{ status, value }` or `{ status, reason }` for each: use when partial results are fine"],
+              ["`Promise.race([...])`", "whichever settles first, handy for timeouts"],
+              ["`Promise.any([...])`", "the first success"]
+            ]
+          },
+          {
+            "type": "table",
+            "title": "Classic mistakes",
+            "columns": ["Mistake", "Fix"],
+            "rows": [
+              [
+                "`items.forEach(async (i) => { await save(i) })`: forEach ignores the promises, so nothing waits and failures go unhandled",
+                "`for (const i of items) await save(i)`, or `await Promise.all(items.map(save))`"
+              ],
+              ["Awaiting independent calls one by one in a loop", "start them all, then `await Promise.all(...)`"],
+              ["Forgetting `await`: `const user = getUser()` is a pending promise, so `user.name` is undefined", "add `await`"],
+              ["`Promise.all` over 10,000 URLs fires 10,000 requests at once", "work in batches or use a concurrency limiter"]
+            ]
+          }
+        ],
+        "code": "async function loadDashboard(id) {\n  // all three requests in flight together\n  const [user, orders, notes] =\n    await Promise.all([\n      getUser(id),\n      getOrders(id),\n      getNotifications(id),\n    ])\n  return { user, orders, notes }\n}\n\nasync function f() {\n  console.log('B')  // synchronous\n  await null\n  console.log('D')  // later: a microtask\n}\nconsole.log('A')\nf()\nconsole.log('C')\n// A B C D",
         "language": "javascript",
         "tip": "Before writing two awaits in a row, ask: does the second call need the first one's result? If not, start both and await them together.",
         "pitfall": "Calling `forEach` with an async callback and expecting it to wait. It fires every callback and moves on immediately.",
@@ -170,20 +422,41 @@
         },
         "check": {
           "question": "Three independent API calls take about 300 ms each. Roughly how long does `await Promise.all([a(), b(), c()])` take?",
-          "choices": [
-            "About 100 ms",
-            "About 900 ms",
-            "About 300 ms",
-            "About 1,200 ms"
-          ],
+          "choices": ["About 100 ms", "About 900 ms", "About 300 ms", "About 1,200 ms"],
           "answer": 2,
           "explanation": "All three requests are in flight at the same time, so the total is about as long as the slowest one, not the sum. Awaiting them one by one would take about 900 ms."
         }
       },
       {
         "title": "asyncio in Python",
-        "body": "A Python script checks the status of 200 URLs one after another at about half a second each: almost two minutes, nearly all of it spent waiting on the network. Python's tool for this kind of I/O-bound work is `asyncio`, the same event-loop idea as JavaScript.\n\nThe pieces:\n\n- `async def` defines a **coroutine function**. Calling it does not run it; it returns a coroutine object that must be awaited or scheduled.\n- `await` pauses the coroutine until the awaited operation finishes and hands control back to the event loop, which runs other coroutines meanwhile.\n- `asyncio.run(main())` starts the event loop, runs `main` to completion and closes the loop. Call it once, at the top of the program.\n- `asyncio.gather(...)` runs several coroutines concurrently and returns their results in order. `asyncio.create_task(coro)` starts one in the background right away.\n- `await asyncio.sleep(1)` waits without blocking: the loop runs other coroutines during that second.\n\nThe rule that bites everyone: **never block the event loop.** One thread runs all your coroutines. A `time.sleep(1)`, a `requests.get(...)` or a CPU-heavy loop inside an `async def` freezes every other coroutine until it returns. Use async libraries instead (`asyncio.sleep`; `httpx.AsyncClient` or `aiohttp` instead of `requests`; `asyncpg` for PostgreSQL), and push unavoidable blocking calls onto a thread with `await asyncio.to_thread(blocking_fn, arg)`.\n\nLimit concurrency against real services, too. Gathering 10,000 requests at once can exhaust sockets or trip rate limits; an `asyncio.Semaphore(20)` lets only 20 run at a time.\n\nChoose asyncio for many concurrent network operations: API fan-out, websockets, chat servers, scrapers. It does nothing for CPU-bound work, which still runs on one thread. That needs processes, covered next.",
-        "code": "import asyncio\nimport time\n\nasync def check(url):\n    await asyncio.sleep(1)            # stands in for a network call\n    return f\"{url}: ok\"\n\nasync def main():\n    start = time.perf_counter()\n    results = await asyncio.gather(\n        check(\"https://a.example\"),\n        check(\"https://b.example\"),\n        check(\"https://c.example\"),\n    )\n    print(results)\n    print(f\"took {time.perf_counter() - start:.1f}s\")   # about 1.0s, not 3.0s\n\nasyncio.run(main())\n\n# Blocking mistake: time.sleep(1) inside check() would freeze the loop,\n# and the three checks would take about 3 seconds.",
+        "key": "asyncio runs coroutines on one thread's event loop: await hands control back so others can run, and any blocking call inside async code freezes them all.",
+        "body": "A script checks 200 URLs one after another at half a second each: almost two minutes, nearly all of it waiting. Python's tool for I/O-bound work is `asyncio`, the same event-loop idea as JavaScript:\n\n[[visual]]\n\n[[code]]\n\n**Never block the event loop.** One thread runs every coroutine, so `time.sleep(1)`, `requests.get(...)` or a heavy loop inside `async def` freezes them all:\n\n[[visual 2]]\n\nLimit concurrency against real services too: an `asyncio.Semaphore(20)` lets only 20 requests run at a time. asyncio suits API fan-out, websockets, chat servers and scrapers, not CPU-bound work.",
+        "visual": [
+          {
+            "type": "table",
+            "columns": ["Piece", "What it does"],
+            "rows": [
+              ["`async def`", "defines a **coroutine function**; calling it only creates a coroutine object, which must be awaited or scheduled"],
+              ["`await`", "pauses this coroutine and hands control to the event loop, which runs others"],
+              ["`asyncio.run(main())`", "starts the loop, runs `main`, closes the loop; call it once, at the top"],
+              ["`asyncio.gather(...)`", "runs coroutines concurrently and returns results in order"],
+              ["`asyncio.create_task(coro)`", "starts one in the background right away"],
+              ["`await asyncio.sleep(1)`", "waits without blocking: the loop runs other coroutines meanwhile"]
+            ]
+          },
+          {
+            "type": "table",
+            "title": "Blocking call, async replacement",
+            "columns": ["Instead of", "Use"],
+            "rows": [
+              ["`time.sleep(1)`", "`await asyncio.sleep(1)`"],
+              ["`requests.get(url)`", "`httpx.AsyncClient` or `aiohttp`"],
+              ["a synchronous PostgreSQL driver", "`asyncpg`"],
+              ["an unavoidable blocking call", "`await asyncio.to_thread(fn, arg)`"]
+            ]
+          }
+        ],
+        "code": "import asyncio, time\n\nasync def check(url):\n    await asyncio.sleep(1)  # the network\n    return f\"{url}: ok\"\n\nasync def main():\n    start = time.perf_counter()\n    results = await asyncio.gather(\n        check(\"a\"), check(\"b\"), check(\"c\"))\n    took = time.perf_counter() - start\n    print(results, f\"{took:.1f}s\")  # 1.0s\n\nasyncio.run(main())\n# time.sleep(1) in check() would freeze\n# the loop: about 3 seconds instead",
         "language": "python",
         "tip": "An async function that calls a library without async support is probably blocking the loop. Look for requests, time.sleep and heavy loops.",
         "pitfall": "Calling a coroutine function without await, as in `check(url)`. Nothing runs: Python creates a coroutine object and warns that it was never awaited.",
@@ -201,9 +474,41 @@
       },
       {
         "title": "The GIL, multiprocessing and thread pools",
-        "body": "You parallelize an image-resizing script with 8 threads on an 8-core machine, and it gets no faster. You parallelize a script that downloads 200 files with 8 threads, and it gets about 8 times faster. Same language, same threads, opposite results. The reason is the **GIL**.\n\nCPython, the standard Python, has a **Global Interpreter Lock**: within one process, only one thread executes Python bytecode at a time. In practice:\n\n- **I/O-bound threads work well.** A thread waiting on a socket, a file or a sleep releases the GIL, so other threads run. Downloads, database calls and API requests speed up nicely with threads.\n- **CPU-bound threads do not speed up.** Pure-Python number crunching holds the GIL, so 8 threads take turns on what is effectively one core.\n- **Some libraries release the GIL** while they work in C (NumPy on large arrays, hashing, compression), so they can use several cores from threads.\n- **For CPU-bound Python, use processes**: `multiprocessing` or `ProcessPoolExecutor`. Each process has its own interpreter and its own GIL, so they really run in parallel. The costs: slower startup, and data passed between processes is pickled and copied.\n- Since Python 3.13 there is an optional **free-threaded** build without the GIL. It is opt-in, the default build most people run still has the GIL, and removing it does not remove the need for locks. If anything, races become easier to hit.\n\nThe GIL does **not** make your code thread-safe. It protects the interpreter's internals, not your read-modify-write sequences, which is why the counter race happened.\n\n**Thread pools.** Creating a thread per task is wasteful, and creating 10,000 threads at once can exhaust memory or hammer a server. A **pool** keeps a fixed number of workers and feeds them tasks from a queue. `pool.map(fn, items)` runs `fn` on every item and yields results in input order. `pool.submit(fn, item)` returns a **Future**, and `as_completed(futures)` yields futures as they finish, which is handy for progress bars and per-task errors (`future.result()` re-raises the task's exception). Leaving the `with` block waits for all work to finish.\n\nSizing rules of thumb: for CPU-bound work, about one worker per core (`os.cpu_count()`). For I/O-bound work, more workers than cores, since most of them are waiting, but stay within what the remote service and your connection limits allow. `ThreadPoolExecutor` defaults to `min(32, os.cpu_count() + 4)` workers. The same pattern shows up everywhere: Java's `ExecutorService`, database connection pools, and the worker pools behind job queues.",
-        "code": "from concurrent.futures import ThreadPoolExecutor, ProcessPoolExecutor, as_completed\nimport requests\n\ndef download(url):\n    r = requests.get(url, timeout=10)     # waiting on the network releases the GIL\n    r.raise_for_status()\n    return url, len(r.content)\n\ndef make_thumbnail(path):\n    ...                                   # pure-Python pixel work: CPU-bound\n\ndef main():\n    urls = [f\"https://example.com/files/{i}.csv\" for i in range(200)]\n\n    # I/O-bound: threads. map yields results in input order.\n    with ThreadPoolExecutor(max_workers=16) as pool:\n        for url, size in pool.map(download, urls):\n            print(url, size)\n\n    # Per-task error handling with submit and as_completed\n    with ThreadPoolExecutor(max_workers=16) as pool:\n        futures = {pool.submit(download, u): u for u in urls}\n        for fut in as_completed(futures):\n            try:\n                print(fut.result())\n            except requests.RequestException as err:\n                print(\"failed:\", futures[fut], err)\n\n    # CPU-bound: processes, one worker per core by default\n    with ProcessPoolExecutor() as pool:\n        list(pool.map(make_thumbnail, [\"a.jpg\", \"b.jpg\", \"c.jpg\"]))\n\nif __name__ == \"__main__\":    # required for process pools on Windows and macOS\n    main()",
+        "key": "CPython's GIL lets one thread run Python bytecode at a time, so threads speed up I/O-bound work but not CPU-bound work, which needs processes.",
+        "body": "Eight threads make an image resizer no faster on 8 cores, yet make a 200-file downloader about 8 times faster. The reason is CPython's **Global Interpreter Lock (GIL)**: in one process, only one thread executes Python bytecode at a time. A thread waiting on a socket, file or sleep releases it.\n\n[[visual]]\n\nThe GIL does **not** make your code thread-safe: it protects the interpreter, not your read-modify-write steps. Python 3.13 added an opt-in **free-threaded** build without it, which still needs locks.\n\nA **pool** keeps a fixed number of workers fed from a queue, instead of one thread per task:\n\n[[visual 2]]\n\n[[code]]",
+        "visual": [
+          {
+            "type": "table",
+            "title": "Pick the tool",
+            "columns": ["Work", "Use", "Why"],
+            "rows": [
+              ["Many network calls, async libraries", "asyncio", "one thread, thousands of waits"],
+              ["I/O-bound with blocking libraries", "`ThreadPoolExecutor`", "waiting threads release the GIL"],
+              [
+                "CPU-bound pure Python",
+                "`ProcessPoolExecutor` or `multiprocessing`",
+                "each process has its own interpreter and GIL; costs: slower start, data pickled and copied"
+              ],
+              ["NumPy on big arrays, hashing, compression", "threads can work", "these release the GIL while they run in C"]
+            ]
+          },
+          {
+            "type": "table",
+            "title": "Pools in practice",
+            "columns": ["Item", "Detail"],
+            "rows": [
+              ["`pool.map(fn, items)`", "runs fn on every item, yields results in input order"],
+              ["`pool.submit(fn, item)`", "returns a **Future**; `as_completed(futures)` yields them as they finish, and `future.result()` re-raises the task's error"],
+              ["Leaving the `with` block", "waits for all work to finish"],
+              ["Size for CPU-bound work", "about one worker per core: `os.cpu_count()`"],
+              ["Size for I/O-bound work", "more than the cores (say 20 to 50), capped by what the remote service allows"],
+              ["Default thread pool size", "`min(32, os.cpu_count() + 4)`"]
+            ]
+          }
+        ],
+        "code": "from concurrent.futures import (\n    ThreadPoolExecutor, ProcessPoolExecutor)\n\ndef main():\n    # I/O-bound: threads, results in order\n    with ThreadPoolExecutor(16) as pool:\n        for url, size in pool.map(download,\n                                  urls):\n            print(url, size)\n\n    # CPU-bound: processes, one per core\n    with ProcessPoolExecutor() as pool:\n        list(pool.map(make_thumbnail, paths))\n\n# required for process pools on Windows/macOS\nif __name__ == \"__main__\":\n    main()",
         "language": "python",
+        "deeper": "The same pool pattern shows up everywhere: Java's `ExecutorService`, database connection pools and the worker pools behind job queues. Pools bound resource use (10,000 threads at once can exhaust memory or hammer a server) and reuse workers instead of paying startup cost per task.",
         "tip": "Name the bottleneck before picking the tool: waiting on I/O means threads or asyncio; burning CPU in Python means processes.",
         "pitfall": "Assuming the GIL makes shared data safe. It only protects the interpreter; `counter += 1` from several threads is still a race.",
         "check": {
@@ -240,10 +545,7 @@
         "term": "Race condition",
         "definition": "A bug where the result depends on the timing of threads touching shared state."
       },
-      {
-        "term": "Lock (mutex)",
-        "definition": "Lets only one thread at a time run a critical section."
-      },
+      { "term": "Lock (mutex)", "definition": "Lets only one thread at a time run a critical section." },
       {
         "term": "Atomic operation",
         "definition": "An operation that completes as one indivisible step, such as compare-and-swap."
@@ -270,12 +572,12 @@
       }
     ],
     "summary": [
-      "Processes have private memory and threads share it; concurrency interleaves tasks, parallelism runs them at the same instant.",
-      "Races come from read-modify-write and check-then-act on shared state; one shared lock or an atomic operation makes those steps indivisible.",
-      "Deadlock needs mutual exclusion, hold and wait, no preemption and circular wait; a global lock order breaks the cycle.",
-      "The event loop runs the script, then every microtask (promise callbacks), then one task (setTimeout) at a time; long synchronous work blocks it.",
-      "Start independent async calls together with Promise.all or asyncio.gather, and never block the loop with time.sleep or synchronous I/O.",
-      "In CPython, threads help I/O-bound work but not CPU-bound work; use processes for CPU, and pools to bound and reuse workers."
+      "Processes have private memory, threads share it; concurrency interleaves tasks, parallelism runs them at once.",
+      "Read-modify-write and check-then-act races need one shared lock or an atomic operation.",
+      "Deadlock needs all four Coffman conditions; a global lock order breaks the cycle.",
+      "The event loop runs the script, then every microtask, then one task at a time.",
+      "Start independent async calls together (Promise.all, asyncio.gather), and never block the loop.",
+      "In CPython, threads help I/O-bound work only; use processes for CPU, and pools to bound workers."
     ],
     "feynmanPrompt": "Explain to a friend why `setTimeout(fn, 0)` runs after a `Promise.then` callback, and why one long loop can freeze a whole web page or Node.js server."
   },
@@ -285,12 +587,7 @@
       "type": "mcq",
       "difficulty": "easy",
       "question": "What do threads in the same process share that separate processes do not?",
-      "choices": [
-        "The same call stack",
-        "Memory: the same variables and heap objects",
-        "Nothing; threads are as isolated as processes",
-        "The same CPU core at all times"
-      ],
+      "choices": ["The same call stack", "Memory: the same variables and heap objects", "Nothing; threads are as isolated as processes", "The same CPU core at all times"],
       "answer": 1,
       "explanation": "Threads of one process share its memory (globals, heap objects, open files), which makes communication easy and races possible. Each thread still has its own call stack.",
       "concept": "Threads share memory",
@@ -302,26 +599,11 @@
       "difficulty": "medium",
       "question": "Match each term to its description.",
       "pairs": [
-        {
-          "left": "Process",
-          "right": "A running program with its own private memory"
-        },
-        {
-          "left": "Thread",
-          "right": "A path of execution that shares memory with its siblings"
-        },
-        {
-          "left": "Concurrency",
-          "right": "Several tasks in progress, with their steps interleaved"
-        },
-        {
-          "left": "Parallelism",
-          "right": "Several tasks running at the same instant on different cores"
-        },
-        {
-          "left": "I/O-bound",
-          "right": "Spends most of its time waiting on the network or disk"
-        }
+        { "left": "Process", "right": "A running program with its own private memory" },
+        { "left": "Thread", "right": "A path of execution that shares memory with its siblings" },
+        { "left": "Concurrency", "right": "Several tasks in progress, with their steps interleaved" },
+        { "left": "Parallelism", "right": "Several tasks running at the same instant on different cores" },
+        { "left": "I/O-bound", "right": "Spends most of its time waiting on the network or disk" }
       ],
       "explanation": "Processes isolate memory, threads share it, concurrency interleaves tasks, parallelism runs them at the same instant, and I/O-bound work mostly waits.",
       "concept": "Concurrency vocabulary",
@@ -396,12 +678,7 @@
       "question": "Complete the code so increments of `views` from many threads are never lost.",
       "code": "import threading\n\nviews = 0\nlock = threading.Lock()\n\ndef add_view():\n    global views\n    with _____:\n        views += 1",
       "language": "python",
-      "choices": [
-        "threading.Lock()",
-        "lock",
-        "views",
-        "threading"
-      ],
+      "choices": ["threading.Lock()", "lock", "views", "threading"],
       "answer": 1,
       "explanation": "Every thread must use the one shared lock object. `with threading.Lock():` would create a brand-new lock on every call, which no other thread ever waits on, so it protects nothing.",
       "concept": "Using a lock",
@@ -462,20 +739,8 @@
       "type": "multi",
       "difficulty": "medium",
       "question": "Which of these are the four conditions that must all hold for a deadlock? Select all that apply.",
-      "choices": [
-        "Mutual exclusion",
-        "Hold and wait",
-        "No preemption",
-        "Circular wait",
-        "Starvation",
-        "Race condition"
-      ],
-      "answers": [
-        0,
-        1,
-        2,
-        3
-      ],
+      "choices": ["Mutual exclusion", "Hold and wait", "No preemption", "Circular wait", "Starvation", "Race condition"],
+      "answers": [0, 1, 2, 3],
       "explanation": "Mutual exclusion, hold and wait, no preemption and circular wait are the Coffman conditions. Starvation and race conditions are different concurrency problems.",
       "concept": "Deadlock conditions",
       "section": 3
@@ -522,11 +787,7 @@
       "code": "console.log('A')\nsetTimeout(() => console.log('B'), 0)\nPromise.resolve().then(() => console.log('C'))\nconsole.log('D')",
       "language": "javascript",
       "answer": "A D C B",
-      "accept": [
-        "ADCB",
-        "A, D, C, B",
-        "A,D,C,B"
-      ],
+      "accept": ["ADCB", "A, D, C, B", "A,D,C,B"],
       "explanation": "A and D are synchronous. Then the microtask queue drains (C, a promise callback), and only then does the task queue run the timeout (B).",
       "concept": "Microtasks before tasks",
       "section": 4
@@ -539,11 +800,7 @@
       "code": "setTimeout(() => console.log('a'), 0)\nPromise.resolve().then(() => console.log('b'))\nconsole.log('c')\nqueueMicrotask(() => console.log('d'))\nsetTimeout(() => {\n  console.log('e')\n  Promise.resolve().then(() => console.log('f'))\n}, 0)\nPromise.resolve().then(() => console.log('g'))",
       "language": "javascript",
       "answer": "c b d g a e f",
-      "accept": [
-        "cbdgaef",
-        "c, b, d, g, a, e, f",
-        "c,b,d,g,a,e,f"
-      ],
+      "accept": ["cbdgaef", "c, b, d, g, a, e, f", "c,b,d,g,a,e,f"],
       "explanation": "Synchronous first: c. Then all microtasks in queue order: b, d, g. Then the first task, a. Then the second task, e, which queues microtask f, and microtasks run right after each task, so f prints before anything else. Result: c b d g a e f.",
       "concept": "Event loop puzzle",
       "section": 4
@@ -569,12 +826,7 @@
       "type": "mcq",
       "difficulty": "easy",
       "question": "Where does a `.then` callback wait before it runs?",
-      "choices": [
-        "In the task queue, with setTimeout callbacks",
-        "On the call stack, running immediately",
-        "In the microtask queue",
-        "On a separate background thread"
-      ],
+      "choices": ["In the task queue, with setTimeout callbacks", "On the call stack, running immediately", "In the microtask queue", "On a separate background thread"],
       "answer": 2,
       "explanation": "Promise reactions are microtasks. They run as soon as the call stack is empty, ahead of any timer or I/O callback in the task queue.",
       "concept": "Where promise callbacks wait",
@@ -606,11 +858,7 @@
       "code": "async function load() {\n  console.log('2')\n  await null\n  console.log('4')\n}\nsetTimeout(() => console.log('5'), 0)\nconsole.log('1')\nload()\nconsole.log('3')",
       "language": "javascript",
       "answer": "1 2 3 4 5",
-      "accept": [
-        "12345",
-        "1, 2, 3, 4, 5",
-        "1,2,3,4,5"
-      ],
+      "accept": ["12345", "1, 2, 3, 4, 5", "1,2,3,4,5"],
       "explanation": "1 is synchronous. Calling load() prints 2 synchronously, then the await pauses it. 3 prints. The continuation after await is a microtask, so 4 prints next, before the timeout task, 5.",
       "concept": "await ordering",
       "section": 5
@@ -658,12 +906,7 @@
       "question": "Complete the line so both requests run concurrently and both results are available.",
       "code": "const [user, orders] = await _____([getUser(id), getOrders(id)])",
       "language": "javascript",
-      "choices": [
-        "Promise.resolve",
-        "Promise.all",
-        "setTimeout",
-        "Array.from"
-      ],
+      "choices": ["Promise.resolve", "Promise.all", "setTimeout", "Array.from"],
       "answer": 1,
       "explanation": "Promise.all takes an array of promises and resolves with an array of their results, in the same order. Promise.resolve wraps a single value, and setTimeout does not work with arrays of promises.",
       "concept": "Promise.all",
@@ -710,12 +953,7 @@
       "question": "Complete the line so the three fetches run concurrently and their results come back in order.",
       "code": "async def main():\n    results = await asyncio._____(fetch(a), fetch(b), fetch(c))",
       "language": "python",
-      "choices": [
-        "run",
-        "gather",
-        "sleep",
-        "wait_for"
-      ],
+      "choices": ["run", "gather", "sleep", "wait_for"],
       "answer": 1,
       "explanation": "asyncio.gather schedules all three coroutines at once and returns their results in argument order. asyncio.run starts a new event loop and fails inside one, and wait_for wraps a single awaitable with a timeout.",
       "concept": "asyncio.gather",
@@ -745,11 +983,7 @@
       "difficulty": "easy",
       "question": "Three coroutines each run `await asyncio.sleep(2)`. Started together with asyncio.gather, about how many seconds does the whole thing take?",
       "answer": "2",
-      "accept": [
-        "2 seconds",
-        "2s",
-        "about 2"
-      ],
+      "accept": ["2 seconds", "2s", "about 2"],
       "explanation": "The three sleeps overlap on the event loop, so the total is about as long as one: 2 seconds. Awaiting them one after another would take about 6.",
       "concept": "gather timing",
       "section": 6
@@ -787,12 +1021,7 @@
       "question": "Complete the code so `download` runs for every URL on the pool and the results come back in input order.",
       "code": "from concurrent.futures import ThreadPoolExecutor\n\nwith ThreadPoolExecutor(max_workers=8) as pool:\n    results = list(pool._____(download, urls))",
       "language": "python",
-      "choices": [
-        "run",
-        "gather",
-        "join",
-        "map"
-      ],
+      "choices": ["run", "gather", "join", "map"],
       "answer": 3,
       "explanation": "Executor.map applies the function to each item using the pool's workers and yields results in input order. Executors have no run, gather or join methods.",
       "concept": "ThreadPoolExecutor.map",
@@ -810,11 +1039,7 @@
         "Separate processes each have their own GIL",
         "It prevents deadlocks between your own locks"
       ],
-      "answers": [
-        0,
-        1,
-        3
-      ],
+      "answers": [0, 1, 3],
       "explanation": "The GIL serializes bytecode within one process, waiting threads release it, and each process has its own. It does not make read-modify-write sequences safe, and it does nothing to prevent deadlocks between your own locks.",
       "concept": "GIL facts",
       "section": 7

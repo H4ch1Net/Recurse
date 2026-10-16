@@ -8,19 +8,8 @@
   "description": "Read every field of show ip route and show ipv6 route, and predict the route a router uses: longest prefix, AD, metric.",
   "icon": "RT",
   "language": "cisco",
-  "prereqs": [
-    "ccna-ipv4-addressing",
-    "ccna-subnetting"
-  ],
-  "tags": [
-    "ccna",
-    "3.1",
-    "3.2",
-    "routing",
-    "routing-table",
-    "administrative-distance",
-    "longest-prefix-match"
-  ],
+  "prereqs": ["ccna-ipv4-addressing", "ccna-subnetting"],
+  "tags": ["ccna", "3.1", "3.2", "routing", "routing-table", "administrative-distance", "longest-prefix-match"],
   "resources": [
     {
       "title": "Free CCNA 200-301 course (Jeremy's IT Lab)",
@@ -54,23 +43,61 @@
     }
   ],
   "lesson": {
-    "estimatedMinutes": 36,
-    "intro": "Every routing topic on the CCNA, from static routes to OSPF, ends up as a line in the routing table, and the router uses that table to make one decision per packet. This lesson teaches you to read every field of show ip route and show ipv6 route, and to predict which route wins: longest prefix match first, then administrative distance, then metric.",
+    "estimatedMinutes": 31,
+    "intro": "Every routing topic on the CCNA ends up as a line in the routing table, and the router uses that table to make one decision per packet. Learn to read every field and predict which route wins.",
     "objectives": [
-      "Identify every field in a show ip route entry: code, prefix, mask, AD, metric, next hop, age and exit interface",
-      "Explain where connected, local and default routes come from and what each form of the gateway of last resort line means",
-      "Predict which route a router uses for a destination with longest prefix match, then AD, then metric",
-      "Read show ip route <address> and show ipv6 route output to confirm the route a packet takes",
-      "Answer several questions from one full routing table exhibit without falling for heading lines or \"closest subnet\" traps"
+      "Identify every field of a show ip route entry",
+      "Explain where connected, local and default routes come from",
+      "Predict the route used: longest prefix, then AD, then metric",
+      "Read show ip route <address> and show ipv6 route output",
+      "Answer several questions from one routing table exhibit"
     ],
     "sections": [
       {
         "title": "What a router does with every packet",
-        "body": "PC-A (10.1.1.10) opens a web page on a server at 10.3.3.30. The server is two routers away. PC-A compares the destination with its own subnet, sees that 10.3.3.30 is somewhere else, and sends the frame to its default gateway, R1. From there, every router repeats the same small routine until the packet arrives.\n\nHere is that routine on R1, the way the CCNA expects you to describe it:\n\n- **Check the frame.** R1 verifies the Ethernet FCS and silently discards a frame with errors.\n- **De-encapsulate.** R1 removes the incoming Ethernet header and trailer. It only cares about the IP packet inside.\n- **Choose a route.** R1 compares the destination IP address with its **routing table** and picks the best matching route. That route names a next-hop router (or says the destination is on a directly connected subnet) and an exit interface.\n- **Prepare the packet.** R1 decrements the TTL. A packet whose TTL hits 0 is discarded and R1 sends an ICMP Time Exceeded message back to the source (this is exactly how traceroute discovers each hop).\n- **Re-encapsulate and send.** R1 finds the MAC address of the next hop in its ARP table (sending an ARP request if it is missing), builds a brand new frame and transmits it out the exit interface.\n\nNotice what changes and what does not. The source and destination IP addresses stay the same from PC-A to the server (unless NAT is involved). The Ethernet header is thrown away and rebuilt at every router, so the MAC addresses change on every link.\n\nNo router knows the whole path. Each one only decides the next hop, using its own routing table. That is why one wrong or missing route on one router breaks a path even when every other router is perfect, and why the rest of this lesson is about reading that table and predicting which line a router will use.",
-        "code": "R1 receives a frame on G0/0 (from PC-A)\n  1. FCS check passes\n  2. Strip the Ethernet header and trailer\n  3. Destination IP 10.3.3.30: best match in the routing table is\n       O   10.3.3.0/24 [110/2] via 10.1.12.2, 00:14:22, GigabitEthernet0/1\n  4. TTL 128 -> 127\n  5. ARP table: 10.1.12.2 is at 5254.0012.ab02\n  6. New frame out G0/1: src MAC = R1 G0/1, dst MAC = 5254.0012.ab02\n     (IP header still says 10.1.1.10 -> 10.3.3.30)",
-        "language": "plaintext",
+        "key": "Each router strips the incoming frame, routes the packet on its destination IP and builds a new frame, so MAC addresses change every hop while IP addresses stay.",
+        "body": "PC-A (10.1.1.10/24) opens a web page on 10.3.3.30, two routers away. The destination is in another subnet, so PC-A sends the frame to its **default gateway**, R1: destination IP 10.3.3.30, destination MAC of R1.\n\nFrom there every router repeats the same routine:\n\n[[visual]]\n\n[[visual 2]]\n\nNo router knows the whole path. Each one picks only the next hop from its own **routing table**, so one missing route on one router breaks the path even when every other router is perfect.",
+        "visual": [
+          {
+            "type": "flow",
+            "title": "R1 forwards one packet",
+            "steps": [
+              { "label": "Check the frame", "detail": "A bad FCS means the frame is silently discarded" },
+              { "label": "De-encapsulate", "detail": "Remove the incoming Ethernet header and trailer" },
+              {
+                "label": "Choose a route",
+                "detail": "Match the destination IP: `O 10.3.3.0/24 [110/2] via 10.1.12.2`"
+              },
+              {
+                "label": "Is the TTL 0 after decrementing?",
+                "yes": "Discard it and send ICMP Time Exceeded to the source (how traceroute finds each hop)",
+                "no": "Keep going with the lower TTL"
+              },
+              {
+                "label": "Re-encapsulate and send",
+                "detail": "ARP for the next hop MAC if needed, build a new frame, send it out G0/1",
+                "tone": "good"
+              }
+            ]
+          },
+          {
+            "type": "compare",
+            "items": [
+              {
+                "title": "Changes at every router",
+                "tone": "warn",
+                "points": ["Source and destination MAC", "The whole Ethernet header and trailer", "TTL, down by 1"]
+              },
+              {
+                "title": "Stays end to end",
+                "tone": "good",
+                "points": ["Source IP 10.1.1.10", "Destination IP 10.3.3.30", "(NAT is the exception)"]
+              }
+            ]
+          }
+        ],
         "tip": "MAC addresses change at every router hop; IP addresses stay end to end. Say it out loud until it is automatic.",
-        "pitfall": "Thinking a router \"passes the frame along\". It never forwards the incoming frame; it removes the frame, routes the packet and builds a new frame for the next link.",
+        "pitfall": "Thinking a router passes the frame along. It removes the frame, routes the packet and builds a new frame for the next link.",
         "activity": {
           "type": "packet-journey",
           "title": "Follow one packet across two routers",
@@ -91,10 +118,43 @@
       },
       {
         "title": "Reading show ip route, field by field",
-        "body": "Exam questions love to paste a chunk of `show ip route` and ask what the router will do. You can only answer if every field on a line means something to you, so take this output apart once, slowly.\n\nThe **legend** at the top lists the **routing protocol codes**. You need a handful: `C` connected, `L` local, `S` static, `O` OSPF, `D` EIGRP, `B` BGP, `R` RIP, and `*` for a candidate default route. OSPF also adds qualifiers such as `IA` (inter area) and `E2` (external type 2).\n\nThe **Gateway of last resort** line tells you whether the router has a default route and where it points. More on that in its own section.\n\nNow take one OSPF line: `O 10.1.3.0/24 [110/2] via 10.1.12.2, 00:14:22, GigabitEthernet0/1`.\n\n- **Code** `O`: R1 learned this route from OSPF.\n- **Prefix** `10.1.3.0`: the destination subnet ID. Prefix is just another name for the subnet ID.\n- **Network mask** `/24`: the prefix length, shown in slash notation. It says how many leading bits of a destination must match.\n- **Administrative distance** `110`: the first number in brackets. It rates how trustworthy the source of the route is.\n- **Metric** `2`: the second number in brackets. The routing protocol's own cost for this path (for OSPF, the total cost).\n- **Next hop** `via 10.1.12.2`: the IP address of the neighboring router to send the packet to.\n- **Age** `00:14:22`: how long ago the router learned this route (hours:minutes:seconds). Only routes from routing protocols show it; connected and static routes do not.\n- **Exit interface** `GigabitEthernet0/1`: where R1 sends the packet.\n\nThe indented heading lines such as `10.0.0.0/8 is variably subnetted, 7 subnets, 3 masks` are not routes. IOS groups routes under their old classful network and tells you how many subnets and how many different masks sit inside it. \"Variably subnetted\" just means more than one mask is in use. When only one mask is used you see `is subnetted, 3 subnets` instead.\n\nYou can filter the table: `show ip route connected`, `show ip route static` and `show ip route ospf` show one source each, and `show ip route 10.1.3.77` tells you exactly which route the router would use for that one address.",
-        "code": "R1# show ip route\nCodes: L - local, C - connected, S - static, R - RIP, M - mobile, B - BGP\n       D - EIGRP, EX - EIGRP external, O - OSPF, IA - OSPF inter area\n       N1 - OSPF NSSA external type 1, N2 - OSPF NSSA external type 2\n       E1 - OSPF external type 1, E2 - OSPF external type 2\n       i - IS-IS, su - IS-IS summary, L1 - IS-IS level-1, L2 - IS-IS level-2\n       ia - IS-IS inter area, * - candidate default, U - per-user static route\n       o - ODR, P - periodic downloaded static route, H - NHRP, l - LISP\n       + - replicated route, % - next hop override\n\nGateway of last resort is 10.1.12.2 to network 0.0.0.0\n\nS*    0.0.0.0/0 [1/0] via 10.1.12.2\n      10.0.0.0/8 is variably subnetted, 7 subnets, 3 masks\nC        10.1.1.0/24 is directly connected, GigabitEthernet0/0\nL        10.1.1.1/32 is directly connected, GigabitEthernet0/0\nO        10.1.3.0/24 [110/2] via 10.1.12.2, 00:14:22, GigabitEthernet0/1\nO        10.1.4.0/24 [110/3] via 10.1.12.2, 00:14:22, GigabitEthernet0/1\nC        10.1.12.0/30 is directly connected, GigabitEthernet0/1\nL        10.1.12.1/32 is directly connected, GigabitEthernet0/1\nS        10.9.9.0/24 [1/0] via 10.1.12.2",
-        "tip": "Read a route line left to right as a sentence: \"Learned by OSPF, to reach 10.1.3.0/24, trust 110, cost 2, send to 10.1.12.2 out G0/1.\"",
-        "pitfall": "Treating the heading \"10.0.0.0/8 is variably subnetted\" as a route to 10.0.0.0/8. It is only a group label; a packet to 10.200.1.1 does not match it.",
+        "key": "A route line reads: code, prefix/length, [AD/metric], via next hop, age, exit interface. Indented \"is subnetted\" lines are headings, not routes.",
+        "body": "Exam questions paste `show ip route` and ask what the router will do. Take one line apart: `O 10.1.3.0/24 [110/2] via 10.1.12.2, 00:14:22, GigabitEthernet0/1`.\n\n[[visual]]\n\nThe legend at the top lists the **routing protocol codes**:\n\n[[visual 2]]\n\n[[code]]\n\nIndented lines such as `10.0.0.0/8 is variably subnetted, 7 subnets, 3 masks` are **heading lines**. IOS groups routes under their classful network and counts them. \"Variably subnetted\" means more than one mask; with one mask it says `is subnetted`. A heading never matches a packet.\n\nFilter by source with `show ip route connected`, `static` or `ospf`.",
+        "visual": [
+          {
+            "type": "table",
+            "title": "One OSPF route, field by field",
+            "columns": ["Field", "Value", "Meaning"],
+            "rows": [
+              ["Code", "`O`", "Learned from OSPF"],
+              ["Prefix", "`10.1.3.0`", "Destination subnet ID"],
+              ["Mask", "`/24`", "Prefix length: leading bits that must match"],
+              ["AD", "`110`", "First bracket number: how trusted the source is"],
+              ["Metric", "`2`", "Second number: the protocol cost (OSPF total cost)"],
+              ["Next hop", "`via 10.1.12.2`", "Neighbor router to send the packet to"],
+              ["Age", "`00:14:22`", "Time since learned; only routing protocol routes show it"],
+              ["Exit interface", "`Gi0/1`", "Where the packet leaves"]
+            ]
+          },
+          {
+            "type": "table",
+            "title": "Codes to know",
+            "columns": ["Code", "Source"],
+            "rows": [
+              ["`C`", "Connected: subnet on an up/up interface"],
+              ["`L`", "Local: the router's own interface address"],
+              ["`S`", "Static: configured with `ip route`"],
+              ["`O`", "OSPF (`IA` inter area, `E2` external type 2)"],
+              ["`D`", "EIGRP"],
+              ["`B`, `R`", "BGP, RIP"],
+              ["`*`", "Candidate default route"]
+            ]
+          }
+        ],
+        "code": "R1# show ip route\n! legend omitted\nGateway of last resort is 10.1.12.2 to network 0.0.0.0\n\nS*    0.0.0.0/0 [1/0] via 10.1.12.2\n      10.0.0.0/8 is variably subnetted, 7 subnets, 3 masks\nC        10.1.1.0/24 is directly connected, GigabitEthernet0/0\nL        10.1.1.1/32 is directly connected, GigabitEthernet0/0\nO        10.1.3.0/24 [110/2] via 10.1.12.2, 00:14:22, GigabitEthernet0/1\nO        10.1.4.0/24 [110/3] via 10.1.12.2, 00:14:22, GigabitEthernet0/1\nC        10.1.12.0/30 is directly connected, GigabitEthernet0/1\nL        10.1.12.1/32 is directly connected, GigabitEthernet0/1\nS        10.9.9.0/24 [1/0] via 10.1.12.2",
+        "language": "cisco",
+        "tip": "Read a route line as a sentence: \"Learned by OSPF, to reach 10.1.3.0/24, trust 110, cost 2, send to 10.1.12.2 out G0/1.\"",
+        "pitfall": "Treating \"10.0.0.0/8 is variably subnetted\" as a route to 10.0.0.0/8. It is a group label; a packet to 10.200.1.1 does not match it.",
         "check": {
           "question": "In `O 10.1.4.0/24 [110/3] via 10.1.12.2, 00:14:22, GigabitEthernet0/1`, what does the 3 tell you?",
           "choices": [
@@ -109,8 +169,30 @@
       },
       {
         "title": "Connected and local routes",
-        "body": "Take a router fresh out of the box and give one interface an address. Two routes appear in the table without any routing protocol at all.\n\nA **connected route** (code `C`) covers the whole subnet on that interface, for example `172.16.4.0/24`. It needs no next hop because the destination is right there on the link; the router can ARP for any host in it. Connected routes have an administrative distance of 0, the most trusted source there is.\n\nA **local route** (code `L`) is a /32 host route for the router's own interface address, for example `172.16.4.1/32`. It tells the router \"packets for this exact address are for me\", so a ping to the router's interface is answered instead of being forwarded. IPv6 does the same thing with `L` routes of length /128.\n\nBoth appear only when two conditions hold: the interface has an IP address and it is in an up/up state. Shut the interface down or pull the cable and both routes vanish. This matters more than it looks:\n\n- Routing protocols advertise connected subnets. If the interface is down, the subnet disappears from every other router's table too.\n- A static route whose next hop sits in a connected subnet depends on that connected route existing (you will see this again in static routing).\n- `show ip interface brief` is the first command to run when an expected `C` route is missing.\n\nConnected routes are the foundation the rest of the routing table is built on. Learn to count them: one `C` and one `L` per up/up interface with an address.",
+        "key": "Every addressed interface that is up/up adds a C route for its subnet and an L /32 route for its own address. Interface down, both routes vanish.",
+        "body": "Give G0/1 the address 172.16.4.1/24 and bring it up. Two routes appear with no routing protocol at all:\n\n[[visual]]\n\n[[code]]\n\nBoth need two things: an IP address and an **up/up** interface. Shut the interface or pull the cable and both disappear; there is no \"inactive\" entry. That ripples outward:\n\n- Routing protocols stop advertising the subnet to other routers.\n- Static routes whose next hop sits in that subnet stop working.\n- When an expected `C` route is missing, run `show ip interface brief` first.\n\nCount them: one `C` and one `L` per addressed up/up interface, loopbacks included.",
+        "visual": {
+          "type": "compare",
+          "items": [
+            {
+              "title": "Connected route",
+              "sub": "`C 172.16.4.0/24`",
+              "points": ["Covers the whole subnet on the interface", "No next hop: the router ARPs for hosts directly", "Administrative distance 0, the most trusted"]
+            },
+            {
+              "title": "Local route",
+              "sub": "`L 172.16.4.1/32`",
+              "tone": "accent",
+              "points": [
+                "Host route for the router's own address (IPv6: /128)",
+                "Means \"this packet is for me\": answer it, do not forward it",
+                "Beats the C /24 by longest prefix match"
+              ]
+            }
+          ]
+        },
         "code": "R1(config)# interface g0/1\nR1(config-if)# ip address 172.16.4.1 255.255.255.0\nR1(config-if)# no shutdown\nR1(config-if)# end\nR1# show ip route connected\n! legend omitted\n      172.16.0.0/16 is variably subnetted, 2 subnets, 2 masks\nC        172.16.4.0/24 is directly connected, GigabitEthernet0/1\nL        172.16.4.1/32 is directly connected, GigabitEthernet0/1",
+        "language": "cisco",
         "tip": "Expected C route missing? Check show ip interface brief: the interface must be up/up with the address you think it has.",
         "pitfall": "Expecting a connected route for an interface that is configured but down. No up/up, no C and no L route.",
         "check": {
@@ -127,10 +209,33 @@
       },
       {
         "title": "The default route and the gateway of last resort",
-        "body": "A branch office has one link to headquarters. Headquarters knows 5,000 subnets. Does the branch router need 5,000 routes? No: everything that is not local goes up the same link anyway. One **default route** covers all of it.\n\nThe default route is written `0.0.0.0/0`. A /0 prefix means zero bits have to match, so it matches every destination. It is also the least specific route possible, so the router only uses it when nothing more specific matches (the next section makes that precise).\n\nThe line **Gateway of last resort** reports the default route the router is currently using. It comes in three forms:\n\n- `Gateway of last resort is 10.0.0.1 to network 0.0.0.0`: a default route exists and points to next hop 10.0.0.1.\n- `Gateway of last resort is 0.0.0.0 to network 0.0.0.0`: a default route exists, but it was configured with only an exit interface (`ip route 0.0.0.0 0.0.0.0 Serial0/0/1`), so there is no next-hop address to print. Nothing is broken.\n- `Gateway of last resort is not set`: there is no default route. A packet that matches no route is discarded, and the router normally sends an ICMP Destination Unreachable message back to the source.\n\nThe default route itself carries an asterisk, the **candidate default** mark, and its code and brackets show where it came from:\n\n- `S*` with `[1/0]`: a static default you configured with `ip route 0.0.0.0 0.0.0.0 <next-hop>`.\n- `O*E2` with `[110/1]`: a default advertised into OSPF by another router with `default-information originate`.\n- `S*` with `[254/0]`: a default learned from DHCP on an interface configured with `ip address dhcp`, typically facing an ISP. IOS installs it as a static route with AD 254, so almost any other default route beats it.\n\nA router can know several candidate defaults at once. They compete like any other routes to the same prefix (0.0.0.0/0): the lowest AD wins, and the Gateway of last resort line names the winner.\n\nOne router's default route says nothing about the hosts behind it: PCs have their own default gateway setting. The gateway of last resort is the router's own \"if all else fails, send it here\".",
-        "code": "Branch# show ip route\n! legend omitted\nGateway of last resort is 10.0.0.1 to network 0.0.0.0\n\nS*    0.0.0.0/0 [1/0] via 10.0.0.1\n      10.0.0.0/8 is variably subnetted, 4 subnets, 3 masks\nC        10.0.0.0/30 is directly connected, GigabitEthernet0/0\nL        10.0.0.2/32 is directly connected, GigabitEthernet0/0\nC        10.5.5.0/24 is directly connected, GigabitEthernet0/1\nL        10.5.5.1/32 is directly connected, GigabitEthernet0/1\n\nB2# show ip route static\n! legend omitted\nGateway of last resort is 0.0.0.0 to network 0.0.0.0\n\nS*    0.0.0.0/0 is directly connected, Serial0/0/1\n\nCore# show ip route | include Gateway\nGateway of last resort is not set",
+        "key": "0.0.0.0/0 matches every address but is the least specific route, so it is used only when nothing else matches. With no default, unmatched packets are dropped.",
+        "body": "A branch with one link to headquarters does not need headquarters' 5,000 routes. Everything non-local goes up the same link, so one **default route** covers it all. A /0 prefix means zero bits must match, so it matches every destination.\n\nThe **Gateway of last resort** line reports the default route in use:\n\n[[visual]]\n\nThe default carries an asterisk, the **candidate default** mark, and its code shows where it came from:\n\n[[visual 2]]\n\nSeveral candidate defaults compete like any routes to 0.0.0.0/0: the lowest AD wins, and the gateway line names the winner. This is the router's own last resort; PCs still use their own default gateway setting.\n\n[[code]]",
+        "visual": [
+          {
+            "type": "table",
+            "columns": ["Gateway of last resort...", "Meaning"],
+            "rows": [
+              ["`is 10.0.0.1 to network 0.0.0.0`", "A default route exists, next hop 10.0.0.1"],
+              ["`is 0.0.0.0 to network 0.0.0.0`", "A default configured with only an exit interface (`ip route 0.0.0.0 0.0.0.0 Serial0/0/1`). Nothing is broken"],
+              ["`is not set`", "No default: an unmatched packet is discarded and the source normally gets ICMP Destination Unreachable"]
+            ]
+          },
+          {
+            "type": "table",
+            "title": "Where a default route came from",
+            "columns": ["Route line", "Source"],
+            "rows": [
+              ["`S* 0.0.0.0/0 [1/0]`", "Static: `ip route 0.0.0.0 0.0.0.0 <next-hop>`"],
+              ["`O*E2 0.0.0.0/0 [110/1]`", "Another OSPF router advertised it with `default-information originate`"],
+              ["`S* 0.0.0.0/0 [254/0]`", "Learned from DHCP (`ip address dhcp`, usually toward an ISP); AD 254 loses to almost anything"]
+            ]
+          }
+        ],
+        "code": "Branch# show ip route\n! legend omitted\nGateway of last resort is 10.0.0.1 to network 0.0.0.0\n\nS*    0.0.0.0/0 [1/0] via 10.0.0.1\n      10.0.0.0/8 is variably subnetted, 4 subnets, 3 masks\nC        10.0.0.0/30 is directly connected, GigabitEthernet0/0\nL        10.0.0.2/32 is directly connected, GigabitEthernet0/0\nC        10.5.5.0/24 is directly connected, GigabitEthernet0/1\nL        10.5.5.1/32 is directly connected, GigabitEthernet0/1\n\nB2# show ip route static\nGateway of last resort is 0.0.0.0 to network 0.0.0.0\n\nS*    0.0.0.0/0 is directly connected, Serial0/0/1",
+        "language": "cisco",
         "tip": "0.0.0.0/0 matches everything and loses to everything. It is a safety net, not a preference.",
-        "pitfall": "Reading \"Gateway of last resort is not set\" as a problem with the hosts. It is the router's own default route that is missing, so unknown destinations are dropped at this router.",
+        "pitfall": "Reading \"Gateway of last resort is not set\" as a host problem. The router's own default route is missing, so unknown destinations are dropped here.",
         "check": {
           "question": "Core shows `Gateway of last resort is not set`. A packet arrives for 8.8.8.8 and no route matches it. What does Core do?",
           "choices": [
@@ -145,10 +250,38 @@
       },
       {
         "title": "Rule 1: longest prefix match",
-        "body": "R1's table below has five routes that all overlap. A packet arrives for 172.16.1.1. Which route does R1 use?\n\nStart by writing down the range of addresses each route matches:\n\n- `172.16.1.1/32` matches only 172.16.1.1 (a host route).\n- `172.16.1.0/24` matches 172.16.1.0 to 172.16.1.255.\n- `172.16.0.0/22` matches 172.16.0.0 to 172.16.3.255.\n- `172.16.0.0/16` matches 172.16.0.0 to 172.16.255.255.\n- `0.0.0.0/0` matches every address.\n\n172.16.1.1 falls inside all five ranges. The rule is simple: **when several routes match, the router uses the most specific one, the route with the longest prefix length.** So 172.16.1.1 uses the /32. A few more:\n\n- 172.16.1.200 matches the /24, /22, /16 and /0. The /24 wins.\n- 172.16.3.9 matches the /22, /16 and /0 (it is outside 172.16.1.0/24). The /22 wins.\n- 172.16.4.1 is outside the /22 (which ends at 172.16.3.255), so the /16 wins.\n- 192.168.9.9 matches only the default route.\n\nLook at what did not matter: the code letter, the AD and the metric. The /32 is a static route with AD 1 and the /24 is OSPF with AD 110, but that is irrelevant because they are different prefixes. Longest prefix match always comes first. A static /16 never beats an OSPF /24 for an address inside that /24.\n\nThe method on the exam: find every route whose range contains the destination (subnetting math), then pick the largest number after the slash. If you are on a real router, `show ip route 172.16.3.9` does the work for you and prints the route that wins.",
-        "code": "R1# show ip route\n! legend omitted, connected routes omitted\nGateway of last resort is 10.0.0.2 to network 0.0.0.0\n\nS*    0.0.0.0/0 [1/0] via 10.0.0.2\n      172.16.0.0/16 is variably subnetted, 4 subnets, 4 masks\nO        172.16.0.0/16 [110/4] via 10.0.0.6, 00:03:11, GigabitEthernet0/2\nO        172.16.0.0/22 [110/3] via 10.0.0.10, 00:03:11, GigabitEthernet0/3\nO        172.16.1.0/24 [110/2] via 10.0.0.14, 00:03:11, GigabitEthernet0/4\nS        172.16.1.1/32 [1/0] via 10.0.0.18",
-        "tip": "Convert each route to an address range first. Once the ranges are written down, the longest prefix that contains the destination jumps out.",
-        "pitfall": "Choosing the route with the lowest AD or lowest metric when the prefixes have different lengths. A more specific prefix wins before AD or metric are ever looked at.",
+        "key": "When several routes contain the destination, the router uses the one with the longest prefix length, before AD or metric are ever looked at.",
+        "body": "R1 has five overlapping routes, and a packet arrives for 172.16.1.1. Which one does R1 use?\n\n[[code]]\n\nFirst write the range of addresses each route matches:\n\n[[visual]]\n\n172.16.1.1 falls inside all five. The rule: **longest prefix match**. When several routes match, the most specific one (the biggest number after the slash) wins, so the /32 wins.\n\n[[visual 2]]\n\nThe code letter, AD and metric did not matter. The /32 is static (AD 1) and the /24 is OSPF (AD 110), but they are different prefixes. A static /16 never beats an OSPF /24 for an address inside that /24.\n\nOn a real router, `show ip route 172.16.3.9` does this work for you.",
+        "visual": [
+          {
+            "type": "table",
+            "title": "What each route matches",
+            "columns": ["Route", "Matches"],
+            "rows": [
+              ["`172.16.1.1/32`", "Only 172.16.1.1 (a host route)"],
+              ["`172.16.1.0/24`", "172.16.1.0 to 172.16.1.255"],
+              ["`172.16.0.0/22`", "172.16.0.0 to 172.16.3.255"],
+              ["`172.16.0.0/16`", "172.16.0.0 to 172.16.255.255"],
+              ["`0.0.0.0/0`", "Every address"]
+            ]
+          },
+          {
+            "type": "table",
+            "title": "Five destinations",
+            "columns": ["Destination", "Routes that contain it", "Winner"],
+            "rows": [
+              ["172.16.1.1", "all five", "/32 via 10.0.0.18"],
+              ["172.16.1.200", "/24, /22, /16, /0", "/24 via 10.0.0.14"],
+              ["172.16.3.9", "/22, /16, /0", "/22 via 10.0.0.10"],
+              ["172.16.4.1", "/16, /0 (the /22 ends at .3.255)", "/16 via 10.0.0.6"],
+              ["192.168.9.9", "/0", "Default via 10.0.0.2"]
+            ]
+          }
+        ],
+        "code": "R1# show ip route\n! legend and connected routes omitted\nGateway of last resort is 10.0.0.2 to network 0.0.0.0\n\nS*    0.0.0.0/0 [1/0] via 10.0.0.2\n      172.16.0.0/16 is variably subnetted, 4 subnets, 4 masks\nO        172.16.0.0/16 [110/4] via 10.0.0.6, 00:03:11, GigabitEthernet0/2\nO        172.16.0.0/22 [110/3] via 10.0.0.10, 00:03:11, GigabitEthernet0/3\nO        172.16.1.0/24 [110/2] via 10.0.0.14, 00:03:11, GigabitEthernet0/4\nS        172.16.1.1/32 [1/0] via 10.0.0.18",
+        "language": "cisco",
+        "tip": "Range shortcut for the octet that changes: a /22 block steps by 4, a /21 by 8, a /20 by 16. 192.168.20.0/22 runs to 192.168.23.255.",
+        "pitfall": "Choosing the lowest AD or metric when the prefixes have different lengths. A more specific prefix wins before AD or metric are ever looked at.",
         "activity": {
           "type": "route-lookup",
           "title": "Pick the winning route",
@@ -157,23 +290,37 @@
         },
         "check": {
           "question": "Using R1's table above, which route does R1 use for a packet to 172.16.3.9?",
-          "choices": [
-            "172.16.1.0/24 via 10.0.0.14",
-            "172.16.0.0/22 via 10.0.0.10",
-            "172.16.0.0/16 via 10.0.0.6",
-            "0.0.0.0/0 via 10.0.0.2"
-          ],
+          "choices": ["172.16.1.0/24 via 10.0.0.14", "172.16.0.0/22 via 10.0.0.10", "172.16.0.0/16 via 10.0.0.6", "0.0.0.0/0 via 10.0.0.2"],
           "answer": 1,
           "explanation": "172.16.0.0/22 covers 172.16.0.0 to 172.16.3.255, so it contains 172.16.3.9, and it is longer than the /16 and the /0 that also match. The /24 covers only 172.16.1.x, so it does not match at all."
         }
       },
       {
         "title": "Rule 2: administrative distance",
-        "body": "R1 runs OSPF and EIGRP (maybe during a migration), and someone also typed a static route. All three know a way to 10.50.0.0/16: the exact same prefix and length. A routing table can hold only one source's route for a given prefix, so which one goes in?\n\nMetrics cannot settle it. OSPF's cost of 20 and EIGRP's metric of 3,072 are calculated from different formulas, so comparing them is meaningless. Instead IOS uses **administrative distance (AD)**: a number that rates how believable each source of routing information is. **Lower is better.** The static route (AD 1) beats EIGRP (AD 90), which beats OSPF (AD 110).\n\nThe defaults below are worth memorizing; the exam quotes them freely.\n\nThree details that trip people up:\n\n- AD only compares routes for the **exact same prefix and prefix length**. A static 10.0.0.0/8 (AD 1) and an OSPF 10.1.1.0/24 (AD 110) are different routes and both get installed. For 10.1.1.5, longest prefix match then picks the OSPF /24.\n- AD is local to one router. It is never advertised to neighbors. Changing AD on R1 changes only R1's choices.\n- The losing routes are not forgotten. They stay in the protocol's own database (the OSPF LSDB, the EIGRP topology table), ready to be installed if the winner disappears. That is the whole trick behind floating static routes: a static route given a higher AD than OSPF sits out until the OSPF route vanishes.\n\nAD 255 means \"do not believe this at all\": a route with AD 255 is never installed.",
-        "code": "Route source                    Default AD\nConnected interface                 0\nStatic route                        1\neBGP (external BGP)                20\nEIGRP (internal)                   90\nOSPF                              110\nIS-IS                             115\nRIP                               120\nEIGRP (external)                  170\niBGP (internal BGP)               200\nDHCP-learned default route        254\nUnknown / unusable                255   (never installed)",
-        "language": "plaintext",
+        "key": "When different sources offer the exact same prefix and length, the lowest administrative distance wins. AD is local to the router and never compares different prefixes.",
+        "body": "R1 learns 10.50.0.0/16 from OSPF, from EIGRP and from a static route. Same prefix, same length: only one source can go in the table.\n\nMetrics cannot settle it: an OSPF cost of 20 and an EIGRP metric of 3,072 come from different formulas. IOS uses **administrative distance (AD)**, a rating of how believable each source is. **Lower wins**: static (1) beats EIGRP (90), which beats OSPF (110).\n\n[[visual]]\n\n- AD compares only the **exact same prefix and length**. A static 10.0.0.0/8 and an OSPF 10.1.1.0/24 are both installed.\n- AD is local. It is never advertised, so changing it on R1 changes only R1.\n- Losers stay in their protocol's database (OSPF LSDB, EIGRP topology table), ready if the winner disappears. That is how a **floating static route** works.\n- Routers never load balance across different sources.",
+        "visual": {
+          "type": "table",
+          "title": "Default administrative distances",
+          "columns": ["Route source", "AD"],
+          "rows": [
+            ["Connected interface", "0"],
+            ["Static route", "1"],
+            ["eBGP (external BGP)", "20"],
+            ["EIGRP (internal)", "90"],
+            ["OSPF", "110"],
+            ["IS-IS", "115"],
+            ["RIP", "120"],
+            ["EIGRP (external)", "170"],
+            ["iBGP (internal BGP)", "200"],
+            ["DHCP-learned default route", "254"],
+            ["Unknown or unusable", "255 (never installed)"]
+          ],
+          "mono": [1],
+          "highlight": [0, 1, 4]
+        },
         "tip": "Memory hook: 0 connected, 1 static, 20 eBGP, 90 EIGRP, 110 OSPF, 120 RIP, 200 iBGP, 255 never.",
-        "pitfall": "Applying AD to routes with different prefix lengths. AD only breaks ties between sources offering the exact same prefix/length; otherwise longest prefix match decides.",
+        "pitfall": "Applying AD to routes with different prefix lengths. AD only breaks ties between sources offering the exact same prefix and length.",
         "check": {
           "question": "R1 learns 10.50.0.0/16 from OSPF and from EIGRP, and also has a static route for 10.50.0.0/16, all with default settings. Which one is installed?",
           "choices": [
@@ -188,8 +335,41 @@
       },
       {
         "title": "Rule 3: metric, equal-cost paths and the full decision",
-        "body": "Now one protocol knows two ways to the same prefix. OSPF on R1 calculates a path to 10.4.4.0/24 through R2 with cost 3 and another through R3 with cost 5. OSPF offers the routing table only its best path: the lowest **metric** wins, so the cost 3 route through R2 is installed.\n\nEach protocol measures \"best\" its own way:\n\n- OSPF: cost, the sum of interface costs along the path, based on bandwidth.\n- EIGRP: a composite metric, by default from the slowest bandwidth and total delay of the path.\n- RIP: hop count, the number of routers to cross.\n\nWhen two paths from the same protocol tie on metric, the router installs both and load balances across them. This is **equal-cost multipath (ECMP)**; OSPF installs up to four equal-cost paths by default (the `maximum-paths` setting). In `show ip route` the route appears once with two \"via\" lines.\n\nPutting the three rules together, the way the CCNA blueprint words it:\n\n- **Longest prefix match** first: among all routes that contain the destination, the most specific wins.\n- **Administrative distance** next: when different sources offer the same prefix and length, the lowest AD source is the one in the table.\n- **Metric** last: within one protocol, the lowest metric path is installed, and equal metrics share the load.\n\nUnder the hood, AD and metric are applied when the router builds its table (they decide which route for each prefix gets in), and longest prefix match is applied to every packet against the routes that made it in. Thinking of it that way makes tricky questions easy: first ask \"which routes are actually in the table?\", then ask \"which of those is the longest match for this packet?\".",
-        "code": "R1# show ip route ospf\n! legend omitted, other routes omitted\nO        10.4.4.0/24 [110/3] via 10.1.13.3, 00:01:12, GigabitEthernet0/2\n                     [110/3] via 10.1.12.2, 00:01:12, GigabitEthernet0/1\n\nR1# show ip route 10.4.4.0\nRouting entry for 10.4.4.0/24\n  Known via \"ospf 1\", distance 110, metric 3, type intra area\n  Last update from 10.1.13.3 on GigabitEthernet0/2, 00:01:12 ago\n  Routing Descriptor Blocks:\n  * 10.1.13.3, from 3.3.3.3, 00:01:12 ago, via GigabitEthernet0/2\n      Route metric is 3, traffic share count is 1\n    10.1.12.2, from 2.2.2.2, 00:01:12 ago, via GigabitEthernet0/1\n      Route metric is 3, traffic share count is 1",
+        "key": "Within one protocol the lowest metric path is installed; equal lowest metrics are all installed and share the load. The full order: prefix length, AD, metric.",
+        "body": "OSPF on R1 finds two paths to 10.4.4.0/24: through R2 with cost 3 and through R3 with cost 5. A protocol offers the table only its best path, the lowest **metric**, so the cost 3 path goes in. Each protocol measures \"best\" its own way:\n\n[[visual]]\n\nWhen paths tie on the lowest metric, the router installs them all and load balances. This is **equal-cost multipath (ECMP)**: OSPF installs up to 4 by default (`maximum-paths`) and never does unequal-cost balancing. The route shows once with two \"via\" lines:\n\n[[code]]\n\n[[visual 2]]\n\nAD and metric decide which routes get **into** the table; longest prefix match runs per packet on what got in. If the winning route is withdrawn, the next packet simply takes the longest match that is left.",
+        "visual": [
+          {
+            "type": "table",
+            "columns": ["Protocol", "Metric"],
+            "rows": [
+              ["OSPF", "Cost: sum of interface costs, based on bandwidth"],
+              ["EIGRP", "Composite: slowest bandwidth plus total delay, by default"],
+              ["RIP", "Hop count: routers to cross"]
+            ]
+          },
+          {
+            "type": "flow",
+            "title": "Which route does the packet use?",
+            "steps": [
+              {
+                "label": "1. Longest prefix match",
+                "detail": "Of all routes that contain the destination, the most specific wins"
+              },
+              {
+                "label": "2. Lowest administrative distance",
+                "detail": "Different sources, same prefix and length: the most trusted source is installed"
+              },
+              { "label": "3. Lowest metric", "detail": "Within one protocol, the cheapest path is installed" },
+              {
+                "label": "4. Still tied: load balance",
+                "detail": "Equal-cost paths are all installed and share traffic",
+                "tone": "good"
+              }
+            ]
+          }
+        ],
+        "code": "R1# show ip route ospf\n! legend and other routes omitted\nO        10.4.4.0/24 [110/3] via 10.1.13.3, 00:01:12, GigabitEthernet0/2\n                     [110/3] via 10.1.12.2, 00:01:12, GigabitEthernet0/1",
+        "language": "cisco",
         "tip": "AD compares between sources; metric compares within one protocol. If two routes come from different protocols, their metrics never meet.",
         "pitfall": "Comparing an OSPF cost with an EIGRP metric or a RIP hop count. Different protocols, different scales: that is exactly why AD exists.",
         "check": {
@@ -206,8 +386,33 @@
       },
       {
         "title": "Asking the router: show ip route for one address",
-        "body": "Subnetting math works on paper, but on a live router (or in an exam simulation) you can make IOS do the longest prefix match for you. Type `show ip route` followed by an address, and IOS prints only the route it would use for a packet to that address.\n\nRead the first line first. `Routing entry for 172.16.0.0/16` names the route that matched, and that is the answer to \"which route wins?\". The address you typed (172.16.4.3) does not appear in it; the prefix and length of the winning route do.\n\nThe rest of the entry spells out what the one-line version abbreviates:\n\n- **Known via** names the source (\"ospf 1\", \"static\", \"connected\") and repeats the **distance** (AD) and **metric** you see in brackets in the full table. OSPF adds the route type, such as `intra area`.\n- **Last update from** gives the neighbor and interface the newest information came from, and how long ago.\n- **Routing Descriptor Blocks** lists each path: the next hop, the router ID of the router that advertised the route (`from 6.6.6.6`), the age and the exit interface. With equal-cost paths you see one block per path, the asterisk marks the path the next packet will use, and **traffic share count** shows how traffic is split (1 and 1 means evenly).\n\nTwo special answers are worth knowing. If only the default route contains the address, IOS replies with `Routing entry for 0.0.0.0/0, supernet` and the words `candidate default path`. If nothing matches at all, it prints `% Network not in table` (or `% Subnet not in table` when it knows other subnets of that classful network), which tells you this router would drop the packet.\n\nThe same command takes a subnet ID instead of a host address. `show ip route 192.168.2.0` shows that route's entry, which is the quickest way to read the AD of a floating static route that has taken over.",
-        "code": "R1# show ip route 172.16.4.3\nRouting entry for 172.16.0.0/16\n  Known via \"ospf 1\", distance 110, metric 4, type intra area\n  Last update from 10.0.0.6 on GigabitEthernet0/2, 00:03:11 ago\n  Routing Descriptor Blocks:\n  * 10.0.0.6, from 6.6.6.6, 00:03:11 ago, via GigabitEthernet0/2\n      Route metric is 4, traffic share count is 1\n\nR1# show ip route 8.8.8.8\nRouting entry for 0.0.0.0/0, supernet\n  Known via \"static\", distance 1, metric 0, candidate default path\n  Routing Descriptor Blocks:\n  * 10.0.0.2\n      Route metric is 0, traffic share count is 1\n\nCore# show ip route 8.8.8.8\n% Network not in table",
+        "key": "`show ip route <address>` prints only the route the router would use; its first line names the winning prefix, not the address you typed.",
+        "body": "On a live router or in an exam simulation, let IOS do the longest prefix match. Type `show ip route` followed by an address:\n\n[[code]]\n\nThe first line, `Routing entry for 172.16.0.0/16`, answers \"which route wins?\". The address you typed (172.16.4.3) does not appear in it. The rest spells out what the one-line entry abbreviates:\n\n[[visual]]\n\nTwo special answers:\n\n[[visual 2]]\n\nThe command also takes a subnet ID: `show ip route 192.168.2.0` shows that route's entry, the quickest way to read the AD of a floating static route that has taken over.",
+        "visual": [
+          {
+            "type": "table",
+            "columns": ["Line", "Tells you"],
+            "rows": [
+              ["`Known via \"ospf 1\", distance 110, metric 4`", "Source, AD and metric; OSPF adds the route type (`intra area`)"],
+              ["`Last update from 10.0.0.6 on Gi0/2`", "Neighbor and interface the newest information came from, and when"],
+              [
+                "`* 10.0.0.6, from 6.6.6.6, ... via Gi0/2`",
+                "One block per path: next hop, router ID that advertised it, exit interface. `*` marks the path the next packet uses"
+              ],
+              ["`traffic share count is 1`", "How traffic splits across equal paths (1 and 1 is even)"]
+            ]
+          },
+          {
+            "type": "table",
+            "columns": ["Output", "Meaning"],
+            "rows": [
+              ["`Routing entry for 0.0.0.0/0, supernet` ... `candidate default path`", "Only the default route contains the address"],
+              ["`% Network not in table` (or `% Subnet not in table`)", "Nothing matches: this router would drop the packet"]
+            ]
+          }
+        ],
+        "code": "R1# show ip route 172.16.4.3\nRouting entry for 172.16.0.0/16\n  Known via \"ospf 1\", distance 110, metric 4, type intra area\n  Last update from 10.0.0.6 on GigabitEthernet0/2, 00:03:11 ago\n  Routing Descriptor Blocks:\n  * 10.0.0.6, from 6.6.6.6, 00:03:11 ago, via GigabitEthernet0/2\n      Route metric is 4, traffic share count is 1\n\nR1# show ip route 8.8.8.8\nRouting entry for 0.0.0.0/0, supernet\n  Known via \"static\", distance 1, metric 0, candidate default path\n  Routing Descriptor Blocks:\n  * 10.0.0.2\n      Route metric is 0, traffic share count is 1",
+        "language": "cisco",
         "tip": "In a simulation question, show ip route <address> is the fastest way to check your longest prefix match answer.",
         "pitfall": "Reading the \"Routing entry for\" line as the address you typed. It names the matched prefix; 0.0.0.0/0 there means only the default route matched.",
         "check": {
@@ -224,28 +429,76 @@
       },
       {
         "title": "Reading the IPv6 routing table",
-        "body": "A dual-stack router keeps a separate IPv6 routing table, shown with `show ipv6 route`. Everything you have learned still applies: each route has a code, a prefix/length, [AD/metric] and forwarding instructions, and the router picks the longest prefix match, then the lowest AD, then the lowest metric. Only the layout changes.\n\n- **Two lines per route.** The first line holds the code, prefix/length and [AD/metric]; the second starts with `via` and gives the next hop, the exit interface or both.\n- **Codes.** `C`, `L` and `S` mean connected, local and static, as in IPv4. OSPF routes appear as `O` (intra-area), `OI` (inter-area) and `OE1` or `OE2` (external). `ND` marks a default route learned from a router advertisement.\n- **Connected and local.** Connected routes are usually /64 and end in `directly connected`. Local routes are /128 host routes for the router's own addresses and end in `receive`. You will also see `L FF00::/8 via Null0, receive`, a local route for multicast that IOS adds automatically. It is not a mistake.\n- **No gateway of last resort line.** The IPv6 default route simply appears as an ordinary `::/0` entry.\n- **Link-local next hops.** Next hops are often FE80:: addresses, always printed with the exit interface, because a link-local address only means something on one link. OSPFv3 routes always use them.\n- **The heading counts entries:** `IPv6 Routing Table - default - 8 entries`. There are no classful heading lines.\n\nThe default AD values are the same as in IPv4 (connected 0, static 1, OSPF 110), and the filters work the same way: `show ipv6 route connected`, `local`, `static` and `ospf`, plus `show ipv6 route 2001:db8:0:2::50` for the route one address uses.",
-        "code": "R1# show ipv6 route\nIPv6 Routing Table - default - 8 entries\nCodes: C - Connected, L - Local, S - Static, U - Per-user Static route\n       B - BGP, R - RIP, I1 - ISIS L1, I2 - ISIS L2\n       IA - ISIS interarea, IS - ISIS summary, D - EIGRP, EX - EIGRP external\n       ND - ND Default, NDp - ND Prefix, DCE - Destination, NDr - Redirect\n       O - OSPF Intra, OI - OSPF Inter, OE1 - OSPF ext 1, OE2 - OSPF ext 2\n       ON1 - OSPF NSSA ext 1, ON2 - OSPF NSSA ext 2\nS   ::/0 [1/0]\n     via 2001:DB8:0:12::2\nC   2001:DB8:0:1::/64 [0/0]\n     via GigabitEthernet0/1, directly connected\nL   2001:DB8:0:1::1/128 [0/0]\n     via GigabitEthernet0/1, receive\nO   2001:DB8:0:2::/64 [110/2]\n     via FE80::2, GigabitEthernet0/0\nC   2001:DB8:0:12::/64 [0/0]\n     via GigabitEthernet0/0, directly connected\nL   2001:DB8:0:12::1/128 [0/0]\n     via GigabitEthernet0/0, receive\nS   2001:DB8:0:99::1/128 [1/0]\n     via 2001:DB8:0:12::2\nL   FF00::/8 [0/0]\n     via Null0, receive",
+        "key": "show ipv6 route uses the same three rules and the same AD values, but each route takes two lines, local routes are /128 and the default is an ordinary ::/0.",
+        "body": "A dual-stack router keeps a separate IPv6 table, shown with `show ipv6 route`. The router still picks the longest prefix match, then the lowest AD, then the lowest metric, with the same default ADs (connected 0, static 1, OSPF 110). Only the layout changes:\n\n[[visual]]\n\n[[code]]\n\nTwo entries surprise people. `L FF00::/8 via Null0, receive` is a local route for multicast that IOS adds automatically. `ND` marks a default learned from a router advertisement.\n\nThe filters match IPv4: `show ipv6 route connected`, `local`, `static` and `ospf`, plus `show ipv6 route 2001:db8:0:2::50` for one address.",
+        "visual": {
+          "type": "table",
+          "title": "IPv4 table versus IPv6 table",
+          "columns": ["Feature", "show ip route", "show ipv6 route"],
+          "rows": [
+            ["Layout", "One line per route", "Two lines: code, prefix, [AD/metric], then `via` next hop or interface"],
+            ["Connected", "`C`, any length", "`C`, usually /64, `directly connected`"],
+            ["Local", "`L` /32", "`L` /128, ends in `receive`"],
+            ["OSPF codes", "`O`, `O IA`, `O E2`", "`O` intra-area, `OI` inter-area, `OE1` or `OE2` external"],
+            ["Default route", "0.0.0.0/0 plus a Gateway of last resort line", "An ordinary `::/0` entry, no gateway line"],
+            ["Next hops", "IPv4 addresses", "Often link-local `FE80::`, always with the exit interface (OSPFv3 always uses them)"],
+            ["Headings", "Classful \"is subnetted\" lines", "None; the header counts entries (`8 entries`)"]
+          ]
+        },
+        "code": "R1# show ipv6 route\nIPv6 Routing Table - default - 8 entries\n! codes omitted\nS   ::/0 [1/0]\n     via 2001:DB8:0:12::2\nC   2001:DB8:0:1::/64 [0/0]\n     via GigabitEthernet0/1, directly connected\nL   2001:DB8:0:1::1/128 [0/0]\n     via GigabitEthernet0/1, receive\nO   2001:DB8:0:2::/64 [110/2]\n     via FE80::2, GigabitEthernet0/0\nC   2001:DB8:0:12::/64 [0/0]\n     via GigabitEthernet0/0, directly connected\nL   2001:DB8:0:12::1/128 [0/0]\n     via GigabitEthernet0/0, receive\nS   2001:DB8:0:99::1/128 [1/0]\n     via 2001:DB8:0:12::2\nL   FF00::/8 [0/0]\n     via Null0, receive",
+        "language": "cisco",
         "tip": "Read IPv6 routes in pairs of lines: what (code, prefix, [AD/metric]) on the first, where (via next hop, interface) on the second.",
         "pitfall": "Looking for a Gateway of last resort line in show ipv6 route. IPv6 lists its default route as an ordinary ::/0 entry.",
         "check": {
           "question": "In the IPv6 table above, which route does R1 use for a packet to 2001:DB8:0:99::2?",
-          "choices": [
-            "S 2001:DB8:0:99::1/128, because it is the closest match",
-            "S ::/0 via 2001:DB8:0:12::2",
-            "L FF00::/8 via Null0",
-            "None; the packet is dropped"
-          ],
+          "choices": ["S 2001:DB8:0:99::1/128, because it is the closest match", "S ::/0 via 2001:DB8:0:12::2", "L FF00::/8 via Null0", "None; the packet is dropped"],
           "answer": 1,
           "explanation": "The /128 host route matches only 2001:DB8:0:99::1, and no /64 covers 2001:DB8:0:99::/64, so only the default route ::/0 contains the address. FF00::/8 covers multicast addresses, not this unicast one."
         }
       },
       {
         "title": "Worked exhibit: one table, many questions",
-        "body": "Exam items often paste one full routing table and then ask several questions about it. The method below works every time; here it is applied to R1's table.\n\n- **Step 1: find the real routes.** Skip the legend and the indented heading lines. `10.0.0.0/8 is variably subnetted, 10 subnets, 4 masks` is a label, and its count includes the L routes.\n- **Step 2: write each route's range.** Most are easy. The one to calculate is 10.1.4.0/22: /22 blocks step by 4 in the third octet, so it covers 10.1.4.0 to 10.1.7.255.\n- **Step 3: for each destination, list every route that contains it and take the longest prefix.** Only if two candidates have the identical prefix and length do AD and metric matter.\n\nNow the questions:\n\n- **10.1.1.1** matches the L /32. It is R1's own address, so R1 processes the packet itself.\n- **10.1.1.50** matches the C /24 on G0/0. R1 ARPs for 10.1.1.50 directly; no next-hop router is involved.\n- **10.1.5.77** matches the default, the static /22, the OSPF /24 and the static /32. The /32 wins: via 10.1.12.2.\n- **10.1.5.9** matches the default, the /22 and the /24. The /24 wins, and it lists two equal-cost paths, so R1 load balances via 10.1.13.3 and 10.1.12.2.\n- **10.1.6.1** is outside 10.1.5.0/24 but inside the /22: via 10.1.13.3.\n- **10.1.3.3** is the trap. It is not in 10.1.2.0/24, it is below the /22 (which starts at 10.1.4.0), and the 10.0.0.0/8 heading is not a route, so only the default matches: via 203.0.113.1.\n\nNotice that a static /22 (AD 1) and an OSPF /24 (AD 110) coexist happily. They are different prefixes, so AD never compares them; longest prefix match decides per packet. AD and metric already did their work when the table was built.",
-        "code": "R1# show ip route\n! legend omitted\nGateway of last resort is 203.0.113.1 to network 0.0.0.0\n\nS*    0.0.0.0/0 [1/0] via 203.0.113.1\n      10.0.0.0/8 is variably subnetted, 10 subnets, 4 masks\nC        10.1.1.0/24 is directly connected, GigabitEthernet0/0\nL        10.1.1.1/32 is directly connected, GigabitEthernet0/0\nO        10.1.2.0/24 [110/2] via 10.1.12.2, 00:31:07, GigabitEthernet0/1\nS        10.1.4.0/22 [1/0] via 10.1.13.3\nO        10.1.5.0/24 [110/4] via 10.1.13.3, 00:02:45, GigabitEthernet0/2\n                     [110/4] via 10.1.12.2, 00:02:45, GigabitEthernet0/1\nS        10.1.5.77/32 [1/0] via 10.1.12.2\nC        10.1.12.0/30 is directly connected, GigabitEthernet0/1\nL        10.1.12.1/32 is directly connected, GigabitEthernet0/1\nC        10.1.13.0/30 is directly connected, GigabitEthernet0/2\nL        10.1.13.1/32 is directly connected, GigabitEthernet0/2\n      203.0.113.0/24 is variably subnetted, 2 subnets, 2 masks\nC        203.0.113.0/30 is directly connected, GigabitEthernet0/3\nL        203.0.113.2/32 is directly connected, GigabitEthernet0/3",
+        "key": "For a table exhibit: skip the headings, write each route's range, then give each destination the longest prefix that contains it. AD and metric already did their work.",
+        "body": "Exam items often paste one full routing table and ask several questions about it.\n\n[[code]]\n\n[[visual]]\n\n[[visual 2]]\n\nNotice the static /22 (AD 1) and the OSPF /24 (AD 110) living side by side. They are different prefixes, so AD never compares them; longest prefix match decides per packet.",
+        "visual": [
+          {
+            "type": "steps",
+            "title": "The method",
+            "steps": [
+              {
+                "label": "Find the real routes",
+                "note": "Skip the legend and indented headings; a heading's subnet count includes the L routes"
+              },
+              {
+                "label": "Write the range of every route that is not a /24 or /32",
+                "work": "10.1.4.0/22: blocks of 4\n10.1.4.0 to 10.1.7.255"
+              },
+              {
+                "label": "For each destination, list the routes that contain it",
+                "note": "Take the longest prefix; AD and metric only for an identical prefix"
+              }
+            ]
+          },
+          {
+            "type": "table",
+            "title": "The answers",
+            "columns": ["Destination", "Longest match", "R1 does"],
+            "rows": [
+              ["10.1.1.1", "`L 10.1.1.1/32`", "Processes it: its own address"],
+              ["10.1.1.50", "`C 10.1.1.0/24`", "ARPs for 10.1.1.50 and sends it out G0/0, no next hop"],
+              ["10.1.2.200", "`O 10.1.2.0/24`", "Via 10.1.12.2"],
+              ["10.1.5.77", "`S 10.1.5.77/32`", "Via 10.1.12.2"],
+              ["10.1.5.9", "`O 10.1.5.0/24`", "Load balances via 10.1.13.3 and 10.1.12.2"],
+              ["10.1.6.1", "`S 10.1.4.0/22`", "Via 10.1.13.3 (outside the /24)"],
+              ["10.1.3.3", "`S* 0.0.0.0/0`", "Via 203.0.113.1: below the /22, not in 10.1.2.0/24, and the heading is no route"]
+            ],
+            "highlight": [6]
+          }
+        ],
+        "code": "R1# show ip route\n! legend and G0/3 routes omitted\nGateway of last resort is 203.0.113.1 to network 0.0.0.0\n\nS*    0.0.0.0/0 [1/0] via 203.0.113.1\n      10.0.0.0/8 is variably subnetted, 10 subnets, 4 masks\nC        10.1.1.0/24 is directly connected, GigabitEthernet0/0\nL        10.1.1.1/32 is directly connected, GigabitEthernet0/0\nO        10.1.2.0/24 [110/2] via 10.1.12.2, 00:31:07, GigabitEthernet0/1\nS        10.1.4.0/22 [1/0] via 10.1.13.3\nO        10.1.5.0/24 [110/4] via 10.1.13.3, 00:02:45, GigabitEthernet0/2\n                     [110/4] via 10.1.12.2, 00:02:45, GigabitEthernet0/1\nS        10.1.5.77/32 [1/0] via 10.1.12.2\nC        10.1.12.0/30 is directly connected, GigabitEthernet0/1\nL        10.1.12.1/32 is directly connected, GigabitEthernet0/1\nC        10.1.13.0/30 is directly connected, GigabitEthernet0/2\nL        10.1.13.1/32 is directly connected, GigabitEthernet0/2",
+        "language": "cisco",
         "tip": "Before answering, write out the range of every route that is not a /24 or a /32. /22s and /20s are where exam traps hide.",
-        "pitfall": "Matching a destination to the classful heading line or to the \"closest\" subnet. A route either contains the address or it does not; when only the default contains it, the default is used.",
+        "pitfall": "Matching a destination to the classful heading or the \"closest\" subnet. A route either contains the address or it does not; when only the default contains it, the default is used.",
         "check": {
           "question": "Using R1's table above, which next hop does R1 use for a packet to 10.1.6.1?",
           "choices": [
@@ -318,12 +571,12 @@
       }
     ],
     "summary": [
-      "Routers strip the incoming frame, route the packet on its destination IP and build a new frame, so MACs change per hop and IPs do not.",
+      "Routers rebuild the frame at every hop: MACs change, IPs do not.",
       "A route line reads: code, prefix/length, [AD/metric], via next hop, age, exit interface.",
-      "Each addressed up/up interface adds a C route for its subnet and an L /32 (IPv6 /128) route for its own address.",
-      "0.0.0.0/0 matches everything and loses to everything; \"Gateway of last resort is not set\" means unmatched packets are dropped.",
-      "Longest prefix match always comes first; AD only compares sources for the identical prefix, and metric only compares paths within one protocol.",
-      "show ip route <address> prints the winning route; show ipv6 route uses two-line entries, /128 local routes and ::/0 for the default."
+      "Each addressed up/up interface adds a C route and an L /32 (IPv6 /128) route.",
+      "0.0.0.0/0 matches everything and loses to everything; \"not set\" means unmatched packets drop.",
+      "Longest prefix first; AD only for the identical prefix; metric only within one protocol.",
+      "show ip route <address> prints the winner; IPv6 uses two-line entries and ::/0."
     ],
     "feynmanPrompt": "Explain to a friend how a router decides where to send a packet to 172.16.1.9 when its table holds a default route, a static 172.16.0.0/16 and an OSPF 172.16.1.0/24, and why administrative distance and metric never get a say in that particular choice."
   },
@@ -398,30 +651,12 @@
       "difficulty": "easy",
       "question": "Match each routing table code to its meaning.",
       "pairs": [
-        {
-          "left": "C",
-          "right": "Subnet on one of the router's own up/up interfaces"
-        },
-        {
-          "left": "L",
-          "right": "The router's own interface address as a host route"
-        },
-        {
-          "left": "S",
-          "right": "Configured with the ip route command"
-        },
-        {
-          "left": "O",
-          "right": "Learned from OSPF"
-        },
-        {
-          "left": "D",
-          "right": "Learned from EIGRP"
-        },
-        {
-          "left": "*",
-          "right": "Candidate default route"
-        }
+        { "left": "C", "right": "Subnet on one of the router's own up/up interfaces" },
+        { "left": "L", "right": "The router's own interface address as a host route" },
+        { "left": "S", "right": "Configured with the ip route command" },
+        { "left": "O", "right": "Learned from OSPF" },
+        { "left": "D", "right": "Learned from EIGRP" },
+        { "left": "*", "right": "Candidate default route" }
       ],
       "explanation": "These codes start every line of show ip route. C and L appear automatically for addressed up/up interfaces, S comes from configuration, O and D from routing protocols, and the asterisk marks a route that can serve as the default.",
       "concept": "routing protocol codes",
@@ -469,11 +704,7 @@
         "The next hop's MAC address",
         "The administrative distance"
       ],
-      "answers": [
-        0,
-        2,
-        4
-      ],
+      "answers": [0, 2, 4],
       "explanation": "An OSPF line shows code, prefix/length, [AD/metric], via next-hop IP, age and exit interface. The advertising router's ID appears in show ip route <prefix> detail and in the LSDB, and MAC addresses live in the ARP table, not the routing table.",
       "concept": "route line fields",
       "section": 1
@@ -547,9 +778,7 @@
       "code": "R1# show ip interface brief\nInterface              IP-Address      OK? Method Status                Protocol\nGigabitEthernet0/0     10.1.1.1        YES manual up                    up\nGigabitEthernet0/1     10.1.12.1       YES manual up                    up\nGigabitEthernet0/2     10.1.99.1       YES manual administratively down down\nLoopback0              1.1.1.1         YES manual up                    up",
       "language": "cisco",
       "answer": "3",
-      "accept": [
-        "three"
-      ],
+      "accept": ["three"],
       "explanation": "Only addressed interfaces in an up/up state create connected routes: G0/0, G0/1 and Loopback0. G0/2 is administratively down, so its subnet is not in the table.",
       "concept": "counting connected routes",
       "section": 2
@@ -576,9 +805,7 @@
       "difficulty": "easy",
       "question": "In show ipv6 route, what prefix length does the local (L) route for the router's own interface address use?",
       "answer": "128",
-      "accept": [
-        "/128"
-      ],
+      "accept": ["/128"],
       "explanation": "IPv6 local routes are host routes for the router's own address, so they use /128, the IPv6 equivalent of the IPv4 /32.",
       "concept": "IPv6 local route",
       "section": 2
@@ -656,12 +883,7 @@
       "type": "mcq",
       "difficulty": "easy",
       "question": "R1 has routes for 10.0.0.0/8, 10.1.0.0/16, 10.1.1.0/24 and 0.0.0.0/0. Which route does it use for 10.1.1.10?",
-      "choices": [
-        "10.0.0.0/8",
-        "10.1.1.0/24",
-        "10.1.0.0/16",
-        "0.0.0.0/0"
-      ],
+      "choices": ["10.0.0.0/8", "10.1.1.0/24", "10.1.0.0/16", "0.0.0.0/0"],
       "answer": 1,
       "explanation": "All four routes contain 10.1.1.10, and the router uses the one with the longest prefix, /24. The others are less specific and lose regardless of their AD or metric.",
       "concept": "longest prefix match",
@@ -674,12 +896,7 @@
       "question": "Using this table, which next hop does R1 use for a packet to 172.16.1.200?",
       "code": "S*    0.0.0.0/0 [1/0] via 10.0.0.2\nO        172.16.0.0/16 [110/4] via 10.0.0.6, 00:03:11, GigabitEthernet0/2\nO        172.16.0.0/22 [110/3] via 10.0.0.10, 00:03:11, GigabitEthernet0/3\nO        172.16.1.0/24 [110/2] via 10.0.0.14, 00:03:11, GigabitEthernet0/4\nS        172.16.1.1/32 [1/0] via 10.0.0.18",
       "language": "cisco",
-      "choices": [
-        "10.0.0.18",
-        "10.0.0.10",
-        "10.0.0.6",
-        "10.0.0.14"
-      ],
+      "choices": ["10.0.0.18", "10.0.0.10", "10.0.0.6", "10.0.0.14"],
       "answer": 3,
       "explanation": "172.16.1.200 is in 172.16.1.0/24, 172.16.0.0/22, 172.16.0.0/16 and the default. The /24 is longest, so the next hop is 10.0.0.14. The /32 matches only 172.16.1.1, not .200.",
       "concept": "longest prefix match",
@@ -692,12 +909,7 @@
       "question": "Using the same table, which next hop does R1 use for a packet to 172.16.4.1?",
       "code": "S*    0.0.0.0/0 [1/0] via 10.0.0.2\nO        172.16.0.0/16 [110/4] via 10.0.0.6, 00:03:11, GigabitEthernet0/2\nO        172.16.0.0/22 [110/3] via 10.0.0.10, 00:03:11, GigabitEthernet0/3\nO        172.16.1.0/24 [110/2] via 10.0.0.14, 00:03:11, GigabitEthernet0/4\nS        172.16.1.1/32 [1/0] via 10.0.0.18",
       "language": "cisco",
-      "choices": [
-        "10.0.0.6",
-        "10.0.0.10",
-        "10.0.0.14",
-        "10.0.0.2"
-      ],
+      "choices": ["10.0.0.6", "10.0.0.10", "10.0.0.14", "10.0.0.2"],
       "answer": 0,
       "explanation": "172.16.0.0/22 covers 172.16.0.0 to 172.16.3.255, so 172.16.4.1 is just outside it. The longest remaining match is 172.16.0.0/16 via 10.0.0.6. The default route would only be used if the /16 were missing.",
       "concept": "prefix range math",
@@ -710,12 +922,7 @@
       "question": "R2 has these routes. Which next hop does it use for 192.168.23.5?",
       "code": "O        192.168.0.0/16 [110/5] via 10.0.0.1, 00:10:02, GigabitEthernet0/1\nO        192.168.16.0/20 [110/4] via 10.0.0.2, 00:10:02, GigabitEthernet0/2\nO        192.168.20.0/22 [110/3] via 10.0.0.3, 00:10:02, GigabitEthernet0/3\nO        192.168.24.0/21 [110/2] via 10.0.0.4, 00:10:02, GigabitEthernet0/4",
       "language": "cisco",
-      "choices": [
-        "10.0.0.2 (192.168.16.0/20)",
-        "10.0.0.4 (192.168.24.0/21)",
-        "10.0.0.3 (192.168.20.0/22)",
-        "10.0.0.1 (192.168.0.0/16)"
-      ],
+      "choices": ["10.0.0.2 (192.168.16.0/20)", "10.0.0.4 (192.168.24.0/21)", "10.0.0.3 (192.168.20.0/22)", "10.0.0.1 (192.168.0.0/16)"],
       "answer": 2,
       "explanation": "/22 blocks step by 4 in the third octet, so 192.168.20.0/22 covers 192.168.20.0 to 192.168.23.255 and contains .23.5. The /20 (16.0 to 31.255) and /16 also match but are shorter. 192.168.24.0/21 starts at .24.0, so it does not match.",
       "concept": "prefix range math",
@@ -726,20 +933,8 @@
       "type": "multi",
       "difficulty": "medium",
       "question": "A packet is addressed to 10.20.30.40. Which of these routes contain that address? Select all that apply.",
-      "choices": [
-        "10.20.30.64/26",
-        "10.0.0.0/8",
-        "10.20.31.0/24",
-        "10.20.0.0/16",
-        "10.20.30.0/24",
-        "0.0.0.0/0"
-      ],
-      "answers": [
-        1,
-        3,
-        4,
-        5
-      ],
+      "choices": ["10.20.30.64/26", "10.0.0.0/8", "10.20.31.0/24", "10.20.0.0/16", "10.20.30.0/24", "0.0.0.0/0"],
+      "answers": [1, 3, 4, 5],
       "explanation": "10.20.30.64/26 covers .64 to .127, so .40 is outside it, and 10.20.31.0/24 is a different third octet. The /8, /16, /24 and the default all contain the address; the router would use the /24.",
       "concept": "matching routes",
       "section": 4
@@ -766,30 +961,12 @@
       "difficulty": "easy",
       "question": "Match each route source to its default administrative distance.",
       "pairs": [
-        {
-          "left": "Connected",
-          "right": "0"
-        },
-        {
-          "left": "Static",
-          "right": "1"
-        },
-        {
-          "left": "eBGP",
-          "right": "20"
-        },
-        {
-          "left": "EIGRP (internal)",
-          "right": "90"
-        },
-        {
-          "left": "OSPF",
-          "right": "110"
-        },
-        {
-          "left": "RIP",
-          "right": "120"
-        }
+        { "left": "Connected", "right": "0" },
+        { "left": "Static", "right": "1" },
+        { "left": "eBGP", "right": "20" },
+        { "left": "EIGRP (internal)", "right": "90" },
+        { "left": "OSPF", "right": "110" },
+        { "left": "RIP", "right": "120" }
       ],
       "explanation": "Lower AD means more believable. These six values come up constantly on the exam; also remember iBGP 200 and 255 for a source that is never trusted.",
       "concept": "default AD values",
@@ -870,12 +1047,7 @@
       "type": "order",
       "difficulty": "medium",
       "question": "Put the tie breakers in the order the CCNA blueprint uses for choosing a route.",
-      "items": [
-        "Longest prefix match",
-        "Lowest administrative distance",
-        "Lowest metric",
-        "Load balance across paths that still tie"
-      ],
+      "items": ["Longest prefix match", "Lowest administrative distance", "Lowest metric", "Load balance across paths that still tie"],
       "explanation": "Longest prefix first, then AD to pick between sources for the same prefix, then metric within one protocol. If metrics still tie, the protocol installs the equal-cost paths and the router load balances.",
       "concept": "route selection order",
       "section": 6
@@ -987,30 +1159,12 @@
       "difficulty": "easy",
       "question": "Match each show ipv6 route code to its meaning.",
       "pairs": [
-        {
-          "left": "C",
-          "right": "Prefix on one of the router's own up interfaces"
-        },
-        {
-          "left": "L",
-          "right": "A /128 route for the router's own address, marked receive"
-        },
-        {
-          "left": "S",
-          "right": "Configured with the ipv6 route command"
-        },
-        {
-          "left": "O",
-          "right": "OSPF route from inside the same area"
-        },
-        {
-          "left": "OI",
-          "right": "OSPF route from another area"
-        },
-        {
-          "left": "OE2",
-          "right": "OSPF external route, type 2"
-        }
+        { "left": "C", "right": "Prefix on one of the router's own up interfaces" },
+        { "left": "L", "right": "A /128 route for the router's own address, marked receive" },
+        { "left": "S", "right": "Configured with the ipv6 route command" },
+        { "left": "O", "right": "OSPF route from inside the same area" },
+        { "left": "OI", "right": "OSPF route from another area" },
+        { "left": "OE2", "right": "OSPF external route, type 2" }
       ],
       "explanation": "IPv6 keeps C, L and S from IPv4 and spells OSPF route types out as separate codes: O (intra-area), OI (inter-area) and OE1/OE2 (external).",
       "concept": "IPv6 route codes",
@@ -1041,18 +1195,8 @@
       "question": "Using R1's table, which destinations does R1 forward to next hop 10.1.12.2, alone or as one of several equal-cost paths? Choose three.",
       "code": "R1# show ip route\n! legend omitted\nGateway of last resort is 203.0.113.1 to network 0.0.0.0\n\nS*    0.0.0.0/0 [1/0] via 203.0.113.1\n      10.0.0.0/8 is variably subnetted, 10 subnets, 4 masks\nC        10.1.1.0/24 is directly connected, GigabitEthernet0/0\nL        10.1.1.1/32 is directly connected, GigabitEthernet0/0\nO        10.1.2.0/24 [110/2] via 10.1.12.2, 00:31:07, GigabitEthernet0/1\nS        10.1.4.0/22 [1/0] via 10.1.13.3\nO        10.1.5.0/24 [110/4] via 10.1.13.3, 00:02:45, GigabitEthernet0/2\n                     [110/4] via 10.1.12.2, 00:02:45, GigabitEthernet0/1\nS        10.1.5.77/32 [1/0] via 10.1.12.2\nC        10.1.12.0/30 is directly connected, GigabitEthernet0/1\nL        10.1.12.1/32 is directly connected, GigabitEthernet0/1\nC        10.1.13.0/30 is directly connected, GigabitEthernet0/2\nL        10.1.13.1/32 is directly connected, GigabitEthernet0/2\n      203.0.113.0/24 is variably subnetted, 2 subnets, 2 masks\nC        203.0.113.0/30 is directly connected, GigabitEthernet0/3\nL        203.0.113.2/32 is directly connected, GigabitEthernet0/3",
       "language": "cisco",
-      "choices": [
-        "10.1.2.200",
-        "10.1.5.77",
-        "10.1.5.9",
-        "10.1.6.1",
-        "10.1.3.3"
-      ],
-      "answers": [
-        0,
-        1,
-        2
-      ],
+      "choices": ["10.1.2.200", "10.1.5.77", "10.1.5.9", "10.1.6.1", "10.1.3.3"],
+      "answers": [0, 1, 2],
       "explanation": "10.1.2.200 uses the OSPF /24 via 10.1.12.2, 10.1.5.77 uses the static /32 via 10.1.12.2, and 10.1.5.9 uses the OSPF /24 whose two equal-cost paths include 10.1.12.2. 10.1.6.1 matches only the /22 via 10.1.13.3, and 10.1.3.3 matches only the default via 203.0.113.1.",
       "concept": "full table lookups",
       "section": 9
