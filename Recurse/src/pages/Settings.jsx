@@ -209,6 +209,13 @@ export default function Settings() {
               ))}
             </div>
           </Row>
+          <Row label="Lesson layout" hint="One section at a time keeps each step short: read, answer, then continue. You can still open the whole lesson from any lesson.">
+            <div className="segmented" role="group" aria-label="Lesson layout">
+              {[['steps', 'One section at a time'], ['scroll', 'Whole lesson']].map(([id, label]) => (
+                <button key={id} type="button" aria-pressed={(settings.lessonFlow || 'steps') === id} onClick={() => updateSettings({ lessonFlow: id })}>{label}</button>
+              ))}
+            </div>
+          </Row>
           <Row label="Lesson warm-ups" hint="Recall three things you learned before, at the start of a new lesson." htmlFor="warmups">
             <Switch id="warmups" checked={settings.warmups !== false} onChange={(v) => updateSettings({ warmups: v })} label="Lesson warm-ups" />
           </Row>

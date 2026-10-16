@@ -269,6 +269,8 @@ export function AppProvider({ children }) {
 
   const markLessonRead = useCallback((packId) => updateTopic(packId, (t) => ({ ...t, lessonRead: true })), [updateTopic])
   const passCheck = useCallback((packId, index) => updateTopic(packId, (t) => ({ ...t, checks: { ...t.checks, [index]: true } })), [updateTopic])
+  // How many lesson sections the learner has opened with Continue, so a return visit picks up there.
+  const reachSection = useCallback((packId, count) => updateTopic(packId, (t) => (count > (t.reached || 0) ? { ...t, reached: count } : t)), [updateTopic])
 
   const recordFeynman = useCallback((packId, attempt) => {
     const at = new Date()
@@ -520,6 +522,7 @@ export function AppProvider({ children }) {
     finishSession,
     markLessonRead,
     passCheck,
+    reachSection,
     recordFeynman,
     recordActivity,
     recordSandbox,

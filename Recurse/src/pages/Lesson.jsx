@@ -1,6 +1,6 @@
-import { useEffect, useMemo, useState } from 'react'
+import { Fragment, useEffect, useMemo, useState } from 'react'
 import { Link, Navigate, useLocation, useNavigate, useParams } from 'react-router-dom'
-import { ArrowRight, Check, ChevronLeft, CircleCheck, CircleX, Code, Eye, EyeOff, FlaskConical, Lightbulb, MessageSquareText, RotateCcw, Target, TriangleAlert, Zap } from 'lucide-react'
+import { ArrowRight, BookOpenText, Check, ChevronDown, ChevronLeft, CircleCheck, CircleX, Code, Eye, EyeOff, FlaskConical, Lightbulb, ListCollapse, MessageSquareText, RotateCcw, Target, TriangleAlert, Zap } from 'lucide-react'
 import { useApp } from '../state/context'
 import { useDocumentTitle } from '../hooks/useDocumentTitle'
 import { useLesson } from '../hooks/useLesson'
@@ -12,11 +12,13 @@ import { modeOf } from '../lib/approaches'
 import { POP_RATES, seenPool } from '../lib/session'
 import { challengesForTopic, labsForTopic } from '../lib/practice'
 import { feedbackCorrect, feedbackSuccess, feedbackWrong } from '../lib/juice'
+import { sectionMinutes, splitBody, visualList } from '../lib/visuals'
 import RichText, { Inline } from '../components/RichText'
 import CodeBlock from '../components/CodeBlock'
 import Activity from '../activities/Activity'
 import RecallBurst from '../components/RecallBurst'
 import ModeIcon from '../components/ModeIcon'
+import Visual from '../components/visuals/Visual'
 
 /** Retrieval check at the end of a section (or a pretest at its start): answer before moving on. */
 function SectionCheck({ check, passed, onPass, pretest = false }) {
@@ -102,8 +104,30 @@ function SectionBody({ pack, section, mode, index, topic, onActivity }) {
       <Activity spec={section.activity} done={Boolean(topic.activities?.[index])} onComplete={(result) => onActivity(index, result)} />
     </div>
   )
-  const code = section.code && <CodeBlock code={section.code} language={codeLanguage(pack, section)} />
-  const body = <RichText text={section.body} />
+  const visuals = visualList(section)
+  const parts = splitBody(section.body)
+  const placed = new Set(parts.filter((p) => p.kind === 'visual').map((p) => p.index))
+  const codeBlock = section.code && <CodeBlock code={section.code} language={codeLanguage(pack, section)} />
+  const code = !parts.some((p) => p.kind === 'code') && codeBlock
+  // Text, visuals and the code block in the order the body places them; unplaced visuals follow.
+  const body = (
+    <>
+      {parts.map((part, i) => (
+        <Fragment key={i}>
+          {part.kind === 'text' && <RichText text={part.text} />}
+          {part.kind === 'code' && codeBlock}
+          {part.kind === 'visual' && visuals[part.index] && <Visual spec={visuals[part.index]} />}
+        </Fragment>
+      ))}
+      {visuals.map((spec, i) => !placed.has(i) && <Visual key={`v${i}`} spec={spec} />)}
+    </>
+  )
+  const deeper = section.deeper && (
+    <details className="lesson-deeper">
+      <summary><BookOpenText size={15} /> Go deeper <ChevronDown size={15} className="lesson-deeper-chevron" /></summary>
+      <RichText text={section.deeper} />
+    </details>
+  )
   const tip = section.tip && (
     <div className="callout">
       <Lightbulb size={16} />
@@ -116,14 +140,14 @@ function SectionBody({ pack, section, mode, index, topic, onActivity }) {
       <span><strong>Common mistake.</strong> <Inline text={section.pitfall} /></span>
     </div>
   )
-  if (mode === 'builder') return <>{activity}{body}{code}{tip}{pitfall}</>
-  if (mode === 'visual') return <>{activity}{code}{body}{tip}{pitfall}</>
-  return <>{body}{code}{tip}{pitfall}{activity}</>
+  if (mode === 'builder') return <>{activity}{body}{code}{deeper}{tip}{pitfall}</>
+  if (mode === 'visual') return <>{activity}{code}{body}{deeper}{tip}{pitfall}</>
+  return <>{body}{code}{deeper}{tip}{pitfall}{activity}</>
 }
 
 export default function Lesson() {
   const { topicId } = useParams()
-  const { packs, packMap, callNos, progress, settings, passCheck, markLessonRead, recordActivity, toast, now, questionsReady } = useApp()
+  const { packs, packMap, callNos, progress, settings, passCheck, markLessonRead, reachSection, recordActivity, toast, now, questionsReady } = useApp()
   const navigate = useNavigate()
   const location = useLocation()
   const pack = packMap.get(topicId)
@@ -133,6 +157,8 @@ export default function Lesson() {
   const [active, setActive] = useState(0)
   const [readProgress, setReadProgress] = useState(0)
   const [warmupDone, setWarmupDone] = useState(false)
+  // Sections revealed with Continue during this visit (one section at a time).
+  const [revealedCount, setRevealedCount] = useState(0)
   useDocumentTitle(pack ? `${pack.name} lesson` : 'Lesson')
 
   const { lesson, error: lessonError } = useLesson(pack)
@@ -235,6 +261,26 @@ export default function Lesson() {
     )
   }
 
+  const total = lesson.sections.length
+  const stepped = settings.lessonFlow !== 'scroll'
+  const lastPassed = Math.max(-1, ...Object.keys(topic.checks || {}).map(Number).filter((i) => topic.checks[i]))
+  const hashSection = Number(location.hash.match(/^#section-(\d+)$/)?.[1] || 0)
+  const hashAll = location.hash === '#key-terms' || location.hash === '#summary'
+  const visible = !stepped || topic.lessonRead || hashAll
+    ? total
+    : Math.min(total, Math.max(1, topic.reached || 0, lastPassed + 2, hashSection, revealedCount))
+  const allShown = visible >= total
+  const reveal = (count, { scroll = true } = {}) => {
+    const next = Math.min(total, count)
+    setRevealedCount(next)
+    reachSection(pack.id, next)
+    if (scroll) setTimeout(() => document.getElementById(`section-${Math.min(next, total)}`)?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 60)
+  }
+  const showAll = () => {
+    setRevealedCount(total)
+    reachSection(pack.id, total)
+  }
+
   const passedCount = lesson.sections.filter((_, i) => topic.checks?.[i]).length
   const allPassed = passedCount === lesson.sections.length
   const activityCount = lesson.sections.filter((s) => s.activity).length
@@ -258,7 +304,7 @@ export default function Lesson() {
 
   return (
     <>
-      <div className="read-progress" style={{ transform: `scaleX(${readProgress})` }} aria-hidden="true" />
+      <div className="read-progress" style={{ transform: `scaleX(${stepped && !allShown ? (active + 1) / total : readProgress})` }} aria-hidden="true" />
       <div className="page reading">
         <Link to={`/topic/${pack.id}`} className="back-link small"><ChevronLeft size={16} /> {pack.name}</Link>
         <div className="lesson-layout">
@@ -267,15 +313,24 @@ export default function Lesson() {
             <ol>
               {lesson.sections.map((section, i) => (
                 <li key={i}>
-                  <a href={`#section-${i + 1}`} className={active === i ? 'active' : ''} aria-current={active === i ? 'location' : undefined}>
+                  <a
+                    href={`#section-${i + 1}`}
+                    className={`${active === i ? 'active' : ''}${i >= visible ? ' ahead' : ''}`}
+                    aria-current={active === i ? 'location' : undefined}
+                    onClick={(e) => {
+                      if (i < visible) return
+                      e.preventDefault()
+                      reveal(i + 1)
+                    }}
+                  >
                     <span className={`outline-dot${topic.checks?.[i] ? ' done' : ''}`} aria-hidden="true">{topic.checks?.[i] ? <Check size={11} /> : String(i + 1).padStart(2, '0')}</span>
                     {section.title}
                     {section.activity && <FlaskConical size={11} className={`toc-activity${topic.activities?.[i] ? ' done' : ''}`} aria-label="Has an activity" />}
                   </a>
                 </li>
               ))}
-              <li><a href="#key-terms"><span className="outline-dot aux" aria-hidden="true">Aa</span>Key terms</a></li>
-              <li><a href="#summary"><span className="outline-dot aux" aria-hidden="true">Σ</span>Summary</a></li>
+              {allShown && <li><a href="#key-terms"><span className="outline-dot aux" aria-hidden="true">Aa</span>Key terms</a></li>}
+              {allShown && <li><a href="#summary"><span className="outline-dot aux" aria-hidden="true">Σ</span>Summary</a></li>}
             </ol>
             <div className="xsmall subtle" style={{ marginTop: 'var(--s-4)' }}>{passedCount} of {lesson.sections.length} checks passed</div>
             <div className="bar" style={{ marginTop: 6 }}><span style={{ width: `${(passedCount / lesson.sections.length) * 100}%` }} /></div>
@@ -302,73 +357,93 @@ export default function Lesson() {
 
             {questionsReady && !warmupDone && recall.warmup.length > 0 && <RecallBurst kind="warmup" entries={recall.warmup} onDone={() => setWarmupDone(true)} />}
 
-            {lesson.sections.map((section, i) => (
+            {lesson.sections.slice(0, visible).map((section, i) => (
               <div key={i}>
                 {questionsReady && recall.pops[i] && <RecallBurst kind="pop" entries={recall.pops[i]} />}
                 <section id={`section-${i + 1}`} data-index={i} className="lesson-section" aria-labelledby={`section-title-${i}`}>
-                  <div className="lesson-section-num">§ {String(i + 1).padStart(2, '0')}</div>
+                  <div className="lesson-section-num">§ {String(i + 1).padStart(2, '0')}<span className="lesson-section-of"> of {total}</span></div>
                   <h2 id={`section-title-${i}`} className="lesson-section-title">{section.title}</h2>
                   {pretests[i] && <SectionCheck check={pretests[i]} pretest />}
+                  {section.key && <p className="lesson-key"><Inline text={section.key} /></p>}
                   <SectionBody pack={pack} section={section} mode={mode.id} index={i} topic={topic} onActivity={onActivity} />
                   {mode.id === 'explainer' && <SayItBack section={section} terms={lesson.keyTerms || []} />}
                   {section.check && <SectionCheck check={section.check} passed={Boolean(topic.checks?.[i])} onPass={() => passCheck(pack.id, i)} />}
                 </section>
+                {i === visible - 1 && !allShown && (
+                  <div className="lesson-continue">
+                    <button type="button" className="btn btn-primary btn-lg" onClick={() => reveal(visible + 1)}>
+                      Continue <ArrowRight size={18} />
+                    </button>
+                    <div className="lesson-continue-next">
+                      <span className="xsmall subtle">Next · {sectionMinutes(lesson.sections[visible])} min</span>
+                      <span className="small">{lesson.sections[visible].title}</span>
+                    </div>
+                    <button type="button" className="btn btn-ghost btn-sm lesson-continue-all" onClick={showAll}>
+                      <ListCollapse size={14} /> Show the whole lesson
+                    </button>
+                  </div>
+                )}
               </div>
             ))}
 
-            {lesson.keyTerms?.length > 0 && (
-              <section id="key-terms" className="lesson-section">
-                <div className="row between wrap">
-                  <h2 className="lesson-section-title">Key terms</h2>
-                  <div className="row wrap" style={{ gap: 6 }}>
-                    <button type="button" className="btn btn-sm" onClick={() => { setHideDefinitions((v) => !v); setRevealed({}) }} aria-pressed={hideDefinitions}>
-                      {hideDefinitions ? <Eye size={14} /> : <EyeOff size={14} />} {hideDefinitions ? 'Show definitions' : 'Quiz me: hide definitions'}
-                    </button>
-                    <Link to="/glossary" className="btn btn-sm btn-ghost">All terms</Link>
-                  </div>
-                </div>
-                <dl className="terms">
-                  {lesson.keyTerms.map((t) => (
-                    <div key={t.term}>
-                      <dt>{t.term}</dt>
-                      {hideDefinitions && !revealed[t.term] ? (
-                        <dd><button type="button" className="btn btn-ghost btn-sm" onClick={() => setRevealed((r) => ({ ...r, [t.term]: true }))}>Say it out loud, then reveal</button></dd>
-                      ) : (
-                        <dd className={hideDefinitions ? 'rise' : ''}>{t.definition}</dd>
-                      )}
+            {allShown && (
+              <>
+
+                {lesson.keyTerms?.length > 0 && (
+                  <section id="key-terms" className="lesson-section">
+                    <div className="row between wrap">
+                      <h2 className="lesson-section-title">Key terms</h2>
+                      <div className="row wrap" style={{ gap: 6 }}>
+                        <button type="button" className="btn btn-sm" onClick={() => { setHideDefinitions((v) => !v); setRevealed({}) }} aria-pressed={hideDefinitions}>
+                          {hideDefinitions ? <Eye size={14} /> : <EyeOff size={14} />} {hideDefinitions ? 'Show definitions' : 'Quiz me: hide definitions'}
+                        </button>
+                        <Link to="/glossary" className="btn btn-sm btn-ghost">All terms</Link>
+                      </div>
                     </div>
-                  ))}
-                </dl>
-              </section>
-            )}
+                    <dl className="terms">
+                      {lesson.keyTerms.map((t) => (
+                        <div key={t.term}>
+                          <dt>{t.term}</dt>
+                          {hideDefinitions && !revealed[t.term] ? (
+                            <dd><button type="button" className="btn btn-ghost btn-sm" onClick={() => setRevealed((r) => ({ ...r, [t.term]: true }))}>Say it out loud, then reveal</button></dd>
+                          ) : (
+                            <dd className={hideDefinitions ? 'rise' : ''}>{t.definition}</dd>
+                          )}
+                        </div>
+                      ))}
+                    </dl>
+                  </section>
+                )}
 
-            {lesson.summary?.length > 0 && (
-              <section id="summary" className="lesson-section">
-                <h2 className="lesson-section-title">Summary</h2>
-                <ul className="summary-list">
-                  {lesson.summary.map((line, i) => <li key={i}><Inline text={line} /></li>)}
-                </ul>
-              </section>
-            )}
+                {lesson.summary?.length > 0 && (
+                  <section id="summary" className="lesson-section">
+                    <h2 className="lesson-section-title">Summary</h2>
+                    <ul className="summary-list">
+                      {lesson.summary.map((line, i) => <li key={i}><Inline text={line} /></li>)}
+                    </ul>
+                  </section>
+                )}
 
-            {(labs.length > 0 || challenges.length > 0) && (
-              <section className="lesson-section">
-                <h2 className="lesson-section-title">Hands-on practice</h2>
-                <p className="muted small">Prove it with your hands. These come back for a redo on a spaced schedule, like your cards.</p>
-                <div className="row wrap" style={{ gap: 8 }}>
-                  {labs.map((lab) => <Link key={lab.id} to={`/practice/lab/${lab.id}`} className="lab-chip"><FlaskConical size={12} /> {lab.title}</Link>)}
-                  {challenges.map((c) => <Link key={c.id} to={`/practice/challenge/${c.id}`} className="lab-chip"><Code size={12} /> {c.title}</Link>)}
-                </div>
-              </section>
-            )}
+                {(labs.length > 0 || challenges.length > 0) && (
+                  <section className="lesson-section">
+                    <h2 className="lesson-section-title">Hands-on practice</h2>
+                    <p className="muted small">Prove it with your hands. These come back for a redo on a spaced schedule, like your cards.</p>
+                    <div className="row wrap" style={{ gap: 8 }}>
+                      {labs.map((lab) => <Link key={lab.id} to={`/practice/lab/${lab.id}`} className="lab-chip"><FlaskConical size={12} /> {lab.title}</Link>)}
+                      {challenges.map((c) => <Link key={c.id} to={`/practice/challenge/${c.id}`} className="lab-chip"><Code size={12} /> {c.title}</Link>)}
+                    </div>
+                  </section>
+                )}
 
-            <section className="card roomy lesson-finish">
-              <h2 className="section-title">{allPassed ? 'All checks passed.' : 'Ready to practice?'}</h2>
-              <p className="muted">
-                {pack.questions.length} cards cover this lesson. Recurse will bring each one back just before you are likely to forget it.
-              </p>
-              <div className="row wrap">{finishActions}</div>
-            </section>
+                <section className="card roomy lesson-finish">
+                  <h2 className="section-title">{allPassed ? 'All checks passed.' : 'Ready to practice?'}</h2>
+                  <p className="muted">
+                    {pack.questions.length} cards cover this lesson. Recurse will bring each one back just before you are likely to forget it.
+                  </p>
+                  <div className="row wrap">{finishActions}</div>
+                </section>
+              </>
+            )}
           </article>
         </div>
       </div>
