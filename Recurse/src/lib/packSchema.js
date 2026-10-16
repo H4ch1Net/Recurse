@@ -2,6 +2,7 @@
 // Keep this file free of browser and Vite APIs so Node can import it directly.
 
 import { ACTIVITY_TYPES } from '../activities/catalog.js'
+import { checkSectionVisuals, checkVisual, visualList } from './visuals.js'
 
 export const SUBJECT_IDS = ['programming', 'cs', 'swe', 'tools', 'web', 'networking', 'security', 'math', 'science', 'humanities', 'languages']
 export const LEVELS = ['beginner', 'intermediate', 'advanced']
@@ -153,6 +154,10 @@ export function validatePack(pack, { strict = false } = {}) {
         if (section?.language && !CODE_LANGUAGES.includes(section.language)) errors.push(`${where}: unknown language ${section.language}`)
         if (section?.activity !== undefined) checkActivity(`${where}.activity`, section.activity, errors)
         if (section?.pitfall !== undefined && !isText(section.pitfall)) errors.push(`${where}: pitfall must be text`)
+        if (section?.key !== undefined && !isText(section.key)) errors.push(`${where}: key must be text`)
+        else if (section?.key && section.key.length > 220) warnings.push(`${where}: key idea is over 220 characters; keep it to one sentence`)
+        if (section?.deeper !== undefined && !isText(section.deeper)) errors.push(`${where}: deeper must be text`)
+        if (section?.visual !== undefined || /\[\[(visual|code)/.test(section?.body || '')) checkSectionVisuals(where, section, errors, warnings)
         if (section?.check) {
           if (!isText(section.check.question)) errors.push(`${where}.check: question is required`)
           checkChoices(`${where}.check`, section.check, errors)
@@ -233,6 +238,11 @@ export function validatePack(pack, { strict = false } = {}) {
     }
     if (q.type === 'code-fill' && !(q.code || '').includes(BLANK)) errors.push(`${where}: code-fill code must contain the blank ${BLANK}`)
     if (q.type === 'debug' && !isText(q.code)) errors.push(`${where}: debug questions need code`)
+    if (q.visual !== undefined) {
+      const list = visualList(q)
+      if (!list.length || list.length > 2) errors.push(`${where}: a question takes one or two visuals`)
+      list.forEach((spec, j) => checkVisual(`${where}.visual${Array.isArray(q.visual) ? `[${j}]` : ''}`, spec, errors, warnings))
+    }
 
     if (strict) {
       if (!DIFFICULTIES.includes(q.difficulty)) errors.push(`${where}: difficulty is required`)
@@ -331,6 +341,12 @@ export function sanitizePack(raw) {
         delete base.answer
       }
       if (Number.isInteger(q?.section)) base.section = q.section
+      const visuals = visualList(q).filter((v) => {
+        const problems = []
+        checkVisual('visual', v, problems)
+        return !problems.length && JSON.stringify(v).length <= 8000
+      })
+      if (visuals.length) base.visual = JSON.parse(JSON.stringify(visuals.slice(0, 2)))
       return base
     })
   }
@@ -345,6 +361,14 @@ export function sanitizePack(raw) {
         if (s?.language && CODE_LANGUAGES.includes(s.language)) section.language = s.language
         if (s?.tip) section.tip = clip(s.tip, 300)
         if (s?.pitfall) section.pitfall = clip(s.pitfall, 400)
+        if (isText(s?.key)) section.key = clip(s.key, 240)
+        if (isText(s?.deeper)) section.deeper = clip(s.deeper, 4000)
+        const visuals = visualList(s).filter((v) => {
+          const problems = []
+          checkVisual('visual', v, problems)
+          return !problems.length && JSON.stringify(v).length <= 8000
+        })
+        if (visuals.length) section.visual = JSON.parse(JSON.stringify(visuals.slice(0, 4)))
         if (s?.activity && ACTIVITY_TYPES.includes(s.activity.type)) {
           section.activity = { type: s.activity.type }
           for (const key of ['title', 'prompt', 'goal']) if (isText(s.activity[key])) section.activity[key] = clip(s.activity[key], 400)

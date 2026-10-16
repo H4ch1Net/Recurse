@@ -52,7 +52,8 @@ export const DEFAULTS = {
     effects: 'full',
     learningMode: 'balanced',
     popQuiz: 'sometimes',
-    warmups: true
+    warmups: true,
+    lessonFlow: 'steps'
   },
   communityPacks: [],
   lastSession: null,

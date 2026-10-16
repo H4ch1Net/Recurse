@@ -8,17 +8,8 @@
   "description": "Configure static NAT, dynamic pools and PAT on a Cisco router, read the NAT table and fix broken translations.",
   "icon": "NAT",
   "language": "cisco",
-  "prereqs": [
-    "ccna-ipv4-addressing",
-    "ccna-static-routing"
-  ],
-  "tags": [
-    "ccna",
-    "4.1",
-    "nat",
-    "pat",
-    "ip-services"
-  ],
+  "prereqs": ["ccna-ipv4-addressing", "ccna-static-routing"],
+  "tags": ["ccna", "4.1", "nat", "pat", "ip-services"],
   "resources": [
     {
       "title": "Free CCNA 200-301 course (Jeremy's IT Lab)",
@@ -58,21 +49,67 @@
     }
   ],
   "lesson": {
-    "estimatedMinutes": 38,
-    "intro": "Almost every packet that leaves a home or office for the internet passes through NAT. Network Address Translation lets hundreds of hosts with private addresses share a few public addresses, or a single one. The CCNA tests the vocabulary (inside local, inside global and friends), the three flavors, the IOS configuration and the show commands that prove it works or reveal why it does not. This lesson builds one office router step by step, from a single static mapping to a busy table full of PAT flows.",
+    "estimatedMinutes": 31,
+    "intro": "Almost every packet that leaves a home or office passes through NAT, which lets many private hosts share a few public addresses. The CCNA tests the vocabulary, the three flavors, the IOS configuration and the show commands that prove it works.",
     "objectives": [
-      "Identify the inside local, inside global, outside local and outside global addresses in a flow or a NAT table",
-      "Choose between static NAT, port forwarding, a dynamic pool and PAT for a given requirement",
-      "Configure static NAT, dynamic NAT from a pool and PAT with interface roles, an ACL, a pool and overload",
-      "Verify NAT with show ip nat translations, show ip nat statistics and debug ip nat",
-      "Troubleshoot reversed interfaces, mismatched ACLs, exhausted pools and ACL order problems"
+      "Identify inside local, inside global, outside local and outside global addresses",
+      "Choose static NAT, port forwarding, a dynamic pool or PAT for a requirement",
+      "Configure static NAT, dynamic NAT and PAT on IOS",
+      "Verify NAT with show ip nat translations, statistics and debug",
+      "Troubleshoot reversed roles, bad ACLs, exhausted pools and ACL order"
     ],
     "sections": [
       {
         "title": "Why NAT exists",
-        "body": "Picture a small office: 40 laptops, phones and printers on 192.168.1.0/24, and one connection to an ISP that gives the office a single public address, 203.0.113.2. Everyone wants to load web pages at the same time. The problem is that 192.168.1.0/24 is a **private** range. Internet routers do not route private addresses, and even if a packet got out, the reply could never find its way back, because thousands of other networks use the very same range.\n\n**Network Address Translation (NAT)** fixes this at the edge router. As a packet leaves the office, the router rewrites the private source address into a public one and records the swap in its **NAT translation table**. When the reply comes back to the public address, the router looks up the table, rewrites the destination back to the private address and forwards the packet inside. Neither the laptop nor the web server knows anything happened.\n\nThe private ranges from RFC 1918 are worth knowing cold, because NAT questions assume you can spot them instantly:\n\n- `10.0.0.0/8`: 10.0.0.0 to 10.255.255.255\n- `172.16.0.0/12`: 172.16.0.0 to 172.31.255.255\n- `192.168.0.0/16`: 192.168.0.0 to 192.168.255.255\n\nNAT is the main reason IPv4 survived running out of public addresses: a whole company can sit behind one public address or a handful of them. A side effect is that inside hosts cannot be reached from the internet unless a translation exists for them, which hides them a little. That is not a firewall, though. NAT does not inspect traffic or enforce a policy, it only rewrites addresses.\n\nThe CCNA blueprint topic is **inside source NAT**: translating the **source** address of packets that start on the inside and head out. The router only builds new dynamic translations for packets that arrive on an interface you marked as inside and leave through one marked as outside. Keep that rule in mind, because the most common NAT fault in labs and on the exam is getting those two interface roles backwards.",
-        "code": "Inside (private)                        Outside (internet)\nPC 192.168.1.10 ---[G0/1   R1   G0/0]--- ISP --- web server 198.51.100.7\n                    ip nat    ip nat\n                    inside    outside\n\nLeaving:   src 192.168.1.10:51000  becomes  src 203.0.113.2:51000  (dst 198.51.100.7:443)\nReturning: dst 203.0.113.2:51000   becomes  dst 192.168.1.10:51000 (src 198.51.100.7:443)\n\nNAT table on R1\nInside local          Inside global\n192.168.1.10:51000    203.0.113.2:51000",
-        "language": "plaintext",
+        "key": "NAT on the edge router rewrites private inside source addresses into public ones and records each swap, so replies can be translated back.",
+        "body": "A small office has 40 devices on 192.168.1.0/24 and one public address from its ISP, 203.0.113.2. Internet routers do not route **private** addresses, and replies could never find their way back: thousands of networks use the same range.\n\n[[visual]]\n\n**Network Address Translation (NAT)** fixes this at the edge. Leaving, R1 rewrites the private source into the public address and records the swap in its **NAT translation table**. Returning, it looks up the table and rewrites the destination back. Neither host notices.\n\n[[visual 2]]\n\nSpot the private ranges (RFC 1918) instantly:\n\n[[visual 3]]\n\nThe CCNA covers **inside source NAT**: translating the source of packets that start inside. New translations are built only for packets that arrive on an interface marked inside and leave through one marked outside. NAT hides inside hosts as a side effect, but it filters nothing: it is not a firewall.",
+        "visual": [
+          {
+            "type": "topology",
+            "nodes": [
+              { "id": "pc", "kind": "pc", "label": "PC", "sub": "192.168.1.10", "x": 0, "y": 0 },
+              { "id": "r1", "kind": "router", "label": "R1", "sub": "NAT", "x": 0, "y": 2 },
+              { "id": "isp", "kind": "internet", "label": "Internet", "x": 2, "y": 2 },
+              { "id": "srv", "kind": "server", "label": "Web server", "sub": "198.51.100.7", "x": 2, "y": 0 }
+            ],
+            "links": [
+              { "from": "pc", "to": "r1", "label": "inside G0/1" },
+              { "from": "r1", "to": "isp", "label": "outside G0/0" },
+              { "from": "isp", "to": "srv" }
+            ],
+            "zones": [
+              {
+                "label": "Inside: private",
+                "nodes": ["pc"],
+                "tone": "accent"
+              },
+              {
+                "label": "Outside: public",
+                "nodes": ["isp", "srv"],
+                "tone": "muted"
+              }
+            ]
+          },
+          {
+            "type": "table",
+            "columns": ["Packet", "Field", "Before R1", "After R1"],
+            "rows": [
+              ["Leaving", "Source", "`192.168.1.10:51000`", "`203.0.113.2:51000`"],
+              ["Returning", "Destination", "`203.0.113.2:51000`", "`192.168.1.10:51000`"]
+            ],
+            "caption": "Inside source NAT changes the source IP (and with PAT the source port), then reverses it for the reply."
+          },
+          {
+            "type": "table",
+            "title": "RFC 1918 private ranges",
+            "columns": ["Block", "Range"],
+            "rows": [
+              ["`10.0.0.0/8`", "10.0.0.0 to 10.255.255.255"],
+              ["`172.16.0.0/12`", "172.16.0.0 to **172.31**.255.255"],
+              ["`192.168.0.0/16`", "192.168.0.0 to 192.168.255.255"]
+            ]
+          }
+        ],
         "tip": "If the inside uses RFC 1918 addresses and needs the internet, some device on the path must do NAT.",
         "pitfall": "Treating NAT as a security feature. It hides inside addresses as a side effect, but it does not filter anything. You still need ACLs or a firewall.",
         "check": {
@@ -89,28 +126,102 @@
       },
       {
         "title": "Inside local, inside global and the outside pair",
-        "body": "Cisco names every address in a NAT flow with two words, and the exam leans hard on this vocabulary. Stay with the office from the last section: laptop 192.168.1.10 browses to a server at 198.51.100.7, and R1 translates the laptop to 203.0.113.2.\n\nThe first word says **where the host lives**, from the NAT router's point of view:\n\n- **Inside**: the host is in your network (the laptop).\n- **Outside**: the host is on the far side of the NAT router (the web server).\n\nThe second word says **which view of the address you are looking at**:\n\n- **Local**: the address as it appears on the inside network.\n- **Global**: the address as it appears on the outside network, the internet.\n\nCombine them and you get four terms:\n\n- **Inside local**: the inside host's address as seen inside. Usually private. Here, 192.168.1.10.\n- **Inside global**: the inside host's address as seen on the internet, after translation. Usually public. Here, 203.0.113.2.\n- **Outside global**: the outside host's real address on the internet. Here, 198.51.100.7.\n- **Outside local**: the outside host's address as seen from inside. Inside source NAT never touches the destination, so outside local equals outside global (198.51.100.7). They only differ with destination NAT, which the CCNA does not test.\n\nA memory trick from the official guide: think of inside local as \"inside private\" and inside global as \"inside public\". And if an answer choice calls the web server's address an inside anything, it is wrong: the server lives outside.\n\n`show ip nat translations` prints all four in this order: **Inside global, Inside local, Outside local, Outside global**. The public address comes first, which trips people up when they read the output in a hurry. Read the column header every time.",
+        "key": "Inside or outside says where the host lives; local or global says which side you see the address from. Inside local is usually private, inside global public.",
+        "body": "Cisco names every address in a NAT flow with two words, and the exam leans hard on them. Laptop 192.168.1.10 browses to 198.51.100.7, and R1 translates the laptop to 203.0.113.2.\n\n- **Inside** or **outside**: where the host lives, from the NAT router's view.\n- **Local** or **global**: whether you see the address on the inside network or on the internet.\n\n[[visual]]\n\nMemory trick: inside local is \"inside private\", inside global is \"inside public\". A web server on the internet is never \"inside\" anything.\n\n`show ip nat translations` prints them **Inside global first**, then Inside local, Outside local, Outside global. Read the header every time:\n\n[[code]]",
+        "visual": {
+          "type": "table",
+          "columns": ["Term", "Meaning", "Here"],
+          "rows": [
+            ["**Inside local**", "The inside host as seen inside; usually private", "192.168.1.10"],
+            ["**Inside global**", "The inside host as seen on the internet, after translation; usually public", "203.0.113.2"],
+            ["**Outside global**", "The outside host's real address", "198.51.100.7"],
+            ["**Outside local**", "The outside host as seen from inside. Inside source NAT never changes it, so it equals outside global", "198.51.100.7"]
+          ],
+          "mono": [2]
+        },
         "code": "R1# show ip nat translations\nPro Inside global       Inside local         Outside local        Outside global\ntcp 203.0.113.2:51000   192.168.1.10:51000   198.51.100.7:443     198.51.100.7:443",
         "language": "cisco",
         "tip": "Inside or outside says where the host lives. Local or global says whether you are looking from inside or from the internet.",
         "pitfall": "Reading the table as local first, then global. The first address column is Inside global, the second is Inside local.",
         "check": {
           "question": "Using the output above, which value is the laptop's inside global address?",
-          "choices": [
-            "192.168.1.10:51000",
-            "198.51.100.7:443",
-            "203.0.113.2:51000",
-            "203.0.113.2:443"
-          ],
+          "choices": ["192.168.1.10:51000", "198.51.100.7:443", "203.0.113.2:51000", "203.0.113.2:443"],
           "answer": 2,
           "explanation": "The inside global address is the public address the internet sees for the inside host: 203.0.113.2, here with PAT port 51000. 192.168.1.10 is the inside local address, and 198.51.100.7 is the server (outside local and outside global). 203.0.113.2:443 mixes the public address with the server's port."
         }
       },
       {
         "title": "Static NAT, dynamic NAT and PAT",
-        "body": "There are three ways to do inside source NAT, and the exam expects you to pick the right one for a requirement. They differ in how inside local addresses map to inside global ones.\n\n**Static NAT** is a fixed one-to-one mapping that you configure. 192.168.1.20 always becomes 203.0.113.6, and the entry never times out. Because the mapping exists before any traffic flows, hosts on the internet can open connections to 203.0.113.6 and reach the inside server. Use it for servers that must be reachable at a known public address. It saves no addresses: one public address per inside host.\n\n**Dynamic NAT** uses a **pool** of public addresses. When an inside host first sends a packet that needs translation, the router takes the next free address from the pool and creates a one-to-one entry. The entry times out after a period of inactivity and the address returns to the pool. It is still one public address per active inside host, so a pool of 4 addresses supports 4 inside hosts at a time. When the pool is empty, the router **drops** packets from the next host until an entry times out or is cleared.\n\n**PAT (Port Address Translation)**, also called **NAT overload**, translates the address and the port. Many inside hosts share one public address, and the router tells their flows apart by port number. The table holds one entry per unique inside local address and port. The port field is 16 bits, so a single public address can carry more than 65,000 simultaneous flows, which is how a whole office or home lives behind one address. If two inside hosts happen to pick the same source port, PAT simply uses a different port on the public side for the second one.\n\nPAT is by far the most common form today. The keyword that turns dynamic NAT into PAT is `overload`, and it is the single most tested detail in the configuration.\n\nA rough rule for choosing: a server that people on the internet must reach needs static NAT; users who only start connections outward get PAT; dynamic NAT without overload is mostly an exam topic now, but you must know how it behaves when its pool runs dry.",
-        "code": "                 Static NAT          Dynamic NAT (pool)     PAT (overload)\nMapping          1:1, fixed          1:1, borrowed          many:1, by port\nBuilt from       one line per host   ACL + pool             ACL + interface or pool\nEntry lifetime   permanent           times out when idle    times out when idle\nInternet can     yes, any time       only while an entry    only while an entry\nstart a flow?                        exists                 exists\nSaves public     no                  a little               massively\naddresses?\nTypical use      public servers      rare today             every office and home",
-        "language": "plaintext",
+        "key": "Static NAT maps one inside host to one public address for good; dynamic NAT lends pool addresses one to one; PAT shares one address among many hosts by port.",
+        "body": "There are three ways to do inside source NAT, and the exam expects you to pick one for a requirement:\n\n[[visual]]\n\nHere is PAT step by step, the form almost every office uses:\n\n[[visual 2]]\n\nChoosing: a server the internet must reach needs **static NAT**; users who only connect outward get **PAT**. Dynamic NAT without overload is rare today, but know how it fails when its pool runs dry.",
+        "visual": [
+          {
+            "type": "compare",
+            "items": [
+              {
+                "title": "Static NAT",
+                "sub": "1:1, fixed",
+                "points": ["A mapping you configure", "Permanent: never times out", "Internet hosts can start connections to it at any time", "Saves no addresses", "Use: public servers"]
+              },
+              {
+                "title": "Dynamic NAT",
+                "sub": "1:1, borrowed",
+                "points": [
+                  "ACL plus a **pool** of public addresses",
+                  "A host gets a free address when it first sends",
+                  "Idle entries time out and the address returns",
+                  "Pool of 4 = 4 hosts at once",
+                  "Pool empty: the next host is **dropped**"
+                ]
+              },
+              {
+                "title": "PAT (overload)",
+                "sub": "many:1, by port",
+                "tone": "accent",
+                "points": [
+                  "Translates address and port",
+                  "One entry per inside address and port",
+                  "16-bit ports: more than 65,000 flows per address",
+                  "Two hosts pick the same port: one gets another public port",
+                  "Keyword: `overload`"
+                ]
+              }
+            ]
+          },
+          {
+            "type": "sequence",
+            "actors": [
+              { "id": "pc", "label": "PC1", "kind": "pc" },
+              { "id": "r1", "label": "R1", "kind": "router" },
+              { "id": "srv", "label": "Server", "kind": "server" }
+            ],
+            "messages": [
+              { "from": "pc", "to": "r1", "label": "src 192.168.1.10:51000", "detail": "to 198.51.100.7:443" },
+              {
+                "from": "r1",
+                "to": "r1",
+                "label": "Inside interface, ACL match",
+                "detail": "entry: .10:51000 = 203.0.113.2:51000"
+              },
+              {
+                "from": "r1",
+                "to": "srv",
+                "label": "src 203.0.113.2:51000",
+                "detail": "out the outside interface",
+                "tone": "accent"
+              },
+              { "from": "srv", "to": "r1", "label": "dst 203.0.113.2:51000", "dashed": true },
+              {
+                "from": "r1",
+                "to": "pc",
+                "label": "dst 192.168.1.10:51000",
+                "detail": "entry found, destination rewritten",
+                "dashed": true,
+                "tone": "good"
+              }
+            ]
+          }
+        ],
         "pitfall": "Using a dynamic pool without overload for a whole LAN. The first few hosts work, then everyone else fails silently once the pool is used up.",
         "activity": {
           "type": "nat-table",
@@ -131,8 +242,19 @@
       },
       {
         "title": "Configuring static NAT and port forwarding",
-        "body": "Every NAT configuration has three jobs: tell the router which interfaces are inside and outside, say what to translate, and say what to translate it to. The examples from here on use one office router, R1, with the LAN 192.168.1.0/24 on G0/1 and a small public block from the ISP, 203.0.113.0/29, on G0/0.\n\n**Mark the interfaces.** `ip nat inside` goes on every interface facing your private network (one per LAN or VLAN subinterface) and `ip nat outside` on the interface facing the internet. These are not decoration: the router only translates traffic that moves between an inside and an outside interface.\n\n**Static NAT** needs one global command per mapping, inside local first, inside global second:\n\n`ip nat inside source static 192.168.1.20 203.0.113.6`\n\nEach keyword carries meaning. `inside` says the host being translated lives inside. `source` says the router rewrites the source address of packets arriving on inside interfaces, and the destination of the replies coming back. `static` makes the entry permanent: it appears in `show ip nat translations` the moment you press Enter, before any traffic flows, and it never times out. That is what lets internet hosts open connections to 203.0.113.6 at any time and reach the web server. No ACL is involved, because the command itself names the one host.\n\nTwo servers to publish? Write two lines, each with its own public address. Static NAT saves no addresses, so it is reserved for hosts that must accept connections from outside.\n\n**Static PAT, better known as port forwarding.** If a service must be published but you have no spare public address, map a single port instead of a whole address:\n\n`ip nat inside source static tcp 192.168.1.30 443 203.0.113.2 443`\n\nConnections from the internet to 203.0.113.2 on TCP 443 now reach 192.168.1.30, while the same public address keeps serving everyone else through PAT. In the translation table this entry shows `tcp` and port numbers instead of `---`.\n\nTo remove a static mapping, use the `no` form of the same command. `clear ip nat translation *` does not touch it, because it lives in the configuration.",
-        "code": "interface GigabitEthernet0/1\n description LAN 192.168.1.0/24\n ip address 192.168.1.1 255.255.255.0\n ip nat inside\n!\ninterface GigabitEthernet0/0\n description ISP, public block 203.0.113.0/29\n ip address 203.0.113.2 255.255.255.248\n ip nat outside\n!\n! Whole address: the web server is always 203.0.113.6\nip nat inside source static 192.168.1.20 203.0.113.6\n! One port: HTTPS to G0/0's own address goes to 192.168.1.30\nip nat inside source static tcp 192.168.1.30 443 203.0.113.2 443\n\nR1# show ip nat translations\nPro Inside global      Inside local       Outside local  Outside global\ntcp 203.0.113.2:443    192.168.1.30:443   ---            ---\n--- 203.0.113.6        192.168.1.20       ---            ---",
+        "key": "Mark ip nat inside and ip nat outside, then `ip nat inside source static <inside local> <inside global>`. The entry is in the table before any traffic flows.",
+        "body": "Every NAT configuration does three jobs: mark the interfaces, say what to translate and say what to translate it to. R1 has the LAN 192.168.1.0/24 on G0/1 and the public block 203.0.113.0/29 on G0/0.\n\n**Mark the interfaces**: `ip nat inside` on every interface facing the private network, `ip nat outside` on the one facing the internet. Only traffic moving between the two is translated.\n\n**Static NAT** is one global command per mapping: `ip nat inside source static 192.168.1.20 203.0.113.6`.\n\n[[visual]]\n\n**Port forwarding** (static PAT) publishes one port when you have no spare address: `ip nat inside source static tcp 192.168.1.30 443 203.0.113.2 443`. HTTPS to 203.0.113.2 reaches 192.168.1.30 while that address still serves PAT for everyone else.\n\n[[code]]\n\nRemove a static mapping with its `no` form; `clear ip nat translation *` never touches it.",
+        "visual": {
+          "type": "table",
+          "columns": ["Word", "Meaning"],
+          "rows": [
+            ["`inside`", "The host being translated lives inside"],
+            ["`source`", "Rewrite the source of packets arriving on inside interfaces, and the destination of their replies"],
+            ["`static`", "Permanent: in the table the moment you press Enter, never times out, so internet hosts can connect any time"],
+            ["`192.168.1.20 203.0.113.6`", "Inside local first, inside global second. No ACL: the command names the host"]
+          ]
+        },
+        "code": "interface GigabitEthernet0/1\n ip address 192.168.1.1 255.255.255.0\n ip nat inside\ninterface GigabitEthernet0/0\n ip address 203.0.113.2 255.255.255.248\n ip nat outside\n!\nip nat inside source static 192.168.1.20 203.0.113.6\nip nat inside source static tcp 192.168.1.30 443 203.0.113.2 443\n\nR1# show ip nat translations\nPro Inside global      Inside local       Outside local  Outside global\ntcp 203.0.113.2:443    192.168.1.30:443   ---            ---\n--- 203.0.113.6        192.168.1.20       ---            ---",
         "language": "cisco",
         "tip": "Static entries are in the table before any traffic flows; dynamic and PAT entries only appear once an inside host sends something.",
         "pitfall": "Reversing the static mapping. The order is inside local, then inside global. Swapped, the router waits for a private host at the public address and never translates the real server.",
@@ -150,8 +272,39 @@
       },
       {
         "title": "Configuring dynamic NAT with a pool",
-        "body": "Dynamic NAT keeps the interface roles and adds two pieces: a standard ACL that says which inside local addresses may be translated, and a pool of inside global addresses to lend out. The official guide's checklist has five steps:\n\n1. `ip nat inside` on the inside interfaces.\n2. `ip nat outside` on the outside interface.\n3. An ACL matching the packets, as they enter inside interfaces, that should be translated: `access-list 1 permit 192.168.1.0 0.0.0.255`. The ACL is only a matching tool. Hosts it does not match are not translated (and, with private addresses, cannot reach the internet), but nothing is filtered on any interface.\n4. The pool: `ip nat pool PUB 203.0.113.3 203.0.113.5 netmask 255.255.255.248`. The range is inclusive, so this pool holds three addresses: .3, .4 and .5. `prefix-length 29` can replace the netmask.\n5. The rule that ties them together: `ip nat inside source list 1 pool PUB`. Read it aloud: packets from hosts matched by ACL 1, arriving on an inside interface, get an address from pool PUB.\n\n**The netmask is a sanity check, not a size.** IOS checks that the first and last addresses fall in the same subnet under the mask you give, and rejects the command if they do not. With netmask 255.255.255.252, 200.1.1.1 and 200.1.1.2 share subnet 200.1.1.0 to .3 and are accepted, but a pool from 200.1.1.1 to 200.1.1.6 fails because .6 belongs to the next /30. The mask never adds addresses: only the first-to-last range is lent out.\n\n**How entries come and go.** Nothing appears in the table until an inside host sends a packet that matches the ACL. Then R1 takes a free pool address and creates a one-to-one entry, shown with `---` like a static one, and every later packet from that host uses the same inside global address. After a period with no traffic (24 hours by default) the entry times out and the address returns to the pool; `clear ip nat translation *` frees them all at once. So one public address can belong to different inside hosts at different times.\n\nWhen every pool address is lent out, the next new host's packets are **dropped**, not sent untranslated. That is the weakness of dynamic NAT without overload: three addresses means three hosts online at a time. The pool line in `show ip nat statistics` shows how close you are.",
-        "code": "access-list 1 permit 192.168.1.0 0.0.0.255\nip nat pool PUB 203.0.113.3 203.0.113.5 netmask 255.255.255.248\nip nat inside source list 1 pool PUB\n\n! After host 192.168.1.10 sends its first packet out\nR1# show ip nat translations\nPro Inside global      Inside local       Outside local  Outside global\n--- 203.0.113.3        192.168.1.10       ---            ---\n\nR1# show ip nat statistics\nTotal active translations: 1 (0 static, 1 dynamic; 0 extended)\nOutside interfaces:\n  GigabitEthernet0/0\nInside interfaces:\n  GigabitEthernet0/1\nHits: 69  Misses: 1\nDynamic mappings:\n-- Inside Source\n[Id: 1] access-list 1 pool PUB refcount 1\n pool PUB: netmask 255.255.255.248\n        start 203.0.113.3 end 203.0.113.5\n        type generic, total addresses 3, allocated 1 (33%), misses 0",
+        "key": "Dynamic NAT needs interface roles, an ACL matching inside local addresses, a pool and `ip nat inside source list <acl> pool <name>`. An empty pool drops new hosts.",
+        "body": "Dynamic NAT keeps the interface roles and adds a standard ACL (which inside hosts to translate) and a pool (which public addresses to lend):\n\n[[visual]]\n\nThe ACL only **selects** traffic; it filters nothing on any interface.\n\n**The netmask is a sanity check, not a size.** IOS checks that the first and last addresses sit in one subnet under that mask. Only the first-to-last range is lent out.\n\n[[visual 2]]\n\nNothing enters the table until a matching host sends a packet. Then R1 lends a free address in a one-to-one entry (shown with `---`). After 24 idle hours by default, or `clear ip nat translation *`, the address returns to the pool for the next host. With every address lent out, a new host's packets are **dropped**, not sent untranslated.\n\n[[code]]",
+        "visual": [
+          {
+            "type": "steps",
+            "title": "Five pieces of dynamic NAT",
+            "steps": [
+              { "label": "Mark the inside interfaces", "work": "ip nat inside" },
+              { "label": "Mark the outside interface", "work": "ip nat outside" },
+              {
+                "label": "Match the inside local sources",
+                "work": "access-list 1 permit\n 192.168.1.0 0.0.0.255"
+              },
+              {
+                "label": "Define the pool (inclusive: .3, .4, .5)",
+                "work": "ip nat pool PUB 203.0.113.3\n 203.0.113.5\n netmask 255.255.255.248",
+                "note": "`prefix-length 29` can replace the netmask"
+              },
+              { "label": "Tie them together", "work": "ip nat inside source\n list 1 pool PUB" }
+            ]
+          },
+          {
+            "type": "table",
+            "title": "The netmask check",
+            "columns": ["Pool range", "Mask", "Result"],
+            "rows": [
+              ["200.1.1.1 to .2", "/30 (.252)", "Accepted: both in 200.1.1.0 to .3"],
+              ["200.1.1.1 to .6", "/30 (.252)", "Rejected: .6 is in the next /30"],
+              ["203.0.113.33 to .38", "/29 (.248)", "Accepted: 6 addresses, not 8"]
+            ]
+          }
+        ],
+        "code": "access-list 1 permit 192.168.1.0 0.0.0.255\nip nat pool PUB 203.0.113.3 203.0.113.5 netmask 255.255.255.248\nip nat inside source list 1 pool PUB\n\n! After host 192.168.1.10 sends its first packet out\nR1# show ip nat translations\nPro Inside global      Inside local       Outside local  Outside global\n--- 203.0.113.3        192.168.1.10       ---            ---\n\nR1# show ip nat statistics\n! output trimmed\n[Id: 1] access-list 1 pool PUB refcount 1\n pool PUB: netmask 255.255.255.248\n        start 203.0.113.3 end 203.0.113.5\n        type generic, total addresses 3, allocated 1 (33%), misses 0",
         "language": "cisco",
         "tip": "The NAT ACL selects traffic for translation. It does not permit or deny anything on an interface.",
         "pitfall": "Expecting the netmask to size the pool. Only the first-to-last range is lent out; the mask just has to put both ends in the same subnet.",
@@ -169,7 +322,31 @@
       },
       {
         "title": "Configuring PAT (overload)",
-        "body": "PAT reuses the dynamic NAT building blocks and adds one keyword. There are two variations, and both show up on the exam.\n\n**PAT on the outside interface's own address.** This is what nearly every branch and home router does: the ISP gives you one address, it sits on the outside interface, and everyone shares it.\n\n`ip nat inside source list 1 interface GigabitEthernet0/0 overload`\n\nRead it aloud: hosts matching ACL 1 that arrive on an inside interface are translated to the address of G0/0, and `overload` means share that address using ports. No pool is needed. A bonus: if G0/0 learns a new address from the ISP through DHCP, PAT follows it automatically.\n\n**PAT on a pool.** If you have a few public addresses, put them in a pool and overload it:\n\n`ip nat inside source list 1 pool PUB overload`\n\nRemove `overload` from that line and you are back to plain dynamic NAT, one host per pool address. That one word is the difference between 3 users online and 3,000.\n\nThe full PAT build for the classic exam topology is below. The order you type the pieces in does not matter, but all four must exist: the inside interface, the outside interface, the ACL, and the ip nat inside source rule. The ACL number in the rule must match the ACL you actually wrote, and the interface named in the rule should be the outside one.\n\nIn the translation table, PAT entries are easy to spot: the Pro column shows tcp, udp or icmp, and every address has a port after it. Static and one-to-one dynamic entries show `---` instead, because they translate the whole address.",
+        "key": "Adding `overload` to the source rule makes PAT: `... interface G0/0 overload` shares the outside interface's address, and `... pool PUB overload` shares a pool.",
+        "body": "PAT reuses the dynamic NAT pieces and adds one keyword. Both variations show up on the exam:\n\n[[visual]]\n\nAll four pieces must exist, in any order: the inside interface, the outside interface, the ACL and the rule. The ACL number in the rule must match the ACL you wrote, and the interface it names should be the outside one.\n\n[[code]]\n\nPAT entries are easy to spot in the table: the Pro column shows tcp, udp or icmp, and every address carries a port. Static and one-to-one dynamic entries show `---` because they translate the whole address.",
+        "visual": {
+          "type": "compare",
+          "items": [
+            {
+              "title": "On the interface address",
+              "tone": "accent",
+              "points": [
+                "`ip nat inside source list 1 interface GigabitEthernet0/0 overload`",
+                "What nearly every branch and home router does",
+                "No pool needed",
+                "Follows a new address the interface learns by DHCP"
+              ]
+            },
+            {
+              "title": "On a pool",
+              "points": [
+                "`ip nat inside source list 1 pool PUB overload`",
+                "For a few public addresses",
+                "Drop `overload` and it is plain dynamic NAT again: 3 users online instead of 3,000"
+              ]
+            }
+          ]
+        },
         "code": "R1(config)# interface GigabitEthernet0/1\nR1(config-if)# ip nat inside\nR1(config-if)# interface GigabitEthernet0/0\nR1(config-if)# ip nat outside\nR1(config-if)# exit\nR1(config)# access-list 1 permit 192.168.1.0 0.0.0.255\nR1(config)# ip nat inside source list 1 interface GigabitEthernet0/0 overload",
         "language": "cisco",
         "pitfall": "Forgetting overload. IOS accepts the command and the first host works, which makes the mistake easy to miss in a lab and painful in production.",
@@ -177,9 +354,7 @@
           "type": "ios-console",
           "title": "Lab: PAT to the internet",
           "prompt": "Build PAT on R1. G0/1 faces the 192.168.1.0/24 LAN and G0/0 faces the internet. Mark the inside and outside interfaces, match the LAN with access-list 1, then overload it onto G0/0. Finish with show ip nat statistics and confirm which interface it lists as inside and which as outside.",
-          "props": {
-            "lab": "cl-d4-nat"
-          }
+          "props": { "lab": "cl-d4-nat" }
         },
         "check": {
           "question": "A router has `ip nat inside source list 1 pool PUB` with a 3-address pool, and only 3 users can browse at a time. What is the simplest fix?",
@@ -195,11 +370,25 @@
       },
       {
         "title": "Verifying NAT",
-        "body": "Two show commands prove NAT is working, and exam exhibits use both.\n\n`show ip nat translations` lists the NAT table. Static entries appear as soon as you configure them, with `---` in the protocol and port positions. Dynamic entries only appear after inside traffic triggers them, so an empty table right after you finish typing usually just means nobody has sent anything yet. Generate traffic (a ping from an inside host) and look again.\n\n`show ip nat statistics` gives the big picture:\n\n- **Total active translations**, split into static, dynamic and extended. Extended entries carry ports, so they are PAT.\n- **Outside interfaces** and **Inside interfaces**: the fastest way to catch reversed `ip nat inside` and `ip nat outside` commands.\n- **Hits** and **Misses**: a hit is a packet that used an existing entry. A miss is a packet that needed translation and found no entry, so the router tried to build one. A few misses with many hits is normal: each new flow starts with a miss.\n- For a pool: total addresses, how many are **allocated** (with a percentage) and a second **misses** counter. This one only grows when the router wanted to build a translation and found no free pool address. Allocated 100% and a growing pool misses counter is the signature of pool exhaustion.\n\n`clear ip nat translation *` deletes all **dynamic** entries. Static mappings stay, because they come from the configuration. It is handy after a change, when you want to test from a clean table instead of waiting for idle entries to time out. You can also clear a single entry by naming its addresses.\n\n`debug ip nat` prints a line for every translated packet, such as `NAT*: s=192.168.1.10->203.0.113.2, d=198.51.100.7` on the way out and `NAT*: s=198.51.100.7, d=203.0.113.2->192.168.1.10` for the reply. The arrow marks the field NAT rewrote. Great in a lab, risky on a busy production router.",
-        "code": "R1# show ip nat translations\nPro Inside global        Inside local         Outside local        Outside global\n--- 203.0.113.6          192.168.1.20         ---                  ---\ntcp 203.0.113.2:49712    192.168.1.10:49712   198.51.100.7:443     198.51.100.7:443\ntcp 203.0.113.2:49713    192.168.1.11:49713   198.51.100.7:443     198.51.100.7:443\nudp 203.0.113.2:53001    192.168.1.12:53001   8.8.8.8:53           8.8.8.8:53\n\nR1# show ip nat statistics\nTotal active translations: 4 (1 static, 3 dynamic; 3 extended)\nPeak translations: 9, occurred 00:04:12 ago\nOutside interfaces:\n  GigabitEthernet0/0\nInside interfaces:\n  GigabitEthernet0/1\nHits: 1486  Misses: 37\nExpired translations: 31\nDynamic mappings:\n-- Inside Source\n[Id: 1] access-list 1 interface GigabitEthernet0/0 refcount 3",
+        "key": "`show ip nat translations` lists the entries; `show ip nat statistics` shows interface roles, hits, misses and pool use; `clear ip nat translation *` removes only dynamic entries.",
+        "body": "`show ip nat translations` lists the table. Static entries appear as soon as they are configured. Dynamic entries need inside traffic first, so an empty table right after configuring usually means nobody has sent anything yet: ping from an inside host and look again.\n\n[[code]]\n\n`show ip nat statistics` gives the big picture:\n\n[[visual]]\n\n`clear ip nat translation *` deletes every **dynamic** entry; static mappings stay because they come from the configuration.\n\n`debug ip nat` prints each translation (the last lines below). The arrow marks the field NAT rewrote: the source on the way out, the destination on the reply. Great in a lab, risky on a busy router.",
+        "visual": [
+          {
+            "type": "table",
+            "columns": ["Statistics line", "What it tells you"],
+            "rows": [
+              ["`Total active translations: 4 (1 static, 3 dynamic; 3 extended)`", "Extended entries carry ports, so they are PAT flows"],
+              ["`Outside interfaces` / `Inside interfaces`", "The fastest way to catch reversed roles"],
+              ["`Hits`", "Packets that used an existing entry"],
+              ["`Misses`", "Packets that needed NAT and found no entry, so the router built one. Every new flow starts with a miss"],
+              ["Pool: `allocated 4 (100%), misses 212`", "Pool misses grow only when no free address is left. 100% and rising means exhaustion"]
+            ]
+          }
+        ],
+        "code": "R1# show ip nat translations\nPro Inside global        Inside local         Outside local        Outside global\n--- 203.0.113.6          192.168.1.20         ---                  ---\ntcp 203.0.113.2:49712    192.168.1.10:49712   198.51.100.7:443     198.51.100.7:443\ntcp 203.0.113.2:49713    192.168.1.11:49713   198.51.100.7:443     198.51.100.7:443\nudp 203.0.113.2:53001    192.168.1.12:53001   8.8.8.8:53           8.8.8.8:53\n\nR1# show ip nat statistics\nTotal active translations: 4 (1 static, 3 dynamic; 3 extended)\nOutside interfaces:\n  GigabitEthernet0/0\nInside interfaces:\n  GigabitEthernet0/1\nHits: 1486  Misses: 37\n\nR1# debug ip nat\nNAT*: s=192.168.1.10->203.0.113.2, d=198.51.100.7 [118]\nNAT*: s=198.51.100.7, d=203.0.113.2->192.168.1.10 [118]",
         "language": "cisco",
-        "tip": "Before blaming the configuration, make sure an inside host has actually sent traffic. NAT reacts to packets; it does nothing in advance except for static entries.",
-        "pitfall": "Expecting clear ip nat translation * to remove static mappings. Only dynamic entries are cleared; remove a static mapping with the no form of its configuration command.",
+        "tip": "Before blaming the configuration, make sure an inside host has actually sent traffic. NAT reacts to packets; only static entries exist in advance.",
+        "pitfall": "Expecting clear ip nat translation * to remove static mappings. Only dynamic entries are cleared; remove a static mapping with the no form of its command.",
         "check": {
           "question": "A pool line in show ip nat statistics reads `total addresses 4, allocated 4 (100%), misses 212`, and the misses number keeps climbing. What does it mean?",
           "choices": [
@@ -214,36 +403,76 @@
       },
       {
         "title": "Worked example: reading a busy NAT table",
-        "body": "Real routers rarely run one kind of NAT. R1 ends up with both: the web server 192.168.1.20 keeps its static mapping to 203.0.113.6, and everyone else shares G0/0's address, 203.0.113.2, through `ip nat inside source list 1 interface GigabitEthernet0/0 overload`. Read the exhibit line by line, the way an exam exhibit expects.\n\n**Count the inside hosts.** Read the Inside local column and ignore the ports: 192.168.1.20, .10, .11 and .12, so four hosts. The Inside global column shows the internet sees them as only two addresses.\n\n**Find the static entry.** The first line has `---` instead of a protocol, no ports and no outside addresses: a whole-address, one-to-one mapping. The statistics line confirms 1 static, so it was there before any traffic, and internet hosts can open connections to 203.0.113.6 at any time.\n\n**Read the PAT entries.** The other lines carry a protocol and ports: extended entries, one per flow. Hosts .10 and .11 both chose source port 51000 to reach the same web server. Two flows cannot share one public address and port, so R1 kept 51000 for the first and gave the second the free port 1024. The server sees two connections from 203.0.113.2, on ports 51000 and 1024, with no idea that two different hosts sit behind them.\n\n**Follow a reply.** The server answers 203.0.113.2:1024. The packet arrives on G0/0, an outside interface. R1 finds 203.0.113.2:1024 in the Inside global column, rewrites the destination to the inside local value on that line, 192.168.1.11:51000, and routes the packet out G0/1. The `debug ip nat` lines show that pair of rewrites: the source on the way out, the destination on the way back.\n\n**Check the outside columns.** Outside local equals outside global on every line, because inside source NAT never changes the server's address.\n\n**Notice what is missing.** Nobody on the internet can start a connection to 192.168.1.10 through 203.0.113.2. PAT entries exist only for flows an inside host started, and they time out when idle; only the static entry accepts new inbound connections.",
+        "key": "Count hosts by distinct inside local addresses: three dashes mean one-to-one, a protocol with ports means PAT, and replies are matched in the Inside global column.",
+        "body": "R1 runs both kinds: web server 192.168.1.20 keeps its static mapping to 203.0.113.6, and everyone else shares 203.0.113.2 with PAT on G0/0.\n\n[[code]]\n\nRead it the way an exam exhibit expects:\n\n[[visual]]",
+        "visual": {
+          "type": "table",
+          "columns": ["Question", "Answer"],
+          "rows": [
+            ["How many inside hosts?", "Count distinct inside local addresses, not lines: .20, .10, .11, .12 make 4 hosts, seen on the internet as only 2 addresses"],
+            ["Which entry is static?", "The `---` line: no protocol, no ports, no outside addresses. It existed before any traffic and accepts inbound connections"],
+            [
+              "What are the other lines?",
+              "PAT (extended) entries, one per flow. Hosts .10 and .11 both used port 51000 to the same server, so R1 gave .11 global port 1024"
+            ],
+            ["Where does a reply to 203.0.113.2:1024 go?", "Match it in Inside global, rewrite the destination to 192.168.1.11:51000, route it out G0/1"],
+            ["Why do the outside columns match?", "Inside source NAT never changes the server's address"],
+            ["Can the internet reach 192.168.1.10?", "No: PAT entries exist only for flows inside hosts started, and time out when idle"]
+          ]
+        },
         "code": "R1# show ip nat translations\nPro Inside global      Inside local        Outside local      Outside global\n--- 203.0.113.6        192.168.1.20        ---                ---\ntcp 203.0.113.2:51000  192.168.1.10:51000  93.184.216.34:443  93.184.216.34:443\ntcp 203.0.113.2:1024   192.168.1.11:51000  93.184.216.34:443  93.184.216.34:443\nudp 203.0.113.2:53001  192.168.1.12:53001  8.8.8.8:53         8.8.8.8:53\n\nR1# show ip nat statistics | include Total\nTotal active translations: 4 (1 static, 3 dynamic; 3 extended)\n\nR1# debug ip nat\nNAT*: s=192.168.1.11->203.0.113.2, d=93.184.216.34 [4410]\nNAT*: s=93.184.216.34, d=203.0.113.2->192.168.1.11 [4410]",
         "language": "cisco",
         "tip": "Inside local says which host; inside global says how the internet sees it. A protocol and ports mean PAT, three dashes mean one-to-one.",
         "pitfall": "Counting table lines as hosts. One host with three connections makes three PAT entries; count the distinct inside local addresses instead.",
         "check": {
           "question": "In the exhibit, a reply from 93.184.216.34:443 arrives on G0/0 addressed to 203.0.113.2:51000. Where does R1 send it?",
-          "choices": [
-            "To 192.168.1.11:51000",
-            "To 192.168.1.10:51000",
-            "To 192.168.1.20, the static host",
-            "Nowhere; R1 drops it because port 51000 appears twice"
-          ],
+          "choices": ["To 192.168.1.11:51000", "To 192.168.1.10:51000", "To 192.168.1.20, the static host", "Nowhere; R1 drops it because port 51000 appears twice"],
           "answer": 1,
           "explanation": "R1 looks up 203.0.113.2:51000 in the Inside global column. That line maps to 192.168.1.10:51000, so the destination is rewritten to it. 192.168.1.11 also used local port 51000, but its flow was given global port 1024, so the two never collide."
         }
       },
       {
         "title": "Troubleshooting NAT",
-        "body": "Most NAT problems are configuration mistakes, and the same handful show up in labs, in production and in exam simulations. Work through them in this order.\n\n- **Inside and outside reversed.** Source NAT only builds new translations for packets that arrive on an inside interface and leave through an outside interface. Swap the roles and nothing translates. Check the Inside interfaces and Outside interfaces lists in `show ip nat statistics`.\n- **The ACL matches the wrong addresses.** It must match the inside local (private) source addresses, the way packets look before translation. An ACL that permits the public range, the wrong subnet, or uses a bad wildcard (0.0.0.0 instead of 0.0.0.255) leaves hosts untranslated. `show access-lists` shows whether its counters move.\n- **Wrong ACL number or pool name.** `ip nat inside source list 2` when you wrote access-list 1 matches nothing. A typo in a pool name has the same effect.\n- **Pool exhausted or overload missing.** All pool addresses allocated and the pool misses counter rising. Add `overload` or more addresses.\n- **Static mapping reversed.** Inside local first, inside global second.\n- **An interface ACL drops the traffic.** For packets entering an interface, IOS checks the inbound ACL before NAT, so an inbound ACL on the inside interface sees private addresses. For packets leaving an interface, NAT runs first, so an outbound ACL on the outside interface sees the translated public address.\n- **Order of operations.** Inside to outside, the router checks the inbound ACL, routes the packet, translates it, then checks any outbound ACL. Outside to inside, NAT translates the destination before routing, so the reply is routed by its inside local address.\n- **Routing.** R1 needs a route toward the internet (usually a default route) and the ISP must route your inside global addresses back to you. NAT cannot fix a missing route.\n\nA quick routine: send traffic from an inside host, then run `show ip nat statistics` (are the interface roles right, are hits and misses moving?), `show ip nat translations` (does the host appear?) and `show access-lists` (is the NAT ACL matching?). The exhibit below is the most common failure of all. Look at which interface faces the LAN and which role it has.",
-        "code": "R1# show running-config\n! output trimmed\ninterface GigabitEthernet0/0\n description ISP\n ip address 203.0.113.2 255.255.255.248\n ip nat inside\ninterface GigabitEthernet0/1\n description LAN\n ip address 192.168.1.1 255.255.255.0\n ip nat outside\naccess-list 1 permit 192.168.1.0 0.0.0.255\nip nat inside source list 1 interface GigabitEthernet0/0 overload\n\nR1# show ip nat statistics\nTotal active translations: 0 (0 static, 0 dynamic; 0 extended)\nOutside interfaces:\n  GigabitEthernet0/1\nInside interfaces:\n  GigabitEthernet0/0\nHits: 0  Misses: 0",
+        "key": "Most NAT faults are reversed inside and outside roles, an ACL that misses the private sources, an exhausted pool, a reversed static mapping, or ACL order.",
+        "body": "The same handful of mistakes shows up in labs, production and exam simulations:\n\n[[visual]]\n\nInterface ACLs and NAT run in a fixed order. Inside to outside:\n\n[[visual 2]]\n\nOutside to inside, NAT translates the destination before routing, so a reply is routed by its inside local address.\n\nA quick routine: send traffic from an inside host, then check `show ip nat statistics` (roles right, counters moving?), `show ip nat translations` (is the host there?) and `show access-lists` (is the NAT ACL matching?). In the exhibit, check which interface faces the LAN and which role it has.\n\n[[code]]",
+        "visual": [
+          {
+            "type": "table",
+            "columns": ["Fault", "Symptom and fix"],
+            "rows": [
+              ["Inside and outside reversed", "Nothing translates. Read the Inside and Outside interface lists in `show ip nat statistics`"],
+              [
+                "ACL matches the wrong addresses",
+                "It must match the **inside local** (private) sources, before translation. A public range, wrong subnet or bad wildcard leaves hosts untranslated"
+              ],
+              ["Wrong ACL number or pool name", "`list 2` when you wrote access-list 1 matches nothing"],
+              ["Pool exhausted, no overload", "Allocated 100% and pool misses rising: add `overload` or addresses"],
+              ["Static mapping reversed", "Inside local first, inside global second"],
+              ["Missing routes", "R1 needs a route to the internet, and the ISP must route your inside global addresses back"]
+            ]
+          },
+          {
+            "type": "flow",
+            "steps": [
+              { "label": "Inbound ACL on the inside interface", "detail": "Sees the private inside local source" },
+              { "label": "Routing picks the outside interface" },
+              { "label": "NAT rewrites the source" },
+              {
+                "label": "Outbound ACL on the outside interface",
+                "detail": "Sees the translated inside global source"
+              },
+              { "label": "The packet is sent", "tone": "good" }
+            ]
+          }
+        ],
+        "code": "R1# show running-config\n! output trimmed\ninterface GigabitEthernet0/0\n description ISP\n ip address 203.0.113.2 255.255.255.248\n ip nat inside\ninterface GigabitEthernet0/1\n description LAN\n ip address 192.168.1.1 255.255.255.0\n ip nat outside\naccess-list 1 permit 192.168.1.0 0.0.0.255\nip nat inside source list 1 interface GigabitEthernet0/0 overload\n\nR1# show ip nat statistics\nTotal active translations: 0 (0 static, 0 dynamic; 0 extended)\nOutside interfaces:\n  GigabitEthernet0/1\nInside interfaces:\n  GigabitEthernet0/0",
         "language": "cisco",
         "pitfall": "Writing the NAT ACL with the public addresses because that is what reaches the internet. NAT matches packets before translation, so the ACL must list the private inside local addresses.",
         "activity": {
           "type": "ios-console",
           "title": "Troubleshoot: NAT translates nothing",
           "prompt": "PAT is configured on R1 but inside hosts cannot reach the internet. Start with show ip nat statistics and read which interface is listed as inside and which as outside. Fix the roles (no ip nat outside then ip nat inside on G0/1, and the reverse on G0/0), then check the statistics again.",
-          "props": {
-            "lab": "cl-ts-nat"
-          }
+          "props": { "lab": "cl-ts-nat" }
         },
         "check": {
           "question": "Using the exhibit above, why are the LAN hosts not being translated?",
@@ -313,12 +542,12 @@
       }
     ],
     "summary": [
-      "NAT rewrites private inside local addresses into public inside global ones at the edge and records each swap in the translation table.",
-      "Static NAT is a permanent one-to-one mapping for servers, port forwarding maps a single port, dynamic NAT lends one pool address per active host, and PAT shares one address among many hosts by port.",
-      "Configure ip nat inside and ip nat outside on the interfaces, then ip nat inside source static, list ... pool, or list ... interface (or pool) ... overload, with an ACL that matches the private sources.",
-      "The overload keyword is what makes PAT; without it a small pool runs out and extra hosts are dropped.",
-      "Read show ip nat translations column by column: Inside global first, three dashes for one-to-one, ports for PAT; clear ip nat translation * removes dynamic entries only.",
-      "Most faults are reversed interface roles, an ACL that does not match the inside local addresses, an exhausted pool, a reversed static mapping or an interface ACL checked in the wrong order."
+      "NAT rewrites inside local addresses to inside global ones at the edge and records each swap.",
+      "Static: permanent 1:1 for servers. Dynamic: pool, 1:1 per active host. PAT: many hosts share one address by port.",
+      "Mark ip nat inside and ip nat outside, match private sources with an ACL, then write the ip nat inside source rule.",
+      "overload makes PAT; without it a small pool runs out and new hosts are dropped.",
+      "In the table Inside global comes first; --- means one-to-one, ports mean PAT.",
+      "Most faults: reversed roles, an ACL that misses the private sources, an empty pool, a reversed static mapping."
     ],
     "feynmanPrompt": "Explain to a friend how fifty phones in a coffee shop can all browse the web through one public IP address, and how the router knows which phone each reply belongs to. Use the terms inside local, inside global and PAT."
   },
@@ -328,12 +557,7 @@
       "type": "mcq",
       "difficulty": "easy",
       "question": "R1 translates PC1 (192.168.10.5) to 198.51.100.10 when PC1 browses to a server at 203.0.113.80. Which address is PC1's inside local address?",
-      "choices": [
-        "198.51.100.10",
-        "192.168.10.5",
-        "203.0.113.80",
-        "The address of R1's inside interface"
-      ],
+      "choices": ["198.51.100.10", "192.168.10.5", "203.0.113.80", "The address of R1's inside interface"],
       "answer": 1,
       "explanation": "Inside local is the inside host's address as seen on the inside network, usually its private address: 192.168.10.5. 198.51.100.10 is PC1's inside global address, and 203.0.113.80 is the server's outside global address.",
       "concept": "inside local address",
@@ -353,14 +577,8 @@
           "left": "Inside global",
           "right": "The inside host's address as seen on the internet after translation"
         },
-        {
-          "left": "Outside global",
-          "right": "The outside host's real address on the internet"
-        },
-        {
-          "left": "Outside local",
-          "right": "The outside host's address as seen from the inside network"
-        }
+        { "left": "Outside global", "right": "The outside host's real address on the internet" },
+        { "left": "Outside local", "right": "The outside host's address as seen from the inside network" }
       ],
       "explanation": "Inside or outside says where the host lives; local or global says which side you are looking from. With inside source NAT the destination is never changed, so outside local and outside global hold the same value.",
       "concept": "four NAT address terms",
@@ -428,10 +646,7 @@
         "An ACL is required to choose which hosts are translated",
         "Its entries appear only after the inside host sends traffic"
       ],
-      "answers": [
-        0,
-        1
-      ],
+      "answers": [0, 1],
       "explanation": "A static mapping comes from the configuration, so it is always in the table and never times out. That is exactly why outside hosts can reach the server at any time. Sharing one address is PAT, ACLs belong to dynamic NAT and PAT, and waiting for traffic is dynamic behavior.",
       "concept": "static NAT behavior",
       "section": 2
@@ -464,9 +679,7 @@
       "difficulty": "medium",
       "question": "Type the command that creates a NAT pool named NET holding 203.0.113.17 through 203.0.113.30, with the mask written as a netmask for a /28.",
       "answer": "ip nat pool NET 203.0.113.17 203.0.113.30 netmask 255.255.255.240",
-      "accept": [
-        "ip nat pool NET 203.0.113.17 203.0.113.30 prefix-length 28"
-      ],
+      "accept": ["ip nat pool NET 203.0.113.17 203.0.113.30 prefix-length 28"],
       "shell": "ios",
       "explanation": "ip nat pool takes a name, the first and last addresses (inclusive) and a mask. A /28 is 255.255.255.240, and .17 and .30 both fall in 203.0.113.16/28, so IOS accepts it. The prefix-length 28 form is equivalent.",
       "concept": "NAT pool command",
@@ -495,12 +708,7 @@
       "question": "About 300 inside hosts must reach the internet at the same time using only the two pool addresses. What completes the last line?",
       "code": "access-list 1 permit 10.1.0.0 0.0.255.255\nip nat pool PUB 198.51.100.1 198.51.100.2 netmask 255.255.255.252\nip nat inside source list 1 pool PUB _____",
       "language": "cisco",
-      "choices": [
-        "static",
-        "permit",
-        "overload",
-        "extendable"
-      ],
+      "choices": ["static", "permit", "overload", "extendable"],
       "answer": 2,
       "explanation": "overload makes the pool rule PAT, so 300 hosts can share two addresses by port. Without it, only two hosts at a time could be translated. static and extendable belong to static NAT commands, and permit belongs in the ACL.",
       "concept": "the overload keyword",
@@ -615,9 +823,7 @@
       "difficulty": "medium",
       "question": "How many inside global addresses does this pool provide? `ip nat pool P 203.0.113.33 203.0.113.38 netmask 255.255.255.248`",
       "answer": "6",
-      "accept": [
-        "six"
-      ],
+      "accept": ["six"],
       "explanation": "The range is inclusive: .33, .34, .35, .36, .37 and .38 make 6 addresses. The netmask is only a sanity check that both ends fall in the same subnet (203.0.113.32/29); it does not add the rest of the subnet to the pool.",
       "concept": "pool size",
       "section": 4
@@ -659,12 +865,7 @@
       "type": "mcq",
       "difficulty": "easy",
       "question": "A company hosts a web server inside at 10.1.1.80 and wants internet users to always reach it at 198.51.100.80. Which NAT type should it use for the server?",
-      "choices": [
-        "PAT on the outside interface",
-        "Dynamic NAT from a pool",
-        "Static NAT",
-        "No NAT; publish 10.1.1.80 in DNS"
-      ],
+      "choices": ["PAT on the outside interface", "Dynamic NAT from a pool", "Static NAT", "No NAT; publish 10.1.1.80 in DNS"],
       "answer": 2,
       "explanation": "Inbound connections need a mapping that exists before any traffic and never changes, which is static NAT. PAT and dynamic entries only exist after the inside host sends traffic, and 10.1.1.80 is private, so it is unreachable from the internet.",
       "concept": "static NAT for servers",
@@ -699,12 +900,7 @@
         "ip nat inside source list ... interface ... overload",
         "An ip nat inside source static command for each host"
       ],
-      "answers": [
-        0,
-        1,
-        2,
-        4
-      ],
+      "answers": [0, 1, 2, 4],
       "explanation": "PAT on an interface needs the two interface roles, an ACL to select inside hosts and the rule that names the interface with overload. A pool is only needed when you overload a range of addresses, and static entries are a different NAT type.",
       "concept": "PAT configuration pieces",
       "section": 5
@@ -814,12 +1010,7 @@
       "type": "mcq",
       "difficulty": "medium",
       "question": "Which source address would need NAT to reach the internet?",
-      "choices": [
-        "172.31.200.4",
-        "172.32.0.4",
-        "11.0.0.1",
-        "192.169.1.1"
-      ],
+      "choices": ["172.31.200.4", "172.32.0.4", "11.0.0.1", "192.169.1.1"],
       "answer": 0,
       "explanation": "172.16.0.0/12 covers 172.16.0.0 to 172.31.255.255, so 172.31.200.4 is private. 172.32.0.4 is just outside that block, 11.0.0.1 is outside 10.0.0.0/8, and 192.169.1.1 is outside 192.168.0.0/16. All three of those are public.",
       "concept": "private address ranges",
@@ -830,12 +1021,7 @@
       "type": "mcq",
       "difficulty": "easy",
       "question": "What does inside source NAT change in a packet leaving the inside network?",
-      "choices": [
-        "The destination IP address",
-        "The source MAC address only",
-        "The source IP address, and with PAT the source port",
-        "The TTL and checksum only"
-      ],
+      "choices": ["The destination IP address", "The source MAC address only", "The source IP address, and with PAT the source port", "The TTL and checksum only"],
       "answer": 2,
       "explanation": "Inside source NAT rewrites the source IP address (and the source port for PAT) on the way out, then reverses it on the reply. Any router changes MAC addresses and the TTL when forwarding, but that is normal routing, not NAT.",
       "concept": "what source NAT changes",
@@ -876,14 +1062,8 @@
       "difficulty": "medium",
       "question": "Match each line of a dynamic NAT configuration to its job.",
       "pairs": [
-        {
-          "left": "ip nat inside",
-          "right": "Marks an interface facing the private hosts"
-        },
-        {
-          "left": "ip nat outside",
-          "right": "Marks the interface facing the internet"
-        },
+        { "left": "ip nat inside", "right": "Marks an interface facing the private hosts" },
+        { "left": "ip nat outside", "right": "Marks the interface facing the internet" },
         {
           "left": "access-list 1 permit 10.1.1.0 0.0.0.255",
           "right": "Selects which inside local addresses are translated"
@@ -892,10 +1072,7 @@
           "left": "ip nat pool PUB 198.51.100.9 198.51.100.14 netmask 255.255.255.248",
           "right": "Lists the inside global addresses to lend out"
         },
-        {
-          "left": "ip nat inside source list 1 pool PUB",
-          "right": "Ties the matched hosts to the pool"
-        }
+        { "left": "ip nat inside source list 1 pool PUB", "right": "Ties the matched hosts to the pool" }
       ],
       "explanation": "All five pieces are needed for dynamic NAT. The pool range .9 to .14 sits inside 198.51.100.8/29, so the netmask check passes. Adding overload to the last line would turn it into PAT.",
       "concept": "dynamic NAT building blocks",

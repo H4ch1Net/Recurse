@@ -38,6 +38,7 @@ const Experiment = lazy(() => import('./pages/Experiment'))
 const Portfolio = lazy(() => import('./pages/Portfolio'))
 const ProjectPage = lazy(() => import('./pages/ProjectPage'))
 const Glossary = lazy(() => import('./pages/Glossary'))
+const VisualGallery = import.meta.env.DEV ? lazy(() => import('./pages/VisualGallery')) : null
 
 /** Remount the study screen for every navigation so "study again" builds a fresh queue. */
 function StudyRoute() {
@@ -84,6 +85,7 @@ function Routed() {
           <Route index element={<Today />} />
           <Route path="library" element={<Library />} />
           <Route path="glossary" element={<Glossary />} />
+          {VisualGallery && <Route path="dev/visuals" element={<VisualGallery />} />}
           <Route path="topic/:topicId" element={<Topic />} />
           <Route path="topic/:topicId/lesson" element={<Lesson />} />
           <Route path="topic/:topicId/explain" element={<Explain />} />

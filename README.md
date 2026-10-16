@@ -47,6 +47,7 @@ It runs entirely in the browser. There is no account and no tracking. Progress i
 |---|---|
 | **What do you want to achieve?** | Pick a goal and follow its path: CCNA 200-301, Software Engineering Internship, Software Engineer, Python Developer, Computer Science Fundamentals, Web Development, Security Foundations or a Math Toolkit. Each path has ordered stages, labs, challenge sets, projects, a readiness score and a Recommended tab of optional outside resources, each with the reason it is worth adding. |
 | **116 topics, 4,251 questions** | Eleven subjects. CCNA covers every item in the 200-301 v1.1 blueprint across 38 topics with 1,658 questions, most of them built on real show output, plus troubleshooting and exam strategy. SWE covers every interview pattern, React, CI/CD and the cloud, testing, debugging, databases, APIs, system and object-oriented design, résumés, interviews and working on a team. |
+| **Lessons built for a phone** | Every section opens with its key idea, keeps the reading short and puts the detail in pictures the app draws: tables, worked examples, flows, ladder diagrams of protocol exchanges, network topologies, packet header layouts, binary views of addresses and data structure diagrams. Lessons go one section at a time with a check and a Continue, extra depth waits under Go deeper, and nothing scrolls sideways at 360px. |
 | **38 interactive simulators** | Sorting, binary search, Big-O growth, BST, graph search, recursion trees, DP tables, logic gates, CPU scheduling, regex, HTTP, git, a Linux terminal, subnetting, the OSI model, TCP handshakes, MAC learning, STP elections, VLAN trunks, route lookup, ACLs, NAT, DHCP, IPv6 and OSPF cost, a Cisco wireless LAN controller GUI and a SQL lab running real SQLite, among others. They sit inside lessons and in the practice hub. |
 | **Cisco IOS console labs** | 41 labs in a simulated IOS CLI with abbreviations, `?` help, tab completion, `show` output and multi-device topologies. Build VLANs, trunks, EtherChannel, OSPF, HSRP, NAT, ACLs, port security and more, troubleshoot broken networks, and finish with two capstones that configure a branch router and an access switch from scratch. Each lab is checked live against its goals. |
 | **Coding challenges** | 121 problems in 17 sets that follow the patterns interviews use, solved in JavaScript or Python (Pyodide) against visible and hidden tests, with staged hints and a reference solution. |
@@ -113,7 +114,7 @@ It runs entirely in the browser. There is no account and no tracking. Progress i
     <td><img src="Recurse/docs/screenshots/theme-terminal.png" alt="Today in the Terminal theme" /><br /><sub>Terminal theme</sub></td>
   </tr>
   <tr>
-    <td><img src="Recurse/docs/screenshots/lesson.png" alt="A lesson section with a check question" /><br /><sub>Lesson with section checks</sub></td>
+    <td><img src="Recurse/docs/screenshots/lesson.png" alt="A lesson section with its key idea and a DHCP ladder diagram" /><br /><sub>Lesson: key idea, short text, a drawn diagram</sub></td>
     <td><img src="Recurse/docs/screenshots/progress.png" alt="Progress page with forecast and accuracy charts" /><br /><sub>Progress</sub></td>
   </tr>
 </table>
@@ -122,6 +123,8 @@ It runs entirely in the browser. There is no account and no tracking. Progress i
   <img src="Recurse/docs/screenshots/mobile-today.png" alt="Today screen on a phone" width="260" />
   &nbsp;&nbsp;
   <img src="Recurse/docs/screenshots/mobile-study.png" alt="Study card on a phone" width="260" />
+  &nbsp;&nbsp;
+  <img src="Recurse/docs/screenshots/mobile-lesson.png" alt="A subnetting lesson section on a phone with a binary view of the address" width="260" />
 </p>
 
 ## Paths

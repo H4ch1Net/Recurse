@@ -1,13 +1,18 @@
-import { useRef, useState } from 'react'
-import { Check, Lightbulb, Undo2 } from 'lucide-react'
+import { useEffect, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
+import { Check, Lightbulb, Undo2, X } from 'lucide-react'
 import { feedbackCorrect, feedbackWrong, floatText, shake } from '../../lib/juice'
 import { sfx } from '../../lib/sfx'
-import { MNEMONICS, OSI_CARDS, OSI_LAYERS, TCPIP_LAYERS, cardById, grade, hintFor, shuffled } from '../lib/osi-layers'
+import { MNEMONICS, OSI_CARDS, OSI_LAYERS, TCPIP_LAYERS, cardById, grade, hintFor, shuffled, tcpipFor } from '../lib/osi-layers'
+import { useNarrow } from '../lib/use-width'
 import './osi-layers.css'
 
 const MNEMONIC_ORDER = ['off', 'down', 'up']
 // Row 1 holds the column headings; OSI layers 7 to 1 fill rows 2 to 8.
 const TCPIP_ROWS = { Application: '2 / span 3', Transport: '5', Network: '6', 'Data Link': '7', Physical: '8' }
+// While a card is dragged near the top or bottom of the window, the page scrolls to reach far layers.
+const EDGE = 72
+const coarsePointer = () => typeof window !== 'undefined' && window.matchMedia?.('(pointer: coarse)').matches
 
 /** Drag protocols, devices, PDUs and addresses onto the OSI layer where they belong. */
 export default function OsiLayers({ onComplete }) {
@@ -21,21 +26,33 @@ export default function OsiLayers({ onComplete }) {
   const [mnemonic, setMnemonic] = useState('off')
   const [streak, setStreak] = useState(0)
   const [missed, setMissed] = useState(() => new Set())
-  const [message, setMessage] = useState({ text: 'Drag a card onto a layer, or tap a card and then tap its layer. Press Check when you are ready.', tone: '' })
+  const [touch] = useState(coarsePointer)
+  const [message, setMessage] = useState(() => ({
+    text: touch ? 'Tap a card, then pick its layer. Press Check when you are ready.' : 'Drag a card onto a layer, or click a card and then its layer. Press Check when you are ready.',
+    tone: ''
+  }))
   const [hints, setHints] = useState([])
+  const rootRef = useRef(null)
+  const narrow = useNarrow(rootRef)
   const zones = useRef({})
   const cardEls = useRef({})
   const boardRef = useRef(null)
   const pointer = useRef(null)
   const suppressClick = useRef(false)
+  const scrollLoop = useRef(0)
+  useEffect(() => () => cancelAnimationFrame(scrollLoop.current), [])
 
   const locked = (id) => status[id] === 'correct'
   const total = OSI_CARDS.length
   const correctCount = Object.values(status).filter((s) => s === 'correct').length
 
-  const place = (id, layer) => {
+  const place = (id, layer, { announce = false } = {}) => {
     if (!id || locked(id)) return
     sfx.pop()
+    if (announce) {
+      const where = OSI_LAYERS.find((l) => l.n === layer)
+      setMessage({ text: where ? `${cardById(id).label} is on layer ${where.n}, ${where.name}. Press Check when you are ready.` : `${cardById(id).label} is back in the tray.`, tone: '' })
+    }
     setPlacements((p) => {
       const next = { ...p }
       if (layer === 'tray') delete next[id]
@@ -65,22 +82,41 @@ export default function OsiLayers({ onComplete }) {
   const onPointerDown = (e, id) => {
     if (locked(id) || e.button > 0) return
     e.currentTarget.setPointerCapture?.(e.pointerId)
-    pointer.current = { id, x: e.clientX, y: e.clientY, moved: false }
+    pointer.current = { id, x: e.clientX, y: e.clientY, lastX: e.clientX, lastY: e.clientY, scrollY: window.scrollY, moved: false }
+  }
+  const follow = () => {
+    const p = pointer.current
+    if (!p) return
+    setDrag({ id: p.id, dx: p.lastX - p.x, dy: p.lastY - p.y + window.scrollY - p.scrollY })
+    setHover(zoneAt(p.lastX, p.lastY))
+  }
+  const autoScroll = () => {
+    const p = pointer.current
+    if (!p?.moved) return
+    const speed = p.lastY < EDGE ? -(EDGE - p.lastY) / 4 : p.lastY > window.innerHeight - EDGE ? (p.lastY - window.innerHeight + EDGE) / 4 : 0
+    if (speed) {
+      window.scrollBy(0, speed)
+      follow()
+    }
+    scrollLoop.current = requestAnimationFrame(autoScroll)
   }
   const onPointerMove = (e) => {
     const p = pointer.current
     if (!p) return
-    const dx = e.clientX - p.x
-    const dy = e.clientY - p.y
-    if (!p.moved && Math.hypot(dx, dy) < 6) return
-    if (!p.moved) sfx.tap()
-    p.moved = true
-    setDrag({ id: p.id, dx, dy })
-    setHover(zoneAt(e.clientX, e.clientY))
+    p.lastX = e.clientX
+    p.lastY = e.clientY
+    if (!p.moved && Math.hypot(e.clientX - p.x, e.clientY - p.y) < 6) return
+    if (!p.moved) {
+      sfx.tap()
+      p.moved = true
+      scrollLoop.current = requestAnimationFrame(autoScroll)
+    }
+    follow()
   }
   const onPointerUp = (e) => {
     const p = pointer.current
     pointer.current = null
+    cancelAnimationFrame(scrollLoop.current)
     if (!p || !p.moved) return
     suppressClick.current = true
     setTimeout(() => (suppressClick.current = false), 0)
@@ -91,6 +127,7 @@ export default function OsiLayers({ onComplete }) {
   }
   const onPointerCancel = () => {
     pointer.current = null
+    cancelAnimationFrame(scrollLoop.current)
     setDrag(null)
     setHover(null)
   }
@@ -194,7 +231,7 @@ export default function OsiLayers({ onComplete }) {
   const anyWrong = Object.values(status).includes('wrong')
 
   return (
-    <div className="osi" onKeyDown={(e) => e.key === 'Escape' && setSelected(null)}>
+    <div ref={rootRef} className={`osi${narrow ? ' narrow' : ''}`} onKeyDown={(e) => e.key === 'Escape' && setSelected(null)}>
       <div className="w-toolbar">
         <button type="button" className={`btn btn-sm ${mnemonic === 'off' ? 'btn-ghost' : ''}`} onClick={cycleMnemonic} aria-pressed={mnemonic !== 'off'}>
           <Lightbulb size={14} /> {mnemonic === 'off' ? 'Mnemonic' : MNEMONICS[mnemonic].label}
@@ -250,6 +287,7 @@ export default function OsiLayers({ onComplete }) {
                   {mnemonic !== 'off' && <em className="osi-mnemonic">{layer[mnemonic]}</em>}
                   <strong>{layer.name}</strong>
                   <small>{layer.job}</small>
+                  <small className="osi-row-tcpip">TCP/IP {tcpipFor(layer.n)}</small>
                 </span>
               </button>
               <div className="osi-slot">{here.map(renderCard)}</div>
@@ -263,6 +301,29 @@ export default function OsiLayers({ onComplete }) {
           </div>
         ))}
       </div>
+
+      {selected && (narrow || touch) && !locked(selected) && createPortal(
+        <div className="osi-sheet" role="dialog" aria-label={`Choose a layer for ${cardById(selected).label}`} onKeyDown={(e) => e.key === 'Escape' && setSelected(null)}>
+          <div className="osi-sheet-head">
+            <span className="grow">Where does <strong>{cardById(selected).label}</strong> belong?</span>
+            <button type="button" className="btn btn-sm btn-ghost osi-sheet-close" onClick={() => setSelected(null)} aria-label="Cancel"><X size={16} /></button>
+          </div>
+          <div className="osi-sheet-layers">
+            {OSI_LAYERS.map((layer) => (
+              <button key={layer.n} type="button" className={`osi-sheet-layer${placements[selected] === layer.n ? ' current' : ''}`} onClick={() => place(selected, layer.n, { announce: true })}>
+                <span className="osi-num">{layer.n}</span>
+                <span className="osi-sheet-name">{mnemonic !== 'off' && <em className="osi-mnemonic">{layer[mnemonic]}</em>}{layer.name}</span>
+              </button>
+            ))}
+            {placements[selected] != null && (
+              <button type="button" className="osi-sheet-layer tray" onClick={() => place(selected, 'tray', { announce: true })}>
+                <Undo2 size={15} /> <span className="osi-sheet-name">Back to the tray</span>
+              </button>
+            )}
+          </div>
+        </div>,
+        document.body
+      )}
 
       <div aria-live="polite">
         <p className={`w-feedback ${message.tone}`}>{message.text}</p>

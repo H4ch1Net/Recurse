@@ -17,7 +17,12 @@ for that.
   Write the explanation a great senior colleague would give: why it works, when to use it, what
   goes wrong, how it shows up in an exam, an interview or on the job.
 - **Concrete first.** Open a section with a situation or an example, then name the idea.
-- **Show, then let them do.** Use code, command output, ASCII diagrams and tables. Embed an
+- **Short and visual.** People read lessons on phones. Each section opens with a one-sentence
+  `key` idea, keeps its `body` under about 150 words in short paragraphs, and lets visuals carry
+  the detail: tables, flows, topologies, ladder diagrams, worked examples (see `docs/visuals.md`).
+  Extra depth goes in `deeper`, which starts collapsed. Check with `node scripts/lesson-lint.mjs <id>`.
+- **Show, then let them do.** Use real code and command output, and visuals for everything else.
+  Never draw a diagram or table in a code block: it breaks on phones. Embed an
   interactive activity wherever one exists for the idea (see `docs/activities.md`).
 - **Name the traps.** `pitfall` holds the most common mistake for a section.
 - Questions test understanding: "what happens / which is right / why / what would you type". Use
@@ -50,9 +55,12 @@ for that.
     "sections": [
       {
         "title": "Ranges stop early",
-        "body": "Paragraphs separated by a blank line. Use `backticks` for inline code and **bold** for key terms.\n\n- Lines starting with \"- \" render as bullets.",
+        "key": "One sentence: the single idea to remember from this section.",
+        "body": "Short paragraphs separated by a blank line. Use `backticks` for inline code and **bold** for key terms.\n\n- Lines starting with \"- \" render as bullets.\n\n[[visual]]\n\nA paragraph that is exactly [[visual]] places a visual; [[code]] places the code block.",
+        "visual": { "type": "table", "columns": ["Call", "Produces"], "rows": [["`range(4)`", "0, 1, 2, 3"], ["`range(2, 10, 2)`", "2, 4, 6, 8"]] },
         "code": "for n in range(2, 10, 2):\n    print(n)",
         "language": "python",
+        "deeper": "Optional extra depth, shown collapsed under Go deeper. Never the only place a tested fact lives.",
         "tip": "Optional one-line tip.",
         "pitfall": "Optional: the most common mistake here, and how to avoid it.",
         "activity": {

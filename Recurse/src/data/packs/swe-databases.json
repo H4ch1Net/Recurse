@@ -1,41 +1,54 @@
 {
   "id": "swe-databases",
   "name": "Databases in Practice",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "author": "Recurse",
   "subject": "swe",
   "level": "intermediate",
   "description": "Model data, normalize to 3NF, index and EXPLAIN queries, use transactions safely, avoid N+1 and SQL injection, pick SQL or NoSQL.",
   "icon": "DB",
   "language": "sql",
-  "prereqs": [
-    "sql-basics",
-    "python-basics"
-  ],
-  "tags": [
-    "databases",
-    "sql",
-    "indexes",
-    "transactions",
-    "orm",
-    "nosql",
-    "postgresql"
-  ],
+  "prereqs": ["sql-basics", "python-basics"],
+  "tags": ["databases", "sql", "indexes", "transactions", "orm", "nosql", "postgresql"],
   "lesson": {
-    "estimatedMinutes": 26,
-    "intro": "SQL basics get data out of a table. Real work asks more: designing tables that stay correct as the app grows, making a query on 40 million rows fast, keeping money consistent when two requests race, and noticing when your ORM quietly runs 500 queries. This lesson covers the database skills interns are expected to pick up in their first months on a team.",
+    "estimatedMinutes": 30,
+    "intro": "Real work asks more than SQL basics: tables that stay correct as the app grows, a fast query on 40 million rows, consistent money when two requests race, and an ORM that quietly runs 500 queries. These are the database skills interns pick up first.",
     "objectives": [
-      "Design tables with primary keys, foreign keys and junction tables, normalized to 3NF",
-      "Explain how a B-tree index speeds up a query, when it hurts, and how column order matters in a composite index",
+      "Design tables with keys and junction tables, normalized to 3NF",
+      "Explain how a B-tree index helps, when it hurts, and composite column order",
       "Read an EXPLAIN plan well enough to spot a missing index",
-      "Use transactions correctly and recognize dirty reads, non-repeatable reads, phantoms and lost updates",
-      "Prevent N+1 queries and SQL injection in application code, and justify SQL or NoSQL for a workload"
+      "Use transactions and recognize isolation anomalies and lost updates",
+      "Prevent N+1 queries and SQL injection, and justify SQL or NoSQL"
     ],
     "sections": [
       {
         "title": "Modeling data: tables, keys and relationships",
-        "body": "You are building a small course platform. Teachers write courses, students enroll in courses, and you need to track when each student enrolled. Before writing a single query, you decide which tables exist and how they point at each other. Get this right and most queries are easy; get it wrong and every feature fights the schema.\n\nThe building blocks:\n\n- Each **entity** (a kind of thing you store many of) gets a table: `teachers`, `courses`, `students`.\n- Every table has a **primary key**: a column, or set of columns, that uniquely identifies a row and never changes. Most teams use a **surrogate key**, an auto-generated `id` (integer or UUID) with no business meaning, rather than a **natural key** such as an email address, because emails change and other tables point at the key.\n- A **foreign key** is a column holding another table's primary key, plus a constraint that makes the database enforce it. `courses.teacher_id REFERENCES teachers(id)` means the database refuses a course whose teacher does not exist.\n\nRelationships come in three shapes:\n\n- **One-to-many**: a teacher writes many courses. The foreign key goes on the \"many\" side (`courses.teacher_id`). Never store a list of ids in one column on the \"one\" side.\n- **Many-to-many**: a student takes many courses and a course has many students. Neither table can hold the link, so you add a **junction table** (`enrollments`) with a foreign key to each side. It is also the natural home for facts about the relationship, such as `enrolled_at` or `grade`.\n- **One-to-one**: rarer; usually one entity split in two for size or privacy, such as `users` and `user_settings`, linked by a unique foreign key.\n\nA foreign key also decides what happens when the parent row is deleted. `ON DELETE CASCADE` deletes the children too (delete a course and its enrollments go with it). `ON DELETE RESTRICT`, or the default NO ACTION, refuses to delete a teacher who still has courses. `ON DELETE SET NULL` keeps the child and clears the link. Choose deliberately: a cascade in the wrong place can wipe out far more data than you meant to.",
-        "code": "CREATE TABLE teachers (\n  id    BIGSERIAL PRIMARY KEY,\n  name  TEXT NOT NULL,\n  email TEXT NOT NULL UNIQUE\n);\n\nCREATE TABLE courses (\n  id         BIGSERIAL PRIMARY KEY,\n  title      TEXT NOT NULL,\n  teacher_id BIGINT NOT NULL REFERENCES teachers(id) ON DELETE RESTRICT\n);\n\nCREATE TABLE students (\n  id    BIGSERIAL PRIMARY KEY,\n  email TEXT NOT NULL UNIQUE\n);\n\n-- many-to-many: one row per (student, course) pair\nCREATE TABLE enrollments (\n  student_id  BIGINT NOT NULL REFERENCES students(id) ON DELETE CASCADE,\n  course_id   BIGINT NOT NULL REFERENCES courses(id)  ON DELETE CASCADE,\n  enrolled_at TIMESTAMPTZ NOT NULL DEFAULT now(),\n  PRIMARY KEY (student_id, course_id)   -- no duplicate enrollments\n);",
+        "key": "Give every table a stable primary key, put the foreign key on the many side of a one-to-many, and model many-to-many with a junction table.",
+        "body": "You are building a course platform: teachers write courses, students enroll, and you track when. Decide the tables and how they point at each other before writing a query; a bad schema makes every feature a fight.\n\n[[visual]]\n\nPrefer a **surrogate key**, an auto-generated `id` with no business meaning, over a **natural key** such as an email: emails change, and other tables point at the key.\n\nA **foreign key** constraint makes the database refuse a course whose teacher does not exist. It also decides what happens when the parent row is deleted:\n\n[[visual 2]]\n\n[[code]]",
+        "visual": [
+          {
+            "type": "table",
+            "title": "Relationship shapes",
+            "columns": ["Shape", "How to model it"],
+            "rows": [
+              ["One-to-many: a teacher writes many courses", "A foreign key on the many side: `courses.teacher_id`. Never a list of ids on the one side"],
+              ["Many-to-many: students and courses", "A **junction table** `enrollments(student_id, course_id)`, also home to facts like `enrolled_at`"],
+              ["One-to-one: `users` and `user_settings`", "A unique foreign key; usually one entity split for size or privacy"]
+            ]
+          },
+          {
+            "type": "table",
+            "title": "ON DELETE choices",
+            "columns": ["Option", "When the parent is deleted"],
+            "rows": [
+              ["`CASCADE`", "The children go too: delete a course and its enrollments go with it"],
+              ["`RESTRICT` (or the default NO ACTION)", "Refused while children exist: a teacher with courses stays"],
+              ["`SET NULL`", "The child stays and its link is cleared"]
+            ],
+            "caption": "Cascades chain: a cascade from teachers to courses, and from courses to enrollments, deletes all three levels."
+          }
+        ],
+        "code": "CREATE TABLE courses (\n  id         BIGSERIAL PRIMARY KEY,\n  title      TEXT NOT NULL,\n  teacher_id BIGINT NOT NULL\n    REFERENCES teachers(id)\n    ON DELETE RESTRICT\n);\n\n-- many-to-many: one row per pair\nCREATE TABLE enrollments (\n  student_id  BIGINT NOT NULL\n    REFERENCES students(id)\n    ON DELETE CASCADE,\n  course_id   BIGINT NOT NULL\n    REFERENCES courses(id)\n    ON DELETE CASCADE,\n  enrolled_at TIMESTAMPTZ NOT NULL\n    DEFAULT now(),\n  -- no duplicate enrollments\n  PRIMARY KEY (student_id, course_id)\n);",
         "language": "sql",
         "tip": "Add NOT NULL, UNIQUE and foreign key constraints from day one. The database enforcing a rule beats every service remembering to check it.",
         "pitfall": "Storing a comma-separated list of ids in one column (`course_ids = '3,7,12'`). You cannot join on it, index it or enforce it. Use a junction table.",
@@ -46,10 +59,7 @@
           "goal": "Both tables pass every test insert.",
           "props": {
             "set": "modify",
-            "exercises": [
-              "junction-table",
-              "create-table"
-            ]
+            "exercises": ["junction-table", "create-table"]
           }
         },
         "check": {
@@ -66,11 +76,37 @@
       },
       {
         "title": "Normalization to 3NF in plain words",
-        "body": "Here is an `orders` table a hurried teammate created (see the example). It works until it doesn't:\n\n- Dana changes her email, and you must update every one of her orders. Miss one and the data disagrees with itself. That is an **update anomaly**.\n- You cannot store a new customer until they place an order: an **insertion anomaly**.\n- Delete Lee's only order and you lose the fact that Lee exists: a **deletion anomaly**.\n\nThe root cause is the same each time: one fact is stored in many places. **Normalization** means splitting tables so each fact lives in exactly one place. The first three normal forms, in plain words:\n\n- **1NF**: each cell holds one value. No lists in a cell (`items = 'mug, tee'`) and no repeating columns (`item1`, `item2`, `item3`). Repeating things become their own rows.\n- **2NF**: every non-key column depends on the whole primary key. This only matters when the key has several columns. In `order_items(order_id, product_id, quantity, product_name)` with key `(order_id, product_id)`, `product_name` depends only on `product_id`, part of the key, so it belongs in a `products` table.\n- **3NF**: non-key columns depend on nothing but the key. In the example, `customer_email` depends on `customer_id`, which depends on `order_id`. That chain is a **transitive dependency**, and it means customer facts belong in a `customers` table.\n\nThe classic one-line summary: every non-key column must depend on \"the key, the whole key, and nothing but the key.\"\n\nThe normalized design is `customers(id, name, email)`, `orders(id, customer_id, ordered_at)`, `products(id, name, price_cents)` and `order_items(order_id, product_id, quantity, unit_price_cents)`. Notice `unit_price_cents` lives on the order line even though products have a price. It records what the customer actually paid, which must not change when you raise the price next month. That is a different fact, not duplication.\n\n**Denormalizing** on purpose, such as copying a value to skip a join or keeping a precomputed count, is a fine performance choice. Make it after you measure a need, and have a plan to keep the copies in sync.",
-        "code": "orders (not normalized)\n\norder_id | customer_id | customer_name | customer_email   | product     | price\n---------+-------------+---------------+------------------+-------------+------\n1001     | 7           | Dana Ruiz     | dana@example.com | Blue mug    | 12.99\n1002     | 7           | Dana Ruiz     | dana@example.com | T-shirt (M) | 20.00\n1003     | 9           | Lee Park      | lee@example.com  | Blue mug    | 12.99\n\nDana's name and email are stored twice; the mug's price is stored twice.",
-        "language": "plaintext",
+        "key": "Normalize so each fact lives in exactly one place: every non-key column depends on the key, the whole key, and nothing but the key.",
+        "body": "A hurried teammate built this `orders` table:\n\n[[visual]]\n\nWhen Dana changes her email, every one of her orders must change, and missing one makes the data disagree: an **update anomaly**. You cannot store a customer before they order (**insertion anomaly**), and deleting Lee's only order forgets Lee (**deletion anomaly**). The cause is one fact stored in many places. **Normalization** splits tables so each fact lives once.\n\n[[visual 2]]\n\nThe fix: `customers`, `orders`, `products` and `order_items(order_id, product_id, quantity, unit_price_cents)`. The line's unit price records what the customer paid, a different fact.\n\n**Denormalize** (copy a value, keep a count) only for a measured need, with a plan to keep the copies in sync.",
+        "visual": [
+          {
+            "type": "table",
+            "title": "orders, not normalized",
+            "columns": ["Order", "Customer", "Product"],
+            "rows": [
+              ["1001", "7, Dana Ruiz, dana@example.com", "Blue mug, 12.99"],
+              ["1002", "7, Dana Ruiz, dana@example.com", "T-shirt (M), 20.00"],
+              ["1003", "9, Lee Park, lee@example.com", "Blue mug, 12.99"]
+            ],
+            "highlight": [0, 1],
+            "caption": "Dana's name and email are stored twice; so is the mug's price."
+          },
+          {
+            "type": "table",
+            "title": "The first three normal forms",
+            "columns": ["Form", "Rule, and what breaks it"],
+            "rows": [
+              ["1NF", "One value per cell; repeating things become rows. Broken by `items = 'mug, tee'` or `item1, item2, item3`"],
+              [
+                "2NF",
+                "Non-key columns depend on the **whole** key (it matters for composite keys). Broken by `product_name` in `order_items(order_id, product_id, ...)`, which depends on product_id alone"
+              ],
+              ["3NF", "Non-key columns depend on **nothing but** the key. Broken by `customer_email`, which depends on `customer_id`: a **transitive dependency**"]
+            ]
+          }
+        ],
         "tip": "When the same value is typed into many rows, ask: if this changes, how many rows must I update? More than one is a smell.",
-        "pitfall": "Treating normalization as 'split everything, always'. Historical facts such as the price paid or the address shipped to should be copied at the time of the event, because they must not change later.",
+        "pitfall": "Treating normalization as \"split everything, always\". Historical facts such as the price paid or the shipping address are copied at the time of the event, because they must not change later.",
         "check": {
           "question": "In `employees(emp_id PRIMARY KEY, name, dept_id, dept_name)`, which normal form is violated, and why?",
           "choices": [
@@ -85,8 +121,35 @@
       },
       {
         "title": "Joins, recapped with the traps",
-        "body": "Your manager asks two questions: \"Which customers signed up in March but never ordered?\" and \"What is our paid revenue per customer, including people who spent nothing?\" Both are join questions, and each has a classic trap.\n\nA quick recap. **INNER JOIN** keeps only rows with a match on both sides. **LEFT JOIN** keeps every row from the left table and fills the right side with NULL where nothing matches. RIGHT JOIN is the mirror image and rarely used; FULL OUTER JOIN keeps unmatched rows from both sides.\n\n**Trap 1: finding rows with no match.** An INNER JOIN can never show customers without orders, because they have nothing to match. Use a LEFT JOIN and keep the rows where the right side came back NULL. This is called an anti-join. Test a column that is never NULL in a real match, such as the primary key. `WHERE NOT EXISTS (SELECT 1 FROM orders o WHERE o.customer_id = c.id)` says the same thing and is often just as fast.\n\n**Trap 2: filtering the right table in WHERE.** `LEFT JOIN orders o ON ... WHERE o.status = 'paid'` silently becomes an inner join. Customers with no orders have `o.status` NULL, and the WHERE throws them away. Put conditions on the right-hand table in the ON clause when you want to keep unmatched rows.\n\n**Trap 3: fan-out.** Joining one row to many multiplies it. Join orders to order_items (three items per order) and to payments, then SUM the payments, and every payment is counted three times. Aggregate each child table separately (a subquery or CTE per table), then join the totals.\n\nThe example answers both of the manager's questions correctly. Notice where `o.status = 'paid'` sits in the second query.",
-        "code": "-- Customers who signed up in March 2026 and never ordered (anti-join)\nSELECT c.id, c.email\nFROM customers c\nLEFT JOIN orders o ON o.customer_id = c.id\nWHERE c.created_at >= '2026-03-01' AND c.created_at < '2026-04-01'\n  AND o.id IS NULL;\n\n-- Paid revenue per customer, keeping customers who spent nothing\nSELECT c.id, c.email, COALESCE(SUM(o.total_cents), 0) AS revenue_cents\nFROM customers c\nLEFT JOIN orders o\n  ON o.customer_id = c.id\n AND o.status = 'paid'            -- in ON, not WHERE, to keep zero-order customers\nGROUP BY c.id, c.email\nORDER BY revenue_cents DESC;",
+        "key": "Three join traps: find missing matches with a LEFT JOIN plus IS NULL, filter the right table in ON rather than WHERE, and aggregate child tables before joining them.",
+        "body": "Your manager asks: \"Which March sign-ups never ordered?\" and \"Paid revenue per customer, including people who spent nothing?\" Both are joins, each with a classic trap.\n\nRecap: **INNER JOIN** keeps matched pairs; **LEFT JOIN** keeps every left row, with NULLs where nothing matched.\n\n[[visual]]\n\n[[visual 2]]\n\n[[code]]",
+        "visual": [
+          {
+            "type": "table",
+            "title": "The three traps",
+            "columns": ["Trap", "Fix"],
+            "rows": [
+              [
+                "Finding rows with no match: an INNER JOIN never shows them",
+                "LEFT JOIN, then `WHERE o.id IS NULL` (an **anti-join**; test a column never NULL in a real match), or `NOT EXISTS`"
+              ],
+              ["`WHERE o.status = 'paid'` on a LEFT JOIN drops the NULL rows, so it becomes an inner join", "Put conditions on the right-hand table in `ON`"],
+              ["**Fan-out**: joining a row to many multiplies it", "Aggregate each child table separately (a subquery or CTE), then join the totals"]
+            ]
+          },
+          {
+            "type": "table",
+            "title": "Fan-out: order 7 joined to 3 items and 1 payment",
+            "columns": ["item", "amount_cents"],
+            "rows": [
+              ["mug", "3000"],
+              ["tee", "3000"],
+              ["cap", "3000"]
+            ],
+            "caption": "`SUM(p.amount_cents)` now reports 9000 for a single 3000 payment."
+          }
+        ],
+        "code": "-- March sign-ups who never ordered\nSELECT c.id, c.email\nFROM customers c\nLEFT JOIN orders o ON o.customer_id = c.id\nWHERE c.created_at >= '2026-03-01'\n  AND c.created_at < '2026-04-01'\n  AND o.id IS NULL;\n\n-- paid revenue, keeping zero spenders\nSELECT c.id,\n  COALESCE(SUM(o.total_cents), 0) AS revenue\nFROM customers c\nLEFT JOIN orders o\n  ON o.customer_id = c.id\n AND o.status = 'paid'   -- in ON, not WHERE\nGROUP BY c.id\nORDER BY revenue DESC;",
         "language": "sql",
         "tip": "Sanity-check joins with row counts. If `SELECT COUNT(*)` after a join is bigger than you expected, you have fan-out.",
         "pitfall": "Putting a condition on the right-hand table of a LEFT JOIN in the WHERE clause, which quietly drops every unmatched row.",
@@ -97,32 +160,47 @@
           "goal": "Solve all three queries.",
           "props": {
             "set": "joins",
-            "exercises": [
-              "left-join-filter",
-              "anti-join",
-              "self-join"
-            ]
+            "exercises": ["left-join-filter", "anti-join", "self-join"]
           }
         },
         "check": {
           "question": "In `customers c LEFT JOIN orders o ON o.customer_id = c.id`, which WHERE clause keeps only customers who have no orders?",
-          "choices": [
-            "WHERE o.id = NULL",
-            "WHERE c.id IS NULL",
-            "WHERE o.id IS NULL",
-            "WHERE o.customer_id <> c.id"
-          ],
+          "choices": ["WHERE o.id = NULL", "WHERE c.id IS NULL", "WHERE o.id IS NULL", "WHERE o.customer_id <> c.id"],
           "answer": 2,
           "explanation": "Unmatched customers get NULL in every orders column, and o.id is never NULL for a real order. `= NULL` is never true in SQL, since comparisons with NULL are unknown, so you must use IS NULL."
         }
       },
       {
         "title": "Indexes: how they work and when they hurt",
-        "body": "The orders page loads in 30 ms on your laptop and 9 seconds in production, where the table has 40 million rows. The query is `SELECT * FROM orders WHERE customer_id = 42`. Without an index, the database reads every row and checks it, a **full table scan** (PostgreSQL calls it a sequential scan): 40 million checks to find a few dozen rows.\n\nAn **index** is a separate, sorted structure that maps column values to row locations, like the index at the back of a book. The default kind in PostgreSQL, MySQL and most relational databases is the **B-tree**: a balanced tree whose nodes each hold hundreds of sorted keys. Because every level fans out so widely, even 100 million rows need only 3 or 4 levels, so a lookup touches a handful of pages instead of millions (O(log n) instead of O(n)). And because the keys are sorted, a B-tree also answers ranges (`created_at >= '2026-01-01'`) and `ORDER BY` on the indexed column without a separate sort.\n\nWhen indexes do not help, or actively hurt:\n\n- **Every write pays.** Each INSERT, UPDATE and DELETE must also update every index on the table, and each index takes disk and memory. Index what you query, not every column.\n- **Low selectivity.** An index on a boolean `is_active` that is true for 95% of rows rarely helps. Fetching most of a table through an index is slower than scanning it.\n- **A function around the column.** `WHERE LOWER(email) = 'dana@example.com'` cannot use a plain index on `email`, and neither can MySQL's `WHERE YEAR(created_at) = 2026`. Compare the raw column (`created_at >= '2026-01-01' AND created_at < '2027-01-01'`), or create an expression index on `LOWER(email)`.\n- **Leading wildcards.** `LIKE '%son'` cannot use a B-tree, because the tree is sorted by the first characters.\n\nA **composite index** covers several columns, sorted by the first, then by the second within each first value: a phone book sorted by last name, then first name. That gives the **leftmost prefix rule**. An index on `(customer_id, created_at)` serves `WHERE customer_id = 42` and `WHERE customer_id = 42 AND created_at >= '2026-01-01'`, but generally not `WHERE created_at >= '2026-01-01'` on its own, just as a phone book cannot find everyone named Sam. (A few databases can \"skip scan\" in that case, but do not count on it.) Put the columns you filter by equality first, and the range or sort column last.",
-        "code": "-- Primary keys and UNIQUE constraints get an index automatically.\n-- Foreign key columns do NOT in PostgreSQL: index them yourself.\nCREATE INDEX idx_orders_customer ON orders (customer_id);\n\n-- Composite: equality column first, range or sort column last.\n-- It also serves queries on customer_id alone, which makes the\n-- single-column index above redundant once this one exists.\nCREATE INDEX idx_orders_customer_created ON orders (customer_id, created_at);\n\n-- Filter and sort both come straight from the composite index:\nSELECT id, total_cents, created_at\nFROM orders\nWHERE customer_id = 42\nORDER BY created_at DESC\nLIMIT 20;\n\n-- Expression index for case-insensitive lookups\nCREATE INDEX idx_users_email_lower ON users (LOWER(email));\nSELECT id FROM users WHERE LOWER(email) = LOWER('Dana@Example.com');",
+        "key": "A B-tree index turns a full scan into a few page reads for equality, ranges and sorts, costs every write, and a composite index serves only its leftmost columns.",
+        "body": "The orders page takes 30 ms on your laptop and 9 seconds in production with 40 million rows. `WHERE customer_id = 42` reads every row: a **full table scan** (PostgreSQL says sequential scan).\n\nAn **index** is a separate sorted structure mapping values to rows. The default **B-tree** holds hundreds of keys per node, so 100 million rows need 3 or 4 levels: O(log n), not O(n). Sorted keys also serve ranges and `ORDER BY`.\n\n[[visual]]\n\n[[visual 2]]\n\nA **composite index** sorts by its first column, then the second, like a phone book. **Leftmost prefix rule**: `(customer_id, created_at)` serves `customer_id = 42`, with or without a date range, but generally not a date range alone. Put equality columns first, range or sort columns last.\n\n[[code]]",
+        "visual": [
+          {
+            "type": "bars",
+            "title": "Rows checked to find 48 orders among 40 million",
+            "scale": "log",
+            "items": [
+              { "label": "Full table scan", "value": 40000000, "display": "40,000,000", "tone": "bad" },
+              { "label": "B-tree lookup", "value": 52, "display": "4 levels + 48 rows", "tone": "good" }
+            ]
+          },
+          {
+            "type": "table",
+            "title": "When an index does not help",
+            "columns": ["Case", "Why"],
+            "rows": [
+              ["Every write", "Each INSERT, UPDATE and DELETE must update every index, and indexes take disk and memory"],
+              ["Low selectivity", "`is_active` is true for 95% of rows: scanning is cheaper"],
+              ["A function on the column", "`WHERE LOWER(email) = ...` cannot use an index on email. Index `LOWER(email)`, or compare the raw column"],
+              ["Leading wildcard", "`LIKE '%son'`: the tree is sorted by the first characters"]
+            ]
+          }
+        ],
+        "code": "-- PostgreSQL does not index foreign keys\n-- for you: do it yourself\nCREATE INDEX idx_orders_customer\n  ON orders (customer_id);\n\n-- equality first, range or sort last\nCREATE INDEX idx_orders_cust_created\n  ON orders (customer_id, created_at);\n\n-- filter and sort both come from it\nSELECT id, total_cents, created_at\nFROM orders\nWHERE customer_id = 42\nORDER BY created_at DESC\nLIMIT 20;\n\n-- for case-insensitive lookups\nCREATE INDEX idx_users_email_lower\n  ON users (LOWER(email));",
         "language": "sql",
-        "tip": "Index the columns in the WHERE, JOIN ... ON and ORDER BY clauses of your most frequent slow queries, then confirm with EXPLAIN that the index is actually used.",
-        "pitfall": "Adding an index on every column 'just in case'. Writes slow down, storage grows, and the planner ignores most of them anyway.",
+        "deeper": "Primary keys and UNIQUE constraints get an index automatically. Once the composite index on `(customer_id, created_at)` exists, the single-column index on `customer_id` is redundant, because the composite serves that filter too.\n\nA few databases can \"skip scan\" a composite index when the first column is missing from the query, but do not count on it: a phone book sorted by last name cannot find everyone named Sam.\n\nMySQL's `WHERE YEAR(created_at) = 2026` has the same problem as LOWER(): compare a range on the raw column instead.",
+        "tip": "Index the columns in the WHERE, JOIN ... ON and ORDER BY clauses of your most frequent slow queries, then confirm with EXPLAIN that the index is used.",
+        "pitfall": "Adding an index on every column \"just in case\". Writes slow down, storage grows, and the planner ignores most of them anyway.",
         "check": {
           "question": "There is an index on `orders(customer_id, created_at)`. Which query can use it least effectively?",
           "choices": [
@@ -137,28 +215,90 @@
       },
       {
         "title": "Reading query plans with EXPLAIN",
-        "body": "You added an index, but the page is still slow. Did the database even use it? Guessing is how people lose days. Ask the database instead.\n\n`EXPLAIN` shows the **query plan**: the steps the planner chose for your query, with estimated costs and row counts. `EXPLAIN ANALYZE` (PostgreSQL, and MySQL 8.0.18 and later) actually runs the query and adds real timings and row counts. Read a plan from the most indented lines outward: inner steps run first and feed their parents.\n\nWhat to look for at an intern level:\n\n- **Seq Scan** (PostgreSQL) or `type: ALL` (MySQL) on a big table, with a filter that throws away almost every row. That is the missing-index signature.\n- **Index Scan** or **Index Only Scan** means an index is used. Index Only Scan means every column the query needed was in the index, so the table itself was barely touched.\n- **Estimated versus actual rows.** If the planner expected 50 rows and got 2 million, its statistics are stale (run `ANALYZE`) or the data is skewed, and it may have chosen a bad plan.\n- Big **Sort** steps, and **Nested Loop** joins whose inner side is scanned over and over, are the other usual suspects.\n\nThe example shows the same query before and after adding an index: 95 ms reading a million rows becomes 0.08 ms reading 48. Pasting a before-and-after like this into a pull request is the most convincing way to present a performance fix.\n\nThe planner is cost-based, so it may skip your index on purpose. On a small table, or when a query returns a large share of the rows, a sequential scan really is cheaper. That is not a bug.",
-        "code": "EXPLAIN ANALYZE SELECT * FROM orders WHERE customer_id = 42;\n\n-- Before: no index on customer_id\nSeq Scan on orders  (cost=0.00..20834.00 rows=50 width=48)\n                    (actual time=0.031..95.112 rows=48 loops=1)\n  Filter: (customer_id = 42)\n  Rows Removed by Filter: 999952\nPlanning Time: 0.110 ms\nExecution Time: 95.140 ms\n\n-- After: CREATE INDEX idx_orders_customer ON orders (customer_id);\nIndex Scan using idx_orders_customer on orders  (cost=0.42..8.95 rows=50 width=48)\n                    (actual time=0.020..0.064 rows=48 loops=1)\n  Index Cond: (customer_id = 42)\nPlanning Time: 0.150 ms\nExecution Time: 0.081 ms",
-        "language": "plaintext",
+        "key": "`EXPLAIN` shows the plan the database chose and `EXPLAIN ANALYZE` actually runs the query with real timings; a sequential scan that discards most rows signals a missing index.",
+        "body": "You added an index, but the page is still slow. Did the database use it? Ask instead of guessing.\n\n`EXPLAIN` shows the **query plan**, the steps the planner chose with estimated costs and rows, without running the query. `EXPLAIN ANALYZE` **really runs it** and adds actual timings. Read from the most indented line outward.\n\n[[visual]]\n\n[[code]]\n\nThe planner is cost-based: on a tiny table, or when most rows match, a sequential scan really is cheaper, so it may skip your index on purpose.\n\n[[visual 2]]",
+        "visual": [
+          {
+            "type": "table",
+            "title": "What to look for",
+            "columns": ["In the plan", "Means"],
+            "rows": [
+              ["`Seq Scan` (MySQL: `type: ALL`) on a big table, filter removing most rows", "The missing-index signature"],
+              ["`Index Scan`", "An index is used"],
+              ["`Index Only Scan`", "Every needed column was in the index; the table was barely touched"],
+              ["Estimated rows far from actual", "Stale statistics (run `ANALYZE`) or skewed data"],
+              ["A big `Sort`, or a `Nested Loop` scanning its inner side over and over", "The other usual suspects"]
+            ]
+          },
+          {
+            "type": "flow",
+            "title": "Fixing a slow query",
+            "steps": [
+              { "label": "Capture the exact slow query and typical parameters" },
+              { "label": "Run EXPLAIN ANALYZE on production-sized data" },
+              { "label": "Find the expensive step", "detail": "Such as a Seq Scan that discards most rows" },
+              { "label": "Add or change an index matching the filter and sort" },
+              {
+                "label": "Run EXPLAIN ANALYZE again and compare",
+                "detail": "Paste the before and after into the pull request",
+                "tone": "good"
+              }
+            ]
+          }
+        ],
+        "code": "EXPLAIN ANALYZE\nSELECT * FROM orders WHERE customer_id = 42;\n\n-- Before: no index on customer_id\n-- Seq Scan on orders\n--   (actual time=0.031..95.112\n--    rows=48 loops=1)\n--   Filter: (customer_id = 42)\n--   Rows Removed by Filter: 999952\n-- Execution Time: 95.140 ms\n\n-- After CREATE INDEX idx_orders_customer:\n-- Index Scan using idx_orders_customer\n--   on orders\n--   (actual time=0.020..0.064\n--    rows=48 loops=1)\n--   Index Cond: (customer_id = 42)\n-- Execution Time: 0.081 ms",
+        "language": "sql",
         "tip": "Run EXPLAIN ANALYZE on production-sized data. A plan from a 100-row development table tells you almost nothing.",
-        "pitfall": "Running `EXPLAIN ANALYZE` on an UPDATE or DELETE in production. ANALYZE really executes the statement, so the rows really change. Wrap it in `BEGIN; ... ROLLBACK;` if you must.",
+        "pitfall": "Running `EXPLAIN ANALYZE` on an UPDATE or DELETE in production. ANALYZE really executes it, so the rows really change; wrap it in `BEGIN; ... ROLLBACK;`.",
         "check": {
           "question": "A plan shows `Seq Scan on orders` with `Rows Removed by Filter: 999952` to return 48 rows. What is the most likely fix?",
-          "choices": [
-            "Add an index on the column in the filter",
-            "Increase the query's LIMIT",
-            "Change SELECT to SELECT DISTINCT",
-            "Rewrite the query as a LEFT JOIN"
-          ],
+          "choices": ["Add an index on the column in the filter", "Increase the query's LIMIT", "Change SELECT to SELECT DISTINCT", "Rewrite the query as a LEFT JOIN"],
           "answer": 0,
           "explanation": "Reading a million rows and discarding nearly all of them is the classic sign of a missing index on the filtered column. LIMIT, DISTINCT and join style do not change how the rows are found."
         }
       },
       {
         "title": "Transactions, ACID and isolation",
-        "body": "Moving $50 from Ana's account to Ben's takes two updates: subtract from one, add to the other. If the server crashes between them, $50 vanishes. A **transaction** groups statements so they succeed or fail as one unit (see the example).\n\nTransactions give you the **ACID** guarantees:\n\n- **Atomicity**: every statement commits, or none does. A crash or a ROLLBACK undoes the partial work.\n- **Consistency**: the database moves from one valid state to another. Constraints (foreign keys, `CHECK (balance >= 0)`, UNIQUE) are never left violated.\n- **Isolation**: concurrent transactions do not see each other's half-finished work. Exactly how strictly is set by the isolation level.\n- **Durability**: once COMMIT returns, the change survives a crash, because it was written to a log on disk first.\n\nIsolation surprises people, because full isolation is expensive and databases default to something weaker. The anomalies, from worst to subtlest:\n\n- **Dirty read**: you read another transaction's change before it commits, and it then rolls back. You acted on data that never existed.\n- **Non-repeatable read**: you read the same row twice in one transaction and get different values, because someone else committed an update in between.\n- **Phantom read**: you run the same range query twice (`WHERE status = 'pending'`) and new rows appear, because someone else committed an insert.\n\nThe standard isolation levels prevent progressively more: READ UNCOMMITTED, READ COMMITTED (no dirty reads; the default in PostgreSQL, Oracle and SQL Server), REPEATABLE READ (no non-repeatable reads either; the default in MySQL's InnoDB) and SERIALIZABLE (results as if transactions ran one at a time). Higher levels mean more locking, or more transactions aborted with serialization errors that your code must retry.\n\nOne more bug you will meet for real: the **lost update**. Two requests both read a balance of 100, both subtract 30 in application code, and both write 70. One withdrawal disappears. Fix it by letting the database do the arithmetic in one atomic statement (`SET balance = balance - 30 WHERE id = 1 AND balance >= 30`), or by locking the row while you work with `SELECT ... FOR UPDATE`.",
-        "code": "BEGIN;\n\nUPDATE accounts SET balance = balance - 50 WHERE id = 1;  -- Ana\nUPDATE accounts SET balance = balance + 50 WHERE id = 2;  -- Ben\n\n-- Both worked? Make them permanent together:\nCOMMIT;\n\n-- Something went wrong instead? Undo both:\n-- ROLLBACK;",
+        "key": "A transaction makes statements succeed or fail as one unit; isolation levels trade anomalies for speed, and lost updates need an atomic UPDATE or a row lock.",
+        "body": "Moving $50 from Ana to Ben is two updates. If the server crashes between them, $50 vanishes. A **transaction** makes them one unit:\n\n[[code]]\n\n[[visual]]\n\nFull isolation is expensive, so databases default to something weaker and some anomalies leak through:\n\n[[visual 2]]\n\n[[visual 3]]\n\nTo stop lost updates, let the database do the arithmetic in one statement (`SET balance = balance - 30 WHERE id = 1 AND balance >= 30`), or lock the row with `SELECT ... FOR UPDATE`.",
+        "visual": [
+          {
+            "type": "table",
+            "title": "ACID",
+            "columns": ["Property", "Guarantee"],
+            "rows": [
+              ["Atomicity", "All statements take effect, or none do; a crash or ROLLBACK undoes partial work"],
+              ["Consistency", "Constraints (foreign keys, CHECK, UNIQUE) hold after every commit"],
+              ["Isolation", "Concurrent transactions do not see each other's unfinished work"],
+              ["Durability", "Once COMMIT returns, the change survives a crash: it was logged to disk first"]
+            ]
+          },
+          {
+            "type": "table",
+            "title": "Concurrency anomalies",
+            "columns": ["Anomaly", "What happens"],
+            "rows": [
+              ["Dirty read", "You read another transaction's change before it commits, and it then rolls back"],
+              ["Non-repeatable read", "You read the same row twice and get two different committed values"],
+              ["Phantom read", "You rerun a range query and newly inserted rows appear"],
+              ["Lost update", "Two read-modify-write cycles (both read 100, both write 70) overwrite each other"]
+            ]
+          },
+          {
+            "type": "table",
+            "title": "Isolation levels",
+            "columns": ["Level", "Prevents"],
+            "rows": [
+              ["READ UNCOMMITTED", "Little: dirty reads are possible"],
+              ["READ COMMITTED (default in PostgreSQL, Oracle, SQL Server)", "Dirty reads. Non-repeatable reads and phantoms can still happen"],
+              ["REPEATABLE READ (default in MySQL InnoDB)", "Also non-repeatable reads"],
+              ["SERIALIZABLE", "Results as if transactions ran one at a time; more aborts your code must retry"]
+            ]
+          }
+        ],
+        "code": "BEGIN;\nUPDATE accounts SET balance = balance - 50\nWHERE id = 1;   -- Ana\nUPDATE accounts SET balance = balance + 50\nWHERE id = 2;   -- Ben\nCOMMIT;         -- both, permanently\n\n-- something went wrong instead? undo both:\n-- ROLLBACK;",
         "language": "sql",
+        "deeper": "If the server crashes before COMMIT, recovery rolls the uncommitted transaction back, so neither balance has changed.\n\nHigher isolation levels mean more locking, or more transactions aborted with serialization errors that your code must catch and retry. The SQL standard lets REPEATABLE READ allow phantoms; PostgreSQL's implementation prevents them too.",
         "tip": "Keep transactions short. Never wait on a user, an email server or a slow API while holding one open, because the rows it locked stay locked.",
         "pitfall": "Read-modify-write in application code (read the balance, subtract in Python, write it back) with no lock and no atomic UPDATE. Under concurrent requests, updates get lost.",
         "activity": {
@@ -168,10 +308,7 @@
           "goal": "Solve both.",
           "props": {
             "set": "modify",
-            "exercises": [
-              "transaction",
-              "rollback"
-            ]
+            "exercises": ["transaction", "rollback"]
           }
         },
         "check": {
@@ -188,11 +325,23 @@
       },
       {
         "title": "From application code: N+1 queries and SQL injection",
-        "body": "Most database bugs you meet at work will not be in hand-written SQL. They will be in the code that builds SQL for you.\n\n**N+1 queries.** An ORM (Django ORM, SQLAlchemy, ActiveRecord, Prisma) lets you write `order.customer.name` as if everything were already in memory. Behind that attribute hides a database query. In a loop, you get one query for the list plus one more per item, as in the example. With 50 orders that is 51 round trips; with 2,000 the page takes seconds, and it was fast in development where you had five orders.\n\nThe fix is to tell the ORM to load related rows up front: one JOIN, or one extra query with `WHERE id IN (...)`. In Django, `select_related` (foreign keys, using a JOIN) and `prefetch_related` (many-related sets, using a second query). In SQLAlchemy, `joinedload` and `selectinload`. In Rails, `includes`. To catch N+1 early, turn on SQL logging in development and look for the same query repeating with different ids.\n\n**SQL injection.** Building SQL by gluing strings together lets user input become SQL code. If a login form runs `f\"SELECT * FROM users WHERE email = '{email}'\"` and someone types `' OR '1'='1`, the WHERE clause becomes always true. Other inputs can read other tables, or drop them.\n\nThe fix is always the same: **parameterized queries** (also called prepared statements or bound parameters). You send the SQL with placeholders and the values separately, so the database never parses the values as SQL. The placeholder style depends on the driver: `?` in Python's sqlite3, `%s` in psycopg (the PostgreSQL driver, and it is not Python string formatting), `$1` in node-postgres. ORMs parameterize for you, until someone drops into raw SQL with an f-string.\n\nPlaceholders carry values only, never identifiers such as table or column names. If a user picks the sort column, map their choice through an allowlist (`{\"newest\": \"created_at DESC\", \"price\": \"price_cents ASC\"}`) and never paste their raw text into the query.",
-        "code": "# N+1: 1 query for the orders, then 1 more per order for its customer\norders = Order.objects.filter(status=\"paid\")[:50]\nfor order in orders:\n    print(order.id, order.customer.name)     # hidden SELECT on every pass\n\n# Fixed: one query with a JOIN\norders = Order.objects.filter(status=\"paid\").select_related(\"customer\")[:50]\n\n# SQL injection: user input becomes part of the SQL text. Never do this.\ncur.execute(f\"SELECT id FROM users WHERE email = '{email}'\")\n\n# Parameterized: the value travels separately and is never parsed as SQL\ncur.execute(\"SELECT id FROM users WHERE email = ?\", (email,))     # sqlite3\ncur.execute(\"SELECT id FROM users WHERE email = %s\", (email,))    # psycopg",
+        "key": "An ORM can hide one query per item in a loop, the N+1 problem, so eager-load related rows; and send values as parameters so input can never become SQL.",
+        "body": "Most database bugs at work hide in the code that builds SQL for you.\n\n**N+1 queries.** An ORM lets you write `order.customer.name` as if it were in memory, but each access can hide a query. A loop over 50 orders runs 51 queries: fast in development with five orders, seconds in production.\n\n[[code]]\n\nLoad related rows up front, with one JOIN or one `WHERE id IN (...)`:\n\n[[visual]]\n\n**SQL injection.** `f\"... WHERE email = '{email}'\"` with input `' OR '1'='1` makes the WHERE always true. **Parameterized queries** send the SQL and the values separately, so values are never parsed as SQL: `?` in sqlite3, `%s` in psycopg, `$1` in node-postgres.\n\nPlaceholders carry values only, never table or column names: map a user's sort choice through an allowlist.",
+        "visual": {
+          "type": "table",
+          "title": "Eager loading",
+          "columns": ["ORM", "Use"],
+          "rows": [
+            ["Django", "`select_related` for foreign keys (a JOIN); `prefetch_related` for many-related sets (a second query)"],
+            ["SQLAlchemy", "`joinedload`, `selectinload`"],
+            ["Rails", "`includes`"]
+          ]
+        },
+        "code": "# N+1: 1 query, then 1 per order\npaid = Order.objects.filter(status=\"paid\")\nfor order in paid[:50]:\n    # a hidden SELECT on every pass\n    print(order.customer.name)\n\n# fixed: one query with a JOIN\nrows = paid.select_related(\"customer\")[:50]\n\n# injection: input becomes SQL. Never.\nsql = f\"SELECT id FROM users WHERE email = '{email}'\"\ncur.execute(sql)\n\n# parameterized: SQL and value sent apart\ncur.execute(\n    \"SELECT id FROM users WHERE email = ?\",\n    (email,),  # sqlite3; psycopg uses %s\n)",
         "language": "python",
-        "tip": "Count queries per request in development (Django Debug Toolbar, SQLAlchemy echo, or your ORM's query log). A count that grows with the rows on the page is N+1.",
-        "pitfall": "Escaping quotes by hand or 'sanitizing' input with replace(). Attackers know more tricks than your filter; parameters make the problem disappear.",
+        "deeper": "`%s` in psycopg is a placeholder, not Python string formatting: you still pass the values as a separate tuple. ORMs parameterize for you, until someone drops into raw SQL with an f-string.\n\nAn allowlist for user-chosen sorting looks like `{\"newest\": \"created_at DESC\", \"price\": \"price_cents ASC\"}`: the user picks a key, and only your own text reaches the query.",
+        "tip": "Count queries per request in development (Django Debug Toolbar, SQLAlchemy echo, your ORM's query log). A count that grows with the rows on the page is N+1.",
+        "pitfall": "Escaping quotes by hand or \"sanitizing\" input with replace(). Attackers know more tricks than your filter; parameters make the problem disappear.",
         "check": {
           "question": "Why does a parameterized query stop SQL injection?",
           "choices": [
@@ -207,11 +356,55 @@
       },
       {
         "title": "SQL vs NoSQL: choosing a store",
-        "body": "A teammate proposes MongoDB for a new feature \"because it scales\". Another wants PostgreSQL \"because it's safe\". You will hear both; neither is an argument. The useful question is: what does the data look like, and how will it be read and written?\n\n**Relational (SQL) databases** such as PostgreSQL and MySQL store rows in tables with a declared schema, enforce constraints and foreign keys, run multi-row ACID transactions, and answer new questions with joins. They fit most business data: users, orders, payments, inventory, anything with relationships and rules. They also scale further than their reputation suggests (read replicas, partitioning, and one large server goes a long way), and PostgreSQL can store and index JSON columns when part of your data is loosely shaped.\n\n**Document databases** such as MongoDB store JSON-like documents. A document can nest related data, such as a blog post with its tags and comments, so reading one whole aggregate is a single fetch with no joins. Schemas are flexible, which helps when records vary a lot. The costs: data shared between documents gets duplicated or joined in application code, and rules that span documents are mostly up to you. (MongoDB does support multi-document transactions today, but its design steers you toward keeping each operation within one document.)\n\n**Key-value stores** such as Redis and Memcached do one thing superbly: given a key, return the value, fast and at large scale. They are perfect for caches, sessions, rate-limit counters and feature flags, often with a TTL so entries expire on their own. Services such as DynamoDB extend the model with richer items and secondary indexes, but you still design around access patterns you know up front, because there is no ad hoc querying across values.\n\nA sensible default for an intern project or a new product: start with PostgreSQL, add Redis for caching and sessions when you need it, and reach for a document or wide-column store when a specific access pattern or scale demands it. Many real systems use several stores, each for what it does best.",
-        "code": "Need                                          Good fit\n--------------------------------------------  ------------------------------\nOrders, payments, inventory, relationships    Relational (PostgreSQL, MySQL)\nNew reports that join several entities        Relational\nSelf-contained records that vary in shape     Document (MongoDB)\n  (product catalog, CMS content)\nSessions, caches, counters, rate limits       Key-value (Redis, Memcached)\nHuge-scale lookups by a known key             Key-value / wide-column\n                                                (DynamoDB, Cassandra)",
-        "language": "plaintext",
-        "tip": "In interviews, justify a database by access pattern: 'we always fetch a whole profile by user id' supports a key-value or document store; 'we need reports joining orders, refunds and customers' supports SQL.",
-        "pitfall": "Choosing NoSQL 'for scale' when the data is relational and small. You give up joins, constraints and easy transactions to solve a problem you do not have.",
+        "key": "Choose a store by access pattern: relational for related data with rules, documents for self-contained records that vary in shape, key-value for fast lookups by key.",
+        "body": "A teammate wants MongoDB \"because it scales\"; another wants PostgreSQL \"because it's safe\". Neither is an argument. Ask: what does the data look like, and how is it read and written?\n\n[[visual]]\n\n[[visual 2]]\n\nA sensible default for a new product: start with PostgreSQL, add Redis for caching and sessions when you need it, and reach for a document or wide-column store when a specific access pattern or scale demands it. Many systems use several stores, each for what it does best.",
+        "visual": [
+          {
+            "type": "compare",
+            "items": [
+              {
+                "title": "Relational",
+                "sub": "PostgreSQL, MySQL",
+                "tone": "accent",
+                "points": [
+                  "Tables with a declared schema",
+                  "Constraints, foreign keys, multi-row ACID transactions",
+                  "Joins answer new questions",
+                  "Scales further than its reputation; PostgreSQL can index JSON"
+                ]
+              },
+              {
+                "title": "Document",
+                "sub": "MongoDB",
+                "points": [
+                  "JSON-like documents that nest related data",
+                  "One fetch reads a whole record",
+                  "Flexible schemas",
+                  "Shared data gets duplicated; cross-document rules are up to you"
+                ]
+              },
+              {
+                "title": "Key-value",
+                "sub": "Redis, Memcached",
+                "points": ["Given a key, return the value, fast", "Caches, sessions, rate-limit counters, flags", "TTLs expire entries on their own", "No ad hoc queries across values"]
+              }
+            ]
+          },
+          {
+            "type": "table",
+            "title": "Need and good fit",
+            "columns": ["Need", "Good fit"],
+            "rows": [
+              ["Orders, payments, inventory, relationships", "Relational"],
+              ["Reports joining several entities", "Relational"],
+              ["Self-contained records that vary in shape: product catalog, CMS content", "Document"],
+              ["Sessions, caches, counters, rate limits", "Key-value"],
+              ["Huge-scale lookups by a known key", "Key-value or wide-column (DynamoDB, Cassandra)"]
+            ]
+          }
+        ],
+        "tip": "In interviews, justify a database by access pattern: \"we always fetch a whole profile by user id\" favors key-value or documents; \"reports joining orders and refunds\" favors SQL.",
+        "pitfall": "Choosing NoSQL \"for scale\" when the data is relational and small. You give up joins, constraints and easy transactions to solve a problem you do not have.",
         "check": {
           "question": "Which is the best fit for user sessions that expire after 30 minutes and are read on every request?",
           "choices": [
@@ -276,12 +469,12 @@
       }
     ],
     "summary": [
-      "Give every table a stable primary key, link tables with enforced foreign keys, and model many-to-many with a junction table.",
-      "Normalize so each fact lives in one place (the key, the whole key, nothing but the key), and denormalize only for a measured need.",
-      "B-tree indexes turn scans into lookups for equality, ranges and sorts but cost every write; composite indexes follow the leftmost prefix rule.",
-      "Use EXPLAIN ANALYZE before and after a fix, and remember it really executes the statement.",
-      "Transactions make changes atomic; know the isolation anomalies, and prevent lost updates with atomic UPDATEs or row locks.",
-      "Eager-load to kill N+1 queries, parameterize every query, and choose relational, document or key-value stores by access pattern."
+      "Stable primary keys, enforced foreign keys, junction tables for many-to-many.",
+      "Each fact in one place: the key, the whole key, nothing but the key.",
+      "B-trees serve equality, ranges and sorts but cost writes; composite indexes follow the leftmost prefix.",
+      "EXPLAIN ANALYZE before and after a fix, and remember it really runs the statement.",
+      "Transactions are atomic; prevent lost updates with atomic UPDATEs or row locks.",
+      "Eager-load, parameterize, and pick stores by access pattern."
     ],
     "feynmanPrompt": "Explain to a junior teammate why a query on a 40-million-row table is slow, how a B-tree index fixes it, and why you should not simply index every column."
   },
@@ -323,8 +516,16 @@
       "type": "mcq",
       "difficulty": "hard",
       "question": "With the constraints below, an admin deletes teacher 5, who has two courses with 40 enrollments between them. What happens?",
-      "code": "courses.teacher_id    REFERENCES teachers(id) ON DELETE CASCADE\nenrollments.course_id REFERENCES courses(id)  ON DELETE CASCADE",
-      "language": "sql",
+      "visual": {
+        "type": "table",
+        "title": "Foreign keys",
+        "columns": ["Column", "References", "On delete"],
+        "rows": [
+          ["courses.teacher_id", "teachers(id)", "CASCADE"],
+          ["enrollments.course_id", "courses(id)", "CASCADE"]
+        ],
+        "mono": [1, 2]
+      },
       "choices": [
         "Only the teacher row is deleted, and the courses keep teacher_id 5",
         "The teacher, both courses and all 40 enrollments are deleted",
@@ -341,8 +542,16 @@
       "type": "mcq",
       "difficulty": "medium",
       "question": "Using this table design, Dana changes her email address. What problem does the design cause?",
-      "code": "order_id | customer_id | customer_name | customer_email\n---------+-------------+---------------+------------------\n1001     | 7           | Dana Ruiz     | dana@example.com\n1002     | 7           | Dana Ruiz     | dana@example.com\n1007     | 7           | Dana Ruiz     | dana@example.com",
-      "language": "plaintext",
+      "visual": {
+        "type": "table",
+        "title": "orders",
+        "columns": ["order_id", "customer_id", "customer_name", "customer_email"],
+        "rows": [
+          ["1001", "7", "Dana Ruiz", "dana@example.com"],
+          ["1002", "7", "Dana Ruiz", "dana@example.com"],
+          ["1007", "7", "Dana Ruiz", "dana@example.com"]
+        ]
+      },
       "choices": [
         "Her past orders are deleted automatically",
         "The table can no longer be filtered by customer_id",
@@ -387,12 +596,7 @@
       "question": "Complete the query so it returns customers who have never placed an order.",
       "code": "SELECT c.id, c.email\nFROM customers c\nLEFT JOIN orders o ON o.customer_id = c.id\nWHERE o.id _____;",
       "language": "sql",
-      "choices": [
-        "= NULL",
-        "IS NOT NULL",
-        "IS NULL",
-        "<> c.id"
-      ],
+      "choices": ["= NULL", "IS NOT NULL", "IS NULL", "<> c.id"],
       "answer": 2,
       "explanation": "Unmatched customers get NULLs for every orders column, and IS NULL is the only way to test for NULL. `= NULL` is never true, and IS NOT NULL would return customers who do have orders.",
       "concept": "Anti-join",
@@ -403,8 +607,29 @@
       "type": "typed",
       "difficulty": "medium",
       "question": "Given these tables, how many rows does `SELECT * FROM customers c LEFT JOIN orders o ON o.customer_id = c.id` return?",
-      "code": "customers            orders\nid | name            id  | customer_id\n---+------           ----+------------\n1  | Ana             101 | 1\n2  | Ben             102 | 1\n3  | Cy              103 | 2\n                     104 | 9",
-      "language": "plaintext",
+      "visual": [
+        {
+          "type": "table",
+          "title": "customers",
+          "columns": ["id", "name"],
+          "rows": [
+            ["1", "Ana"],
+            ["2", "Ben"],
+            ["3", "Cy"]
+          ]
+        },
+        {
+          "type": "table",
+          "title": "orders",
+          "columns": ["id", "customer_id"],
+          "rows": [
+            ["101", "1"],
+            ["102", "1"],
+            ["103", "2"],
+            ["104", "9"]
+          ]
+        }
+      ],
       "answer": "4",
       "explanation": "Ana matches two orders (2 rows), Ben matches one (1 row) and Cy matches none but is kept with NULLs (1 row): 4 in total. Order 104 points at customer 9, who is not in customers, so a LEFT JOIN from customers never shows it.",
       "concept": "LEFT JOIN row count",
@@ -493,11 +718,7 @@
         "ORDER BY last_name LIMIT 10",
         "WHERE first_name = 'Sam'"
       ],
-      "answers": [
-        0,
-        2,
-        4
-      ],
+      "answers": [0, 2, 4],
       "explanation": "Equality, ranges and ordering on the indexed column all follow the sorted tree. A leading wildcard, a function around the column, or a filter on a different column cannot use it.",
       "concept": "What a B-tree index serves",
       "section": 3
@@ -621,22 +842,13 @@
       "difficulty": "medium",
       "question": "Match each ACID property to what it guarantees.",
       "pairs": [
-        {
-          "left": "Atomicity",
-          "right": "All statements in the transaction take effect, or none do"
-        },
+        { "left": "Atomicity", "right": "All statements in the transaction take effect, or none do" },
         {
           "left": "Consistency",
           "right": "Constraints such as foreign keys and CHECK rules hold after every commit"
         },
-        {
-          "left": "Isolation",
-          "right": "Concurrent transactions do not see each other's unfinished work"
-        },
-        {
-          "left": "Durability",
-          "right": "Committed data survives a crash or power loss"
-        }
+        { "left": "Isolation", "right": "Concurrent transactions do not see each other's unfinished work" },
+        { "left": "Durability", "right": "Committed data survives a crash or power loss" }
       ],
       "explanation": "Atomicity is all or nothing, consistency keeps constraints true, isolation hides unfinished work from other transactions, and durability keeps committed data after a crash.",
       "concept": "ACID",
@@ -656,10 +868,7 @@
           "left": "Non-repeatable read",
           "right": "Reading the same row twice and getting two different committed values"
         },
-        {
-          "left": "Phantom read",
-          "right": "Re-running a range query and seeing newly inserted rows"
-        },
+        { "left": "Phantom read", "right": "Re-running a range query and seeing newly inserted rows" },
         {
           "left": "Lost update",
           "right": "Two read-modify-write cycles overwrite each other and one change disappears"
@@ -676,12 +885,7 @@
       "question": "Both updates succeeded. Complete the transaction so the transfer becomes permanent.",
       "code": "BEGIN;\nUPDATE accounts SET balance = balance - 50 WHERE id = 1;\nUPDATE accounts SET balance = balance + 50 WHERE id = 2;\n_____;",
       "language": "sql",
-      "choices": [
-        "ROLLBACK",
-        "SAVEPOINT",
-        "COMMIT",
-        "CHECKPOINT"
-      ],
+      "choices": ["ROLLBACK", "SAVEPOINT", "COMMIT", "CHECKPOINT"],
       "answer": 2,
       "explanation": "COMMIT makes every change since BEGIN permanent and visible to others. ROLLBACK would undo them, SAVEPOINT only marks a point inside the transaction, and CHECKPOINT is a maintenance command unrelated to your transaction.",
       "concept": "COMMIT",
@@ -694,15 +898,7 @@
       "question": "Halfway through a transaction you realize your UPDATE hit the wrong rows. Type the statement that undoes everything since BEGIN.",
       "shell": "sql",
       "answer": "ROLLBACK;",
-      "accept": [
-        "ROLLBACK",
-        "ROLLBACK TRANSACTION;",
-        "ROLLBACK TRANSACTION",
-        "ROLLBACK WORK;",
-        "ROLLBACK WORK",
-        "ABORT;",
-        "ABORT"
-      ],
+      "accept": ["ROLLBACK", "ROLLBACK TRANSACTION;", "ROLLBACK TRANSACTION", "ROLLBACK WORK;", "ROLLBACK WORK", "ABORT;", "ABORT"],
       "explanation": "ROLLBACK discards every change in the current transaction. This is why it is worth running risky manual updates inside BEGIN: you can check the result before deciding.",
       "concept": "ROLLBACK",
       "section": 5
@@ -794,12 +990,7 @@
       "question": "Complete the call so `email` is passed safely as a bound parameter with Python's sqlite3.",
       "code": "cur.execute(\"SELECT id FROM users WHERE email = ?\", _____)",
       "language": "python",
-      "choices": [
-        "(email)",
-        "(email,)",
-        "\"'\" + email + \"'\"",
-        "f\"{email}\""
-      ],
+      "choices": ["(email)", "(email,)", "\"'\" + email + \"'\"", "f\"{email}\""],
       "answer": 1,
       "explanation": "Parameters go in a sequence, and a one-element tuple needs the trailing comma: (email,). Plain (email) is just a string in parentheses, so sqlite3 complains about the number of bindings. Gluing quotes or using an f-string reintroduces injection.",
       "concept": "Binding parameters in sqlite3",
@@ -833,11 +1024,7 @@
         "Monthly revenue reports joining orders, refunds and customers",
         "A payments ledger that must satisfy foreign key constraints"
       ],
-      "answers": [
-        0,
-        1,
-        2
-      ],
+      "answers": [0, 1, 2],
       "explanation": "Sessions, counters and caches are all 'get or set by key, often with expiry', which is what key-value stores do best. Ad hoc reports with joins and ledgers with cross-row rules need a relational database.",
       "concept": "Key-value fits",
       "section": 7
