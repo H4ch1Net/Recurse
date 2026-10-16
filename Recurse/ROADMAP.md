@@ -1,5 +1,28 @@
 # Roadmap
 
+## Done in 3.2
+
+- Lessons rebuilt for phones: a key idea per section, short text, one section at a time with
+  Continue, extra depth under Go deeper, and visuals the app draws instead of text diagrams
+  (tables, compare cards, worked examples, flows, layer stacks, bars, ladder diagrams,
+  topologies, trees, header layouts, binary views and data structures)
+- Every lesson rewritten that way: about 58% less to read in the CCNA and SWE paths, with
+  1,500+ visuals, and every question's facts still taught in its section
+- Question exhibits drawn as visuals, the lesson peek after an answer shows the visuals too
+- OSI sort activity: tap a card, pick its layer from a sheet; no dragging across the screen
+- Code blocks show when a line continues sideways and offer Wrap on phones
+
+## Done in 3.1
+
+- "What do you want to achieve?" goal picker, with Software Engineer and Python Developer paths added
+- CCNA rebuilt domain by domain against the blueprint: 38 topics, 1,658 questions, 41 console labs
+  (troubleshooting and two capstones), a wireless LAN controller GUI simulator, troubleshooting and
+  exam strategy
+- SWE: every common interview pattern (121 challenges), mock interviews, a SQL lab on real SQLite,
+  React, CI/CD and the cloud, object-oriented design, and deeper career packs
+- Glossary, outside resources with reasons in a Recommended tab, faster startup on phones, phone
+  polish across screens and widgets, Netlify config
+
 ## Done in 3.0
 
 - Paths for a goal (CCNA 200-301, SWE internship, CS fundamentals, web development, security, math),
@@ -17,17 +40,6 @@
 - Sound, particles, combos and celebrations with three effect levels; ten themes and adjustable accents
 - CCNA content rewritten from the official blueprint, SWE content for interview patterns through
   getting hired, and every existing topic reviewed and deepened
-
-## Done in 3.1
-
-- "What do you want to achieve?" goal picker, with Software Engineer and Python Developer paths added
-- CCNA rebuilt domain by domain against the blueprint: 38 topics, 1,658 questions, 41 console labs
-  (troubleshooting and two capstones), a wireless LAN controller GUI simulator, troubleshooting and
-  exam strategy
-- SWE: every common interview pattern (121 challenges), mock interviews, a SQL lab on real SQLite,
-  React, CI/CD and the cloud, object-oriented design, and deeper career packs
-- Glossary, outside resources with reasons in a Recommended tab, faster startup on phones, phone
-  polish across screens and widgets, Netlify config
 
 ## Done in 2.0
 

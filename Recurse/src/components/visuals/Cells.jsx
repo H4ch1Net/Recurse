@@ -1,6 +1,6 @@
 import { Inline } from '../RichText'
 import { Measured } from './drawing'
-import { plainText, pointerLevels, textWidth } from './layout'
+import { plainText, pointerLevels, textWidth, wrapText } from './layout'
 
 const toneClass = (tone) => (tone ? ` v-tone-${tone}` : '')
 // Row labels sit to the left of the cells from this width up, above them below it.
@@ -36,31 +36,68 @@ function ArrowLeft() {
 /**
  * Where a row's pointer labels go. Labels pointing at one cell stack; a label wider than its cell
  * spills sideways, centered, and wraps past two cells' width; a label that would touch its
- * neighbor's drops to a lower line, with a longer arrow. `centers` and `widths` give each cell's
- * middle and box width along the row, `end` the row's length.
- * Returns { at: { [cell]: group }, reserve, left, right }: the space to keep under the row and
- * the room a spilling label needs at either end.
+ * neighbor's drops to a lower line, with a longer arrow. The row wraps like the page will:
+ * `slots` gives each cell's flex item width and the offset of the cell's middle in it, `start`
+ * the room taken before the first cell, `avail` the width of a line.
+ * Returns { at: { [cell]: group }, reserve: [per cell], left, right }: the space to keep under
+ * each cell's line and the room a spilling label needs at either end.
  */
-function pointerPlan(row, centers, widths, end) {
+function pointerPlan(row, slots, boxW, avail, start = 0) {
+  const lineOf = []
+  const centers = []
+  const ends = []
+  let x = start
+  let line = 0
+  slots.forEach((slot, i) => {
+    if (i > 0 && x + slot.w > avail) {
+      ends[line] = x
+      line++
+      x = 0
+    }
+    lineOf[i] = line
+    centers[i] = x + slot.center
+    x += slot.w
+  })
+  ends[line] = x
   const byCell = new Map()
   for (const p of row.pointers || []) byCell.set(p.at, [...(byCell.get(p.at) || []), p])
   const groups = [...byCell.entries()].map(([at, list]) => {
-    const maxW = Math.max(2 * widths[at] - 8, 64)
+    const maxW = Math.max(2 * boxW[at] - 8, 64)
     const labels = list.map((p) => {
-      const w = textWidth(plainText(p.label), 12, { mono: true, bold: true }) + 2
-      return { ...p, wrap: w > maxW, w: Math.min(w, maxW) }
+      const t = wrapText(p.label, maxW, 12, { mono: true, bold: true, maxLines: 4, balance: false })
+      return { ...p, wrap: t.lines.length > 1, w: t.width + 2, lines: t.lines.length }
     })
-    return { at, labels, maxW, center: centers[at], width: Math.max(...labels.map((l) => l.w)), lines: labels.reduce((sum, l) => sum + (l.wrap ? 2 : 1), 0) }
+    return { at, labels, maxW, line: lineOf[at], center: centers[at], width: Math.max(...labels.map((l) => (l.wrap ? maxW : l.w))), lines: labels.reduce((sum, l) => sum + l.lines, 0) }
   })
-  const levels = pointerLevels(groups)
-  groups.forEach((g, i) => (g.level = levels[i]))
-  const depth = Math.max(0, ...groups.map((g) => g.level + g.lines))
+  const depth = []
+  for (let l = 0; l <= line; l++) {
+    const own = groups.filter((g) => g.line === l)
+    pointerLevels(own).forEach((level, k) => (own[k].level = level))
+    depth[l] = Math.max(0, ...own.map((g) => g.level + g.lines))
+  }
   return {
     at: Object.fromEntries(groups.map((g) => [g.at, g])),
-    reserve: depth ? STEM + depth * LINE_H + 4 : 0,
+    reserve: lineOf.map((l) => (depth[l] ? STEM + depth[l] * LINE_H + 4 : 0)),
     left: Math.ceil(Math.max(0, ...groups.map((g) => g.width / 2 - g.center))),
-    right: Math.ceil(Math.max(0, ...groups.map((g) => g.center + g.width / 2 - end)))
+    right: Math.ceil(Math.max(0, ...groups.map((g) => g.center + g.width / 2 - Math.max(ends[g.line], avail))))
   }
+}
+
+/**
+ * pointerPlan with room for spilling labels: the padding it adds narrows the row, which can move
+ * where the row wraps, so plan again until the padding and the wrapping agree.
+ */
+function planRow(row, slots, boxW, avail, start = 0) {
+  let left = 0
+  let right = 0
+  let plan = null
+  for (let k = 0; k < 4; k++) {
+    plan = pointerPlan(row, slots, boxW, avail - left - right, start)
+    if (plan.left <= left && plan.right <= right) break
+    left = Math.max(left, plan.left)
+    right = Math.max(right, plan.right)
+  }
+  return { ...plan, left, right }
 }
 
 /** The labels pointing at one cell, under it, with one arrow up to the cell. */
@@ -104,16 +141,16 @@ function Label({ row }) {
 const roomFor = (plan) => ({ paddingLeft: plan.left || undefined, paddingRight: plan.right || undefined })
 
 /** Boxes of one width side by side, with optional indexes above and pointers below. */
-function ArrayRow({ row }) {
+function ArrayRow({ row, avail }) {
   const w = Math.max(CELL_MIN, ...row.cells.map(cellWidth))
-  const plan = pointerPlan(row, row.cells.map((_, i) => i * w + w / 2), row.cells.map(() => w), row.cells.length * w)
+  const plan = planRow(row, row.cells.map((_, i) => ({ w: i ? w - 1.5 : w, center: i ? w / 2 - 1.5 : w / 2 })), row.cells.map(() => w), avail)
   return (
     <div className="vc-row" style={row.index ? { '--vc-label-pad': '23px' } : undefined}>
       <Label row={row} />
       <div className="vc-items" style={roomFor(plan)}>
         {row.cells.length === 0 && <span className="vc-empty">empty</span>}
         {row.cells.map((_, i) => (
-          <div key={i} className="vc-col" style={{ marginBottom: plan.reserve }}>
+          <div key={i} className="vc-col" style={{ marginBottom: plan.reserve[i] }}>
             {row.index && <span className="vc-index">{i}</span>}
             <Cell row={row} i={i} width={w} />
             <Pointers group={plan.at[i]} />
@@ -125,11 +162,10 @@ function ArrayRow({ row }) {
 }
 
 /** Nodes joined by next arrows, from the head pointer to null. */
-function ListRow({ row }) {
+function ListRow({ row, avail }) {
   const w = Math.max(CELL_MIN, ...row.cells.map(cellWidth))
   const head = row.label ? textWidth(plainText(row.label), 12, { mono: true, bold: true }) + 2 + ARROW_W : 0
-  const stride = w + NEXT_W + ARROW_W
-  const plan = pointerPlan(row, row.cells.map((_, i) => head + i * stride + (w + NEXT_W) / 2), row.cells.map(() => w + NEXT_W), head + row.cells.length * stride + 32)
+  const plan = planRow(row, row.cells.map(() => ({ w: w + NEXT_W + ARROW_W, center: (w + NEXT_W) / 2 })), row.cells.map(() => w + NEXT_W), avail, head)
   return (
     <div className="vc-row">
       <div className="vc-items" style={roomFor(plan)}>
@@ -143,7 +179,7 @@ function ListRow({ row }) {
         )}
         {row.cells.map((_, i) => (
           <div key={i} className="vc-col vc-col-link">
-            <div className="vc-col" style={{ marginBottom: plan.reserve }}>
+            <div className="vc-col" style={{ marginBottom: plan.reserve[i] }}>
               <div className="vc-node">
                 <Cell row={row} i={i} width={w} />
                 <span className="vc-next" />
@@ -190,11 +226,11 @@ function StackColumn({ row }) {
 }
 
 /** A queue left to right: leaves at the front, joins at the back. */
-function QueueRow({ row }) {
+function QueueRow({ row, avail }) {
   const last = row.cells.length - 1
   const w = Math.max(CELL_MIN, ...row.cells.map(cellWidth))
   // The "out" arrow before the front gives a spilling label room on the left.
-  const plan = pointerPlan(row, row.cells.map((_, i) => 52 + i * w + w / 2), row.cells.map(() => w), 52 + row.cells.length * w + 40)
+  const plan = planRow(row, row.cells.map(() => ({ w, center: w / 2 })), row.cells.map(() => w), avail, 52)
   return (
     <div className="vc-row">
       <Label row={row} />
@@ -205,7 +241,7 @@ function QueueRow({ row }) {
         </span>
         {row.cells.length === 0 && <span className="vc-empty">empty</span>}
         {row.cells.map((_, i) => (
-          <div key={i} className="vc-col" style={{ marginBottom: plan.reserve }}>
+          <div key={i} className="vc-col" style={{ marginBottom: plan.reserve[i] }}>
             <Cell row={row} i={i} width={w} />
             {(i === 0 || i === last) && <span className="vc-end">{i === 0 && i === last ? 'front, back' : i === 0 ? 'front' : 'back'}</span>}
             <Pointers group={plan.at[i]} />
@@ -221,15 +257,9 @@ function QueueRow({ row }) {
 }
 
 /** One hash bucket and the chain of entries hanging off it. */
-function BucketRow({ row, width, bucketW }) {
+function BucketRow({ row, width, bucketW, avail }) {
   const widths = row.cells.map(cellWidth)
-  const centers = []
-  let x = bucketW
-  widths.forEach((w, i) => {
-    centers[i] = x + ARROW_W + w / 2
-    x += ARROW_W + w
-  })
-  const plan = pointerPlan(row, centers, widths, x)
+  const plan = planRow(row, widths.map((w) => ({ w: ARROW_W + w, center: ARROW_W + w / 2 })), widths, avail, bucketW)
   return (
     <div className="vc-row">
       <div className="vc-items" style={roomFor(plan)}>
@@ -246,7 +276,7 @@ function BucketRow({ row, width, bucketW }) {
               <span className="vc-arrow">
                 <ArrowRight />
               </span>
-              <div className="vc-col" style={{ marginBottom: plan.reserve }}>
+              <div className="vc-col" style={{ marginBottom: plan.reserve[i] }}>
                 <Cell row={row} i={i} />
                 <Pointers group={plan.at[i]} />
               </div>
@@ -276,15 +306,17 @@ function describe(spec) {
 function Drawing({ spec, width }) {
   const left = width >= LABEL_LEFT && spec.rows.some((r) => r.label)
   const style = spec.style
+  // The width a row of cells gets: all of it, less the label column when labels sit beside.
+  const avail = (row) => width - (left && row.label && (style === 'array' || style === 'queue') ? textWidth(plainText(row.label), 12, { mono: true, bold: true }) + 12 : 0)
   let body
   if (style === 'stack') body = <div className="vc-stacks">{spec.rows.map((row, i) => <StackColumn key={i} row={row} />)}</div>
   else if (style === 'hash') {
     const longest = Math.max(1, ...spec.rows.map((r) => plainText(r.label ?? '').length))
     const bucketW = longest * 14 * 0.6 + 23
-    body = spec.rows.map((row, i) => <BucketRow key={i} row={row} width={`calc(${longest}ch + 20px)`} bucketW={bucketW} />)
-  } else if (style === 'list') body = spec.rows.map((row, i) => <ListRow key={i} row={row} />)
-  else if (style === 'queue') body = spec.rows.map((row, i) => <QueueRow key={i} row={row} />)
-  else body = spec.rows.map((row, i) => <ArrayRow key={i} row={row} />)
+    body = spec.rows.map((row, i) => <BucketRow key={i} row={row} width={`calc(${longest}ch + 20px)`} bucketW={bucketW} avail={width} />)
+  } else if (style === 'list') body = spec.rows.map((row, i) => <ListRow key={i} row={row} avail={width} />)
+  else if (style === 'queue') body = spec.rows.map((row, i) => <QueueRow key={i} row={row} avail={avail(row)} />)
+  else body = spec.rows.map((row, i) => <ArrayRow key={i} row={row} avail={avail(row)} />)
   return (
     <div className={`vc vc-${style}${left && (style === 'array' || style === 'queue') ? ' vc-left' : ''}`} role="img" aria-label={describe(spec)}>
       {body}
