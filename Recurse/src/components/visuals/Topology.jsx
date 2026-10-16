@@ -8,6 +8,7 @@ const toneClass = (tone) => (tone ? ` v-tone-${tone}` : '')
 /** What the drawing shows, in words, for screen readers. */
 function describe(spec) {
   const byId = Object.fromEntries(spec.nodes.map((n) => [n.id, plainText(n.label)]))
+  if (spec.nodes.every((n) => n.kind === 'vertex')) return describeGraph(spec, byId)
   const nodes = spec.nodes.map((n) => `${plainText(n.label)} (${kindWords(n.kind)}${n.sub ? `, ${plainText(n.sub)}` : ''})`)
   const links = (spec.links || []).map((l) => {
     const ports = [l.fromLabel && `${byId[l.from]} ${plainText(l.fromLabel)}`, l.toLabel && `${byId[l.to]} ${plainText(l.toLabel)}`].filter(Boolean)
@@ -25,6 +26,14 @@ function describe(spec) {
   if (zones.length) parts.push(`Zones: ${zones.join('; ')}`)
   if (marks.length) parts.push(`Notes: ${marks.join('; ')}`)
   return `${parts.join('. ')}.`
+}
+
+/** An algorithm graph in words: its vertices, then its edges with their weights. */
+function describeGraph(spec, byId) {
+  const vertices = spec.nodes.map((n) => `${plainText(n.label)}${n.sub ? ` (${plainText(n.sub)})` : ''}`)
+  const edges = (spec.links || []).map((l) => `${byId[l.from]} to ${byId[l.to]}${l.label ? `, weight ${plainText(l.label)}` : ''}`)
+  const marks = (spec.marks || []).map((m) => plainText(m.text))
+  return `Graph with vertices ${listWords(vertices)}. Edges: ${edges.join('; ')}.${marks.length ? ` Notes: ${marks.join('; ')}.` : ''}`
 }
 
 /** The line of a link, in its style: straight, dashed, a serial lightning bolt or a radio wave. */
@@ -54,7 +63,7 @@ function linkPath(g) {
 function Link({ g }) {
   return (
     <g className={`vtop-link-group${toneClass(g.tone)}`}>
-      <path className={`vtop-link${g.style === 'dashed' ? ' is-dashed' : ''}`} d={linkPath(g)} />
+      <path className={`vtop-link${g.style === 'dashed' ? ' is-dashed' : ''}${g.edge ? ' is-edge' : ''}`} d={linkPath(g)} />
     </g>
   )
 }
@@ -65,6 +74,14 @@ function LinkLabels({ g }) {
       {g.labels.map((l, i) => {
         const { rect: r } = l
         if (l.kind === 'port') return <SvgLines key={i} lines={l.text.lines} x={r.x + r.w / 2} top={r.y} size={T.port} lineHeight={T.portLh} className="vtop-port" />
+        if (l.kind === 'weight') {
+          return (
+            <g key={i} className="vtop-weight">
+              <rect className="vx-backing" x={r.x} y={r.y} width={r.w} height={r.h} rx="4" />
+              <SvgLines lines={l.text.lines} x={r.x + r.w / 2} top={r.y} size={T.weight} lineHeight={T.weightLh} />
+            </g>
+          )
+        }
         return (
           <g key={i} className="vtop-pill">
             <rect x={r.x} y={r.y} width={r.w} height={r.h} rx={Math.min(r.h / 2, 9)} />
@@ -79,11 +96,12 @@ function LinkLabels({ g }) {
 function Node({ n }) {
   const { rect: r, align, label, sub } = n.text
   const x = align === 'middle' ? r.x + r.w / 2 : align === 'start' ? r.x : r.x + r.w
-  const labelH = label.lines.length * T.labelLh
+  const labelH = label ? label.lines.length * T.labelLh : 0
   return (
-    <g className={`vtop-node${toneClass(n.tone)}`}>
-      <DeviceIcon kind={n.kind} x={n.cx} y={n.cy} tone={n.tone} />
-      <SvgLines lines={label.lines} x={x} top={r.y} size={T.label} lineHeight={T.labelLh} anchor={align} className="vtop-node-label" />
+    <g className={`vtop-node${toneClass(n.tone)}${n.inside ? ' is-vertex' : ''}`}>
+      <DeviceIcon kind={n.kind} x={n.cx} y={n.cy} tone={n.tone} size={n.box.w} />
+      {n.inside && <SvgLines lines={n.inside.lines} x={n.cx} top={n.cy - T.vertexLh / 2} size={T.vertex} lineHeight={T.vertexLh} className="vtop-vertex-label" />}
+      {label && <SvgLines lines={label.lines} x={x} top={r.y} size={T.label} lineHeight={T.labelLh} anchor={align} className="vtop-node-label" />}
       {sub && <SvgLines lines={sub.lines} x={x} top={r.y + labelH} size={T.sub} lineHeight={T.subLh} anchor={align} className="vtop-node-sub" />}
     </g>
   )

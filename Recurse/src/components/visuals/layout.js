@@ -390,7 +390,8 @@ export const ICON_BOX = {
   cloud: { w: 58, h: 38 },
   internet: { w: 38, h: 38 },
   db: { w: 32, h: 40 },
-  host: { w: 44, h: 34 }
+  host: { w: 44, h: 34 },
+  vertex: { w: 34, h: 34 }
 }
 
 const KIND_WORDS = {
@@ -408,7 +409,8 @@ const KIND_WORDS = {
   cloud: 'cloud',
   internet: 'internet',
   db: 'database',
-  host: 'host'
+  host: 'host',
+  vertex: 'vertex'
 }
 
 /** A device kind in words, for aria labels. */
@@ -542,7 +544,7 @@ export function layoutSequence(spec, width) {
 // ---- Topology ----------------------------------------------------------------------------
 
 /** Sizes for the topology drawing. */
-export const TOPO_TEXT = { label: 13, labelLh: 16, sub: 12, subLh: 15, port: 12, portLh: 15, link: 12, linkLh: 15, mark: 12, markLh: 15 }
+export const TOPO_TEXT = { label: 13, labelLh: 16, sub: 12, subLh: 15, port: 12, portLh: 15, link: 12, linkLh: 15, mark: 12, markLh: 15, vertex: 14, vertexLh: 17, weight: 13, weightLh: 17 }
 
 const grow = (r, d) => rect(r.x - d, r.y - d, r.w + 2 * d, r.h + 2 * d)
 
@@ -635,10 +637,17 @@ export function layoutTopology(spec, width) {
   }
 
   const nodes = spec.nodes.map((n) => {
-    const box = ICON_BOX[n.kind] || ICON_BOX.host
+    let box = ICON_BOX[n.kind] || ICON_BOX.host
+    // A graph vertex is a circle with its label inside, grown to fit a longer label.
+    let inside = null
+    if (n.kind === 'vertex') {
+      inside = wrapText(n.label, 64, T.vertex, { bold: true, maxLines: 1 })
+      const d = Math.max(ICON_BOX.vertex.w, Math.ceil(inside.width) + 14)
+      box = { w: d, h: d }
+    }
     const cx = colW * (n.x + 0.5)
     const cy = rowY[n.y]
-    return { ...n, cx, cy, box, iconRect: rect(cx - box.w / 2, cy - box.h / 2, box.w, box.h) }
+    return { ...n, cx, cy, box, inside, round: n.kind === 'vertex' || n.kind === 'router', iconRect: rect(cx - box.w / 2, cy - box.h / 2, box.w, box.h) }
   })
   const byId = Object.fromEntries(nodes.map((n) => [n.id, n]))
   // Soft top and bottom: room for a two-line label (and a callout) past the first and last rows.
@@ -650,9 +659,10 @@ export function layoutTopology(spec, width) {
     const len = Math.hypot(b.cx - a.cx, b.cy - a.cy) || 1
     const ux = (b.cx - a.cx) / len
     const uy = (b.cy - a.cy) / len
-    const da = edgeDistance(a.box.w, a.box.h, ux, uy) + 3
-    const db = edgeDistance(b.box.w, b.box.h, ux, uy) + 3
-    const geo = { ...l, index, a, b, ux, uy, len, x1: a.cx + ux * da, y1: a.cy + uy * da, x2: b.cx - ux * db, y2: b.cy - uy * db, labels: [], keyed: [] }
+    // Round icons (vertices, routers) meet the line at their circle, not their box.
+    const da = (a.round ? a.box.w / 2 : edgeDistance(a.box.w, a.box.h, ux, uy)) + 3
+    const db = (b.round ? b.box.w / 2 : edgeDistance(b.box.w, b.box.h, ux, uy)) + 3
+    const geo = { ...l, index, a, b, ux, uy, len, edge: a.kind === 'vertex' && b.kind === 'vertex', x1: a.cx + ux * da, y1: a.cy + uy * da, x2: b.cx - ux * db, y2: b.cy - uy * db, labels: [], keyed: [] }
     world.segments.push(geo)
     return geo
   })
@@ -697,12 +707,12 @@ export function layoutTopology(spec, width) {
     }
   }
 
-  // A link's own label is a pill on the line.
+  // A link's own label is a pill on the line; between two vertices it is an edge weight.
   for (const g of linkGeo) {
     if (!g.label) continue
-    const t = wrapText(g.label, Math.max(80, Math.min(140, g.len - 20)), T.link, { maxLines: 2 })
-    const w = t.width + 12
-    const h = t.lines.length * T.linkLh + 5
+    const t = g.edge ? wrapText(g.label, 80, T.weight, { bold: true, maxLines: 1 }) : wrapText(g.label, Math.max(80, Math.min(140, g.len - 20)), T.link, { maxLines: 2 })
+    const w = t.width + (g.edge ? 8 : 12)
+    const h = g.edge ? T.weightLh : t.lines.length * T.linkLh + 5
     // On the line first; beside it when a short link has no room.
     const candidates = []
     ;[0.5, 0.4, 0.6, 0.32, 0.68].forEach((f, i) => {
@@ -722,7 +732,7 @@ export function layoutTopology(spec, width) {
       continue
     }
     world.texts.push(best.rect)
-    g.labels.push({ kind: 'link', text: t, rect: best.rect })
+    g.labels.push({ kind: g.edge ? 'weight' : 'link', text: t, rect: best.rect })
   }
 
   // Node labels go below the icon unless a link or another label is there. When no spot is
@@ -749,10 +759,16 @@ export function layoutTopology(spec, width) {
       { rect: rect(cx - bw / 2 - 4 - w, cy - bh / 2 + 4 - h, w, h), align: 'end', cost: 3.2 }
     ]
   }
+  const NONE = { lines: [], width: 0 }
   for (const n of nodes) {
-    const label = wrapText(n.label, Math.max(colW - 10, 70), T.label, { bold: true, maxLines: 2 })
+    // A vertex carries its name inside; only its sub line goes outside.
+    const label = n.inside ? NONE : wrapText(n.label, Math.max(colW - 10, 70), T.label, { bold: true, maxLines: 2 })
     // A sub line wraps at its column (at spaces only, so an address stays whole).
     const sub = n.sub ? wrapText(n.sub, Math.max(colW - 8, 64), T.sub, { mono: true, maxLines: 2 }) : null
+    if (n.inside && !sub) {
+      n.text = { label: null, sub: null, keyed: false, rect: rect(n.cx, n.cy + n.box.h / 2, 0, 0), align: 'middle' }
+      continue
+    }
     let best = placeBest(labelSpots(n, label, sub), world)
     // Every spot collides: slide them a little, then a little further, before settling for a collision.
     if (best.score > best.cost) best = placeNudged(labelSpots(n, label, sub), world, { x: 16, y: 8 }, 12)
@@ -760,15 +776,20 @@ export function layoutTopology(spec, width) {
     let keyed = false
     // Still on a line or another label: try the name alone, with the sub line in the key.
     if (sub && best.score - best.cost >= 9) {
-      let bare = placeBest(labelSpots(n, label, null), world)
-      if (bare.score > bare.cost) bare = placeNudged(labelSpots(n, label, null), world, { x: 16, y: 8 }, 12)
-      if (bare.score - bare.cost < best.score - best.cost) {
-        best = bare
+      if (n.inside) {
+        best = { rect: rect(n.cx, n.cy + n.box.h / 2, 0, 0), align: 'middle' }
         keyed = true
+      } else {
+        let bare = placeBest(labelSpots(n, label, null), world)
+        if (bare.score > bare.cost) bare = placeNudged(labelSpots(n, label, null), world, { x: 16, y: 8 }, 12)
+        if (bare.score - bare.cost < best.score - best.cost) {
+          best = bare
+          keyed = true
+        }
       }
     }
-    world.texts.push(best.rect)
-    n.text = { label, sub: keyed ? null : sub, keyed, rect: best.rect, align: best.align }
+    if (best.rect.w) world.texts.push(best.rect)
+    n.text = { label: n.inside ? null : label, sub: keyed ? null : sub, keyed, rect: best.rect, align: best.align }
   }
 
   // Zones wrap their nodes and labels; the zone's name takes the freest corner, and the zone
@@ -861,4 +882,28 @@ export function layoutTopology(spec, width) {
     m.from = { x: m.from.x, y: m.from.y + dy }
   }
   return { width: W, height: maxY - minY, phone, nodes, links: linkGeo, zones, marks }
+}
+
+// ---- Cell pointers -------------------------------------------------------------------------
+
+/**
+ * Lines under a row of cells for its pointer labels. Each group is the labels pointing at one
+ * cell, { center, width, lines }, with its center and width in pixels along the row; a group
+ * takes the first line where it clears every group already placed by `gap`, and a group of
+ * several labels takes that many lines. Returns the starting line of each group, in input order.
+ */
+export function pointerLevels(groups, gap = 6) {
+  const taken = []
+  const order = groups.map((g, i) => ({ ...g, i })).sort((a, b) => a.center - b.center)
+  const levels = []
+  for (const g of order) {
+    const x0 = g.center - g.width / 2
+    const x1 = g.center + g.width / 2
+    const clashes = (level) => taken.some((t) => t.level === level && t.x0 < x1 + gap && x0 < t.x1 + gap)
+    let level = 0
+    while (Array.from({ length: g.lines }, (_, k) => level + k).some(clashes)) level++
+    for (let k = 0; k < g.lines; k++) taken.push({ level: level + k, x0, x1 })
+    levels[g.i] = level
+  }
+  return levels
 }

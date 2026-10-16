@@ -518,6 +518,32 @@ export const VISUAL_FIXTURES = [
     }
   },
   {
+    name: 'topology: weighted graph of six vertices',
+    spec: {
+      type: 'topology',
+      title: "Dijkstra's shortest paths from A",
+      nodes: [
+        { id: 'a', kind: 'vertex', label: 'A', sub: 'd = 0', x: 0, y: 0, tone: 'accent' },
+        { id: 'b', kind: 'vertex', label: 'B', sub: 'd = 4', x: 1, y: 0 },
+        { id: 'c', kind: 'vertex', label: 'C', sub: 'd = 7', x: 2, y: 0 },
+        { id: 'd', kind: 'vertex', label: 'D', sub: 'd = 1', x: 0, y: 1, tone: 'good' },
+        { id: 'e', kind: 'vertex', label: 'E', sub: 'd = 6', x: 1, y: 1, tone: 'good' },
+        { id: 'f', kind: 'vertex', label: 'F', sub: 'd = 7', x: 2, y: 1 }
+      ],
+      links: [
+        { from: 'a', to: 'b', label: '4' },
+        { from: 'a', to: 'd', label: '1', tone: 'good' },
+        { from: 'b', to: 'c', label: '3' },
+        { from: 'b', to: 'e', label: '2' },
+        { from: 'd', to: 'e', label: '5', tone: 'good' },
+        { from: 'e', to: 'f', label: '1', tone: 'good' },
+        { from: 'c', to: 'f', label: '6' },
+        { from: 'a', to: 'e', label: '7', style: 'dashed', tone: 'muted' }
+      ],
+      marks: [{ at: 'f', text: 'Shortest path A, D, E, F', tone: 'good' }]
+    }
+  },
+  {
     name: 'topology: one column',
     spec: {
       type: 'topology',

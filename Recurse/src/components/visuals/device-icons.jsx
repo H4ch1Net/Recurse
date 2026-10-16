@@ -182,10 +182,15 @@ function Host({ c }) {
   )
 }
 
-const DRAWN = { l3switch: L3Switch, firewall: Firewall, server: Server, laptop: Laptop, phone: Phone, printer: Printer, ap: AccessPoint, wlc: Wlc, cloud: Cloud, internet: Internet, db: Database, host: Host }
+/** Graph vertex: a plain circle; its name is drawn inside by the topology renderer. */
+function Vertex({ c, size = 34 }) {
+  return <Shape as="circle" c={{ ...c, fill: c.fill === 'transparent' ? 'var(--card)' : c.fill }} r={size / 2} />
+}
 
-/** A device icon by node kind, centered on (x, y), tinted by tone. */
-export function DeviceIcon({ kind, x, y, tone, scale = 1 }) {
+const DRAWN = { vertex: Vertex, l3switch: L3Switch, firewall: Firewall, server: Server, laptop: Laptop, phone: Phone, printer: Printer, ap: AccessPoint, wlc: Wlc, cloud: Cloud, internet: Internet, db: Database, host: Host }
+
+/** A device icon by node kind, centered on (x, y), tinted by tone. `size` sets a vertex's diameter. */
+export function DeviceIcon({ kind, x, y, tone, scale = 1, size }) {
   const state = STATE[tone] || 'idle'
   const move = `translate(${x} ${y})${scale !== 1 ? ` scale(${scale})` : ''}`
   if (kind === 'router') return <g transform={move}><RouterIcon x={0} y={0} state={state} /></g>
@@ -194,7 +199,7 @@ export function DeviceIcon({ kind, x, y, tone, scale = 1 }) {
   const Drawn = DRAWN[kind] || Host
   return (
     <g transform={move} aria-hidden="true">
-      <Drawn c={TONES[tone] || TONES.none} />
+      <Drawn c={TONES[tone] || TONES.none} size={size} />
     </g>
   )
 }
