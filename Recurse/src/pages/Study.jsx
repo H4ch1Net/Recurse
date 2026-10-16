@@ -5,7 +5,6 @@ import { useApp } from '../state/context'
 import { useDocumentTitle } from '../hooks/useDocumentTitle'
 import { buildSession, requeue, dueSummary } from '../lib/session'
 import { GRADES, Rating, previewDue, retrievability } from '../lib/memory'
-import { codeLanguage } from '../lib/packs'
 import { QUESTION_PROMPTS, QUESTION_TYPE_LABELS } from '../lib/subjects'
 import { formatInterval, formatRelative, nowMs, secondsSince } from '../lib/dates'
 import { topicMastery, topicOf } from '../lib/progress'
@@ -13,7 +12,7 @@ import { levelFromXp } from '../lib/gamification'
 import { getCollection } from '../lib/collections'
 import { feedbackCorrect, feedbackWrong, floatText, burstFrom, celebrate } from '../lib/juice'
 import { sfx } from '../lib/sfx'
-import CodeBlock from '../components/CodeBlock'
+import { QuestionExhibit } from '../components/SectionContent'
 import { Inline } from '../components/RichText'
 import AnswerArea from '../components/QuestionView'
 import AnswerFeedback from '../components/AnswerFeedback'
@@ -389,7 +388,7 @@ export default function Study() {
           </div>
           <h1 id="q-text" className="study-question"><Inline text={question.question} /></h1>
           <p className="xsmall subtle">{QUESTION_PROMPTS[question.type]}</p>
-          {question.code && <CodeBlock code={question.code} language={codeLanguage(pack, question)} />}
+          <QuestionExhibit pack={pack} question={question} />
 
           <AnswerArea key={`${item.key}:${item.retry}`} question={question} item={item} answered={phase === 'feedback'} outcome={outcome} onSubmit={submit} />
 

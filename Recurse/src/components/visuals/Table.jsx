@@ -22,7 +22,7 @@ export default function Table({ spec }) {
                 {row.map((value, c) => {
                   const Tag = c === 0 ? 'th' : 'td'
                   return (
-                    <Tag key={c} scope={c === 0 ? 'row' : undefined} className={mono.has(c) ? 'mono' : undefined}>
+                    <Tag key={c} scope={c === 0 ? 'row' : undefined} className={mono.has(c) ? `mono${String(value).length > 16 ? ' long' : ''}` : undefined}>
                       <Inline text={String(value)} />
                     </Tag>
                   )

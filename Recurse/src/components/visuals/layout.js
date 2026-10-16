@@ -566,12 +566,12 @@ function placeBest(candidates, world, skipLink = -1) {
 }
 
 /** Like placeBest, then nudges the best few spots a little to slip into gaps between lines. */
-function placeNudged(candidates, world) {
-  const top = scored(candidates, world).sort((a, b) => a.score - b.score).slice(0, 6)
+function placeNudged(candidates, world, reach = { x: 36, y: 16 }, keep = 6) {
+  const top = scored(candidates, world).sort((a, b) => a.score - b.score).slice(0, keep)
   const nudged = []
   for (const c of top) {
-    for (let dx = -36; dx <= 36; dx += 4) {
-      for (let dy = -16; dy <= 16; dy += 4) {
+    for (let dx = -reach.x; dx <= reach.x; dx += 4) {
+      for (let dy = -reach.y; dy <= reach.y; dy += 4) {
         const r = rect(clamp(c.rect.x + dx, world.x0, world.x1 - c.rect.w), c.rect.y + dy, c.rect.w, c.rect.h)
         const leader = c.leader && [c.leader[0], c.leader[1], r.x + r.w / 2, r.y + r.h / 2]
         nudged.push({ ...c, rect: r, leader, cost: c.cost + (Math.abs(dx) + Math.abs(dy)) / 24 })
@@ -641,7 +641,8 @@ export function layoutTopology(spec, width) {
     return { ...n, cx, cy, box, iconRect: rect(cx - box.w / 2, cy - box.h / 2, box.w, box.h) }
   })
   const byId = Object.fromEntries(nodes.map((n) => [n.id, n]))
-  const world = { x0: 2, x1: W - 2, y0: -48, y1: rowY[rows - 1] + 64, icons: nodes.map((n) => n.iconRect), texts: [], segments: [] }
+  // Soft top and bottom: room for a two-line label (and a callout) past the first and last rows.
+  const world = { x0: 1, x1: W - 1, y0: -72, y1: rowY[rows - 1] + 72, icons: nodes.map((n) => n.iconRect), texts: [], segments: [] }
 
   const linkGeo = links.map((l, index) => {
     const a = byId[l.from]
@@ -682,7 +683,7 @@ export function layoutTopology(spec, width) {
           const cx = ox + sign * g.ux * reach + nx * ext
           const cy = oy + sign * g.uy * reach + ny * ext
           const crowd = near.reduce((sum, [dx, dy]) => sum + Math.max(0, nx * dx + ny * dy), 0)
-          candidates.push({ rect: rect(cx - w / 2, cy - h / 2, w, h), cost: (along > 8 ? 2 : 0) + (side < 0 ? 0.3 : 0) + crowd * 1.5 })
+          candidates.push({ rect: inside(rect(cx - w / 2, cy - h / 2, w, h), 1, W - 1), cost: (along > 8 ? 2 : 0) + (side < 0 ? 0.3 : 0) + crowd * 1.5 })
         }
       }
       const best = placeBest(candidates, world, g.index)
@@ -737,19 +738,30 @@ export function layoutTopology(spec, width) {
       { rect: rect(cx + bw / 2 + 7, cy - h / 2, w, h), align: 'start', cost: 1 },
       { rect: rect(cx - bw / 2 - 7 - w, cy - h / 2, w, h), align: 'end', cost: 1.4 },
       { rect: fit(cx - w / 2, cy - bh / 2 - 4 - h), align: 'middle', cost: 2 },
+      // Under or over the icon but beside a straight link leaving it, as textbooks do.
+      { rect: rect(cx + 8, cy + bh / 2 + 3, w, h), align: 'start', cost: 2.4 },
+      { rect: rect(cx - 8 - w, cy + bh / 2 + 3, w, h), align: 'end', cost: 2.5 },
       { rect: rect(cx + bw / 2 + 4, cy + bh / 2 - 4, w, h), align: 'start', cost: 2.6 },
       { rect: rect(cx - bw / 2 - 4 - w, cy + bh / 2 - 4, w, h), align: 'end', cost: 2.8 },
-      { rect: rect(cx + bw / 2 + 4, cy - bh / 2 + 4 - h, w, h), align: 'start', cost: 3 },
+      { rect: rect(cx + 8, cy - bh / 2 - 3 - h, w, h), align: 'start', cost: 2.9 },
+      { rect: rect(cx - 8 - w, cy - bh / 2 - 3 - h, w, h), align: 'end', cost: 3 },
+      { rect: rect(cx + bw / 2 + 4, cy - bh / 2 + 4 - h, w, h), align: 'start', cost: 3.1 },
       { rect: rect(cx - bw / 2 - 4 - w, cy - bh / 2 + 4 - h, w, h), align: 'end', cost: 3.2 }
     ]
   }
   for (const n of nodes) {
     const label = wrapText(n.label, Math.max(colW - 10, 70), T.label, { bold: true, maxLines: 2 })
-    const sub = n.sub ? wrapText(n.sub, Math.max(colW - 4, 96), T.sub, { mono: true, maxLines: 2 }) : null
+    // A sub line wraps at its column (at spaces only, so an address stays whole).
+    const sub = n.sub ? wrapText(n.sub, Math.max(colW - 8, 64), T.sub, { mono: true, maxLines: 2 }) : null
     let best = placeBest(labelSpots(n, label, sub), world)
+    // Every spot collides: slide them a little, then a little further, before settling for a collision.
+    if (best.score > best.cost) best = placeNudged(labelSpots(n, label, sub), world, { x: 16, y: 8 }, 12)
+    if (best.score > best.cost + 2) best = placeNudged(labelSpots(n, label, sub), world, { x: 24, y: 28 }, 12)
     let keyed = false
-    if (sub && best.score - best.cost >= 12) {
-      const bare = placeBest(labelSpots(n, label, null), world)
+    // Still on a line or another label: try the name alone, with the sub line in the key.
+    if (sub && best.score - best.cost >= 9) {
+      let bare = placeBest(labelSpots(n, label, null), world)
+      if (bare.score > bare.cost) bare = placeNudged(labelSpots(n, label, null), world, { x: 16, y: 8 }, 12)
       if (bare.score - bare.cost < best.score - best.cost) {
         best = bare
         keyed = true

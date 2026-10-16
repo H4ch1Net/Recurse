@@ -5,13 +5,12 @@ import { useApp } from '../state/context'
 import { useDocumentTitle } from '../hooks/useDocumentTitle'
 import { getCollection } from '../lib/collections'
 import { buildQuiz, quizScope, scoreQuiz } from '../lib/quiz'
-import { codeLanguage } from '../lib/packs'
 import { QUESTION_PROMPTS, QUESTION_TYPE_LABELS } from '../lib/subjects'
 import { feedbackCorrect, feedbackWrong } from '../lib/juice'
 import { sfx } from '../lib/sfx'
 import AnswerArea from '../components/QuestionView'
 import AnswerFeedback from '../components/AnswerFeedback'
-import CodeBlock from '../components/CodeBlock'
+import { QuestionExhibit } from '../components/SectionContent'
 import { Inline } from '../components/RichText'
 import { ConfirmDialog } from '../components/Modal'
 import EmptyState from '../components/EmptyState'
@@ -169,7 +168,7 @@ export default function QuizRunner() {
           </div>
           <h1 id="q-text" className="study-question"><Inline text={question.question} /></h1>
           <p className="xsmall subtle">{QUESTION_PROMPTS[question.type]}</p>
-          {question.code && <CodeBlock code={question.code} language={codeLanguage(pack, question)} />}
+          <QuestionExhibit pack={pack} question={question} />
 
           {mode === 'exam' && answer && !editing ? (
             <div className="exam-saved">

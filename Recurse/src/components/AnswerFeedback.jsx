@@ -1,8 +1,7 @@
 import { useState } from 'react'
 import { BookOpen } from 'lucide-react'
-import { codeLanguage } from '../lib/packs'
 import { useLesson } from '../hooks/useLesson'
-import CodeBlock from './CodeBlock'
+import SectionContent from './SectionContent'
 import RichText, { Inline } from './RichText'
 
 /**
@@ -47,8 +46,8 @@ export default function AnswerFeedback({ pack, question, outcome, lessonKey = tr
             <div className="lesson-peek-body rise">
               {fullSection ? (
                 <>
-                  <RichText text={fullSection.body} className="prose small-prose" />
-                  {fullSection.code && <CodeBlock code={fullSection.code} language={codeLanguage(pack, fullSection)} />}
+                  {fullSection.key && <p className="lesson-key small-key"><Inline text={fullSection.key} /></p>}
+                  <SectionContent pack={pack} section={fullSection} proseClass="prose small-prose" />
                 </>
               ) : (
                 <div className="skeleton line" aria-busy="true" />

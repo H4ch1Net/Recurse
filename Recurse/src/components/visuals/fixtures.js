@@ -476,6 +476,48 @@ export const VISUAL_FIXTURES = [
     }
   },
   {
+    name: 'topology: VLANs across two switches',
+    spec: {
+      type: 'topology',
+      nodes: [
+        { id: 'pc1', kind: 'pc', label: 'PC1', x: 0, y: 0 },
+        { id: 'pc3', kind: 'pc', label: 'PC3', x: 2, y: 0 },
+        { id: 'sw1', kind: 'switch', label: 'SW1', x: 0, y: 1 },
+        { id: 'sw2', kind: 'switch', label: 'SW2', x: 2, y: 1 },
+        { id: 'pc2', kind: 'pc', label: 'PC2', x: 0, y: 2 },
+        { id: 'pc4', kind: 'pc', label: 'PC4', x: 2, y: 2 }
+      ],
+      links: [
+        { from: 'sw1', to: 'sw2', label: '802.1Q trunk', tone: 'accent' },
+        { from: 'sw1', to: 'pc1', fromLabel: 'Gi0/1' },
+        { from: 'sw1', to: 'pc2', fromLabel: 'Gi0/2' },
+        { from: 'sw2', to: 'pc3', fromLabel: 'Gi0/1' },
+        { from: 'sw2', to: 'pc4', fromLabel: 'Gi0/2' }
+      ],
+      zones: [
+        { label: 'VLAN 10', nodes: ['pc1', 'pc3'], tone: 'accent' },
+        { label: 'VLAN 20', nodes: ['pc2', 'pc4'], tone: 'good' }
+      ]
+    }
+  },
+  {
+    name: 'topology: vertical chain with a side branch',
+    spec: {
+      type: 'topology',
+      nodes: [
+        { id: 'r1', kind: 'router', label: 'R1', sub: '10.1.1.1/24', x: 1, y: 0 },
+        { id: 'sw1', kind: 'switch', label: 'SW1', sub: 'VLAN 10', x: 1, y: 1 },
+        { id: 'pc1', kind: 'pc', label: 'PC1', sub: '10.1.1.10', x: 1, y: 2 },
+        { id: 'srv', kind: 'server', label: 'Server', sub: '10.1.1.50', x: 2, y: 1 }
+      ],
+      links: [
+        { from: 'r1', to: 'sw1', fromLabel: 'G0/0', toLabel: 'G0/1' },
+        { from: 'sw1', to: 'pc1', fromLabel: 'G0/2' },
+        { from: 'sw1', to: 'srv', fromLabel: 'G0/3' }
+      ]
+    }
+  },
+  {
     name: 'topology: one column',
     spec: {
       type: 'topology',

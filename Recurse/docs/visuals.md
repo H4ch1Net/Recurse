@@ -180,7 +180,8 @@ DNS lookups, HTTP requests, OAuth, STP, 802.1X.
 - 2 to 5 actors, 1 to 14 messages. `kind` picks an icon (see topology kinds) and may be left out.
 - A message with `from` equal to `to` is a step the actor takes itself.
 - `note` entries sit over one actor or span several (`over` lists actor ids).
-- Labels at most about 28 characters, details about 36. Longer text wraps to two lines.
+- Labels read best at up to about 28 characters (the validator flags anything over 40), details
+  about 36. Longer text wraps to two lines.
 
 ### topology
 
@@ -207,7 +208,8 @@ zones such as VLANs or sites, and callouts.
 ```
 
 - Node kinds: `router`, `switch`, `l3switch`, `firewall`, `server`, `pc`, `laptop`, `phone`,
-  `printer`, `ap`, `wlc`, `cloud`, `internet`, `db`, `host`.
+  `printer`, `ap`, `wlc`, `cloud`, `internet`, `db`, `host`, and `vertex`: a plain circle with its
+  label inside, for algorithm graphs (keep vertex labels to 3 characters or so).
 - `x` and `y` are grid cells counted from 0. Use at most 3 columns (`x` 0 to 2) so the drawing
   stays readable on a phone; 4 is the hard limit. Rows can go deeper. Leave empty cells to space
   things out. Up to 12 nodes.
@@ -216,6 +218,8 @@ zones such as VLANs or sites, and callouts.
 - `zones` shade a group of nodes. `marks` attach a callout to a node id, or to a link with
   `"at": "link:0"` (the link index).
 - Labels short: `label` up to 10 characters, `sub` up to 16, link labels up to 14.
+- On a crowded phone drawing, a callout becomes a numbered badge with its text listed under the
+  drawing, and a sub line, port name or link label that has no free spot moves to a key below.
 
 ### tree
 
@@ -256,9 +260,10 @@ Header and frame layouts: Ethernet frame, 802.1Q tag, IPv4, IPv6, TCP and UDP he
 - `unit`: `bits` or `bytes`. With `width` set, each row should add up to it; without it,
   sizes are proportional within each row.
 - `size` is a number, or text for variable fields (`"46-1500"`), which then takes a share set by
-  `weight` (default 2).
+  `weight` (default 2). With `width` set, variable fields share whatever width is left, by weight;
+  without it, a variable field counts as `weight` times the average fixed field in its row.
 - Proportional boxes on wide screens; on a phone it becomes a list of fields with their sizes,
-  grouped by row.
+  grouped by row. A single-row layout keeps its boxes on a phone when every field still fits.
 
 ### bits
 
@@ -281,7 +286,8 @@ Binary views of addresses and masks: subnetting, wildcard masks, network and hos
   (`"0010 0000"`) for a single byte or any bit string, with an optional `value` shown beside it.
 - `prefix` colors network bits and host bits differently. `octets` limits the binary view to
   those octets (0 to 3); the others show as decimal. Default: all four.
-- Phones show two octets per line.
+- The label sits beside the bits when the line fits and above them when it does not; a row
+  that still does not fit breaks into two octets per line.
 
 ### cells
 
@@ -298,8 +304,9 @@ Data structures: arrays with indexes and pointers, linked lists, stacks, queues,
 ```
 
 - `style`: `array` (boxes with optional indexes and pointers), `list` (boxes joined by arrows,
-  ending in null), `stack` (vertical, top marked), `queue` (front and back marked), `hash` (each
-  row is a bucket: `label` is the bucket, `cells` its chain).
+  ending in null), `stack` (vertical, top marked; cells are listed bottom to top, so the last cell
+  is the top), `queue` (front and back marked), `hash` (each row is a bucket: `label` is the
+  bucket, `cells` its chain).
 - Up to 12 cells per row and 8 rows. `tones` maps a cell index to a tone.
 
 ## Writing with visuals

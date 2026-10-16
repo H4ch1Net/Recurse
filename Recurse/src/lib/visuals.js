@@ -5,7 +5,7 @@
 
 export const VISUAL_TYPES = ['table', 'compare', 'steps', 'flow', 'stack', 'bars', 'sequence', 'topology', 'tree', 'fields', 'bits', 'cells']
 export const VISUAL_TONES = ['accent', 'good', 'bad', 'warn', 'muted']
-export const NODE_KINDS = ['router', 'switch', 'l3switch', 'firewall', 'server', 'pc', 'laptop', 'phone', 'printer', 'ap', 'wlc', 'cloud', 'internet', 'db', 'host']
+export const NODE_KINDS = ['router', 'switch', 'l3switch', 'firewall', 'server', 'pc', 'laptop', 'phone', 'printer', 'ap', 'wlc', 'cloud', 'internet', 'db', 'host', 'vertex']
 export const CELL_STYLES = ['array', 'list', 'stack', 'queue', 'hash']
 export const LINK_STYLES = ['solid', 'dashed', 'wireless', 'serial']
 export const MAX_VISUALS = 4

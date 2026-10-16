@@ -1,24 +1,22 @@
-import { Fragment, useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { Link, Navigate, useLocation, useNavigate, useParams } from 'react-router-dom'
-import { ArrowRight, BookOpenText, Check, ChevronDown, ChevronLeft, CircleCheck, CircleX, Code, Eye, EyeOff, FlaskConical, Lightbulb, ListCollapse, MessageSquareText, RotateCcw, Target, TriangleAlert, Zap } from 'lucide-react'
+import { ArrowRight, Check, ChevronLeft, CircleCheck, CircleX, Code, Eye, EyeOff, FlaskConical, Lightbulb, ListCollapse, MessageSquareText, RotateCcw, Target, TriangleAlert, Zap } from 'lucide-react'
 import { useApp } from '../state/context'
 import { useDocumentTitle } from '../hooks/useDocumentTitle'
 import { useLesson } from '../hooks/useLesson'
 import { topicOf } from '../lib/progress'
-import { codeLanguage } from '../lib/packs'
 import { createRandom, shuffle } from '../lib/random'
 import { subjectLabel } from '../lib/subjects'
 import { modeOf } from '../lib/approaches'
 import { POP_RATES, seenPool } from '../lib/session'
 import { challengesForTopic, labsForTopic } from '../lib/practice'
 import { feedbackCorrect, feedbackSuccess, feedbackWrong } from '../lib/juice'
-import { sectionMinutes, splitBody, visualList } from '../lib/visuals'
+import { sectionMinutes } from '../lib/visuals'
 import RichText, { Inline } from '../components/RichText'
-import CodeBlock from '../components/CodeBlock'
 import Activity from '../activities/Activity'
 import RecallBurst from '../components/RecallBurst'
 import ModeIcon from '../components/ModeIcon'
-import Visual from '../components/visuals/Visual'
+import SectionContent from '../components/SectionContent'
 
 /** Retrieval check at the end of a section (or a pretest at its start): answer before moving on. */
 function SectionCheck({ check, passed, onPass, pretest = false }) {
@@ -104,30 +102,7 @@ function SectionBody({ pack, section, mode, index, topic, onActivity }) {
       <Activity spec={section.activity} done={Boolean(topic.activities?.[index])} onComplete={(result) => onActivity(index, result)} />
     </div>
   )
-  const visuals = visualList(section)
-  const parts = splitBody(section.body)
-  const placed = new Set(parts.filter((p) => p.kind === 'visual').map((p) => p.index))
-  const codeBlock = section.code && <CodeBlock code={section.code} language={codeLanguage(pack, section)} />
-  const code = !parts.some((p) => p.kind === 'code') && codeBlock
-  // Text, visuals and the code block in the order the body places them; unplaced visuals follow.
-  const body = (
-    <>
-      {parts.map((part, i) => (
-        <Fragment key={i}>
-          {part.kind === 'text' && <RichText text={part.text} />}
-          {part.kind === 'code' && codeBlock}
-          {part.kind === 'visual' && visuals[part.index] && <Visual spec={visuals[part.index]} />}
-        </Fragment>
-      ))}
-      {visuals.map((spec, i) => !placed.has(i) && <Visual key={`v${i}`} spec={spec} />)}
-    </>
-  )
-  const deeper = section.deeper && (
-    <details className="lesson-deeper">
-      <summary><BookOpenText size={15} /> Go deeper <ChevronDown size={15} className="lesson-deeper-chevron" /></summary>
-      <RichText text={section.deeper} />
-    </details>
-  )
+  const content = (codeFirst) => <SectionContent pack={pack} section={section} codeFirst={codeFirst} />
   const tip = section.tip && (
     <div className="callout">
       <Lightbulb size={16} />
@@ -140,9 +115,9 @@ function SectionBody({ pack, section, mode, index, topic, onActivity }) {
       <span><strong>Common mistake.</strong> <Inline text={section.pitfall} /></span>
     </div>
   )
-  if (mode === 'builder') return <>{activity}{body}{code}{deeper}{tip}{pitfall}</>
-  if (mode === 'visual') return <>{activity}{code}{body}{deeper}{tip}{pitfall}</>
-  return <>{body}{code}{deeper}{tip}{pitfall}{activity}</>
+  if (mode === 'builder') return <>{activity}{content(false)}{tip}{pitfall}</>
+  if (mode === 'visual') return <>{activity}{content(true)}{tip}{pitfall}</>
+  return <>{content(false)}{tip}{pitfall}{activity}</>
 }
 
 export default function Lesson() {

@@ -1,53 +1,50 @@
 {
   "id": "swe-apis-rest",
   "name": "REST APIs in Practice",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "author": "Recurse",
   "subject": "swe",
   "level": "intermediate",
   "description": "Design and call REST APIs: resources, status codes, pagination, auth, rate limits, fetch and requests, GraphQL and gRPC.",
   "icon": "API",
   "language": "javascript",
-  "prereqs": [
-    "http-web",
-    "javascript-basics",
-    "python-basics"
-  ],
-  "tags": [
-    "rest",
-    "api",
-    "http",
-    "authentication",
-    "fetch",
-    "requests",
-    "graphql",
-    "grpc"
-  ],
+  "prereqs": ["http-web", "javascript-basics", "python-basics"],
+  "tags": ["rest", "api", "http", "authentication", "fetch", "requests", "graphql", "grpc"],
   "lesson": {
     "estimatedMinutes": 30,
-    "intro": "Almost every piece of software you touch at work talks to an API: your frontend calls your backend, your backend calls Stripe or GitHub or another team's service. This lesson covers how to design REST APIs that other developers find predictable, and how to call them from Python and JavaScript without the classic bugs: ignored errors, missing timeouts, and retries that charge a card twice.",
+    "intro": "Almost all software at work talks to an API: frontend to backend, backend to Stripe, GitHub or another team. Learn to design REST APIs others find predictable, and to call them without ignored errors, missing timeouts or retries that charge a card twice.",
     "objectives": [
-      "Design resource URLs and choose the right method and status code for each operation",
-      "Explain idempotence and use it to decide which requests are safe to retry",
-      "Choose between sessions, bearer tokens, API keys and OAuth for a given client",
-      "Call an API from Python and JavaScript with timeouts, status checks and backoff",
-      "Compare REST with GraphQL and gRPC and say when each one fits"
+      "Design resource URLs with the right method and status code",
+      "Use idempotence to decide which requests are safe to retry",
+      "Choose sessions, bearer tokens, API keys or OAuth for a client",
+      "Call APIs from Python and JavaScript with timeouts, status checks and backoff",
+      "Compare REST with GraphQL and gRPC"
     ],
     "sections": [
       {
         "title": "Resources, URLs and methods",
-        "body": "Picture an online shop's backend. The frontend needs to list orders, show one order, create an order, change its shipping address and cancel it. A first attempt often ends up with endpoints like `/getOrders`, `/createOrder` and `/cancelOrderById?id=42`. It works, but every new endpoint is a surprise, and every client has to read the docs for each one.\n\nREST organizes an API around **resources** (nouns) and lets the HTTP **method** say what you are doing to them:\n\n- A collection is a plural noun: `/orders`. One item is the collection plus an id: `/orders/42`.\n- Nest only to show ownership, and only one level: `/customers/7/orders` lists one customer's orders. Deeper than that, go back to the top level (`/orders/42/items`, not `/customers/7/orders/42/items/3`).\n- Use lowercase and hyphens (`/shipping-addresses`), and keep verbs and file extensions out of paths.\n\nThe table below shows how the methods map onto create, read, update and delete. Two properties decide how clients, proxies and retry logic may treat each method:\n\n- **Safe** methods (GET, HEAD, OPTIONS) only read. Crawlers, link previewers, prefetchers and caches assume they change nothing, so a GET that deletes data will eventually be triggered by accident.\n- **Idempotent** methods (the safe ones plus PUT and DELETE) have the same effect on the server whether you send them once or five times. A PUT sets the address to the same value each time; a DELETE leaves the order deleted. POST is not idempotent: sending `POST /orders` twice creates two orders. PATCH is not guaranteed to be idempotent either (think of a patch that says \"add 1 to quantity\").\n\nIdempotence is about the state of the server, not the response you get back. A second `DELETE /orders/42` may return 404 instead of 204, and DELETE is still idempotent, because the order is gone either way. This is why the idea matters so much in practice: when a request times out, you do not know whether it reached the server, and only idempotent requests are safe to send again without extra protection.",
-        "code": "Method  Path          Meaning                          Safe  Idempotent\nGET     /orders       list orders                      yes   yes\nGET     /orders/42    read order 42                    yes   yes\nPOST    /orders       create an order (server picks    no    no\n                      the new id)\nPUT     /orders/42    replace order 42 completely      no    yes\nPATCH   /orders/42    change some fields of order 42   no    not guaranteed\nDELETE  /orders/42    delete order 42                  no    yes",
-        "language": "plaintext",
+        "key": "REST names resources with plural nouns and lets the method say the action; GET, PUT and DELETE are idempotent, so they can be retried, while POST is not.",
+        "body": "A shop's first API often looks like `/getOrders`, `/createOrder`, `/cancelOrderById?id=42`: every endpoint is a surprise. REST organizes it around **resources** (nouns), with the HTTP **method** as the verb.\n\n- A collection is a plural noun, `/orders`; one item adds its id, `/orders/42`.\n- Nest one level only, to show ownership: `/customers/7/orders`.\n- Lowercase and hyphens (`/shipping-addresses`); no verbs or file extensions.\n\n[[visual]]\n\n**Safe** methods only read, so crawlers and caches call them freely. **Idempotent** methods have the same effect on the server sent once or five times. That is about server state, not the response: a second `DELETE /orders/42` may get 404 instead of 204, and DELETE is still idempotent. After a timeout, only idempotent requests are safe to resend.",
+        "visual": {
+          "type": "table",
+          "title": "Methods on orders",
+          "columns": ["Request", "Means", "Safe", "Idempotent"],
+          "rows": [
+            ["`GET /orders`", "List orders", "yes", "yes"],
+            ["`GET /orders/42`", "Read order 42", "yes", "yes"],
+            ["`POST /orders`", "Create an order; the server picks the id", "no", "no: twice makes two orders"],
+            ["`PUT /orders/42`", "Replace order 42 completely", "no", "yes"],
+            ["`PATCH /orders/42`", "Change some fields", "no", "not guaranteed (\"add 1 to quantity\")"],
+            ["`DELETE /orders/42`", "Delete order 42", "no", "yes"]
+          ]
+        },
         "tip": "Actions that do not fit create, read, update and delete can become sub-resources: `POST /orders/42/refunds` reads better than `POST /refundOrder`.",
         "pitfall": "Using GET for anything that changes data, such as `GET /orders/42/delete`. Link previews, browser prefetching and crawlers will call it for you.",
         "activity": {
           "type": "http-explorer",
           "title": "Talk to a REST API",
           "prompt": "List the tasks with GET, then create one with POST and find the 201 status and the Location header in the response. Fetch the new task by its id, mark it done with PATCH, and delete it. Finally GET it again: the 404 proves the delete worked, and a repeated DELETE would leave the server in exactly that same state.",
-          "props": {
-            "scenario": "rest-basics"
-          }
+          "props": { "scenario": "rest-basics" }
         },
         "check": {
           "question": "A mobile app on a flaky connection sends `PUT /users/7/email` with the same body three times. What is the end result on the server?",
@@ -63,38 +60,84 @@
       },
       {
         "title": "Status codes that matter",
-        "body": "Your frontend shows \"Something went wrong\" for every failure, and the support queue fills up with tickets nobody can act on. Status codes are what let a client react correctly without parsing error text: retry later, ask the user to log in, highlight a form field, or give up.\n\nThe first digit is the class: 2xx success, 3xx look elsewhere, 4xx the client must change something, 5xx the server failed. The table lists the codes you will send and receive every week. A few pairs trip people up in code reviews and interviews:\n\n- **401 vs 403.** 401 means \"I don't know who you are\": the token is missing, expired or invalid, so logging in again may help. 403 means \"I know who you are, and you are not allowed\": logging in again changes nothing. The name \"Unauthorized\" for 401 is a historical misnomer; it really means unauthenticated.\n- **400 vs 422.** 400 means the request itself is malformed: broken JSON, a string where a number must be. 422 means the body parsed fine but the values fail validation: an email without an @, a quantity of -3. Many APIs use 400 for both. Pick one convention and use it everywhere.\n- **409** is for a clash with the current state: the username is taken, or someone else changed the record since you read it.\n- **500 vs 503.** 500 is an unexpected failure, usually a bug. 503 means \"temporarily unavailable, try later\" (overloaded or in maintenance), often with a `Retry-After` header. Retrying a 503 with backoff is sensible; hammering a 500 rarely fixes it.\n- **304** only appears when the client asked conditionally. It sends `If-None-Match` with the ETag of its cached copy; if nothing changed, the server answers 304 with no body and the client reuses what it has.\n- **301 vs 302.** 301 is permanent and browsers may cache it for a long time. 302 is temporary. (307 and 308 are the stricter versions that guarantee the method and body are kept on the redirect.)\n\nA successful POST that creates something should return **201** with a `Location` header pointing at the new resource. A successful DELETE usually returns **204** with an empty body. Two more you will meet: **405 Method Not Allowed** (the path exists, but not with that method) and **415 Unsupported Media Type** (the body's Content-Type is not one the server accepts).\n\nReturn the most specific code you honestly can. A 200 response with `{\"error\": \"not found\"}` in the body breaks every client, cache, retry policy and monitoring dashboard that trusts status codes.",
-        "code": "200 OK                     success, the body has the result\n201 Created                POST made something; Location header points to it\n204 No Content             success, nothing to send back (typical for DELETE)\n301 Moved Permanently      the resource has a new URL for good\n302 Found                  temporary redirect\n304 Not Modified           your cached copy is still current (conditional GET)\n400 Bad Request            malformed request: invalid JSON, wrong types\n401 Unauthorized           not authenticated: missing, expired or bad credentials\n403 Forbidden              authenticated, but not allowed to do this\n404 Not Found              no such resource (or you may not know it exists)\n409 Conflict               clashes with current state: duplicate, stale version\n422 Unprocessable Content  well-formed, but fails validation\n429 Too Many Requests      rate limited: slow down, see Retry-After\n500 Internal Server Error  unexpected server failure, usually a bug\n503 Service Unavailable    temporarily overloaded or down: retry later",
-        "language": "plaintext",
-        "tip": "When you are unsure, ask what the client should do next. Different next steps (fix the body, log in, wait, give up) deserve different codes.",
+        "key": "Return the most specific status a client can act on: 401 means authenticate, 403 means not allowed, 422 means fix the fields, and 429 or 503 mean wait and retry.",
+        "body": "Your frontend shows \"Something went wrong\" for every failure, and support tickets pile up. Status codes let a client react without parsing text: retry later, log in, highlight a field or give up.\n\n[[visual]]\n\n[[visual 2]]\n\nA POST that creates something returns **201** with a `Location` header naming the new resource; a DELETE usually returns **204**. A 200 with `{\"error\": \"not found\"}` breaks every client, cache, retry policy and dashboard that trusts status codes.",
+        "visual": [
+          {
+            "type": "table",
+            "title": "Codes you will meet every week",
+            "columns": ["Code", "Means"],
+            "rows": [
+              ["200 OK", "Success; the body has the result"],
+              ["201 Created", "POST made something; `Location` points to it"],
+              ["204 No Content", "Success, nothing to send back (typical for DELETE)"],
+              ["301, 302", "Moved for good; temporary redirect"],
+              ["304 Not Modified", "Your cached copy is still current"],
+              ["400 Bad Request", "Malformed: invalid JSON, wrong types"],
+              ["401 Unauthorized", "Not authenticated: missing, expired or bad credentials"],
+              ["403 Forbidden", "Authenticated, but not allowed to do this"],
+              ["404 Not Found", "No such resource (or you may not know it exists)"],
+              ["405, 415", "Method not allowed on this path; unsupported Content-Type"],
+              ["409 Conflict", "Clashes with current state: duplicate, stale version"],
+              ["422 Unprocessable Content", "Well-formed, but fails validation"],
+              ["429 Too Many Requests", "Rate limited: slow down, see `Retry-After`"],
+              ["500 Internal Server Error", "Unexpected failure, usually a bug"],
+              ["503 Service Unavailable", "Overloaded or down for now: retry later"]
+            ]
+          },
+          {
+            "type": "table",
+            "title": "Pairs that trip people up",
+            "columns": ["Pair", "The difference"],
+            "rows": [
+              [
+                "401 vs 403",
+                "401: I do not know who you are, so refresh the token or log in again. 403: I know you, and no; logging in changes nothing. \"Unauthorized\" really means unauthenticated"
+              ],
+              ["400 vs 422", "400: the request is malformed. 422: it parses, but values fail validation, such as an email without @. Pick one convention"],
+              ["500 vs 503", "500: a bug; retrying rarely helps, so retry at most once or twice. 503: temporary, often with `Retry-After`; retry with backoff"],
+              ["301 vs 302", "Permanent (browsers may cache it) vs temporary. 307 and 308 also keep the method and body"],
+              ["304", "Only after a conditional request: `If-None-Match` with the cached ETag still matches"]
+            ]
+          }
+        ],
+        "tip": "When unsure, ask what the client should do next. Different next steps (fix the body, log in, wait, give up) deserve different codes.",
         "pitfall": "Returning 200 for everything and putting the real outcome in the body. Clients, caches, retry logic and dashboards all look at the status code first.",
         "activity": {
           "type": "http-explorer",
           "title": "Make it fail on purpose",
           "prompt": "Trigger each error on purpose: broken JSON or a task without a title (400), an id that does not exist (404), a method the path does not support (405), and a body sent without Content-Type: application/json (415). For each response, decide what a well-behaved client should do next: fix the request, retry later, or give up.",
-          "props": {
-            "scenario": "errors"
-          }
+          "props": { "scenario": "errors" }
         },
         "check": {
           "question": "A user's token is valid and they can view a shared project (read-only access), but they send a DELETE for it. Which status fits best?",
-          "choices": [
-            "401 Unauthorized",
-            "403 Forbidden",
-            "409 Conflict",
-            "400 Bad Request"
-          ],
+          "choices": ["401 Unauthorized", "403 Forbidden", "409 Conflict", "400 Bad Request"],
           "answer": 1,
           "explanation": "The server knows who the user is (so not 401) and the request is well-formed (so not 400). The user simply lacks permission to delete, which is exactly what 403 means."
         }
       },
       {
         "title": "JSON bodies and one error shape",
-        "body": "Open the network tab of any modern web app and most of the traffic is JSON. Request and response bodies are where an API's consistency pays off or falls apart.\n\nHabits that keep bodies predictable:\n\n- Send `Content-Type: application/json` with a JSON body, and `Accept: application/json` when you expect JSON back.\n- Pick one key style (`snake_case` or `camelCase`) and never mix them.\n- Use ISO 8601 timestamps in UTC, such as `\"2026-03-14T09:30:00Z\"`, rather than `\"03/14/26\"` or epoch seconds in one field and milliseconds in another.\n- Store money as an integer count of the smallest unit (`\"total_cents\": 4598`) or as a decimal string. Never use a float: JSON numbers are usually parsed as floating point, and `0.1 + 0.2` is not `0.3`.\n- Return the created or updated resource from POST, PUT and PATCH, so the client does not need a second request.\n- Wrap lists in an object (`{\"data\": [...], \"next_cursor\": \"...\"}`) instead of returning a bare array, so you can add pagination fields later without breaking anyone.\n- When reading responses, ignore fields you do not know. That one habit makes adding a field a safe change.\n\nErrors deserve the same care. Every error from every endpoint should have the same shape, so the client writes one error handler instead of fifty. A widely used standard is **Problem Details** (RFC 9457), sent as `application/problem+json`. The example shows a validation failure: `type` is a stable identifier the client can branch on, `title` and `detail` are for humans, and the extra `errors` array lets a form highlight each bad field.\n\nNever make a client match on the human-readable message, because someone will reword it. And keep stack traces, SQL statements, internal hostnames and library versions out of error bodies: they help attackers far more than users. Log them on the server, with a request id the client can quote to support.",
-        "code": "HTTP/1.1 422 Unprocessable Content\nContent-Type: application/problem+json\n\n{\n  \"type\": \"https://api.example.com/problems/validation-error\",\n  \"title\": \"Your request has invalid fields\",\n  \"status\": 422,\n  \"detail\": \"2 fields failed validation\",\n  \"instance\": \"/v1/orders\",\n  \"errors\": [\n    { \"field\": \"email\", \"message\": \"must be a valid email address\" },\n    { \"field\": \"items[0].quantity\", \"message\": \"must be at least 1\" }\n  ]\n}",
-        "language": "plaintext",
-        "tip": "Include a request id in every error response and in your server logs. 'Quote this id to support' turns a vague bug report into a two-minute log search.",
-        "pitfall": "Different error shapes from different endpoints: a plain string here, `{error: ...}` there, an HTML page from the proxy on a 502. Clients end up with fragile special cases everywhere.",
+        "key": "Keep JSON bodies predictable, with one key style, UTC timestamps, integer money and wrapped lists, and return every error in one shape such as Problem Details.",
+        "body": "Open the network tab of any web app: most traffic is JSON, and the bodies are where an API's consistency pays off or falls apart.\n\n[[visual]]\n\nEvery error from every endpoint should share one shape, so clients write one handler, not fifty. A common standard is **Problem Details** (RFC 9457), sent as `application/problem+json` with a matching 4xx or 5xx status, never 200. A 422 validation failure:\n\n[[code]]\n\n`type` is a stable identifier to branch on, `title` and `detail` are for humans, and `errors` lets a form mark each bad field. Never make clients match on the human text. Keep stack traces, SQL and hostnames out; log them with a request id the client can quote.",
+        "visual": {
+          "type": "table",
+          "title": "Habits for bodies",
+          "columns": ["Habit", "Why"],
+          "rows": [
+            ["Send `Content-Type: application/json`, and `Accept` when you want JSON back", "Both sides know the format"],
+            ["One key style: `snake_case` or `camelCase`", "Mixed styles cause bugs in every client"],
+            ["ISO 8601 in UTC: `\"2026-03-14T09:30:00Z\"`", "Not \"03/14/26\", not seconds here and milliseconds there"],
+            ["Money as integer cents (`\"price_cents\": 1999`) or a decimal string", "Floats round: `0.1 + 0.2` is not `0.3`"],
+            ["Return the resource from POST, PUT and PATCH", "No second request needed"],
+            ["Wrap lists: `{\"data\": [...], \"next_cursor\": \"...\"}`", "Pagination fields can be added later without breaking anyone"],
+            ["Ignore unknown fields when reading", "Adding a field stays a safe change"]
+          ]
+        },
+        "code": "{\n  \"type\": \"/problems/validation\",\n  \"title\": \"Your request has invalid fields\",\n  \"status\": 422,\n  \"detail\": \"2 fields failed validation\",\n  \"instance\": \"/v1/orders\",\n  \"errors\": [\n    {\n      \"field\": \"email\",\n      \"message\": \"is not a valid email\"\n    },\n    {\n      \"field\": \"items[0].quantity\",\n      \"message\": \"must be at least 1\"\n    }\n  ]\n}",
+        "language": "json",
+        "tip": "Include a request id in every error response and in your server logs. \"Quote this id to support\" turns a vague bug report into a two-minute log search.",
+        "pitfall": "Different error shapes from different endpoints: a plain string here, `{error: ...}` there, an HTML page from the proxy on a 502. Clients end up full of special cases.",
         "activity": {
           "type": "json-explorer",
           "title": "Read a real response",
@@ -105,21 +148,62 @@
         },
         "check": {
           "question": "Which is the best way to represent a price of $19.99 in a JSON API?",
-          "choices": [
-            "\"price\": 19.99",
-            "\"price_cents\": 1999",
-            "\"price\": \"19.99 dollars\"",
-            "\"price\": 19.990000"
-          ],
+          "choices": ["\"price\": 19.99", "\"price_cents\": 1999", "\"price\": \"19.99 dollars\"", "\"price\": 19.990000"],
           "answer": 1,
           "explanation": "An integer count of cents is exact and easy to do math with. 19.99 as a JSON number is usually parsed as a float, which cannot represent most decimal amounts exactly, and a string with a unit in it has to be parsed by hand."
         }
       },
       {
         "title": "Pagination, filtering and versioning",
-        "body": "Your `GET /orders` endpoint was quick in testing with 30 orders. In production, one big customer has 2 million, the response takes 40 seconds, and the mobile app crashes trying to parse it. Any endpoint that returns a list needs pagination from day one.\n\n**Offset pagination** uses `?limit=25&offset=50` (or `?page=3&per_page=25`). It is simple and lets users jump to page 7. It has two problems. The database still walks past every skipped row, so deep pages get slow. And if rows are inserted while someone is paging, everything shifts: they see some items twice and miss others.\n\n**Cursor pagination** (also called keyset pagination) returns an opaque `next_cursor` that encodes where the last page ended, usually the last item's sort key and id. The server's next query is roughly `WHERE (created_at, id) < (last_created_at, last_id) ORDER BY created_at DESC, id DESC LIMIT 25`. An index answers that quickly at any depth, and new inserts do not shift pages. You give up jumping straight to page 7. Feeds, chat history and large exports almost always use cursors.\n\n**Filtering and sorting** go in the query string, not the path: `GET /v1/orders?status=shipped&created_after=2026-01-01&sort=-created_at`. Check every filter and sort field against an allowlist, and cap `limit` on the server so nobody can ask for a million rows.\n\n**Versioning** exists because clients you do not control (mobile apps that users never update, partner integrations) keep calling old shapes for years. The common options:\n\n- In the path: `/v1/orders`. Visible, easy to route and test; by far the most common.\n- In a header: `Accept: application/vnd.example.v2+json`, or a dated header such as `API-Version: 2026-03-01`. Cleaner URLs, harder to try in a browser.\n\nMore important than where the version lives is knowing what counts as breaking. Adding an optional response field, a new optional query parameter or a new endpoint is safe. Removing or renaming a field, changing its type, making an optional input required, or changing what a status means all break someone, and need a new version or a long deprecation period with warnings.",
-        "code": "GET /v1/orders?status=shipped&limit=2\n\n200 OK\n{\n  \"data\": [\n    { \"id\": \"ord_1042\", \"created_at\": \"2026-03-14T09:30:00Z\" },\n    { \"id\": \"ord_1039\", \"created_at\": \"2026-03-13T17:05:42Z\" }\n  ],\n  \"next_cursor\": \"eyJpZCI6Im9yZF8xMDM5In0\",\n  \"has_more\": true\n}\n\nGET /v1/orders?status=shipped&limit=2&cursor=eyJpZCI6Im9yZF8xMDM5In0",
-        "language": "plaintext",
+        "key": "Paginate every list: offsets are simple but slow down and shift as rows arrive, cursors stay fast and stable; and add a version only for breaking changes.",
+        "body": "`GET /orders` was quick with 30 test orders. In production one customer has 2 million, the response takes 40 seconds and the app crashes. Every list needs pagination from day one.\n\n[[visual]]\n\nFilters and sorting go in the query string: `GET /v1/orders?status=shipped&sort=-created_at`. Check fields against an allowlist, and cap `limit` on the server.\n\n**Versioning** exists because clients you do not control keep calling old shapes for years. Most APIs put it in the path (`/v1/orders`); some use a header such as `API-Version: 2026-03-01`. Knowing what breaks matters more:\n\n[[visual 2]]\n\n[[code]]",
+        "visual": [
+          {
+            "type": "compare",
+            "items": [
+              {
+                "title": "Offset",
+                "sub": "`?limit=25&offset=50`",
+                "points": [
+                  "`offset` counts rows skipped: `offset=50` starts at item 51",
+                  "Simple; users can jump to page 7",
+                  "The database walks past every skipped row, so deep pages get slow",
+                  "Inserts shift rows: items seen twice or missed"
+                ]
+              },
+              {
+                "title": "Cursor (keyset)",
+                "sub": "`?limit=25&cursor=...`",
+                "tone": "accent",
+                "points": [
+                  "An opaque `next_cursor` encodes where the last page ended",
+                  "The next query seeks through an index: fast at any depth",
+                  "New rows do not shift pages",
+                  "No jumping to page 7; feeds, chat and exports use it"
+                ]
+              }
+            ]
+          },
+          {
+            "type": "compare",
+            "items": [
+              {
+                "title": "Safe to add in v1",
+                "tone": "good",
+                "points": ["An optional response field", "A new optional query parameter", "A new endpoint"]
+              },
+              {
+                "title": "Breaking",
+                "sub": "new version, or a long deprecation",
+                "tone": "bad",
+                "points": ["Removing or renaming a field", "Changing a field's type", "Making an optional input required", "Changing what a status means"]
+              }
+            ]
+          }
+        ],
+        "code": "$ API=https://api.example.com/v1\n$ curl \"$API/orders?limit=2\"\n{\n  \"data\": [\n    {\"id\": \"ord_1042\", \"total_cents\": 4598},\n    {\"id\": \"ord_1039\", \"total_cents\": 1250}\n  ],\n  \"next_cursor\": \"eyJpZCI6Im9yZF8xMDM5In0\",\n  \"has_more\": true\n}\n$ C=eyJpZCI6Im9yZF8xMDM5In0\n$ curl \"$API/orders?limit=2&cursor=$C\"",
+        "language": "bash",
+        "deeper": "Behind a cursor, the server's next query is roughly `WHERE (created_at, id) < (last_created_at, last_id) ORDER BY created_at DESC, id DESC LIMIT 25`. An index answers that directly, however deep the page.\n\nOffset arithmetic: with `limit=25`, items 51 to 75 are `offset=50`, because the offset counts the rows skipped.\n\nHeader versioning keeps URLs clean, but is harder to try in a browser; dated versions such as `API-Version: 2026-03-01` are popular with payment APIs.",
         "tip": "Make cursors opaque (for example base64 of the last id and timestamp) so clients cannot build them by hand, and you stay free to change what is inside.",
         "pitfall": "Offset pagination over a table that is written to constantly. Users see the same item twice or miss one entirely as rows shift between requests.",
         "check": {
@@ -136,18 +220,74 @@
       },
       {
         "title": "Authentication: sessions, tokens, API keys and OAuth",
-        "body": "Three clients call your API: your web app in the browser, your mobile app, and a partner's server that syncs orders every hour. Each needs to prove who it is, and they do not all need the same mechanism.\n\n**Sessions and cookies.** The user logs in with a password, the server stores a session record (in Redis or a database) and sends back a random session id in a cookie. The browser attaches that cookie to every later request to the same site automatically. Logging a user out or banning them is easy: delete the session. Mark the cookie `HttpOnly` (scripts cannot read it), `Secure` (HTTPS only) and `SameSite=Lax` or `Strict` (limits cross-site sending). Sessions are the natural fit for a browser app on the same site as its API.\n\n**Bearer tokens.** The client sends `Authorization: Bearer <token>` on each request. Mobile apps, and browser apps calling APIs on other domains, often work this way. Tokens are frequently **JWTs**: a base64url-encoded header and payload plus a signature. The signature lets any server verify the token without a database lookup, but the payload is only encoded, not encrypted, so anyone holding the token can read it. Keep JWTs short-lived (minutes), because a stolen one stays valid until it expires, and use a longer-lived refresh token to get new ones.\n\n**API keys** identify a calling application or project, usually server to server: `Authorization: Bearer sk_live_...` or a header such as `X-API-Key`. They are long-lived secrets, so they live on servers and in secret managers, never in frontend code or a mobile app bundle, where anyone can extract them.\n\n**OAuth 2.0** solves a different problem: letting a user grant your app limited access to their data on another service without giving you their password. When an app says \"Sign in with GitHub\" and asks to read your profile, that is OAuth. The flow for browser and mobile apps is the authorization code flow with PKCE, shown in the example. OAuth is about authorization (what the app may do, expressed as scopes). **OpenID Connect** is a layer on top that adds an ID token saying who the user is, which is what \"Sign in with Google\" really uses.\n\nWhatever you pick: always use HTTPS, never put credentials in URLs (they end up in logs and browser history), and remember that authentication (who are you?) is separate from authorization (what may you do?). The API must check both on every request.",
-        "code": "OAuth 2.0 authorization code flow with PKCE (simplified)\n\n1. Your app sends the user to the provider's /authorize page with\n   client_id, the scopes it wants (for example read:user), a random\n   state value and a PKCE code_challenge.\n2. The user logs in at the provider (your app never sees the\n   password) and approves the requested scopes.\n3. The provider redirects back to your redirect_uri with a short-lived\n   authorization code and the same state, which your app checks.\n4. Your app exchanges the code at the provider's token endpoint,\n   proving it started the flow by sending the PKCE code_verifier.\n5. The provider returns an access token (often with a refresh token).\n6. Your app calls the provider's API with\n   Authorization: Bearer <access token>",
-        "language": "plaintext",
+        "key": "Sessions suit browser apps on the same site, bearer tokens suit mobile and cross-domain clients, API keys suit servers, and OAuth lets users grant limited access.",
+        "body": "Three clients call your API: your web app, your mobile app and a partner's server syncing orders hourly. They need different mechanisms.\n\n[[visual]]\n\nA **JWT** is a base64url header and payload plus a signature. Any server can verify it without a lookup, but the payload is only encoded, not encrypted: anyone holding the token can read it. Keep JWTs short-lived, with a refresh token.\n\n**OAuth 2.0** lets a user grant your app limited access (**scopes**) to their data elsewhere without sharing their password. **OpenID Connect** adds an ID token saying who the user is: \"Sign in with Google\".\n\n[[visual 2]]",
+        "visual": [
+          {
+            "type": "table",
+            "title": "Which credential",
+            "columns": ["Mechanism", "Fits, and how"],
+            "rows": [
+              ["Session cookie", "A browser app on the same site as its API. A random id in an `HttpOnly`, `Secure`, `SameSite` cookie; log out by deleting the session"],
+              ["Bearer token, often a JWT", "Mobile apps and browser apps calling other domains: `Authorization: Bearer <token>`"],
+              ["API key", "Server to server, identifying an application. A long-lived secret: servers and secret managers only, never frontend code or app bundles"],
+              ["OAuth 2.0", "A user delegating access to their data on another service; the authorization code flow with PKCE"]
+            ]
+          },
+          {
+            "type": "sequence",
+            "title": "OAuth authorization code flow with PKCE",
+            "actors": [
+              { "id": "user", "label": "User", "kind": "laptop" },
+              { "id": "app", "label": "Your app", "kind": "server" },
+              { "id": "prov", "label": "Provider", "kind": "cloud" }
+            ],
+            "messages": [
+              {
+                "from": "app",
+                "to": "prov",
+                "label": "Send user to /authorize",
+                "detail": "scopes, state, code_challenge"
+              },
+              {
+                "from": "user",
+                "to": "prov",
+                "label": "Log in, approve scopes",
+                "detail": "your app never sees the password"
+              },
+              {
+                "from": "prov",
+                "to": "app",
+                "label": "Redirect with a short code",
+                "detail": "and the state, which the app checks",
+                "dashed": true
+              },
+              {
+                "from": "app",
+                "to": "prov",
+                "label": "Exchange code + verifier",
+                "detail": "proves it started the flow"
+              },
+              {
+                "from": "prov",
+                "to": "app",
+                "label": "Access token",
+                "detail": "often with a refresh token",
+                "dashed": true,
+                "tone": "good"
+              },
+              { "from": "app", "to": "prov", "label": "Call the API", "detail": "Authorization: Bearer <token>" }
+            ]
+          }
+        ],
+        "deeper": "OAuth is about authorization: what the app may do, expressed as scopes such as `read:user`. Authentication (who are you?) and authorization (what may you do?) are separate questions, and the API must check both on every request.\n\nAlways use HTTPS, and never put credentials in URLs: they end up in server logs and browser history.\n\nThe `state` value protects against forged redirects, and PKCE (the code challenge and verifier) stops a stolen authorization code from being exchanged by anyone but the app that started the flow.",
         "tip": "In the browser, prefer an HttpOnly cookie over localStorage for tokens. Any script on the page can read localStorage, including one injected through an XSS bug.",
-        "pitfall": "Putting an API key in frontend JavaScript or a mobile app and assuming it is hidden. Anything shipped to a user's device can be extracted; keep secret keys on your server and have clients call your server instead.",
+        "pitfall": "Putting an API key in frontend JavaScript or a mobile app and assuming it is hidden. Anything shipped to a device can be extracted; keep secret keys on your server.",
         "activity": {
           "type": "http-explorer",
           "title": "Who are you, and are you allowed?",
           "prompt": "Call GET /api/me with no token and read the 401. Log in to get a token, then call /api/me again with an Authorization: Bearer header. Finally, try GET /api/admin/stats with the same token. Notice the difference: 401 means prove who you are, 403 means you are known but not allowed.",
-          "props": {
-            "scenario": "auth"
-          }
+          "props": { "scenario": "auth" }
         },
         "check": {
           "question": "Your server needs to pull invoices every night from a payment provider using your company's own account. No end user is involved. What do you most likely use?",
@@ -163,8 +303,21 @@
       },
       {
         "title": "Rate limits, retries and idempotency keys",
-        "body": "You write a script to backfill data. It loops over 50,000 customers and calls an API as fast as it can. After a few seconds, every request fails with 429. Rate limiting protects an API from overload and abuse, and both sides have a job to do.\n\n**On the server**, a rate limiter counts requests per client (per API key, user or IP) over a time window and rejects the excess with `429 Too Many Requests`. Good APIs tell clients where they stand: a `Retry-After: 30` header (seconds to wait) on the 429, and headers such as `X-RateLimit-Limit: 100` and `X-RateLimit-Remaining: 0` on normal responses. Header names vary between APIs, so read the docs.\n\n**On the client**, treat 429 and 503 as \"wait, then try again\", and treat timeouts, connection errors, 502 and 504 as possibly temporary. Rules for retrying well:\n\n- Honor `Retry-After` when the server sends it.\n- Otherwise use **exponential backoff**: wait 1 s, then 2 s, 4 s, 8 s, up to a cap, and give up after a few attempts.\n- Add **jitter** (a random amount) to each wait. Without it, a thousand clients that failed at the same moment all retry at the same moment and knock the recovering server over again.\n- Do not retry 400, 401, 403, 404 or 422 automatically. The same request will fail the same way.\n- Only retry requests that are safe to repeat.\n\nThat last rule is where real money gets lost. A `POST /payments` times out. Did the charge happen? You cannot tell. Retrying might charge the customer twice; not retrying might lose the sale. The standard fix is an **idempotency key**: the client generates one unique id (a UUID) for the logical operation and sends it as a header on every attempt. The server stores the key with the result of the first request; when the same key arrives again, it returns the stored result instead of charging again. Stripe and many other payment APIs work this way.\n\nThe example puts it all together in Python with the `requests` library: one key for all attempts, a timeout on every call, retries only for responses that can succeed later, backoff with jitter, and a clear failure at the end.",
-        "code": "import random, time, uuid\nimport requests\n\nRETRYABLE = {429, 502, 503, 504}\n\ndef create_payment(payload, max_attempts=5):\n    key = str(uuid.uuid4())                    # ONE key for every attempt\n    for attempt in range(max_attempts):\n        try:\n            r = requests.post(\n                \"https://api.example.com/v1/payments\",\n                json=payload,                      # sets Content-Type: application/json\n                headers={\"Idempotency-Key\": key},\n                timeout=10,                        # never wait forever\n            )\n        except (requests.Timeout, requests.ConnectionError):\n            r = None                               # outcome unknown: retry with the same key\n        if r is not None and r.status_code not in RETRYABLE:\n            r.raise_for_status()                   # other 4xx/5xx: raise, do not retry\n            return r.json()\n        retry_after = r.headers.get(\"Retry-After\") if r is not None else None\n        wait = float(retry_after) if retry_after else min(30, 2 ** attempt)\n        time.sleep(wait + random.uniform(0, 1))    # backoff plus jitter\n    raise RuntimeError(\"payment API still unavailable, giving up\")",
+        "key": "Clients honor Retry-After, back off exponentially with jitter, retry only errors that can pass later, and reuse one idempotency key across every attempt.",
+        "body": "Your backfill script calls an API as fast as it can, and soon every request fails with **429 Too Many Requests**. The server counts requests per key, user or IP and rejects the excess, often with `Retry-After: 30` and headers such as `X-RateLimit-Remaining`.\n\n[[visual]]\n\nWhere real money gets lost: `POST /payments` times out. Did the charge happen? Retrying may charge twice; not retrying may lose the sale. The fix is an **idempotency key**: one UUID per logical operation, sent on every attempt. The server stores the first result under that key and returns it for repeats.\n\n[[code]]",
+        "visual": {
+          "type": "table",
+          "title": "Retrying well",
+          "columns": ["Situation", "Do"],
+          "rows": [
+            ["429, 503", "Wait and retry; honor `Retry-After` when sent"],
+            ["Timeouts, connection errors, 502, 504", "Possibly temporary: retry if the request is idempotent or carries an idempotency key"],
+            ["400, 401, 403, 404, 422", "Never retry automatically: it fails the same way"],
+            ["How long to wait", "**Exponential backoff**: 1, 2, 4, 8 seconds up to a cap, then give up"],
+            ["Many clients failing at once", "Add random **jitter**, so they do not all retry at the same instant"]
+          ]
+        },
+        "code": "import random, time, uuid\nimport requests\n\nURL = \"https://api.example.com/v1/payments\"\nRETRY = {429, 502, 503, 504}\n\ndef create_payment(payload, tries=5):\n    # ONE key, sent on every attempt\n    key = str(uuid.uuid4())\n    for n in range(tries):\n        try:\n            r = requests.post(\n                URL,\n                json=payload,  # JSON + header\n                headers={\"Idempotency-Key\": key},\n                timeout=10,  # never hang\n            )\n        except (requests.Timeout,\n                requests.ConnectionError):\n            r = None  # outcome unknown\n        if r is not None:\n            if r.status_code not in RETRY:\n                r.raise_for_status()  # 4xx\n                return r.json()\n            hint = r.headers.get(\"Retry-After\")\n        else:\n            hint = None\n        # backoff 1, 2, 4... capped, plus jitter\n        wait = float(hint or min(30, 2**n))\n        time.sleep(wait + random.uniform(0, 1))\n    raise RuntimeError(\"payments unavailable\")",
         "language": "python",
         "tip": "Generate the idempotency key once per logical operation, outside the retry loop. A new key on every attempt defeats the purpose.",
         "pitfall": "Retrying immediately in a tight loop. It turns a brief overload into a full outage, and can get your API key blocked.",
@@ -182,11 +335,38 @@
       },
       {
         "title": "Calling APIs from Python and JavaScript",
-        "body": "Most API bugs in real code are not in the server. They are in the client that assumes every call succeeds. The previous example showed Python; here are the habits behind it, then the same care in JavaScript.\n\n**Python with requests:**\n\n- `requests.get(url, params={\"status\": \"shipped\"}, timeout=5)` builds and encodes `?status=shipped` for you.\n- `requests.post(url, json=payload, timeout=5)` serializes the dict and sets `Content-Type: application/json`. Passing `data=payload` instead sends a form-encoded body, a classic cause of mysterious 400 and 415 errors.\n- Always pass `timeout`. requests has no default timeout, so a server that accepts the connection and never answers can freeze a worker or a cron job for hours.\n- Call `r.raise_for_status()` (or check `r.status_code`) before `r.json()`. Otherwise an error body gets treated as data, or `r.json()` crashes on an HTML error page.\n- Catch `requests.RequestException`, the base class for timeouts, connection errors and HTTP errors, at the edge of your code. For many calls to one host, reuse a `requests.Session()`.\n\n**JavaScript with fetch.** The biggest surprise: `fetch` only rejects when the request could not be made at all (network down, DNS failure, CORS block, aborted). A 404 or 500 response resolves normally. You must check `res.ok` (true for 200 to 299) or `res.status` yourself. `res.json()` returns a promise, so it needs its own `await`. fetch also has no timeout by default; `AbortSignal.timeout(5000)` adds one. And fetch does not serialize objects: you pass `JSON.stringify(body)` and set the Content-Type header yourself.\n\nThe example wraps all of that in two small functions. Notice how a 422 is turned into data the form can use, while other failures become exceptions with enough detail (method, id, status) to debug from a log line.",
-        "code": "const API = 'https://api.example.com/v1'\n\nasync function getOrder(id, token) {\n  const res = await fetch(`${API}/orders/${id}`, {\n    headers: { Accept: 'application/json', Authorization: `Bearer ${token}` },\n    signal: AbortSignal.timeout(5000)            // fetch has no timeout by default\n  })\n  if (!res.ok) {                                 // 404 and 500 do NOT reject\n    const problem = await res.json().catch(() => null)\n    throw new Error(`GET order ${id} failed: ${res.status} ${problem?.title ?? ''}`)\n  }\n  return res.json()                              // a promise; callers await it\n}\n\nasync function createOrder(order, token) {\n  const res = await fetch(`${API}/orders`, {\n    method: 'POST',\n    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },\n    body: JSON.stringify(order)                  // fetch will not serialize objects\n  })\n  if (res.status === 422) return { fieldErrors: (await res.json()).errors }\n  if (!res.ok) throw new Error(`POST order failed: ${res.status}`)\n  return { order: await res.json() }\n}\n\ntry {\n  const order = await getOrder(42, token)\n  console.log(order.status)\n} catch (err) {\n  console.error(err.message)                     // network errors, timeouts and non-2xx\n}",
+        "key": "Clients must set timeouts, check the status before reading the body, and send JSON correctly: requests has `json=` and no default timeout, and fetch resolves on 404 and 500.",
+        "body": "Most API bugs are in clients that assume every call succeeds.\n\n[[visual]]\n\n[[code]]\n\nNotice how a 422 becomes data the form can use, while other failures become exceptions with enough detail (method, id, status) to debug from one log line.",
+        "visual": {
+          "type": "compare",
+          "items": [
+            {
+              "title": "Python: requests",
+              "points": [
+                "`params={...}` builds and encodes the query string",
+                "`json=payload` serializes and sets Content-Type; `data=` sends a form body instead",
+                "Always pass `timeout`: there is no default",
+                "`r.raise_for_status()` before `r.json()`",
+                "Catch `requests.RequestException`; reuse a `requests.Session()`"
+              ]
+            },
+            {
+              "title": "JavaScript: fetch",
+              "tone": "accent",
+              "points": [
+                "Rejects only when no response arrives: network, DNS, CORS, abort",
+                "A 404 or 500 resolves: check `res.ok` or `res.status`",
+                "`res.json()` returns a promise: await it",
+                "No default timeout: `AbortSignal.timeout(5000)`",
+                "`body: JSON.stringify(obj)` plus the Content-Type header, yourself"
+              ]
+            }
+          ]
+        },
+        "code": "const API = 'https://api.example.com/v1'\n\nasync function getOrder(id, token) {\n  const res = await fetch(`${API}/orders/${id}`, {\n    headers: { Authorization: `Bearer ${token}` },\n    // fetch has no timeout by default\n    signal: AbortSignal.timeout(5000),\n  })\n  // 404 and 500 do NOT reject\n  if (!res.ok) {\n    const p = await res.json().catch(() => null)\n    const msg = p?.title ?? ''\n    throw new Error(\n      `GET order ${id}: ${res.status} ${msg}`)\n  }\n  return res.json() // a promise: await it\n}\n\nasync function createOrder(order, token) {\n  const res = await fetch(`${API}/orders`, {\n    method: 'POST',\n    headers: {\n      'Content-Type': 'application/json',\n      Authorization: `Bearer ${token}`,\n    },\n    body: JSON.stringify(order), // not automatic\n  })\n  if (res.status === 422) {\n    const problem = await res.json()\n    return { fieldErrors: problem.errors }\n  }\n  if (!res.ok) {\n    throw new Error(`POST order: ${res.status}`)\n  }\n  return { order: await res.json() }\n}",
         "language": "javascript",
-        "tip": "Log the method, URL (without secrets), status and a snippet of the body for every failed call. 'Request failed' with no details turns a five-minute fix into an afternoon.",
-        "pitfall": "Writing `await fetch(url).json()`. Without parentheses around the awaited fetch, `.json()` is called on the promise instead of the response and throws a TypeError. Write `(await fetch(url)).json()` or use two lines.",
+        "tip": "Log the method, URL (without secrets), status and a snippet of the body for every failed call. \"Request failed\" with no details turns a five-minute fix into an afternoon.",
+        "pitfall": "Writing `await fetch(url).json()`. `.json()` is then called on the promise, not the response, and throws a TypeError; write `(await fetch(url)).json()` or use two lines.",
         "check": {
           "question": "`fetch('/api/orders/999')` gets a 404 response from the server. What happens?",
           "choices": [
@@ -201,10 +381,39 @@
       },
       {
         "title": "Beyond REST: GraphQL and gRPC",
-        "body": "Your mobile app's home screen needs the user's name, their last three orders, and the first item image of each order. With REST that is four or five round trips (under-fetching), and each response carries dozens of fields the screen ignores (over-fetching). On a slow phone network, it shows.\n\n**GraphQL** offers one endpoint (usually `POST /graphql`) and a typed schema. The client sends a query naming exactly the fields it wants, nested as deep as needed, and gets back JSON in the same shape. What you gain: fewer round trips, no over-fetching, a schema that doubles as documentation, and frontend teams that can change what they fetch without waiting for a backend change. What it costs:\n\n- HTTP caching is harder, because everything is a POST to one URL.\n- Errors usually come back with status 200 and an `errors` array, so monitoring that only counts 5xx responses misses them.\n- Clients can write very expensive queries, so servers need depth and cost limits.\n- Naive resolvers cause N+1 database queries (one query per order to load its items). Batching tools such as DataLoader fix that.\n\n**gRPC** targets service-to-service calls inside a backend. You define services and messages in a `.proto` file, generate client and server code in many languages, and calls look like local function calls. It runs over HTTP/2 with compact binary Protocol Buffers, supports streaming in both directions, and checks types at compile time. The trade-offs: payloads are not human-readable, so curl and the browser network tab are less useful, and browsers cannot call it directly without a proxy (gRPC-Web).\n\nA practical rule of thumb: REST for public and general-purpose APIs (everyone knows it, and caching and tooling are excellent), GraphQL when many different clients need flexible views of connected data, and gRPC for high-volume internal calls between services you control. Plenty of companies run all three.",
-        "code": "# GraphQL: one request, exactly these fields (POST /graphql)\nquery HomeScreen {\n  me {\n    name\n    orders(last: 3) {\n      id\n      status\n      items(first: 1) { imageUrl }\n    }\n  }\n}\n\n// gRPC: orders.proto, compiled into client and server code\nservice Orders {\n  rpc GetOrder (GetOrderRequest) returns (Order);\n  rpc WatchOrder (GetOrderRequest) returns (stream OrderEvent);\n}\nmessage GetOrderRequest { string id = 1; }",
-        "language": "plaintext",
-        "tip": "In interviews, 'why not GraphQL?' is a trade-off question. Name one gain (fewer round trips, exact fields) and one cost (harder caching, query cost limits).",
+        "key": "GraphQL lets a client fetch exactly the nested fields it needs in one request, but caching and monitoring get harder; gRPC gives fast, typed calls between internal services.",
+        "body": "A mobile home screen needs the user's name, their last three orders and each order's first item image. With REST that is four or five round trips (**under-fetching**), each carrying fields the screen ignores (**over-fetching**).\n\n[[visual]]\n\n[[code]]\n\nRule of thumb: REST for public, general-purpose APIs (everyone knows it, and caching and tooling are excellent), GraphQL when many clients need flexible views of connected data, gRPC for high-volume internal calls between services you control. Plenty of companies run all three.",
+        "visual": {
+          "type": "compare",
+          "items": [
+            {
+              "title": "REST",
+              "points": ["Resources at URLs with standard methods", "Excellent HTTP caching and tooling", "A screen may need several round trips"]
+            },
+            {
+              "title": "GraphQL",
+              "tone": "accent",
+              "points": [
+                "One endpoint (`POST /graphql`) and a typed schema",
+                "The client names exactly the nested fields it wants",
+                "Harder HTTP caching; errors come back as **200** with an `errors` array",
+                "Needs query cost limits, and batching (DataLoader) against N+1"
+              ]
+            },
+            {
+              "title": "gRPC",
+              "points": [
+                "Services and messages in a `.proto` file; generated clients",
+                "HTTP/2, binary **Protocol Buffers**, streaming both ways",
+                "Fast and typed, but not human-readable; browsers need gRPC-Web"
+              ]
+            }
+          ]
+        },
+        "code": "const query = `\n  query HomeScreen {\n    me {\n      name\n      orders(last: 3) {\n        id\n        status\n        items(first: 1) { imageUrl }\n      }\n    }\n  }`\n\nconst res = await fetch('/graphql', {\n  method: 'POST',\n  headers: { 'Content-Type': 'application/json' },\n  body: JSON.stringify({ query }),\n})\nconst { data, errors } = await res.json()\n// errors arrive with status 200: check them\nif (errors) console.error(errors[0].message)",
+        "language": "javascript",
+        "deeper": "A gRPC service definition looks like `service Orders { rpc GetOrder (GetOrderRequest) returns (Order); }`, and the compiler generates client and server code in many languages, so a remote call reads like a local function call.\n\nGraphQL's schema doubles as documentation, and frontend teams can change what they fetch without waiting for a backend change. Naive resolvers load related data one row at a time, which is the N+1 problem again.",
+        "tip": "In interviews, \"why not GraphQL?\" is a trade-off question. Name one gain (fewer round trips, exact fields) and one cost (harder caching, query cost limits).",
         "pitfall": "Alerting only on HTTP 5xx for a GraphQL API. Most GraphQL errors arrive as 200 responses with an errors array.",
         "check": {
           "question": "Which situation fits gRPC best?",
@@ -270,12 +479,12 @@
       }
     ],
     "summary": [
-      "Model resources as nouns and let the method say the action; GET, PUT and DELETE are idempotent, POST is not.",
-      "Return the most specific status: 401 means authenticate, 403 means not allowed, 422 means fix the fields, 429 and 503 mean wait and retry.",
-      "Use one JSON error shape everywhere, cursor pagination for large or changing lists, and a new version only for breaking changes.",
-      "Sessions suit same-site browser apps, bearer tokens suit mobile and cross-domain clients, API keys suit servers, and OAuth lets users delegate access.",
-      "Good clients set timeouts, check status codes (fetch does not reject on 404), back off with jitter, and reuse one idempotency key across retries.",
-      "GraphQL trades HTTP caching for flexible queries; gRPC trades readability for fast, typed service-to-service calls."
+      "Resources are nouns and methods are verbs; GET, PUT and DELETE are idempotent, POST is not.",
+      "401 authenticate, 403 not allowed, 422 fix the fields, 429 and 503 wait and retry.",
+      "One JSON error shape, cursor pagination for big lists, new versions only for breaking changes.",
+      "Sessions for same-site browsers, tokens for mobile, API keys for servers, OAuth for delegation.",
+      "Set timeouts, check statuses, back off with jitter, reuse one idempotency key.",
+      "GraphQL trades caching for flexible queries; gRPC trades readability for fast typed calls."
     ],
     "feynmanPrompt": "Explain to a new teammate why retrying a timed-out POST /payments can charge a customer twice, and how idempotence and an idempotency key prevent it."
   },
@@ -285,12 +494,7 @@
       "type": "mcq",
       "difficulty": "easy",
       "question": "Which request follows REST conventions for reading order 42?",
-      "choices": [
-        "GET /getOrder?id=42",
-        "POST /orders/read/42",
-        "GET /orders/42",
-        "GET /order.json?orderId=42"
-      ],
+      "choices": ["GET /getOrder?id=42", "POST /orders/read/42", "GET /orders/42", "GET /order.json?orderId=42"],
       "answer": 2,
       "explanation": "The resource is the order, addressed as an item in the orders collection, and the method (GET) says what you are doing. The other options put verbs or file extensions in the path or misuse POST for a read.",
       "concept": "Resource-oriented URLs",
@@ -301,20 +505,8 @@
       "type": "multi",
       "difficulty": "medium",
       "question": "Which HTTP methods are idempotent according to the HTTP specification? Select all that apply.",
-      "choices": [
-        "GET",
-        "POST",
-        "PUT",
-        "DELETE",
-        "HEAD",
-        "PATCH"
-      ],
-      "answers": [
-        0,
-        2,
-        3,
-        4
-      ],
+      "choices": ["GET", "POST", "PUT", "DELETE", "HEAD", "PATCH"],
+      "answers": [0, 2, 3, 4],
       "explanation": "GET and HEAD are safe, so repeating them changes nothing. PUT sets a resource to a given state, and DELETE leaves it deleted, no matter how many times you send them. POST creates something new each time, and PATCH is not guaranteed to be idempotent (a patch can say 'add 1').",
       "concept": "Idempotent methods",
       "section": 0
@@ -357,26 +549,11 @@
       "difficulty": "medium",
       "question": "Match each status code to the situation it describes.",
       "pairs": [
-        {
-          "left": "201 Created",
-          "right": "POST /orders worked and the new order has an id"
-        },
-        {
-          "left": "204 No Content",
-          "right": "DELETE worked and there is nothing to return"
-        },
-        {
-          "left": "304 Not Modified",
-          "right": "The ETag sent in If-None-Match still matches"
-        },
-        {
-          "left": "409 Conflict",
-          "right": "Signing up with a username that is already taken"
-        },
-        {
-          "left": "429 Too Many Requests",
-          "right": "The client went over 100 requests per minute"
-        },
+        { "left": "201 Created", "right": "POST /orders worked and the new order has an id" },
+        { "left": "204 No Content", "right": "DELETE worked and there is nothing to return" },
+        { "left": "304 Not Modified", "right": "The ETag sent in If-None-Match still matches" },
+        { "left": "409 Conflict", "right": "Signing up with a username that is already taken" },
+        { "left": "429 Too Many Requests", "right": "The client went over 100 requests per minute" },
         {
           "left": "503 Service Unavailable",
           "right": "The server is overloaded and asks you to come back later"
@@ -442,10 +619,7 @@
       "difficulty": "easy",
       "question": "Your `POST /orders` handler creates order 1043 and returns 201. Which response header should give the client the URL of the new order?",
       "answer": "Location",
-      "accept": [
-        "Location:",
-        "Location header"
-      ],
+      "accept": ["Location:", "Location header"],
       "explanation": "A 201 response should include a Location header such as `Location: /v1/orders/1043`, so the client knows where the new resource lives.",
       "concept": "Location header",
       "section": 1
@@ -541,11 +715,7 @@
         "Changing id from a number to a string",
         "Adding a new endpoint, GET /v1/refunds"
       ],
-      "answers": [
-        0,
-        2,
-        5
-      ],
+      "answers": [0, 2, 5],
       "explanation": "Additions that clients can ignore are safe: an optional response field, an optional parameter, a new endpoint. Renaming a field, changing a type or making an input required breaks existing clients.",
       "concept": "Breaking changes",
       "section": 3
@@ -673,11 +843,7 @@
         "403 Forbidden",
         "422 Unprocessable Content"
       ],
-      "answers": [
-        0,
-        1,
-        2
-      ],
+      "answers": [0, 1, 2],
       "explanation": "429, 503 and a timeout on an idempotent GET can all succeed later. 400, 403 and 422 describe a problem with the request or the user's permissions, so the same request will fail the same way.",
       "concept": "What to retry",
       "section": 5
@@ -688,10 +854,7 @@
       "difficulty": "medium",
       "question": "A client uses exponential backoff that waits 1 second before the first retry and doubles each time (1, 2, 4, ...), with no cap and no jitter. How many seconds does it wait before the 5th retry?",
       "answer": "16",
-      "accept": [
-        "16 seconds",
-        "16s"
-      ],
+      "accept": ["16 seconds", "16s"],
       "explanation": "The waits are 1, 2, 4, 8 and 16 seconds, so the 5th retry waits 16 seconds. That rapid growth is why real clients add a cap.",
       "concept": "Exponential backoff",
       "section": 5
@@ -721,12 +884,7 @@
       "question": "The server answers this request with 404. What is logged?",
       "code": "const res = await fetch('https://api.example.com/v1/orders/999')\nconsole.log(res.ok, res.status)",
       "language": "javascript",
-      "choices": [
-        "true 404",
-        "undefined 404",
-        "Nothing: it throws before logging",
-        "false 404"
-      ],
+      "choices": ["true 404", "undefined 404", "Nothing: it throws before logging", "false 404"],
       "answer": 3,
       "explanation": "fetch resolves with a Response for a 404; ok is false because the status is outside 200 to 299. Nothing throws.",
       "concept": "Predict fetch on 404",
@@ -739,12 +897,7 @@
       "question": "Complete the fetch call so it sends the `order` object as a JSON body.",
       "code": "const res = await fetch('/api/orders', {\n  method: 'POST',\n  headers: { 'Content-Type': 'application/json' },\n  body: _____\n})",
       "language": "javascript",
-      "choices": [
-        "order",
-        "JSON.stringify(order)",
-        "JSON.parse(order)",
-        "order.toString()"
-      ],
+      "choices": ["order", "JSON.stringify(order)", "JSON.parse(order)", "order.toString()"],
       "answer": 1,
       "explanation": "fetch sends the body as given and does not serialize objects, so you convert with JSON.stringify. Passing the object directly sends the string \"[object Object]\".",
       "concept": "Sending JSON with fetch",
@@ -757,12 +910,7 @@
       "question": "Complete the call so requests sends the dict `order` as a JSON body.",
       "code": "r = requests.post(\"https://api.example.com/v1/orders\", _____=order, timeout=5)\nr.raise_for_status()",
       "language": "python",
-      "choices": [
-        "data",
-        "params",
-        "json",
-        "body"
-      ],
+      "choices": ["data", "params", "json", "body"],
       "answer": 2,
       "explanation": "The json= argument serializes the dict and sets Content-Type: application/json. data= sends a form-encoded body, params= puts values in the query string, and body= is not a requests argument at all.",
       "concept": "Sending JSON with requests",
@@ -808,14 +956,8 @@
       "difficulty": "medium",
       "question": "Match each technology to its description.",
       "pairs": [
-        {
-          "left": "REST",
-          "right": "Resources at URLs with standard methods and easy HTTP caching"
-        },
-        {
-          "left": "GraphQL",
-          "right": "One endpoint where the client names exactly the fields it wants"
-        },
+        { "left": "REST", "right": "Resources at URLs with standard methods and easy HTTP caching" },
+        { "left": "GraphQL", "right": "One endpoint where the client names exactly the fields it wants" },
         {
           "left": "gRPC",
           "right": "Service-to-service calls over HTTP/2 with streaming and generated clients"

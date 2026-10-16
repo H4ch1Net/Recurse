@@ -3,12 +3,11 @@ import { ArrowRight, Check, Repeat, SkipForward, X, Zap } from 'lucide-react'
 import { useApp } from '../state/context'
 import { Rating } from '../lib/memory'
 import { makeItem } from '../lib/session'
-import { codeLanguage } from '../lib/packs'
 import { answerText } from '../lib/answers'
 import { QUESTION_PROMPTS } from '../lib/subjects'
 import { feedbackCorrect, feedbackSuccess, feedbackWrong } from '../lib/juice'
 import AnswerArea from './QuestionView'
-import CodeBlock from './CodeBlock'
+import { QuestionExhibit } from './SectionContent'
 import RichText, { Inline } from './RichText'
 
 /**
@@ -84,7 +83,7 @@ export default function RecallBurst({ entries, kind = 'pop', onDone }) {
           )}
           <p className="recall-burst-q"><Inline text={question.question} /></p>
           <p className="xsmall subtle">{QUESTION_PROMPTS[question.type]}</p>
-          {question.code && <CodeBlock code={question.code} language={codeLanguage(pack, question)} />}
+          <QuestionExhibit pack={pack} question={question} />
           <AnswerArea question={question} item={items[index]} answered={answered} outcome={outcome} onSubmit={submit} keys={false} autoFocus={false} />
           {outcome && outcome.correct === null && !outcome.graded && (
             <div className="stack-sm">

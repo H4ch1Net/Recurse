@@ -263,6 +263,27 @@ describe('layoutTopology', () => {
     })
   }
 
+  it('never runs a link through a node label', () => {
+    for (const f of fixtures('topology')) {
+      // A fourth column is flagged as cramped on phones; it only has to be clean on wide screens.
+      const cramped = f.spec.nodes.some((n) => n.x === 3)
+      for (const width of cramped ? [640] : WIDTHS) {
+        const L = layoutTopology(f.spec, width)
+        for (const n of L.nodes) for (const g of L.links) expect(segmentHitsRect(g.x1, g.y1, g.x2, g.y2, n.text.rect)).toBe(false)
+      }
+    }
+  })
+
+  it('moves a label off a link that leaves its node straight down', () => {
+    const chain = fixtures('topology').find((f) => f.name.includes('vertical chain')).spec
+    for (const width of WIDTHS) {
+      const L = layoutTopology(chain, width)
+      const sw = L.nodes.find((n) => n.id === 'sw1')
+      expect(sw.text.rect.x >= sw.cx || sw.text.rect.x + sw.text.rect.w <= sw.cx).toBe(true)
+      expect(sw.text.sub).not.toBeNull()
+    }
+  })
+
   it('turns a callout into a numbered note when a phone drawing has no room for it', () => {
     const acl = fixtures('topology').find((f) => f.name.includes('ACL')).spec
     expect(layoutTopology(acl, 640).marks.every((m) => !m.badge)).toBe(true)

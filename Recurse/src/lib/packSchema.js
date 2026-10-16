@@ -238,6 +238,11 @@ export function validatePack(pack, { strict = false } = {}) {
     }
     if (q.type === 'code-fill' && !(q.code || '').includes(BLANK)) errors.push(`${where}: code-fill code must contain the blank ${BLANK}`)
     if (q.type === 'debug' && !isText(q.code)) errors.push(`${where}: debug questions need code`)
+    if (q.visual !== undefined) {
+      const list = visualList(q)
+      if (!list.length || list.length > 2) errors.push(`${where}: a question takes one or two visuals`)
+      list.forEach((spec, j) => checkVisual(`${where}.visual${Array.isArray(q.visual) ? `[${j}]` : ''}`, spec, errors, warnings))
+    }
 
     if (strict) {
       if (!DIFFICULTIES.includes(q.difficulty)) errors.push(`${where}: difficulty is required`)
@@ -336,6 +341,12 @@ export function sanitizePack(raw) {
         delete base.answer
       }
       if (Number.isInteger(q?.section)) base.section = q.section
+      const visuals = visualList(q).filter((v) => {
+        const problems = []
+        checkVisual('visual', v, problems)
+        return !problems.length && JSON.stringify(v).length <= 8000
+      })
+      if (visuals.length) base.visual = JSON.parse(JSON.stringify(visuals.slice(0, 2)))
       return base
     })
   }
