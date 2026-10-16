@@ -10,7 +10,7 @@ export default function Table({ spec }) {
   const highlight = new Set(spec.highlight || [])
   const cardable = columns.length >= 4
   return (
-    <div className={`v-table-wrap${cardable ? ' cardable' : ''}`}>
+    <div className={`v-table-wrap cols-${columns.length}${cardable ? ' cardable' : ''}`}>
       <div className="v-table-scroll">
         <table className="v-table">
           <thead>

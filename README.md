@@ -114,7 +114,7 @@ It runs entirely in the browser. There is no account and no tracking. Progress i
     <td><img src="Recurse/docs/screenshots/theme-terminal.png" alt="Today in the Terminal theme" /><br /><sub>Terminal theme</sub></td>
   </tr>
   <tr>
-    <td><img src="Recurse/docs/screenshots/lesson.png" alt="A lesson section with a check question" /><br /><sub>Lesson with section checks</sub></td>
+    <td><img src="Recurse/docs/screenshots/lesson.png" alt="A lesson section with its key idea and a DHCP ladder diagram" /><br /><sub>Lesson: key idea, short text, a drawn diagram</sub></td>
     <td><img src="Recurse/docs/screenshots/progress.png" alt="Progress page with forecast and accuracy charts" /><br /><sub>Progress</sub></td>
   </tr>
 </table>
@@ -123,6 +123,8 @@ It runs entirely in the browser. There is no account and no tracking. Progress i
   <img src="Recurse/docs/screenshots/mobile-today.png" alt="Today screen on a phone" width="260" />
   &nbsp;&nbsp;
   <img src="Recurse/docs/screenshots/mobile-study.png" alt="Study card on a phone" width="260" />
+  &nbsp;&nbsp;
+  <img src="Recurse/docs/screenshots/mobile-lesson.png" alt="A subnetting lesson section on a phone with a binary view of the address" width="260" />
 </p>
 
 ## Paths
